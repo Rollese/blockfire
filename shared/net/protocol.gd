@@ -14,6 +14,8 @@ enum Msg {
 	HELLO = 1,    ## client -> server: protocol version + display name
 	WELCOME = 2,  ## server -> client: assigned peer id + server tick rate
 	REJECT = 3,   ## server -> client: rejection reason (then disconnect)
+	INPUT = 4,    ## client -> server: input command frame (see input_command.gd)
+	SNAPSHOT = 5, ## server -> client: delta snapshot (see snapshot.gd)
 }
 
 
