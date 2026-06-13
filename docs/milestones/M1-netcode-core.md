@@ -27,7 +27,10 @@ Bot fleet sustains **128 connected pawns** moving randomly at a stable **30 Hz**
 - Stress run command + telemetry output:
 - Date / owner:
 
-## Specs required before coding
-- `docs/specs/netcode-replication.md`
-- `docs/specs/interest-management.md`
-- `docs/specs/wire-protocol.md`
+## Spec (approved-pending-review)
+- [`docs/specs/m1-netcode-core.md`](../specs/m1-netcode-core.md) — one consolidated doc covering wire protocol, replication (snapshots + prediction/reconciliation/interpolation), and interest management.
+
+## Budgets (gate pass/fail)
+- Server tick: mean step **< 33.3 ms** at 128 players (log p99).
+- Per-client downstream: target **≤ ~64 KB/s mean**, alarm above **~128 KB/s sustained**.
+- Server aggregate out: **< ~250 Mbit/s** at 128p (~25% of 1 Gbit).
