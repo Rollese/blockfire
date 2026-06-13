@@ -38,3 +38,14 @@ func test_unchanged_entity_emits_no_record() -> void:
 	var bytes := Snapshot.encode(9, 3, 2, 101, same, baseline)
 	# header is 1+4*4 = 17 bytes, entity_count u16 = 0 -> total 19 bytes, no records.
 	assert_eq(bytes.size(), 19, "no per-entity bytes when nothing changed")
+
+func test_keyframe_resets_view_dropping_stale_entities() -> void:
+	# Client holds entities 1 and 2. A keyframe (baseline_seq=0) containing only
+	# entity 1 must drop entity 2 (no LEAVE record is sent for keyframes).
+	var current := {1: _state(7, 8, 0.0)}
+	var bytes := Snapshot.encode(5, 10, 0, 50, current, {})  # baseline_seq=0 => keyframe
+	var view := {1: _state(1, 1, 0.0), 2: _state(2, 2, 0.0)}
+	Snapshot.decode_apply(bytes, view)
+	assert_eq(view.size(), 1, "keyframe drops entities not present")
+	assert_true(view.has(1) and not view.has(2))
+	assert_almost_eq(view[1].pos.x, 7.0, 0.01)

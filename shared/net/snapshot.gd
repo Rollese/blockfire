@@ -66,6 +66,8 @@ static func decode_apply(bytes: PackedByteArray, view: Dictionary) -> Dictionary
 	var baseline_seq := buf.get_u32()
 	var last_input_tick := buf.get_u32()
 	var count := buf.get_u16()
+	if baseline_seq == 0:
+		view.clear()
 	for _i in count:
 		var id := buf.get_u32()
 		var flags := buf.get_u8()

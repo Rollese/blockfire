@@ -9,6 +9,7 @@ const TICK_RATE := 30
 const MAX_PLAYERS := 128
 const INTEREST_RADIUS := 250.0
 const CELL_SIZE := 64.0
+const MAX_HISTORY := 32   # cap per-client snapshot history (bounds memory if a client stops acking)
 
 var _net: NetHost
 var _port := 27015
@@ -90,13 +91,22 @@ func _send_snapshots() -> void:
 		var current := {}
 		for vid in ids:
 			current[vid] = state[vid]
-		var baseline = c["history"].get(c["last_acked_seq"], {})
+		var baseline_seq: int = c["last_acked_seq"]
+		var baseline = c["history"].get(baseline_seq)
+		if baseline == null:
+			baseline = {}
+			baseline_seq = 0   # baseline evicted or brand-new client -> send a full keyframe
 		var seq: int = c["next_seq"]
-		var bytes := Snapshot.encode(_sim.tick, seq, c["last_acked_seq"],
+		var bytes := Snapshot.encode(_sim.tick, seq, baseline_seq,
 			c["last_input_tick"], current, baseline)
 		_net.send_to(c["peer"], NetHost.CHANNEL_SNAPSHOT, bytes, 0)  # unreliable-sequenced
 		c["history"][seq] = current
 		c["next_seq"] = seq + 1
+		# bound history independent of acks: drop entries older than MAX_HISTORY ticks.
+		var cutoff: int = seq - MAX_HISTORY
+		for old_seq in c["history"].keys():
+			if old_seq < cutoff:
+				c["history"].erase(old_seq)
 		_tele.add_bytes(id, bytes.size())
 
 
