@@ -131,6 +131,7 @@ send INPUT(ch2) ─────────────────────�
 ## Replication details
 
 - **Per-client snapshot history ring** (last N snapshots, N≈32). The baseline for a client's next delta is its `last_acked_snapshot`; the server diffs current world state (restricted to interest) against that stored snapshot.
+- **Keyframe resync:** `baseline_seq == 0` denotes a keyframe — the receiver resets its view to exactly the snapshot's entities (no LEAVE records needed). Per-client history is hard-capped at `MAX_HISTORY` (32) entries regardless of acks, so a non-acking client cannot grow it unbounded; once its baseline falls out of the capped history, the server naturally falls back to sending a keyframe.
 - **Acks** ride on every INPUT frame (`ack_snapshot_seq`). No separate ack message.
 - **Prediction/reconciliation (client):** client stores `(client_tick → input)` for unacked inputs. The snapshot's `last_input_tick` tells the client which inputs the server has consumed; on snapshot it sets its own pawn to the authoritative state, drops inputs with `client_tick ≤ last_input_tick`, and **replays** the rest. Smooth-correct small errors; hard-snap large ones.
 - **Interpolation (client):** remote entities are rendered from a short buffer ~**100 ms** behind latest snapshot to hide jitter and packet loss.

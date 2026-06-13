@@ -11,6 +11,8 @@ func _ready() -> void:
 	var role := _select_role(args)
 	var role_node: Node
 	match role:
+		"test":
+			role_node = preload("res://tests/test_runner.gd").new()
 		"server":
 			role_node = preload("res://server/server_main.gd").new()
 		"bots":
@@ -39,6 +41,8 @@ func _parse_args() -> Dictionary:
 
 
 func _select_role(args: Dictionary) -> String:
+	if args.has("test"):
+		return "test"
 	if args.has("server"):
 		return "server"
 	if args.has("bots"):

@@ -987,7 +987,7 @@ func p99_tick_ms() -> float:
 		return 0.0
 	var sorted := _tick_samples.duplicate()
 	sorted.sort()
-	return sorted[int(floor(0.99 * (sorted.size() - 1)))]
+	return sorted[mini(int(ceil(0.99 * sorted.size())), sorted.size() - 1)]
 
 ## Peak bytes/sec for any single client this window (window assumed ~1s).
 func peak_bytes_per_client() -> int:
