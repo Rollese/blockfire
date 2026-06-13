@@ -1,0 +1,27 @@
+# Godot 4+
+.godot/
+.import/
+export.cfg
+export_presets.cfg.local
+
+# Exported builds
+/build/
+/export/
+*.x86_64
+*.pck
+
+# OS / editor
+.DS_Store
+*.swp
+*~
+
+# Logs / telemetry output
+*.log
+/telemetry-out/
+/replays/
+
+# GDExtension build artifacts (if/when escalated)
+/shared/native/target/
+*.so
+*.dll
+*.dylib

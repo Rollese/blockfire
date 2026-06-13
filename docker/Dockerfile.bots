@@ -1,0 +1,18 @@
+# Bot-driver image (STUB — validated in M8).
+# Assumes a headless Linux export at build/bots/blockfire_bots[.x86_64].
+FROM debian:bookworm-slim
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        libfreetype6 ca-certificates && \
+    rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+COPY build/bots/ /app/
+RUN chmod +x /app/blockfire_bots* || true
+
+# How many bots this single container simulates, and where the server is.
+ENV BOT_COUNT=32
+ENV SERVER_HOST=server
+ENV PORT=27015
+
+ENTRYPOINT ["sh", "-c", "/app/blockfire_bots --headless -- --bots --bot-count=${BOT_COUNT} --connect=${SERVER_HOST} --port=${PORT}"]

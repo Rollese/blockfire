@@ -1,0 +1,19 @@
+; Blockfire — single Godot project, role selected at runtime. See docs/adr/0002-project-structure.md
+config_version=5
+
+[application]
+
+config/name="Blockfire"
+config/description="Lightweight 128-player low-poly FPS (internal codename). Conquest mode."
+run/main_scene="res://main.tscn"
+config/features=PackedStringArray("4.6")
+
+[physics]
+
+; Authoritative server tick rate (Hz). Server and client prediction step on _physics_process.
+common/physics_ticks_per_second=30
+common/max_fps=0
+
+[network]
+
+limits/debugger/max_chars_per_second=32768
