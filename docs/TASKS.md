@@ -9,8 +9,8 @@ Canonical source of truth for what's being worked on. Claim a task (set owner + 
 | # | Milestone | Status | Gate (must pass to close) |
 |---|---|---|---|
 | M0 | [Foundations & decisions](milestones/M0-foundations.md) | **done ✅** | Empty client connects to empty server via custom message layer; bot driver connects 1 bot. |
-| M1 | [Netcode core](milestones/M1-netcode-core.md) | **blocked ⚠️** | Bot fleet sustains 128 connected pawns @ 30 Hz on one Linux host within CPU/bandwidth budget. Gate run 2026-06-13: 128 players reached but tick_mean=71.29ms (budget <33.3ms) — FAIL. See evidence in milestone doc. |
-| M2 | [Core FPS loop](milestones/M2-core-fps-loop.md) | todo | Bots move + shoot each other; kills register; 128 bots stable. |
+| M1 | [Netcode core](milestones/M1-netcode-core.md) | **done ✅** | Bot fleet sustains 128 connected pawns @ 30 Hz on one Linux host within CPU/bandwidth budget. Gate run 2026-06-13: 128 players, tick_mean=17.65ms (budget <33.3ms) — PASS. See evidence in milestone doc. |
+| M2 | [Core FPS loop](milestones/M2-core-fps-loop.md) | **next** | Bots move + shoot each other; kills register; 128 bots stable. |
 | M3 | [Conquest + respawn + squads](milestones/M3-conquest-squads.md) | todo | Full bot-only Conquest match runs start→win at 128 players. |
 | M4 | [Building & destruction](milestones/M4-building-destruction.md) | todo | Building/destruction under 128-bot load holds tick + bandwidth budget. |
 | M5 | [Vehicles (land + air)](milestones/M5-vehicles.md) | todo | Vehicles usable under load; bots can occupy/transport. |

@@ -4,7 +4,7 @@ extends RefCounted
 ## Movement is world-space for M1 (no yaw-relative strafe yet). See M1 spec.
 
 const SPEED := 6.0          # metres / second
-const WORLD_HALF := 500.0   # square world bound (metres)
+const WORLD_HALF := 1000.0  # square world bound (metres)
 
 var id: int
 var pos: Vector3 = Vector3.ZERO

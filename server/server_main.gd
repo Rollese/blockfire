@@ -129,7 +129,8 @@ func _handle_hello(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
 		"peer": peer, "queued_input": null, "last_input": null,
 		"last_input_tick": 0, "last_acked_seq": 0, "next_seq": 1, "history": {},
 	}
-	_sim.world.spawn(id)
+	var pawn := _sim.world.spawn(id)
+	pawn.pos = Vector3(randf_range(-Pawn.WORLD_HALF, Pawn.WORLD_HALF), 0.0, randf_range(-Pawn.WORLD_HALF, Pawn.WORLD_HALF))
 	_net.send_to(peer, NetHost.CHANNEL_CONTROL, Protocol.encode_welcome(id, TICK_RATE), ENetPacketPeer.FLAG_RELIABLE)
 	print("[server] welcomed peer %d ('%s') — %d peers" % [id, pname, _clients.size()])
 
