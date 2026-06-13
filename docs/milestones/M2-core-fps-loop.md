@@ -14,5 +14,12 @@
 ## Gate
 Bots can move and shoot each other, kills register correctly, and **128 bots stay stable** at 30 Hz.
 
-## Specs required
-- `docs/specs/movement.md`, `docs/specs/gunplay-hitreg.md`, `docs/specs/classes-loadouts.md`
+## Spec (approved-pending-review)
+- [`docs/specs/m2-core-fps-loop.md`](../specs/m2-core-fps-loop.md) — one consolidated doc: full movement, hit-scan gunplay, lag-compensated hit-reg (head+body hitboxes), health/death/respawn, teams (FF off), minimal classes, combat bot AI.
+
+## Decisions (ratified)
+- Lag comp: client fire-tick rewind, clamped (`MAX_REWIND`≈12 ticks) + server-validated.
+- Hitboxes: two-part head sphere + body capsule, headshot multiplier.
+- Weapons: hit-scan only (projectiles deferred); deterministic server-authoritative spread/recoil.
+- Movement: full set (walk/sprint/crouch/prone/lean/jump/stamina).
+- Teams ON (2 teams, balanced, team-separated spawns); friendly fire OFF.
