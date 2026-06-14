@@ -1,0 +1,42 @@
+class_name Combat
+extends Object
+## Deterministic, server-authoritative shot reconstruction + damage math. The server
+## never trusts a client-supplied ray; it rebuilds the ray from look angles + a seed
+## derived from (shooter, fire_tick, shot_index). Client can reproduce it identically.
+
+static func _forward(yaw: float, pitch: float) -> Vector3:
+	return Vector3(sin(yaw) * cos(pitch), sin(pitch), cos(yaw) * cos(pitch))
+
+static func _seed(shooter_id: int, fire_tick: int, shot_index: int) -> int:
+	return (shooter_id * 73856093) ^ (fire_tick * 19349663) ^ ((shot_index + 1) * 83492791)
+
+## Returns {origin, dir}. lean: -1 left, 0 none, +1 right. moving adds spread.
+static func reconstruct_ray(weapon_id: int, eye: Vector3, yaw: float, pitch: float,
+		lean: int, shooter_id: int, fire_tick: int, shot_index: int, moving: bool) -> Dictionary:
+	var w := Weapon.get_def(weapon_id)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = _seed(shooter_id, fire_tick, shot_index)
+
+	var climb := deg_to_rad(w["recoil_pitch_deg"]) * minf(float(shot_index), 8.0)
+	var aim_pitch := pitch + climb
+
+	var spread := deg_to_rad(w["spread_base_deg"] + w["spread_bloom_deg"] * minf(float(shot_index), 6.0))
+	if moving:
+		spread += deg_to_rad(1.5)
+	var ang := rng.randf_range(0.0, TAU)
+	var mag := rng.randf() * spread
+
+	var dir := _forward(yaw + cos(ang) * mag, aim_pitch + sin(ang) * mag).normalized()
+
+	var right := Vector3(cos(yaw), 0.0, -sin(yaw))
+	var origin := eye + right * (Stance.LEAN_OFFSET * float(lean))
+	return {"origin": origin, "dir": dir}
+
+static func damage_for(weapon_id: int, headshot: bool, distance: float) -> int:
+	var w := Weapon.get_def(weapon_id)
+	if distance > w["range_m"]:
+		return 0
+	var dmg := float(w["damage_body"])
+	if headshot:
+		dmg *= w["headshot_mult"]
+	return int(round(dmg))
