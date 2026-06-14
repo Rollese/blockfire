@@ -16,6 +16,7 @@ enum Msg {
 	REJECT = 3,   ## server -> client: rejection reason (then disconnect)
 	INPUT = 4,    ## client -> server: input command frame (see input_command.gd)
 	SNAPSHOT = 5, ## server -> client: delta snapshot (see snapshot.gd)
+	KILL = 6,     ## server -> clients: kill event (victim, killer, weapon, headshot)
 }
 
 
@@ -53,3 +54,18 @@ static func body_reader(bytes: PackedByteArray) -> StreamPeerBuffer:
 	buf.data_array = bytes
 	buf.seek(1)
 	return buf
+
+
+static func encode_kill(victim_id: int, killer_id: int, weapon_id: int, headshot: bool) -> PackedByteArray:
+	var buf := StreamPeerBuffer.new()
+	buf.put_u8(Msg.KILL)
+	buf.put_u32(victim_id)
+	buf.put_u32(killer_id)
+	buf.put_u8(weapon_id)
+	buf.put_u8(1 if headshot else 0)
+	return buf.data_array
+
+
+static func decode_kill(bytes: PackedByteArray) -> Dictionary:
+	var r := body_reader(bytes)
+	return {"victim": r.get_u32(), "killer": r.get_u32(), "weapon": r.get_u8(), "headshot": r.get_u8() == 1}

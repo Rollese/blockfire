@@ -9,11 +9,11 @@ func test_replay_converges_after_authoritative_correction() -> void:
 	var predicted_x := pred.predicted.pos.x
 	# server confirms through tick 1 at the matching authoritative position,
 	# but with a small correction (e.g. server placed us 0.5m back).
-	var auth := Vector3(Pawn.SPEED * SimLoop.DT - 0.5, 0, 0)
+	var auth := Vector3(Stance.speed(Stance.STAND) * SimLoop.DT - 0.5, 0, 0)
 	pred.reconcile(auth, 0.0, 1)
 	# inputs 2 and 3 remain and are replayed from the authoritative base.
 	assert_eq(pred.pending.size(), 2, "ticks 2,3 still pending")
-	var expected := auth.x + 2.0 * Pawn.SPEED * SimLoop.DT
+	var expected := auth.x + 2.0 * Stance.speed(Stance.STAND) * SimLoop.DT
 	assert_almost_eq(pred.predicted.pos.x, expected, 0.0001)
 	assert_true(absf(pred.predicted.pos.x - predicted_x) > 0.0, "correction applied")
 

@@ -49,3 +49,27 @@ func test_keyframe_resets_view_dropping_stale_entities() -> void:
 	assert_eq(view.size(), 1, "keyframe drops entities not present")
 	assert_true(view.has(1) and not view.has(2))
 	assert_almost_eq(view[1].pos.x, 7.0, 0.01)
+
+func test_replicates_pitch_stance_team_alive_health() -> void:
+	var e := EntityState.new()
+	e.pos = Vector3(1, 0, 2); e.yaw = 0.3; e.pitch = -0.4
+	e.stance = Stance.CROUCH; e.lean = Stance.LEAN_RIGHT; e.team = 1
+	e.alive = false; e.health = 37
+	var bytes := Snapshot.encode(1, 1, 0, 0, {9: e}, {})
+	var view := {}
+	Snapshot.decode_apply(bytes, view)
+	var g: EntityState = view[9]
+	assert_almost_eq(g.pitch, -0.4, 0.01, "signed pitch preserved")
+	assert_eq(g.stance, Stance.CROUCH)
+	assert_eq(g.lean, Stance.LEAN_RIGHT)
+	assert_eq(g.team, 1)
+	assert_eq(g.alive, false)
+	assert_eq(g.health, 37)
+
+func test_health_change_is_a_delta() -> void:
+	var base := _state(0, 0, 0); base.health = 100
+	var cur := _state(0, 0, 0); cur.health = 80
+	var bytes := Snapshot.encode(2, 2, 1, 0, {5: cur}, {5: base})
+	var view := {5: _state(0, 0, 0)}; view[5].health = 100
+	Snapshot.decode_apply(bytes, view)
+	assert_eq(view[5].health, 80)
