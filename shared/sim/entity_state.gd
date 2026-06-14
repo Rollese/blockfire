@@ -10,6 +10,7 @@ var lean: int = 0     # Stance.LEAN_*
 var team: int = 0
 var alive: bool = true
 var health: int = 100
+var squad: int = 0
 
 func clone() -> EntityState:
 	var e := EntityState.new()
@@ -21,4 +22,5 @@ func clone() -> EntityState:
 	e.team = team
 	e.alive = alive
 	e.health = health
+	e.squad = squad
 	return e
