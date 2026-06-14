@@ -4,6 +4,7 @@ extends Node
 
 const Protocol := preload("res://shared/net/protocol.gd")
 const AIM_TOLERANCE := 0.05   # radians; fire when aim within this of target
+const ENGAGE_RANGE := 50.0   # only fire once within this range (else keep closing)
 
 var _server_ip := "127.0.0.1"
 var _port := 27015
@@ -68,7 +69,7 @@ func _drive(bot: Dictionary, delta: float) -> void:
 		var d := target.pos - me.pos
 		var want_yaw := atan2(d.x, d.z)
 		var want_pitch := clampf(asin(clampf(d.y / maxf(d.length(), 0.001), -1.0, 1.0)), -Pawn.MAX_PITCH, Pawn.MAX_PITCH)
-		bot["yaw"] = lerp_angle(bot["yaw"], want_yaw, 0.5) + randf_range(-0.01, 0.01)
+		bot["yaw"] = lerp_angle(bot["yaw"], want_yaw, 0.5) + randf_range(-0.003, 0.003)
 		bot["pitch"] = lerpf(bot["pitch"], want_pitch, 0.5)
 		# move toward the target in WORLD space (Pawn movement is world-space planar)
 		var flat := Vector2(d.x, d.z)
@@ -76,7 +77,9 @@ func _drive(bot: Dictionary, delta: float) -> void:
 			flat = flat.normalized()
 		move_x = flat.x
 		move_y = flat.y
-		if absf(angle_diff(bot["yaw"], want_yaw)) < AIM_TOLERANCE:
+		var yaw_ok := absf(angle_diff(bot["yaw"], want_yaw)) < AIM_TOLERANCE
+		var pitch_ok := absf(want_pitch - bot["pitch"]) < AIM_TOLERANCE
+		if best <= ENGAGE_RANGE and yaw_ok and pitch_ok:
 			buttons |= InputCommand.BTN_FIRE
 	else:
 		# no enemy in view: advance toward the enemy side (world +x for team 0, -x for team 1)
