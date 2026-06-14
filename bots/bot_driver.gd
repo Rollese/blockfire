@@ -84,14 +84,18 @@ func _drive(bot: Dictionary, delta: float) -> void:
 		var want_pitch := clampf(asin(clampf(d.y / maxf(d.length(), 0.001), -1.0, 1.0)), -Pawn.MAX_PITCH, Pawn.MAX_PITCH)
 		bot["yaw"] = lerp_angle(bot["yaw"], want_yaw, 0.5) + randf_range(-0.003, 0.003)
 		bot["pitch"] = lerpf(bot["pitch"], want_pitch, 0.5)
-		# engage at close range; otherwise keep advancing on the objective
-		var move_to: Vector3 = target.pos if best <= ENGAGE_RANGE else obj
-		var flat := Vector2(move_to.x - me.pos.x, move_to.z - me.pos.z)
-		if flat.length() > 0.001: flat = flat.normalized()
-		move_x = flat.x; move_y = flat.y
 		var yaw_ok := absf(angle_diff(bot["yaw"], want_yaw)) < AIM_TOLERANCE
 		var pitch_ok := absf(want_pitch - bot["pitch"]) < AIM_TOLERANCE
 		var fire := best <= ENGAGE_RANGE and yaw_ok and pitch_ok
+		# Hold still while shooting (the server adds movement spread, so a moving bot barely
+		# hits); otherwise close on the enemy in range, else advance on the objective.
+		if fire:
+			move_x = 0.0; move_y = 0.0
+		else:
+			var move_to: Vector3 = target.pos if best <= ENGAGE_RANGE else obj
+			var flat := Vector2(move_to.x - me.pos.x, move_to.z - me.pos.z)
+			if flat.length() > 0.001: flat = flat.normalized()
+			move_x = flat.x; move_y = flat.y
 		var cb := combat_button(fire, bot["server_tick"], bot["reload_until"], bot["burst_start"])
 		buttons |= int(cb[0])
 		bot["reload_until"] = cb[1]
@@ -161,7 +165,11 @@ func _objective_pos(me: EntityState) -> Vector3:
 	for i in _map.points.size():
 		positions.append(_map.points[i]["pos"])
 		owners.append(int(_match_points[i]["owner"]) if i < _match_points.size() else -1)
-	var idx := choose_objective_index(positions, owners, me.team, me.pos, Vector3.ZERO)
+	# Target the nearest non-owned point to this bot (center == from). Bots capture their
+	# backfield then push to the middle; this yields real captures (and flag deficits ->
+	# ticket bleed). A map-centre bias was tried but funnelled both teams onto the single
+	# centre point, which stayed perpetually contested and never captured.
+	var idx := choose_objective_index(positions, owners, me.team, me.pos, me.pos)
 	return positions[idx] if idx >= 0 else me.pos
 
 func _send(bot: Dictionary, mx: float, my: float, yaw: float, pitch: float, buttons: int) -> void:
