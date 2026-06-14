@@ -110,7 +110,7 @@ func _fire_shot(shooter_id: int, shooter: Pawn, inp: Dictionary, shot_index: int
 	var moving: bool = absf(inp["move_x"]) + absf(inp["move_y"]) > 0.01
 	var wid: int = _clients[shooter_id]["weapon"]
 	var ray := Combat.reconstruct_ray(wid, shooter.eye_position(),
-		inp["yaw"], inp["pitch"], lean_sign, shooter_id, inp["client_tick"], shot_index, moving)
+		inp["yaw"], inp["pitch"], lean_sign, shooter_id, _sim.tick, shot_index, moving)
 
 	var view_tick: int = inp["view_server_tick"]
 	if view_tick < _sim.tick - LagComp.MAX_REWIND or view_tick > _sim.tick:
