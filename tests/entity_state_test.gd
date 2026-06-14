@@ -1,11 +1,13 @@
 extends TestCase
 
-func test_clone_is_independent_copy() -> void:
+func test_clone_copies_all_fields() -> void:
 	var a := EntityState.new()
-	a.pos = Vector3(1, 0, 2)
-	a.yaw = 1.5
+	a.pos = Vector3(1, 2, 3); a.yaw = 0.5; a.pitch = -0.2
+	a.stance = 1; a.lean = 2; a.team = 1; a.alive = false; a.health = 42
 	var b := a.clone()
-	assert_eq(b.pos, Vector3(1, 0, 2))
-	assert_almost_eq(b.yaw, 1.5)
-	b.pos = Vector3(9, 9, 9)
-	assert_eq(a.pos, Vector3(1, 0, 2), "mutating clone must not affect original")
+	assert_eq(b.pos, Vector3(1, 2, 3))
+	assert_almost_eq(b.pitch, -0.2)
+	assert_eq(b.stance, 1); assert_eq(b.lean, 2); assert_eq(b.team, 1)
+	assert_eq(b.alive, false); assert_eq(b.health, 42)
+	b.health = 99
+	assert_eq(a.health, 42, "clone independent")
