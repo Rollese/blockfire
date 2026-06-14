@@ -27,6 +27,7 @@ var grounded: bool = true
 var health: int = 100
 var alive: bool = true
 var team: int = 0
+var squad: int = 0
 var _regen_cooldown: float = 0.0
 
 func _init(p_id: int = 0) -> void:
@@ -101,6 +102,7 @@ func to_state() -> EntityState:
 	e.stance = stance
 	e.lean = lean
 	e.team = team
+	e.squad = squad
 	e.alive = alive
 	e.health = health
 	return e
