@@ -37,7 +37,8 @@ var _kills := 0
 var _shots := 0
 var _hits := 0
 var _rewind_clamped := 0
-var _cap_events := 0
+var _cap_events := 0          # per-telemetry-window (reset each second)
+var _cap_events_total := 0    # cumulative over the match (for the match-end summary)
 var _prev_owners: Array = []
 var _match_over_broadcast := false
 var _match_end_tick := -1
@@ -238,6 +239,7 @@ func _track_and_broadcast_match_state() -> void:
 	for i in owners.size():
 		if i < _prev_owners.size() and owners[i] != _prev_owners[i]:
 			_cap_events += 1
+			_cap_events_total += 1
 	_prev_owners = owners
 	if _conquest.match_over and not _match_over_broadcast:
 		_match_over_broadcast = true
@@ -247,7 +249,7 @@ func _track_and_broadcast_match_state() -> void:
 		for cid in _clients:
 			_net.send_to(_clients[cid]["peer"], NetHost.CHANNEL_CONTROL, bytes, ENetPacketPeer.FLAG_RELIABLE)
 		print("[match] OVER winner=%d t0=%d t1=%d elapsed=%ds cap_events=%d"
-			% [_conquest.winner, _conquest.tickets_int(0), _conquest.tickets_int(1), int(_conquest.elapsed), _cap_events])
+			% [_conquest.winner, _conquest.tickets_int(0), _conquest.tickets_int(1), int(_conquest.elapsed), _cap_events_total])
 	elif not _match_over_broadcast and _sim.tick % MATCH_STATE_INTERVAL == 0:
 		var bytes := Protocol.encode_match_state(_conquest.points,
 			[_conquest.tickets_int(0), _conquest.tickets_int(1)], false, _conquest.winner, int(_conquest.elapsed))
