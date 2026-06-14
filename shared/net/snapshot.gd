@@ -12,7 +12,8 @@ const F_YAW := 8
 const F_PITCH := 16
 const F_STATE := 32   # packed: stance(0-1) | lean(2-3) | team(4) | alive(5)
 const F_HEALTH := 64
-const F_ALL := 127
+const F_SQUAD := 128
+const F_ALL := 255
 
 # per-record flags
 const FLAG_ENTER := 1
@@ -84,6 +85,7 @@ static func decode_apply(bytes: PackedByteArray, view: Dictionary) -> Dictionary
 			e.team = (sb >> 4) & 1
 			e.alive = ((sb >> 5) & 1) == 1
 		if mask & F_HEALTH: e.health = buf.get_u8()
+		if mask & F_SQUAD: e.squad = buf.get_u8()
 	return {"server_tick": server_tick, "seq": seq, "baseline_seq": baseline_seq, "last_input_tick": last_input_tick}
 
 static func _diff_mask(a: EntityState, b: EntityState) -> int:
@@ -95,6 +97,7 @@ static func _diff_mask(a: EntityState, b: EntityState) -> int:
 	if Quantize.enc_angle(a.pitch) != Quantize.enc_angle(b.pitch): m |= F_PITCH
 	if _state_byte(a) != _state_byte(b): m |= F_STATE
 	if a.health != b.health: m |= F_HEALTH
+	if a.squad != b.squad: m |= F_SQUAD
 	return m
 
 static func _put_fields(buf: StreamPeerBuffer, e: EntityState, mask: int) -> void:
@@ -106,3 +109,4 @@ static func _put_fields(buf: StreamPeerBuffer, e: EntityState, mask: int) -> voi
 	if mask & F_PITCH: buf.put_u16(Quantize.enc_angle(e.pitch))
 	if mask & F_STATE: buf.put_u8(_state_byte(e))
 	if mask & F_HEALTH: buf.put_u8(clampi(e.health, 0, 255))
+	if mask & F_SQUAD: buf.put_u8(e.squad & 0xFF)

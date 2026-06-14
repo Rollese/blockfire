@@ -73,3 +73,19 @@ func test_health_change_is_a_delta() -> void:
 	var view := {5: _state(0, 0, 0)}; view[5].health = 100
 	Snapshot.decode_apply(bytes, view)
 	assert_eq(view[5].health, 80)
+
+func test_replicates_squad() -> void:
+	var e := EntityState.new()
+	e.pos = Vector3(1, 0, 2); e.squad = 5
+	var bytes := Snapshot.encode(1, 1, 0, 0, {9: e}, {})
+	var view := {}
+	Snapshot.decode_apply(bytes, view)
+	assert_eq(view[9].squad, 5)
+
+func test_squad_change_is_a_delta() -> void:
+	var base := EntityState.new(); base.squad = 1
+	var cur := EntityState.new(); cur.squad = 4   # only squad changed
+	var bytes := Snapshot.encode(2, 2, 1, 0, {5: cur}, {5: base})
+	var view := {5: EntityState.new()}; view[5].squad = 1
+	Snapshot.decode_apply(bytes, view)
+	assert_eq(view[5].squad, 4)
