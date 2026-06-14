@@ -34,3 +34,39 @@ func test_owners_shorter_than_points_defaults_neutral() -> void:
 	# No match-state yet (owners empty) -> all treated capturable, central wins.
 	var idx := Bot.choose_objective_index([A, C], [], 0, Vector3(-590, 0, -390), Vector3.ZERO)
 	assert_eq(idx, 1, "missing owners default to neutral/capturable")
+
+func test_combat_button_starts_burst_on_first_fire() -> void:
+	var r := Bot.combat_button(true, 100, 0, -1)
+	assert_eq(r[0], InputCommand.BTN_FIRE, "fires")
+	assert_eq(r[2], 100, "burst_start set to current server tick")
+
+func test_combat_button_keeps_firing_within_burst() -> void:
+	# burst started at 100; at 100+BURST-1 still within window
+	var st := 100 + Bot.BURST_TICKS - 1
+	var r := Bot.combat_button(true, st, 0, 100)
+	assert_eq(r[0], InputCommand.BTN_FIRE)
+	assert_eq(r[2], 100, "burst_start unchanged")
+
+func test_combat_button_reloads_when_burst_elapses() -> void:
+	var st := 100 + Bot.BURST_TICKS
+	var r := Bot.combat_button(true, st, 0, 100)
+	assert_eq(r[0], InputCommand.BTN_RELOAD, "burst over -> reload")
+	assert_eq(r[1], st + Bot.RELOAD_TICKS, "reload_until set")
+	assert_eq(r[2], -1, "burst cleared")
+
+func test_combat_button_holds_reload_and_does_not_fire() -> void:
+	# reload_until in the future -> reload, never fire even if aim is good
+	var r := Bot.combat_button(true, 200, 250, -1)
+	assert_eq(r[0], InputCommand.BTN_RELOAD)
+	assert_eq(r[1], 250, "reload_until unchanged while holding")
+
+func test_combat_button_resumes_burst_after_reload() -> void:
+	# reload finished (st >= reload_until), idle burst -> new burst + fire
+	var r := Bot.combat_button(true, 250, 250, -1)
+	assert_eq(r[0], InputCommand.BTN_FIRE)
+	assert_eq(r[2], 250, "new burst starts at st")
+
+func test_combat_button_idle_when_not_firing() -> void:
+	var r := Bot.combat_button(false, 100, 0, -1)
+	assert_eq(r[0], 0, "no button when not wanting to fire")
+	assert_eq(r[1], 0); assert_eq(r[2], -1)

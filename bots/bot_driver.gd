@@ -6,6 +6,10 @@ const Protocol := preload("res://shared/net/protocol.gd")
 const AIM_TOLERANCE := 0.05   # radians; fire when aim within this of target
 const ENGAGE_RANGE := 50.0   # only fire once within this range (else keep closing)
 const MAP_PATH := "res://maps/conquest_proving_grounds.json"
+const BURST_TICKS := 60   # server ticks (~2.0s @30Hz) of firing before reloading; shorter
+                          # than the fastest mag-empty time so no weapon runs dry mid-burst
+const RELOAD_TICKS := 84  # server ticks (~2.8s) to hold BTN_RELOAD; > the slowest weapon
+                          # reload (2.6s) so the mag is surely refilled before the next burst
 
 var _map: MapDef
 var _match_points: Array = []   # array of {owner, attacker, cap}, index == map point index
@@ -35,6 +39,7 @@ func _spawn_bot(index: int) -> void:
 		"net": net, "index": index, "id": 0, "connected": false, "peer": null,
 		"tick": 0, "last_seq": 0, "server_tick": 0, "view": {},
 		"yaw": randf() * TAU, "pitch": 0.0, "heading": randf() * TAU, "turn_timer": 0.0,
+		"reload_until": 0, "burst_start": -1,
 	}
 	net.peer_connected.connect(func(peer: ENetPacketPeer) -> void:
 		bot["peer"] = peer
@@ -86,8 +91,11 @@ func _drive(bot: Dictionary, delta: float) -> void:
 		move_x = flat.x; move_y = flat.y
 		var yaw_ok := absf(angle_diff(bot["yaw"], want_yaw)) < AIM_TOLERANCE
 		var pitch_ok := absf(want_pitch - bot["pitch"]) < AIM_TOLERANCE
-		if best <= ENGAGE_RANGE and yaw_ok and pitch_ok:
-			buttons |= InputCommand.BTN_FIRE
+		var fire := best <= ENGAGE_RANGE and yaw_ok and pitch_ok
+		var cb := combat_button(fire, bot["server_tick"], bot["reload_until"], bot["burst_start"])
+		buttons |= int(cb[0])
+		bot["reload_until"] = cb[1]
+		bot["burst_start"] = cb[2]
 	else:
 		# no enemy in view: march to the objective (capture/defend)
 		var flat := Vector2(obj.x - me.pos.x, obj.z - me.pos.z)
@@ -129,6 +137,21 @@ static func choose_objective_index(points: Array, owners: Array, my_team: int, f
 			if fd < best_d:
 				best_d = fd; best = i
 	return best
+
+## Combat button for an ammo-blind bot, paced in SERVER game-time (`st` = server tick).
+## Returns [button, reload_until, burst_start]. Fires BURST_TICKS-long bursts then holds
+## BTN_RELOAD for RELOAD_TICKS before the next burst, so combat is sustained instead of dying
+## after one magazine. See docs/specs/m3-bot-convergence-fix.md.
+static func combat_button(fire: bool, st: int, reload_until: int, burst_start: int) -> Array:
+	if st < reload_until:
+		return [InputCommand.BTN_RELOAD, reload_until, burst_start]
+	if not fire:
+		return [0, reload_until, burst_start]
+	if burst_start < 0:
+		burst_start = st
+	if st - burst_start >= BURST_TICKS:
+		return [InputCommand.BTN_RELOAD, st + RELOAD_TICKS, -1]
+	return [InputCommand.BTN_FIRE, reload_until, burst_start]
 
 func _objective_pos(me: EntityState) -> Vector3:
 	if _map == null or _map.points.is_empty():
