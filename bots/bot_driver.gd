@@ -100,27 +100,46 @@ func _drive(bot: Dictionary, delta: float) -> void:
 func angle_diff(a: float, b: float) -> float:
 	return wrapf(a - b, -PI, PI)
 
+## Pure objective selector (unit-tested). Among points NOT owned by `my_team`, pick the one
+## nearest `center` (tie-broken by distance from `from`); if the team owns every point,
+## defend the nearest point to `from`. `owners[i]` is the owner of points[i] (-1 neutral);
+## owners shorter than points defaults missing entries to neutral. Returns -1 iff points is
+## empty. Biasing toward the map center makes both teams contest the same points so the match
+## converges into combat. See docs/specs/m3-bot-convergence-fix.md.
+static func choose_objective_index(points: Array, owners: Array, my_team: int, from: Vector3, center: Vector3) -> int:
+	if points.is_empty():
+		return -1
+	var best := -1
+	var best_c := INF
+	var best_d := INF
+	for i in points.size():
+		var owner := -1
+		if i < owners.size():
+			owner = int(owners[i])
+		if owner == my_team:
+			continue   # already ours — skip while capturable points remain
+		var cd: float = center.distance_to(points[i])
+		var fd: float = from.distance_to(points[i])
+		if cd < best_c - 0.001 or (absf(cd - best_c) <= 0.001 and fd < best_d):
+			best_c = cd; best_d = fd; best = i
+	if best == -1:
+		# team owns every capturable point: defend the nearest one to `from`
+		for i in points.size():
+			var fd: float = from.distance_to(points[i])
+			if fd < best_d:
+				best_d = fd; best = i
+	return best
+
 func _objective_pos(me: EntityState) -> Vector3:
 	if _map == null or _map.points.is_empty():
 		return me.pos
-	var best := -1
-	var best_d := INF
+	var positions: Array = []
+	var owners: Array = []
 	for i in _map.points.size():
-		var owner := -2
-		if i < _match_points.size():
-			owner = _match_points[i]["owner"]
-		if owner == me.team:
-			continue   # already ours — skip while capturable points remain
-		var d: float = me.pos.distance_to(_map.points[i]["pos"])
-		if d < best_d:
-			best_d = d; best = i
-	if best == -1:
-		# team owns every point: defend the nearest one
-		for i in _map.points.size():
-			var d: float = me.pos.distance_to(_map.points[i]["pos"])
-			if d < best_d:
-				best_d = d; best = i
-	return _map.points[best]["pos"] if best >= 0 else me.pos
+		positions.append(_map.points[i]["pos"])
+		owners.append(int(_match_points[i]["owner"]) if i < _match_points.size() else -1)
+	var idx := choose_objective_index(positions, owners, me.team, me.pos, Vector3.ZERO)
+	return positions[idx] if idx >= 0 else me.pos
 
 func _send(bot: Dictionary, mx: float, my: float, yaw: float, pitch: float, buttons: int) -> void:
 	var bytes := InputCommand.encode(bot["tick"], bot["last_seq"], mx, my, yaw, pitch, buttons, bot["server_tick"])
