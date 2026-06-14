@@ -25,3 +25,6 @@ export_presets.cfg.local
 *.so
 *.dll
 *.dylib
+
+# graphify derived knowledge graph (rebuild with /graphify --update)
+/graphify-out/
