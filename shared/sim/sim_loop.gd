@@ -1,18 +1,17 @@
 class_name SimLoop
 extends RefCounted
-## Fixed-timestep authoritative simulation. The SAME code runs on the server
-## (authority) and the client (prediction) so they cannot diverge. See AGENTS.md §7.
+## Fixed-timestep authoritative simulation. Same code runs on server (authority) and
+## client (prediction). inputs: Dictionary[int id -> command dict]. See AGENTS.md §7.
 
 const DT := 1.0 / 30.0   # 30 Hz
 
 var tick: int = 0
 var world := World.new()
 
-## inputs: Dictionary[int id -> {move_x, move_y, yaw}]. Pawns with no input hold still.
 func step(inputs: Dictionary) -> void:
 	for id in world.pawns:
-		var inp = inputs.get(id)
-		if inp == null:
+		var p: Pawn = world.pawns[id]
+		if not p.alive:
 			continue
-		(world.pawns[id] as Pawn).step(DT, inp["move_x"], inp["move_y"], inp["yaw"])
+		p.step(DT, inputs.get(id, {}))
 	tick += 1
