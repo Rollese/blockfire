@@ -249,9 +249,11 @@ func _on_peer_disconnected(peer: ENetPacketPeer) -> void:
 		print("[server] peer %d disconnected — %d peers" % [id, _clients.size()])
 
 func _spawn_pos(team: int) -> Vector3:
-	var half := Pawn.WORLD_HALF
-	var x: float = randf_range(-half, -50.0) if team == 0 else randf_range(50.0, half)
-	return Vector3(x, 0.0, randf_range(-half, half))
+	# Two opposing zones spread along a wide z-front (low linear density keeps interest
+	# cost / tick bounded, near M1's wide-spacing baseline) while still letting the teams
+	# converge and fight. Tuned so the M2 gate holds 30Hz AND bots make contact.
+	var x: float = randf_range(-400.0, -150.0) if team == 0 else randf_range(150.0, 400.0)
+	return Vector3(x, 0.0, randf_range(-900.0, 900.0))
 
 func _log_telemetry() -> void:
 	var n := _clients.size()
