@@ -23,12 +23,15 @@ func _ready() -> void:
 			total += 1
 			inst.reset()
 			inst.call(name)
-			if inst.failures.is_empty():
-				print("  PASS %s::%s" % [path.get_file(), name])
-			else:
+			if not inst.failures.is_empty():
 				failed += 1
 				for f in inst.failures:
 					print("  FAIL %s::%s — %s" % [path.get_file(), name, f])
+			elif inst.assertions == 0:
+				failed += 1
+				print("  FAIL %s::%s — no assertions ran (possible compile error / nonexistent call)" % [path.get_file(), name])
+			else:
+				print("  PASS %s::%s" % [path.get_file(), name])
 	print("TESTS: %d run, %d failed" % [total, failed])
 	get_tree().quit(1 if failed > 0 else 0)
 
