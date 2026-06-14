@@ -89,6 +89,12 @@ func _physics_process(delta: float) -> void:
 		print("[server] match complete, exiting"); get_tree().quit(0)
 
 func _build_interest() -> void:
+	# Built once per tick here so the grid/_positions are reused by BOTH the fire
+	# broad-phase (_resolve_fires) and snapshots (_send_snapshots). Consequence: a pawn
+	# that respawns later this tick (_handle_respawns) has one-tick-stale interest-set
+	# membership in snapshots — its position DATA via state_map() is still fresh; only
+	# which interest sets it falls into lags by a tick. Accepted to keep the grid
+	# single-build per tick (the perf goal); self-corrects next tick.
 	_positions.clear()
 	_grid.clear()
 	for id in _sim.world.pawns:
@@ -124,7 +130,6 @@ func _resolve_fires() -> void:
 		var firing: bool = (inp["buttons"] & InputCommand.BTN_FIRE) != 0
 		if not firing:
 			c["shot_index"] = 0
-			c["trigger_down"] = false
 			if (inp["buttons"] & InputCommand.BTN_RELOAD) and not c["reloading"] and c["ammo"] < Weapon.get_def(c["weapon"])["mag_size"]:
 				c["reloading"] = true
 				c["reload_done_tick"] = _sim.tick + int(round(Weapon.get_def(c["weapon"])["reload_secs"] * TICK_RATE))
@@ -138,7 +143,6 @@ func _resolve_fires() -> void:
 		c["ammo"] -= 1
 		var shot_index: int = c["shot_index"]
 		c["shot_index"] = shot_index + 1
-		c["trigger_down"] = true
 		_shots += 1
 		_fire_shot(id, shooter, inp, shot_index)
 
@@ -302,7 +306,7 @@ func _handle_hello(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
 		"last_acked_seq": 0, "next_seq": 1, "history": {},
 		"team": team, "squad": squad, "class": cls, "weapon": wid, "ammo": Weapon.get_def(wid)["mag_size"],
 		"reloading": false, "reload_done_tick": 0, "last_fire_time": -999.0,
-		"shot_index": 0, "trigger_down": false, "respawn_tick": 0,
+		"shot_index": 0, "respawn_tick": 0,
 	}
 	var p := _sim.world.spawn(id)
 	p.team = team
