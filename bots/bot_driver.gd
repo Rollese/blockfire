@@ -70,14 +70,21 @@ func _drive(bot: Dictionary, delta: float) -> void:
 		var want_pitch := clampf(asin(clampf(d.y / maxf(d.length(), 0.001), -1.0, 1.0)), -Pawn.MAX_PITCH, Pawn.MAX_PITCH)
 		bot["yaw"] = lerp_angle(bot["yaw"], want_yaw, 0.5) + randf_range(-0.01, 0.01)
 		bot["pitch"] = lerpf(bot["pitch"], want_pitch, 0.5)
-		move_y = 1.0
+		# move toward the target in WORLD space (Pawn movement is world-space planar)
+		var flat := Vector2(d.x, d.z)
+		if flat.length() > 0.001:
+			flat = flat.normalized()
+		move_x = flat.x
+		move_y = flat.y
 		if absf(angle_diff(bot["yaw"], want_yaw)) < AIM_TOLERANCE:
 			buttons |= InputCommand.BTN_FIRE
 	else:
-		bot["turn_timer"] -= delta
-		if bot["turn_timer"] <= 0.0:
-			bot["heading"] = randf() * TAU; bot["turn_timer"] = randf_range(0.5, 2.0)
-		bot["yaw"] = bot["heading"]; move_y = 1.0
+		# no enemy in view: advance toward the enemy side (world +x for team 0, -x for team 1)
+		# so the two teams converge and make contact, with slight z wander.
+		var adv_x := 1.0 if me.team == 0 else -1.0
+		move_x = adv_x
+		move_y = randf_range(-0.3, 0.3)
+		bot["yaw"] = atan2(move_x, move_y)
 
 	_send(bot, move_x, move_y, bot["yaw"], bot["pitch"], buttons)
 
