@@ -24,6 +24,7 @@ Key forces:
 3. **Tier enforcement is soft** — matchmaker prefers a player's rating bucket but **merges adjacent tiers under low population** so 128-slot servers always fill. No hard public thresholds.
 4. **Identity is SteamID; no separate web login.** A new **persistent backend** (auth-gateway, Steam Web API worker, rating-service, matchmaker, datastore) holds stats keyed by SteamID. `GetPlayerBans` is a hard smurf/ban signal; owned-games/level/age are soft, privacy-limited priors only.
 5. **Only official, authenticated servers report rating-affecting results** (signed match reports). Community may host for fun without affecting rating.
+6. **Silent cheater-containment shadow pool.** Accounts with a VAC ban in the last 5 years (`GetPlayerBans`: `DaysSinceLastBan ≤ 1825`) — and accounts flagged by Layer-4 detection — are silently routed to a separate official server pool, matched only with each other. Reversible, expires at 5 years, with an appeal path.
 
 ## Rationale
 
@@ -39,6 +40,7 @@ Key forces:
 - M5+ work must add server-side input validation (incl. vehicle inputs) with rules in `shared/`; covered by unit tests + the bot-fleet gate.
 - M4 building/destruction should keep occlusion data queryable so **Layer 3 LOS culling** is feasible at M7 (flagged dependency, not owned by M4).
 - We accept that VAC alone is weak and that Linux/Proton protection (if EAC is ever added) is weaker than Windows kernel mode.
+- The shadow pool is deliberately **strict**: `GetPlayerBans` does not say *which game* a VAC ban came from, so it also contains players banned in unrelated games and can catch shared/second-hand accounts. The appeal path is the accepted relief valve for that over-inclusiveness.
 - Rating weights and tier boundaries are deliberately left to M9 tuning with real data.
 - Supersede with a new ADR if kernel AC (EAC/BattlEye) is later adopted.
 

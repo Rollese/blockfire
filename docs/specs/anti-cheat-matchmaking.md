@@ -29,6 +29,7 @@ The guiding principle matches the working agreement (AGENTS.md §7): **the serve
 | Player identity | **SteamID, no separate web login** | Steam session tickets authenticate; a backend keyed by SteamID holds stats. Players never create a second account. |
 | Tier enforcement | **Soft matchmaking + dynamic tier-merge** | Matchmaker prefers a player's rating bucket but merges adjacent tiers when population is low, so 128-slot servers always fill — critical for an indie launch. No hard public thresholds (they get gamed via deliberate de-ranking). |
 | Stats trust model | **Only official servers count for rating** | Community may host servers for fun; only official, authenticated servers report rating-affecting results. Keeps rating data honest without banning community hosting. |
+| Cheater containment | **Silent shadow pool for recent VAC bans (≤5 yr) + Layer-4 flags** | Accounts with a VAC ban in the last 5 years — and accounts the Layer-4 detector flags — are silently routed to a separate "cheater" server pool, matched only with each other. Uses the always-public `GetPlayerBans` signal; reversible; expires at 5 years. |
 
 ## Subsystem A — Anti-cheat layers (extends the existing game server)
 
@@ -69,6 +70,17 @@ backend/
 - Match-end flow: **official server → signed match report → backend validates signature + sanity → rating update → tier reassignment.**
 - Community-hosted servers may run matches for fun but their reports do **not** affect rating. This closes the stat-manipulation attack surface without banning community hosting.
 
+### Cheater containment (shadow pool)
+A separate official server pool that only flagged accounts are matched into — they play *with and against each other*, never with clean players.
+
+- **Who lands in it:**
+  1. **Recent VAC ban** — `GetPlayerBans` reports `NumberOfVACBans > 0` with `DaysSinceLastBan ≤ 1825` (5 years). The matchmaker maps the player to the shadow pool on session start.
+  2. **Layer-4 flags** — accounts whose statistical-detection suspicion crosses a threshold are routed here as **graduated enforcement** before any hard action, providing a low-stakes containment step.
+- **Silent:** the player sees normal matchmaking UI and gets matched normally — they are simply only ever placed in shadow-pool servers. Not telling them reduces ban-evasion churn (re-rolling accounts the moment they're caught).
+- **Reversible + expiring:** the VAC-history flag **expires at 5 years** (`DaysSinceLastBan` crosses 1825) and is re-evaluated on session start; Layer-4 flags are clearable on review. An **appeal path** exists.
+- **Honest caveat:** `GetPlayerBans` exposes VAC counts + days-since-last-ban but **not which game** the ban came from. So this policy is deliberately strict — it also contains players VAC-banned in *unrelated* games, and can catch shared/second-hand accounts. That over-inclusiveness is the accepted trade for a zero-cost, always-public signal; the appeal path is the relief valve.
+- **Orthogonal to tiers:** containment is a separate matchmaking partition; rating/tiers still apply *within* the pool so flagged players of similar skill meet.
+
 ## Steam integration (M7)
 
 - **Auth:** client calls Steamworks `GetAuthSessionTicket` → dedicated server validates with `BeginAuthSession` (confirms ownership + not VAC/game-banned). Relayed to the backend auth-gateway to open a SteamID-keyed session. Free with Steamworks.
@@ -90,6 +102,7 @@ backend/
 - **Layer 3 (M7):** test that an entity with no sight line is absent from a client's snapshot; bench the relevance step stays within budget at 128.
 - **Layer 4 (M9):** replay recorded cheat-like vs human-like input traces; assert suspicion score separation; measure false-positive rate on legitimate traces.
 - **Rating/matchmaking (M9):** simulate match results; assert convergence speed (smurf promoted within N matches), tier-merge triggers under low population, signed-report rejection of forged/community reports.
+- **Cheater containment (M9):** a SteamID with `DaysSinceLastBan ≤ 1825` is routed to the shadow pool and never co-matched with clean accounts; a ban older than 1825 days (or cleared) is routed normally; a Layer-4 flag routes to the pool; assert the player observes no UI difference.
 
 ## Out of scope (this spec)
 - Kernel anti-cheat (EAC/BattlEye) integration — separate future ADR if escalated.
