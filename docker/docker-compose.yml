@@ -1,0 +1,56 @@
+# Isolated M3 Conquest gate: dedicated server + a parallel bot fleet in SEPARATE containers,
+# so the single-threaded server tick runs uncontended (the whole point of issue #1).
+#
+# Profiles:
+#   full -> server + bots on THIS host (e.g. the unraid W-2275). Pin the server to an
+#           isolated physical core so the bot fleet can't steal its cycles.
+#   bots -> bots ONLY; the server runs elsewhere (e.g. bare-metal on the dev laptop).
+#           Set SERVER_HOST=<server-ip>.
+#
+# Quick runs:
+#   ./run-gate.sh                                   # single-host gate (PROFILE=full), asserts PASS/FAIL
+#   docker compose --profile full up --build        # single-host, watch logs
+#   SERVER_HOST=192.168.1.50 docker compose --profile bots up --build   # bots here -> server on laptop
+#
+# Tunables (env): PORT TICKETS TIME_LIMIT BOT_COUNT BOT_REPLICAS SERVER_CPUS BOTS_CPUS SERVER_HOST BOOT_DELAY
+# Default fleet = BOT_REPLICAS(4) x BOT_COUNT(32) = 128 bots across 4 processes (avoids the
+# single-process input starvation seen when one process drives 128 bots).
+
+services:
+  server:
+    profiles: ["full"]
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: blockfire:latest
+    command: ["--headless", "--path", "/app", "--",
+              "--server", "--port=${PORT:-27240}",
+              "--tickets=${TICKETS:-80}", "--time-limit=${TIME_LIMIT:-600}"]
+    # Give the single-threaded tick an isolated physical core. Verify topology with `lscpu -e`
+    # and adjust (W-2275 = 28 logical CPUs). The bots MUST be pinned to a disjoint set.
+    cpuset: "${SERVER_CPUS:-0-1}"
+    ports:
+      - "${PORT:-27240}:${PORT:-27240}/udp"   # ENet is UDP
+    networks: [match]
+
+  bots:
+    profiles: ["full", "bots"]
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: blockfire:latest
+    command: ["--headless", "--path", "/app", "--",
+              "--bots", "--bot-count=${BOT_COUNT:-32}",
+              "--port=${PORT:-27240}", "--connect=${SERVER_HOST:-server}"]
+    environment:
+      # Wait for the server to be listening before connecting (no depends_on: in `bots`-only
+      # profile the server isn't part of this compose, so ordering is delay-based).
+      BOOT_DELAY: "${BOOT_DELAY:-10}"
+    cpuset: "${BOTS_CPUS:-2-27}"
+    deploy:
+      replicas: ${BOT_REPLICAS:-4}
+    networks: [match]
+
+networks:
+  match:
+    driver: bridge
