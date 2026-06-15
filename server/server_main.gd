@@ -298,18 +298,13 @@ func _kill_pawn(vid: int, victim: Pawn, killer_id: int, weapon_id: int, headshot
 	for cid in _clients:
 		_net.send_to(_clients[cid]["peer"], NetHost.CHANNEL_CONTROL, ev, ENetPacketPeer.FLAG_RELIABLE)
 
-## Single routing path for all pawn damage. headshot + source decide DBNO bypass; downed
-## pawns are finished by headshots/blasts or by enough accumulated body fire.
+## Single routing path for all pawn damage. A standing pawn is killed outright by a headshot or
+## blast (instant-kill bypass) and otherwise downed. DOWNED pawns are immune to weapon damage
+## (no finishing, BattleBit-style) — they resolve only via passive bleed-out or a teammate revive.
 func _apply_pawn_damage(vid: int, victim: Pawn, dmg: int, headshot: bool, source: int,
 		killer_id: int, weapon_id: int) -> void:
 	if victim.is_downed:
-		if Revive.is_instant_kill(headshot, source):
-			_kill_pawn(vid, victim, killer_id, weapon_id, headshot, source)
-		else:
-			victim.bleed_health -= dmg
-			if Revive.is_bled_out(victim.bleed_health):
-				_kill_pawn(vid, victim, killer_id, weapon_id, headshot, source)
-		return
+		return  # immune to damage while downed
 	victim.health -= dmg
 	if victim.health > 0:
 		return
@@ -329,20 +324,24 @@ func _complete_revive(target_id: int) -> void:
 	_revives += 1
 	# No ticket refund needed — DOWNED never spent one.
 
-## Accumulate revive progress for targets being actively revived by an in-range, alive reviver.
-## Requires the reviver to re-send REVIVE_ACTION(active) each tick (intent consumed per tick).
+## Accumulate revive progress for downed teammates being held by an in-range, alive reviver.
+## Revive intent is LATCHED — set by REVIVE_ACTION(active) and held in `_reviving` across ticks
+## until the revive ends — so a per-tick REVIVE_ACTION packet dropped under fleet input-starvation
+## does NOT reset progress. Validity is re-checked each tick against authoritative state, so only the
+## reviver actually leaving range interrupts the hold; the latch is dropped when the revive is over.
 func _step_revives() -> void:
-	var active_targets := {}   # target_id -> reviver_id
+	var active_targets := {}   # target_id -> reviver_id (one reviver advances a target per tick)
+	var done: Array = []       # latched intents to drop: revive ended or can never succeed
 	for reviver_id in _reviving:
 		var target_id: int = _reviving[reviver_id]
 		var rp: Pawn = _sim.world.get_pawn(reviver_id)
 		var tp: Pawn = _sim.world.get_pawn(target_id)
-		if rp == null or not rp.alive or rp.is_downed: continue
-		if tp == null or not tp.is_downed: continue
-		if tp.team != rp.team: continue   # only a teammate may revive (spec P1)
-		if rp.pos.distance_to(tp.pos) > Revive.REVIVE_RANGE: continue
+		if tp == null or not tp.is_downed: done.append(reviver_id); continue          # target resolved
+		if rp == null or not rp.alive or rp.is_downed: done.append(reviver_id); continue  # reviver can't
+		if tp.team != rp.team: done.append(reviver_id); continue                       # enemy can't revive
+		if rp.pos.distance_to(tp.pos) > Revive.REVIVE_RANGE: continue                  # transient: hold latch, no progress
 		active_targets[target_id] = reviver_id
-	# Drop progress for targets no longer being revived.
+	# Drop accumulated progress for downed targets with no in-range reviver this tick.
 	for t in _revive_ticks.keys():
 		if not active_targets.has(t):
 			_revive_ticks.erase(t)
@@ -353,7 +352,9 @@ func _step_revives() -> void:
 		if _revive_ticks[target_id] >= Revive.revive_ticks(_is_medic(reviver_id)):
 			_complete_revive(target_id)
 			_revive_ticks.erase(target_id)
-	_reviving.clear()  # consume intent; reviver must keep sending to continue
+			done.append(reviver_id)
+	for rid in done:
+		_reviving.erase(rid)
 
 ## Per-tick bleed for every downed pawn; bleed-out is a true death (spends a ticket).
 func _step_downed() -> void:

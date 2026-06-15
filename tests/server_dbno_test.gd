@@ -4,13 +4,8 @@ extends TestCase
 # so the down-vs-dead decision is unit-tested without the full server harness.
 func _apply(victim: Pawn, dmg: int, headshot: bool, source: int) -> void:
 	if victim.is_downed:
-		if Revive.is_instant_kill(headshot, source):
-			victim.alive = false; victim.is_downed = false
-		else:
-			victim.bleed_health -= dmg
-			if Revive.is_bled_out(victim.bleed_health):
-				victim.alive = false; victim.is_downed = false
-		return
+		return  # DOWNED pawns are immune to damage (no finishing, BattleBit-style);
+		        # only passive bleed-out or a teammate revive resolves them.
 	victim.health -= dmg
 	if victim.health > 0:
 		return
@@ -39,18 +34,25 @@ func test_blast_to_zero_kills_outright() -> void:
 	_apply(p, 40, false, Revive.Source.BLAST)
 	assert_false(p.alive)
 
-func test_finishing_headshot_on_downed_kills() -> void:
+func test_downed_is_immune_to_headshot() -> void:
 	var p := Pawn.new(1); p.is_downed = true; p.alive = true; p.bleed_health = 0
-	_apply(p, 10, true, Revive.Source.BULLET)
-	assert_false(p.alive, "headshot finishes a downed pawn")
-	assert_false(p.is_downed, "killed pawn clears is_downed")
+	_apply(p, 999, true, Revive.Source.BULLET)
+	assert_true(p.alive, "downed pawn is immune — a headshot does not finish it")
+	assert_true(p.is_downed, "stays downed")
 
-func test_finishing_body_fire_accelerates_bleed() -> void:
+func test_downed_is_immune_to_blast() -> void:
+	var p := Pawn.new(1); p.is_downed = true; p.alive = true; p.bleed_health = 0
+	_apply(p, 999, false, Revive.Source.BLAST)
+	assert_true(p.alive, "downed pawn is immune — a blast does not finish it")
+	assert_true(p.is_downed, "stays downed")
+
+func test_downed_is_immune_to_body_fire() -> void:
 	var p := Pawn.new(1); p.is_downed = true; p.alive = true
 	p.bleed_health = Revive.BLEEDOUT_FLOOR + 5
-	_apply(p, 10, false, Revive.Source.BULLET)  # +5 - 10 pushes past the floor
-	assert_false(p.alive, "enough body fire finishes a downed pawn")
-	assert_false(p.is_downed, "killed pawn clears is_downed")
+	_apply(p, 999, false, Revive.Source.BULLET)
+	assert_true(p.alive, "downed pawn is immune — body fire does not accelerate bleed")
+	assert_true(p.is_downed, "stays downed")
+	assert_eq(p.bleed_health, Revive.BLEEDOUT_FLOOR + 5, "enemy fire leaves bleed_health untouched")
 
 func test_non_lethal_body_shot_leaves_pawn_standing() -> void:
 	var p := Pawn.new(1); p.health = 100
@@ -66,8 +68,10 @@ func test_downed_bleeds_out_after_enough_ticks() -> void:
 		bh = Revive.bleed_step(bh, false)
 		ticks += 1
 		assert_true(ticks < 1000, "must terminate")
-	# 50 HP / 2 per tick = 25 ticks to floor
+	# bleed-out window = |BLEEDOUT_FLOOR| / BLEED_RATE ticks (must exceed REVIVE_TICKS so a
+	# teammate can revive a fresh down before it bleeds out).
 	assert_eq(ticks, -Revive.BLEEDOUT_FLOOR / Revive.BLEED_RATE)
+	assert_true(ticks > Revive.REVIVE_TICKS, "bleed-out must outlast a revive hold")
 
 func test_halted_pawn_never_bleeds_out() -> void:
 	var bh := -10

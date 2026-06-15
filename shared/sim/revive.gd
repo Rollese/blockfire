@@ -7,8 +7,11 @@ extends Object
 # --- constants (initial values; gate-tuned) ---
 const BANDAGE_COUNT := 3         # bandages per spawn, all classes
 const MEDIC_EXTRA_BANDAGES := 2  # extra bandage charges for Medic
-const BLEED_RATE := 2            # HP/tick lost while DOWNED and not halted
-const BLEEDOUT_FLOOR := -50      # effective-health death threshold
+const BLEED_RATE := 1            # HP/tick lost while DOWNED and not halted
+const BLEEDOUT_FLOOR := -240     # death threshold; |floor|/rate = 240 ticks (8 s) bleed-out window.
+                                 # Must exceed REVIVE_TICKS so a teammate can revive a fresh down.
+                                 # DOWNED pawns take no weapon damage (immune, BattleBit-style) — a
+                                 # passive bleed-out is their only death path if not revived.
 const REVIVE_TICKS := 90         # revive hold duration, non-medic (3 s @30 Hz)
 const REVIVE_HP := 30            # HP restored on revive
 const REVIVE_RANGE := 2.0        # max range (m) to begin/hold revive

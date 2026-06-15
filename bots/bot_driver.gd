@@ -79,17 +79,12 @@ func _drive(bot: Dictionary, delta: float) -> void:
 		_send(bot, 0.0, 0.0, bot["yaw"], 0.0, 0)
 		return
 
-	# DBNO self-care: self-bandage once, then hold still to await rescue. Crawling toward the
-	# objective carried the downed body out of a reviver's REVIVE_RANGE before the hold completed,
-	# so revives never finished at fleet density — a downed pawn stays put to be revived.
+	# DBNO: downed pawns are immune to weapon damage, so a downed bot holds still and waits to be
+	# revived. It does NOT self-bandage — halting the bleed under the immune model would make it
+	# immortal and stall the match; instead it bleeds out if no teammate reaches it in time.
 	if me.is_downed:
-		if not bot.get("bandaged", false):
-			(bot["net"] as NetHost).send_to(bot["peer"], NetHost.CHANNEL_INPUT,
-				Protocol.encode_self_bandage(), 0)
-			bot["bandaged"] = true
 		_send(bot, 0.0, 0.0, bot["yaw"], 0.0, 0)
 		return
-	bot["bandaged"] = false
 
 	# Revive a downed teammate if one is close enough.
 	var rid := _nearest_downed_teammate(bot, me)
