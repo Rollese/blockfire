@@ -35,11 +35,12 @@ tests green.
 ### Laptop smoke — 48 bots — **PASS** (2026-06-15, dev laptop 4750U, server pinned 0-3, bots 4-15)
 `ci/m4_building_test.sh BOTS=48 MAX_WAIT=420`:
 ```
-[match] OVER winner=0 t0=7 t1=0 elapsed=260s cap_events=2
-[m4] winner=0 peak tick=18.32ms (budget 33.3) peak struct=5 builds=5 blocked_shots=783
-[m4] [bots] structures synced: bot 1 sees 1 piece(s)
+[match] OVER winner=0 t0=20 t1=0 elapsed=340s cap_events=3
+[m4] winner=0 peak tick=18.40ms (budget 33.3) peak struct=3 builds=3 blocked_shots=4138
+[m4] [bots] structures synced: bot 24 sees 1 piece(s)
 M4 GATE: PASS
 ```
+(Convergence time varies run-to-run; 48-bot matches have run 254–340s, always < `MAX_WAIT`.)
 Pieces accumulate (struct peaked 5), placements occur (builds 5), cover blocks shots
 (blocked_shots 783), replication reaches bots (structures synced), Conquest still reaches a
 winner, peak-window tick well under budget. The laptop **cannot** run 128 bots (thermal

@@ -225,7 +225,12 @@ func _fire_shot(shooter_id: int, shooter: Pawn, inp: Dictionary, shot_index: int
 	# damage; ties go to the enemy). Skip the march entirely when nothing is built yet.
 	var block_dist := INF
 	if _store.count() > 0:
-		var blocked := _store.march(ray["origin"], ray["dir"], max_range)
+		# Only a structure NEARER than the resolved enemy hit can change the outcome, so bound
+		# the march by best_t (the enemy distance) when an enemy was hit — in combat that is the
+		# engagement range, far short of the full weapon range, cutting per-shot march cost.
+		# When no enemy was hit, march the full range to detect a pure cover absorb.
+		var march_max: float = best_t if best_victim != 0 else max_range
+		var blocked := _store.march(ray["origin"], ray["dir"], march_max)
 		if blocked["hit"]:
 			block_dist = blocked["dist"]
 	if best_victim == 0 or block_dist < best_t:
