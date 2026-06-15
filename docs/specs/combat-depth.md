@@ -38,6 +38,7 @@ Health reaching 0 normally moves a pawn to **DOWNED** rather than dead.
 
 - **State:** `Pawn` gains `DOWNED` (a state distinct from `alive=false`). New fields: `is_downed: bool`, `bleed_health: int` (HP below 0, floored at `BLEEDOUT_FLOOR`), `bandage_count: int`, `bleed_halted: bool`.
 - **Behavior while DOWNED:** immobile except crawl (`DOWNED_CRAWL_SPEED`); cannot fire; cannot use gadgets; bleeds `BLEED_RATE` HP/tick unless `bleed_halted`. Server keeps simulating and replicating the pawn (others see the downed body).
+- **Immune to weapon damage while DOWNED (BattleBit-style):** once downed, a pawn takes **no further damage** from bullets or blasts — there is no "finishing." A downed pawn resolves only by passive bleed-out or a teammate revive. The bleed-out window (`|BLEEDOUT_FLOOR| / BLEED_RATE` = 240 ticks ≈ 8 s) is deliberately **longer than `REVIVE_TICKS`** so a teammate can win the race on a fresh down.
 - **Bleed-out → death:** when effective health reaches `BLEEDOUT_FLOOR`, transition to `alive=false` and enter the normal respawn path.
 
 ### Instant-kill bypass (skip DOWNED)
@@ -49,20 +50,20 @@ A lethal hit goes **straight to dead** (skips DOWNED) when it is:
 
 All other lethal damage (body gunfire, falling, generic) routes through DOWNED first. The bypass decision is made at damage-application time in `combat.gd` / the blast-resolution path, keyed off the existing hit-region (head vs body) and a `damage_source` tag (`BULLET` / `BLAST` / `FALL` / …).
 
-### Finishing a downed pawn
+### Finishing a downed pawn — **removed** (revised 2026-06-15)
 
-- A **headshot** on an already-DOWNED enemy kills instantly (consistent with the bypass rule).
-- Continued **body** fire on a DOWNED enemy accelerates bleed: each such hit subtracts its damage from `bleed_health`, hastening the `BLEEDOUT_FLOOR` transition. (A downed pawn cannot be "revived back up" by an enemy; only its own team revives it.)
+There is **no finishing mechanic**: a DOWNED pawn is **immune to weapon damage** (see DBNO above). Neither a headshot nor continued body fire nor a blast affects an already-downed pawn — only passive bleed-out or a revive resolves it. (Matches BattleBit, where downed players take no damage; it also removed the 1 s-finish-vs-3 s-revive race that made revives impossible at fleet density.) The instant-kill bypass above still applies to the **entry** hit (a headshot/blast that would down a *standing* pawn kills outright instead). A downed pawn still cannot be revived by an enemy — only its own team.
 
 ### Self-bandage, revive
 
 - **Self-bandage:** consumes one bandage; sets `bleed_halted = true` (stops further drain). Does **not** restore HP and does **not** self-revive. A halted-but-downed pawn waits for a teammate.
-- **Revive:** an alive teammate within `REVIVE_RANGE` holds the revive action for `REVIVE_TICKS`; on completion the downed pawn returns with `alive`, `is_downed=false`, health `REVIVE_HP`. **Medic** revives in `REVIVE_TICKS / 2`. Server validates: reviver alive, in range, target DOWNED, action held continuously (interrupt on reviver death/move-out-of-range resets progress).
+- **Revive:** an alive teammate within `REVIVE_RANGE` holds the revive action for `REVIVE_TICKS`; on completion the downed pawn returns with `alive`, `is_downed=false`, health `REVIVE_HP`. **Medic** revives in `REVIVE_TICKS / 2`. Server validates: reviver alive, in range, target DOWNED, same team. Revive **intent is latched** server-side (set by `REVIVE_ACTION(active)`, held until the revive ends) so a per-tick intent packet dropped under fleet input-starvation does not reset progress; only the reviver actually leaving `REVIVE_RANGE` interrupts (resets) the hold.
+- **Visibility:** a downed pawn must be replicated to in-range teammates for them to revive it. Friendlies are **always replicated** (interest culling applies to enemies only — see Wire format); this is required for revive to work at fleet density.
 - Bandages do not regenerate mid-life; replenished on spawn and via the Support ammo tool (P2).
 
 ### Ticket economy hook
 
-DOWNED costs **no ticket**. The Conquest death-cost is deducted only at **true death** (transition to `alive=false` — bleed-out or finished). **A successful revive saves the ticket.** This moves the existing `ConquestState` death-cost hook from "health ≤ 0" to "pawn transitions to `alive=false`". This is the only P1 change that touches `ConquestState`; the win condition is otherwise unchanged.
+DOWNED costs **no ticket**. The Conquest death-cost is deducted only at **true death** (transition to `alive=false` — bleed-out, or the instant-kill bypass on the entry hit). **A successful revive saves the ticket.** This moves the existing `ConquestState` death-cost hook from "health ≤ 0" to "pawn transitions to `alive=false`". This is the only P1 change that touches `ConquestState`; the win condition is otherwise unchanged.
 
 ### P1 constants
 
@@ -70,12 +71,12 @@ DOWNED costs **no ticket**. The Conquest death-cost is deducted only at **true d
 |---|---|---|
 | `BANDAGE_COUNT` | 3 | bandages per spawn (all classes) |
 | `MEDIC_EXTRA_BANDAGES` | 2 | extra bandage charges for Medic |
-| `BLEED_RATE` | 2 HP/tick | drain while DOWNED and not halted |
-| `BLEEDOUT_FLOOR` | −50 HP | death threshold |
+| `BLEED_RATE` | 1 HP/tick | drain while DOWNED and not halted (was 2; lowered so the bleed-out window outlasts a revive) |
+| `BLEEDOUT_FLOOR` | −240 HP | death threshold = 240 ticks ≈ 8 s bleed-out window (was −50; must exceed `REVIVE_TICKS`) |
 | `DOWNED_CRAWL_SPEED` | 1.0 m/s | crawl speed while DOWNED |
 | `REVIVE_TICKS` | 90 (3 s) | revive duration (non-medic) |
 | `REVIVE_HP` | 30 | HP on revive |
-| `REVIVE_RANGE` | 2.0 m | max range to begin/hold revive |
+| `REVIVE_RANGE` | 3.0 m | max range to begin/hold revive (was 2.0; gate-tuned up for positioning margin) |
 
 ---
 
@@ -236,7 +237,8 @@ ci/m4.5_combat_test.sh NEW   per-phase fleet gate assertions (see Gates)
 
 - **New reliable CONTROL messages** (low-frequency, not per-tick): `GADGET_ACTION{type, params}` (C4 place/detonate, mine place, RPG fire, bag throw, active-give start/stop), `REVIVE_ACTION{target_id, start/stop}`, `SELF_BANDAGE`.
 - **Snapshot additions:** DOWNED state packed into the existing pawn state byte(s) (~1 bit/flag, ≤1 byte/pawn total with ladder state); no new per-pawn fields beyond flags. Gadget entities (C4, mines, bags) are **not** streamed per-tick — their deploy/detonate/exhaust events are the reliable CONTROL messages above; clients derive presence from events (rendering in M7).
-- **Bandwidth:** DOWNED + ladder flags ≤1 byte/pawn on the snapshot. No per-tick gadget-entity stream. Within the M3/M4 budget.
+- **Bandwidth:** DOWNED + ladder flags ≤1 byte/pawn on the snapshot. No per-tick gadget-entity stream.
+- **Interest culling is enemies-only (revised 2026-06-15):** every teammate in interest range is **always replicated** (no wallhack reason to hide friendlies, and a client must see downed squadmates to revive them); only enemies are capped (`MAX_ENEMY_SNAPSHOT` nearest). The prior hard count cap (`MAX_SNAPSHOT_ENTITIES`, enemies-first) hid downed teammates at fleet density and broke revive. Cost measured on the 128-bot fleet: snap 12.3→16.4 ms/tick, aggregate 8.8→22.6 Mbit/s (~176 kbit/s per client) — within budget, tick peak 22 ms < 33.3. **Note:** true 256-player scale needs rate/precision **LOD on distant entities** (replicate everyone, downgrade far ones) rather than this keep-all approach — tracked as separate netcode work, out of P1 scope.
 
 ---
 
