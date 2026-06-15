@@ -34,6 +34,16 @@ Spec: [`docs/specs/combat-depth.md`](specs/combat-depth.md) (three-phase split).
 | M4.5-P1 execute (9 tasks) | claude | done | subagent-driven; Tasks 5 & 7 reviewed; immune-DBNO + latched-revive + friendlies-always added during gating |
 | M4.5-P1 fleet 128-bot gate | claude | **done** | PASS on `game2` (14900KS): `downed=5 revives=3 winner=1 peak tick=22.58ms`; `docker/srvlog-20260615-211516.log`. Fleet testing moved off prod unraid → game2. |
 
+## M4.5 Phase 2 (Combat Depth) — planned, todo
+
+Spec: [`docs/specs/combat-depth.md`](specs/combat-depth.md) (P2 section). Plan: [`docs/plans/2026-06-15-m4.5-p2-combat-depth.md`](plans/2026-06-15-m4.5-p2-combat-depth.md) — 15 TDD tasks. **One plan, one fleet gate** (per spec). Build on a `m4.5-p2-combat-depth` branch via `subagent-driven-development` (Tasks 9, 10, 13 get review subagents — they touch the authoritative fire path / new entity ticks). Data-driven via `data/gadgets.json` + `data/attachments.json`. Grounding findings baked into the plan: penetration wires into `server_main._fire_shot` (not `combat.gd march()`, which lives on `StructureStore`); P1's immune-DBNO means **no finishing**.
+
+| Task | Owner | Status | Notes |
+|---|---|---|---|
+| M4.5-P2 implementation plan | claude | done | `docs/plans/2026-06-15-m4.5-p2-combat-depth.md` (15 tasks) |
+| M4.5-P2 execute (15 tasks) | — | todo | TDD; penetration → attachments → gadget/RPG → C4/mines → medic/ammo tools → bot AI → gate |
+| M4.5-P2 fleet 128-bot gate | — | todo | assert `rockets/c4/mines/heals/ammo/bags ≥1`, valid winner, peak tick `<33.3ms`, bw budget; profile `[perf]` per spec §Budgets |
+
 ## Active tasks (M0) — complete ✅
 
 | Task | Owner | Status | Notes |
