@@ -33,7 +33,8 @@ done
 srvlog="$("${DC[@]}" logs server 2>/dev/null)"
 echo "--- match result ---"; echo "$over"
 if [ -z "$over" ]; then
-	echo "FAIL: no winner within ${MAX_WAIT}s"; echo "$srvlog" | tail -25; exit 1
+	echo "FAIL: no winner within ${MAX_WAIT}s"; echo "$srvlog" | tail -25
+	echo "M3 DOCKER GATE: FAIL"; exit 1   # always emit the verdict line so callers can poll for it
 fi
 
 winner="$(echo "$over"   | sed -n 's/.*winner=\(-\?[0-9]*\).*/\1/p')"
