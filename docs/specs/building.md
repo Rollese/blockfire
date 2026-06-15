@@ -177,6 +177,8 @@ In addition to the M3 objective/combat AI:
 
 This produces clustered placement + churn at objectives — the peak-interest worst case the gate must hold.
 
+> **Implementation note (gate-tuned, 2026-06-15):** the 48-bot smoke refined this heuristic. Bots build full-height **walls** (a half-height sandbag sits below the ~1.6 m eye line and never blocks standing shots, so cover would never register a block), build whenever **stationary** (holding or firing), place the piece to the bot's **side** (forward fire stays clear so attrition still converges the match — building down the firing line over-blocks into a no-kill stalemate), and cap each bot at `MAX_BOT_BUILDS` placements so the contested zone gets light cover rather than a saturating maze. `MAX_BOT_BUILDS` in `bots/bot_driver.gd` is the convergence/cover tuning knob. See `docs/milestones/M4-building-destruction.md`.
+
 ---
 
 ## I. Telemetry additions
