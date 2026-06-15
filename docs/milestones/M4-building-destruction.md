@@ -75,11 +75,13 @@ loop. **Peak tick 30.89 ms is under budget but thinner than M3's 28.6 ms** (buil
 single peak-combat window and does not breach the mean-based gate (M3 had comparable p99
 excursions) — worth watching as M5+ adds tick cost.
 
-> Fleet how-to: `docker/run-gate.sh` still applies the **M3** assertions (winner/cap/tick).
-> Building is always-on in the server, so it already exercises M4; the M4 `struct`/`bld`/`blk`
-> + `structures synced` assertions above were collected directly from the container logs
-> (`docker compose --profile full logs server|bots`). A dedicated `run-m4-gate.sh` that bakes
-> in those assertions is a nice-to-have follow-up.
+> Fleet how-to: `docker/run-gate.sh` applies the **M3** assertions (winner/cap/tick).
+> `docker/run-m4-gate.sh` adds the M4 assertions (peak `struct>=1`, sum `bld>=1`, sum `blk>=1`,
+> a `structures synced` line in the bot logs) on the same compose topology — run it the same
+> way: `SERVER_CPUS=0,1,14,15 BOTS_CPUS=2-13,16-27 ./run-m4-gate.sh`. A second confirming fleet
+> run via that script: `M4 DOCKER GATE: PASS` (winner=1 elapsed=262s peak tick=32.68ms<33.3
+> struct=26 builds=26 blocked_shots=3181). The 32.68 ms peak (vs 30.89 above) shows the
+> building tick cost runs close to budget run-to-run — a firm watch item for Phase 2.
 
 **Phase 1 (Building) verdict:** laptop-48 **PASS** + fleet-128 **PASS** → **Phase 1 gate CLOSED.**
 Phase 2 (Destruction, `docs/specs/destruction.md`) remains.

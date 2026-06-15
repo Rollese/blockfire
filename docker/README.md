@@ -16,7 +16,8 @@ deferred — see "M8 production variant" at the bottom.)
 ## Files
 - `Dockerfile` — headless Godot 4.6 image; runs the project as server **or** bots (role via `command`).
 - `docker-compose.yml` — `server` + `bots` services with `full` / `bots` profiles.
-- `run-gate.sh` — one-command single-host gate (server + fleet in separate containers, asserts PASS/FAIL).
+- `run-gate.sh` — one-command single-host **M3** gate (server + fleet in separate containers, asserts PASS/FAIL).
+- `run-m4-gate.sh` — same topology, **M4 Phase-1 (Building)** assertions: the M3 criteria PLUS peak `struct>=1`, sum `bld>=1`, sum `blk>=1`, and a `structures synced` line in the bot logs. Building is always-on in the server, so it shares this compose. Run it the same way: `SERVER_CPUS=0,1,14,15 BOTS_CPUS=2-13,16-27 ./run-m4-gate.sh`.
 - `entrypoint.sh` — `exec`s godot; honours `BOOT_DELAY` so the fleet waits for the server.
 
 ## Prerequisites
