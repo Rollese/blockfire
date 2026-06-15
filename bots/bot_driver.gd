@@ -79,6 +79,33 @@ func _drive(bot: Dictionary, delta: float) -> void:
 		_send(bot, 0.0, 0.0, bot["yaw"], 0.0, 0)
 		return
 
+	# DBNO self-care: if downed, self-bandage once then crawl toward objective.
+	if me.is_downed:
+		if not bot.get("bandaged", false):
+			(bot["net"] as NetHost).send_to(bot["peer"], NetHost.CHANNEL_INPUT,
+				Protocol.encode_self_bandage(), 0)
+			bot["bandaged"] = true
+		var crawl := _objective_pos(me) - me.pos
+		var cyaw := atan2(crawl.x, crawl.z)
+		_send(bot, sin(cyaw), cos(cyaw), cyaw, 0.0, 0)
+		return
+	bot["bandaged"] = false
+
+	# Revive a downed teammate if one is close enough.
+	var rid := _nearest_downed_teammate(bot, me)
+	if rid != 0:
+		var tpos: Vector3 = (bot["view"][rid] as EntityState).pos
+		var to := tpos - me.pos
+		if to.length() <= Revive.REVIVE_RANGE:
+			(bot["net"] as NetHost).send_to(bot["peer"], NetHost.CHANNEL_INPUT,
+				Protocol.encode_revive_action(rid, true), 0)
+			_send(bot, 0.0, 0.0, atan2(to.x, to.z), 0.0, 0)
+			return
+		else:
+			var myaw := atan2(to.x, to.z)
+			_send(bot, sin(myaw), cos(myaw), myaw, 0.0, 0)
+			return
+
 	var target: EntityState = null
 	var best := INF
 	for id in view:
@@ -128,6 +155,24 @@ func _drive(bot: Dictionary, delta: float) -> void:
 		_maybe_build(bot, me)
 
 	_send(bot, move_x, move_y, bot["yaw"], bot["pitch"], buttons)
+
+func _nearest_downed_teammate(bot: Dictionary, me: EntityState) -> int:
+	if me == null:
+		return 0
+	var best := 0
+	var best_d := INF
+	var view: Dictionary = bot["view"]
+	for id in view:
+		var e: EntityState = view[id]
+		if not e.is_downed:
+			continue
+		if e.team != me.team:
+			continue
+		var d: float = me.pos.distance_to(e.pos)
+		if d < best_d and d < 20.0:
+			best_d = d
+			best = id
+	return best
 
 func _maybe_build(bot: Dictionary, me: EntityState) -> void:
 	if int(bot["builds_made"]) >= MAX_BOT_BUILDS:
