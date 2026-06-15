@@ -5,11 +5,12 @@ Read this first if you're picking up the project in a fresh context. It points t
 ## What this is
 Internal codename for a lightweight, 128-player, low-poly FPS in **Godot 4.6** inspired by *BattleBit Remastered*. v1 game mode: **Conquest**. Three runtime roles in one Godot project (client / dedicated server / bot driver) over a shared core. Plan of record: `~/.claude/plans/sorted-plotting-pebble.md`. Repo on GitHub at **Rollese/blockfire** (SSH remote `origin`, default branch `master`).
 
-## Status (as of 2026-06-14)
+## Status (as of 2026-06-15)
 - **M0 Foundations** ✅ — repo, docs system, ADRs, connect gate.
 - **M1 Netcode core** ✅ — authoritative 30 Hz, per-client baseline+delta snapshots, interest culling, prediction/reconciliation, interpolation, lag-comp substrate. Gate: 128 bots @ ~18 ms tick.
 - **M2 Core FPS loop** ✅ — movement (stances/lean/jump/stamina), hit-scan gunplay, lag-compensated head/body hit-reg, health/death/respawn, 2 teams (FF off), minimal classes, combat bot AI. Gate: 128 bots/2 teams, peak-window tick 30.0 ms, kills register. 47 unit tests green.
-- **M3 Conquest + deploy/respawn + squads** — **NEXT** (see `docs/milestones/M3-conquest-squads.md`).
+- **M3 Conquest + deploy/respawn + squads** — **gameplay ✅ · 128-bot perf gate BLOCKED (hardware)**. Data-driven map (`MapDef`), Conquest state machine (`ConquestState`: capture/neutralize/contest, ticket bleed + death cost, win), squads (`SquadManager`), server-authoritative deploy/respawn spawn selection (`SpawnSelect`), `MATCH_STATE` broadcast, fire pre-filter, bots that path/capture/fight/reload to a decisive win. **Gate 2026-06-15: gameplay PASS at 128** (`[match] OVER winner=0 elapsed=217s cap_events=2`, ended via tickets); **full gate PASS at 48 bots** (tick 19.7 ms < 33.3). **128-bot tick budget FAILS on this laptop** (106 ms — thermal throttle; M2 also fails the budget on this box today; M3 == M2 per-tick cost). Outstanding to close: validate the 128-bot tick budget on the **separate-host bot fleet** (server uncontended). 88 unit tests green. See `docs/milestones/M3-conquest-squads.md` + `docs/specs/m3-bot-convergence-fix.md`.
+- **M4 Building & destruction** — gated behind M3's 128-bot perf validation (per the working agreement, don't start before the prior gate fully passes).
 
 Board: `docs/TASKS.md`. Per-milestone gates: `docs/milestones/`. Specs: `docs/specs/`. Decisions: `docs/adr/`. Plans: `docs/plans/`.
 
@@ -41,22 +42,20 @@ The working agreement is `docs/AGENTS.md`. In short:
 - Run locally: `docs/runbooks/running-locally.md`. Gates: `ci/connect_smoke_test.sh` (M0), `ci/m1_load_test.sh`, `ci/m2_load_test.sh`.
 
 ## Tracked follow-ups (not blocking, address opportunistically)
-**Perf (do early in M3 — Conquest will cluster players at objectives, raising interest density; p99 is already ~33 ms at the 33.3 ms budget edge):**
-- `server/server_main.gd::_fire_shot` scans the entire rewound frame per shot — reuse the per-tick `_grid` to spatially pre-filter candidates by `range_m` before raycasts.
-- Interest recompute is per-client per-tick; consider caching/staggering if density grows (noted since M1).
-- The all-clustered-in-one-spot 128p case is the pathological stress scenario that may justify the **ADR-0001 GDExtension escalation** (open ADR-0003 if M3 profiling demands it). Rust toolchain is **not installed**.
+**Perf / the M3 128-bot blocker (do before declaring M3 fully closed):**
+- **128-bot server tick is hardware-bound on this laptop.** Under sustained 128-bot load the 4750U throttles (95 °C, ~1.4 GHz) → server tick 50–106 ms vs 33.3 ms budget. M3 == M2 per-tick cost; M2 also fails on this box today. The real validation needs the **separate-host bot fleet** (`bots/bot_driver.gd` already supports `--connect=<ip>`) so the server core runs uncontended — this is the one thing left to close M3's gate. Ties into ADR-0001 (GDExtension escalation — only if a *cool, uncontended* box still breaches) and M8 (Docker bot fleet). Rust **not installed**; Docker **not installed**.
+- The M3 fire pre-filter (`_fire_shot` reuses the per-tick `_grid` to broad-phase candidates) is **done** (Task 9). Interest recompute is still per-client per-tick — consider caching/staggering if density grows (noted since M1).
 
 **Correctness/robustness:**
+- M3: `server_main.gd::_build_interest` builds the interest grid before respawns (so the fire pre-filter can reuse it), so a pawn that respawns mid-tick has **one-tick-stale interest-set membership** in that tick's snapshots (position data itself is fresh; self-corrects next tick). Documented in code; accepted to keep the grid single-build per tick.
+- Bots are **ammo-blind** (no client ammo prediction). They reload via a server-time burst heuristic (`bot_driver.gd` `BURST_TICKS`/`RELOAD_TICKS`); fine for the fleet but coarse — real ammo/reload prediction comes with rendering (M7).
 - M1: no explicit "stale client hasn't acked in N ticks → force keyframe" beyond bounded-history eviction (which does fall back to a keyframe); ENet packet-loss telemetry not implemented.
-- M2: client-side ammo/fire-timer/reload prediction from the spec is **not implemented** (client is a headless stub; comes with rendering in M7). Dead field `trigger_down` in `server_main.gd` (remove). Airborne stamina regen is unrestricted (balance nuance).
+- M2: client-side ammo/fire-timer/reload prediction not implemented (headless stub; comes with rendering in M7). Dead field `trigger_down` **removed** in M3. Airborne stamina regen unrestricted (balance nuance).
 
-**Test/infra:**
-- Single bot-driver process can't perfectly feed 128 bots at 30 Hz → nonzero `starv` in telemetry. Acceptable for the gate; production uses many bot containers (M8 Docker). 
-- **Docker not installed** (needed for M8). **Rust not installed** (only if GDExtension escalation happens).
+**Gameplay (M3):**
+- A symmetric bot match is decided by **combat attrition (death-tickets), not flag bleed** — mirror bots hold backfield 1–1 so no flag deficit forms. Flag capture/bleed is implemented and exercised but doesn't swing a symmetric match. For real bleed-driven matches, add **flank/spread bot objective AI** (avoid piling all bots onto the contested centre; attack under-defended enemy points). Tracked, not blocking the gameplay gate.
+- Single bot-driver process can't feed 48+ bots at 30 Hz from one host → high `starv` and slowed bot reactions at scale; another reason the 128-bot validation wants the multi-host fleet.
 
-## Next: M3 (Conquest + deploy/respawn + squads)
-Scope (see `docs/milestones/M3-conquest-squads.md`): data-driven Conquest map (capture points, team spawns), capture/ticket/win logic, deploy screen + spawn-on-point/squad, squad system (create/join, leader, squad spawn), bot AI to path to nearest objective + fight + respawn. Gate: a full **bot-only Conquest match runs start→win at 128 players**, human-spectatable.
-
-**Decisions to brainstorm before the M3 spec** (don't default these silently): ticket/score model + bleed rate; capture mechanics (radius, contest behavior, capture rate, neutralize-then-take vs direct); map data format (where flag positions/spawns live — resource files); squad size + spawn-on-squadmate rules + auto-balance interaction with the existing 2-team assignment; deploy flow; bot objective-selection AI (path to nearest/most-contested point); and how spawns change now that Conquest defines spawn points (M2 used team-half random spawns purely for the gate). Also fold in the perf pre-filter above since objectives will cluster players.
-
-Start by invoking `brainstorming` for the M3 spec.
+## Next
+- **Close M3:** run `ci/m3_conquest_test.sh` with bots on a **separate host** (`--connect`) to validate the 128-bot tick budget uncontended. That is the only outstanding gate criterion (gameplay already passes at 128).
+- **Then M4 (Building & destruction)** — gated behind M3's perf validation. Start with `brainstorming` → spec, per the working agreement.

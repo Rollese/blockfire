@@ -34,3 +34,10 @@ func test_pitch_clamped() -> void:
 	var p := Pawn.new(1)
 	p.step(0.1, _cmd(0, 0, 0, 10.0))  # absurd pitch
 	assert_true(absf(p.pitch) <= Pawn.MAX_PITCH + 0.001)
+
+func test_to_state_copies_team_and_squad() -> void:
+	var p := Pawn.new(1)
+	p.team = 1; p.squad = 3
+	var e := p.to_state()
+	assert_eq(e.team, 1)
+	assert_eq(e.squad, 3)

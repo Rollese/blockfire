@@ -11,3 +11,11 @@ func test_clone_copies_all_fields() -> void:
 	assert_eq(b.alive, false); assert_eq(b.health, 42)
 	b.health = 99
 	assert_eq(a.health, 42, "clone independent")
+
+func test_clone_copies_squad() -> void:
+	var a := EntityState.new()
+	a.squad = 6
+	var b := a.clone()
+	assert_eq(b.squad, 6)
+	b.squad = 1
+	assert_eq(a.squad, 6, "clone independent")

@@ -5,6 +5,14 @@ extends Node
 const Protocol := preload("res://shared/net/protocol.gd")
 const AIM_TOLERANCE := 0.05   # radians; fire when aim within this of target
 const ENGAGE_RANGE := 50.0   # only fire once within this range (else keep closing)
+const MAP_PATH := "res://maps/conquest_proving_grounds.json"
+const BURST_TICKS := 60   # server ticks (~2.0s @30Hz) of firing before reloading; shorter
+                          # than the fastest mag-empty time so no weapon runs dry mid-burst
+const RELOAD_TICKS := 84  # server ticks (~2.8s) to hold BTN_RELOAD; > the slowest weapon
+                          # reload (2.6s) so the mag is surely refilled before the next burst
+
+var _map: MapDef
+var _match_points: Array = []   # array of {owner, attacker, cap}, index == map point index
 
 var _server_ip := "127.0.0.1"
 var _port := 27015
@@ -17,6 +25,9 @@ func configure(args: Dictionary) -> void:
 	_bot_count = maxi(1, int(args.get("bot-count", _bot_count)))
 
 func _ready() -> void:
+	_map = MapDef.load_file(MAP_PATH)
+	if _map == null:
+		push_error("[bots] failed to load map %s" % MAP_PATH)
 	print("[bots] spawning %d bot(s) -> %s:%d" % [_bot_count, _server_ip, _port])
 	for i in _bot_count:
 		_spawn_bot(i)
@@ -28,6 +39,7 @@ func _spawn_bot(index: int) -> void:
 		"net": net, "index": index, "id": 0, "connected": false, "peer": null,
 		"tick": 0, "last_seq": 0, "server_tick": 0, "view": {},
 		"yaw": randf() * TAU, "pitch": 0.0, "heading": randf() * TAU, "turn_timer": 0.0,
+		"reload_until": 0, "burst_start": -1,
 	}
 	net.peer_connected.connect(func(peer: ENetPacketPeer) -> void:
 		bot["peer"] = peer
@@ -65,34 +77,100 @@ func _drive(bot: Dictionary, delta: float) -> void:
 		if dist < best:
 			best = dist; target = e
 
+	var obj := _objective_pos(me)
 	if target != null:
 		var d := target.pos - me.pos
 		var want_yaw := atan2(d.x, d.z)
 		var want_pitch := clampf(asin(clampf(d.y / maxf(d.length(), 0.001), -1.0, 1.0)), -Pawn.MAX_PITCH, Pawn.MAX_PITCH)
 		bot["yaw"] = lerp_angle(bot["yaw"], want_yaw, 0.5) + randf_range(-0.003, 0.003)
 		bot["pitch"] = lerpf(bot["pitch"], want_pitch, 0.5)
-		# move toward the target in WORLD space (Pawn movement is world-space planar)
-		var flat := Vector2(d.x, d.z)
-		if flat.length() > 0.001:
-			flat = flat.normalized()
-		move_x = flat.x
-		move_y = flat.y
 		var yaw_ok := absf(angle_diff(bot["yaw"], want_yaw)) < AIM_TOLERANCE
 		var pitch_ok := absf(want_pitch - bot["pitch"]) < AIM_TOLERANCE
-		if best <= ENGAGE_RANGE and yaw_ok and pitch_ok:
-			buttons |= InputCommand.BTN_FIRE
+		var fire := best <= ENGAGE_RANGE and yaw_ok and pitch_ok
+		# Hold still while shooting (the server adds movement spread, so a moving bot barely
+		# hits); otherwise close on the enemy in range, else advance on the objective.
+		if fire:
+			move_x = 0.0; move_y = 0.0
+		else:
+			var move_to: Vector3 = target.pos if best <= ENGAGE_RANGE else obj
+			var flat := Vector2(move_to.x - me.pos.x, move_to.z - me.pos.z)
+			if flat.length() > 0.001: flat = flat.normalized()
+			move_x = flat.x; move_y = flat.y
+		var cb := combat_button(fire, bot["server_tick"], bot["reload_until"], bot["burst_start"])
+		buttons |= int(cb[0])
+		bot["reload_until"] = cb[1]
+		bot["burst_start"] = cb[2]
 	else:
-		# no enemy in view: advance toward the enemy side (world +x for team 0, -x for team 1)
-		# so the two teams converge and make contact, with slight z wander.
-		var adv_x := 1.0 if me.team == 0 else -1.0
-		move_x = adv_x
-		move_y = randf_range(-0.3, 0.3)
+		# no enemy in view: march to the objective (capture/defend)
+		var flat := Vector2(obj.x - me.pos.x, obj.z - me.pos.z)
+		if flat.length() > 0.001: flat = flat.normalized()
+		move_x = flat.x; move_y = flat.y
 		bot["yaw"] = atan2(move_x, move_y)
 
 	_send(bot, move_x, move_y, bot["yaw"], bot["pitch"], buttons)
 
 func angle_diff(a: float, b: float) -> float:
 	return wrapf(a - b, -PI, PI)
+
+## Pure objective selector (unit-tested). Among points NOT owned by `my_team`, pick the one
+## nearest `center` (tie-broken by distance from `from`); if the team owns every point,
+## defend the nearest point to `from`. `owners[i]` is the owner of points[i] (-1 neutral);
+## owners shorter than points defaults missing entries to neutral. Returns -1 iff points is
+## empty. Biasing toward the map center makes both teams contest the same points so the match
+## converges into combat. See docs/specs/m3-bot-convergence-fix.md.
+static func choose_objective_index(points: Array, owners: Array, my_team: int, from: Vector3, center: Vector3) -> int:
+	if points.is_empty():
+		return -1
+	var best := -1
+	var best_c := INF
+	var best_d := INF
+	for i in points.size():
+		var owner := -1
+		if i < owners.size():
+			owner = int(owners[i])
+		if owner == my_team:
+			continue   # already ours — skip while capturable points remain
+		var cd: float = center.distance_to(points[i])
+		var fd: float = from.distance_to(points[i])
+		if cd < best_c - 0.001 or (absf(cd - best_c) <= 0.001 and fd < best_d):
+			best_c = cd; best_d = fd; best = i
+	if best == -1:
+		# team owns every capturable point: defend the nearest one to `from`
+		for i in points.size():
+			var fd: float = from.distance_to(points[i])
+			if fd < best_d:
+				best_d = fd; best = i
+	return best
+
+## Combat button for an ammo-blind bot, paced in SERVER game-time (`st` = server tick).
+## Returns [button, reload_until, burst_start]. Fires BURST_TICKS-long bursts then holds
+## BTN_RELOAD for RELOAD_TICKS before the next burst, so combat is sustained instead of dying
+## after one magazine. See docs/specs/m3-bot-convergence-fix.md.
+static func combat_button(fire: bool, st: int, reload_until: int, burst_start: int) -> Array:
+	if st < reload_until:
+		return [InputCommand.BTN_RELOAD, reload_until, burst_start]
+	if not fire:
+		return [0, reload_until, burst_start]
+	if burst_start < 0:
+		burst_start = st
+	if st - burst_start >= BURST_TICKS:
+		return [InputCommand.BTN_RELOAD, st + RELOAD_TICKS, -1]
+	return [InputCommand.BTN_FIRE, reload_until, burst_start]
+
+func _objective_pos(me: EntityState) -> Vector3:
+	if _map == null or _map.points.is_empty():
+		return me.pos
+	var positions: Array = []
+	var owners: Array = []
+	for i in _map.points.size():
+		positions.append(_map.points[i]["pos"])
+		owners.append(int(_match_points[i]["owner"]) if i < _match_points.size() else -1)
+	# Target the nearest non-owned point to this bot (center == from). Bots capture their
+	# backfield then push to the middle; this yields real captures (and flag deficits ->
+	# ticket bleed). A map-centre bias was tried but funnelled both teams onto the single
+	# centre point, which stayed perpetually contested and never captured.
+	var idx := choose_objective_index(positions, owners, me.team, me.pos, me.pos)
+	return positions[idx] if idx >= 0 else me.pos
 
 func _send(bot: Dictionary, mx: float, my: float, yaw: float, pitch: float, buttons: int) -> void:
 	var bytes := InputCommand.encode(bot["tick"], bot["last_seq"], mx, my, yaw, pitch, buttons, bot["server_tick"])
@@ -108,6 +186,8 @@ func _on_packet(bot: Dictionary, bytes: PackedByteArray) -> void:
 			var hdr := Snapshot.decode_apply(bytes, bot["view"])
 			bot["last_seq"] = maxi(bot["last_seq"], int(hdr["seq"]))
 			bot["server_tick"] = int(hdr["server_tick"])
+		Protocol.Msg.MATCH_STATE:
+			_match_points = Protocol.decode_match_state(bytes)["points"]
 		_:
 			pass
 

@@ -1,6 +1,7 @@
 extends Node
 ## Dedicated authoritative server. 30 Hz. Movement + hit-scan combat with lag comp,
-## teams (FF off), minimal respawn. See docs/specs/m2-core-fps-loop.md.
+## teams (FF off), Conquest mode (capture points, tickets, win), squads, deploy/respawn.
+## See docs/specs/m3-conquest-squads.md.
 
 const Protocol := preload("res://shared/net/protocol.gd")
 
@@ -11,29 +12,55 @@ const CELL_SIZE := 64.0
 const MAX_HISTORY := 32
 const RESPAWN_DELAY_TICKS := 150   # 5s @30Hz
 const FIRE_CONE_DOT := 0.985       # broad-phase: target within ~10deg of ray
+const FIRE_RANGE_MARGIN := 20.0    # grid broad-phase slack for lag-comp movement
+const MAP_PATH := "res://maps/conquest_proving_grounds.json"
+const MATCH_STATE_INTERVAL := 15   # ticks between match-state broadcasts (2 Hz)
+const MATCH_END_DRAIN_TICKS := 60  # keep running ~2s after a win, then exit
 
 var _net: NetHost
 var _port := 27015
+var _start_tickets := -1
+var _time_limit := -1.0
 var _sim := SimLoop.new()
 var _grid := InterestGrid.new(CELL_SIZE)
 var _lag := LagComp.new()
 var _tele := Telemetry.new()
+var _map: MapDef
+var _conquest: ConquestState
+var _squads := SquadManager.new()
 var _next_id := 1
 var _tele_accum := 0.0
 var _team_counts := {0: 0, 1: 0}
+var _positions := {}               # id -> Vector3, rebuilt each tick before fires
 
 var _kills := 0
 var _shots := 0
 var _hits := 0
 var _rewind_clamped := 0
+var _cap_events := 0          # per-telemetry-window (reset each second)
+var _cap_events_total := 0    # cumulative over the match (for the match-end summary)
+var _prev_owners: Array = []
+var _match_over_broadcast := false
+var _match_end_tick := -1
 
 var _clients := {}
 var _peer_to_id := {}
 
 func configure(args: Dictionary) -> void:
 	_port = int(args.get("port", _port))
+	_start_tickets = int(args.get("tickets", -1))
+	_time_limit = float(args.get("time-limit", -1.0))
 
 func _ready() -> void:
+	_map = MapDef.load_file(MAP_PATH)
+	if _map == null:
+		push_error("[server] failed to load map %s" % MAP_PATH); get_tree().quit(1); return
+	_conquest = ConquestState.new(_map)
+	if _start_tickets > 0:
+		_conquest.tickets = [float(_start_tickets), float(_start_tickets)]
+	if _time_limit > 0.0:
+		_conquest.time_limit = _time_limit
+	_prev_owners = _owner_snapshot()
 	_net = NetHost.new()
 	add_child(_net)
 	_net.peer_connected.connect(func(_p): pass)
@@ -42,20 +69,39 @@ func _ready() -> void:
 	var err := _net.start_server(_port, MAX_PLAYERS)
 	if err != OK:
 		push_error("[server] bind failed on %d: %s" % [_port, error_string(err)]); get_tree().quit(1); return
-	print("[server] listening on %d, tick=%dHz, max=%d" % [_port, TICK_RATE, MAX_PLAYERS])
+	print("[server] listening on %d, tick=%dHz, max=%d map=%s" % [_port, TICK_RATE, MAX_PLAYERS, _map.name])
 
 func _physics_process(delta: float) -> void:
 	var t0 := Time.get_ticks_usec()
 	_net.poll()
 	_step_movement()
 	_lag.record(_sim.tick, _sim.world)
+	_build_interest()
 	_resolve_fires()
 	_handle_respawns()
+	_conquest.step(SimLoop.DT, _sim.world)
+	_track_and_broadcast_match_state()
 	_send_snapshots()
 	_tele.record_tick_ms(float(Time.get_ticks_usec() - t0) / 1000.0)
 	_tele_accum += delta
 	if _tele_accum >= 1.0:
 		_log_telemetry(); _tele_accum = 0.0
+	if _match_over_broadcast and _sim.tick >= _match_end_tick + MATCH_END_DRAIN_TICKS:
+		print("[server] match complete, exiting"); get_tree().quit(0)
+
+func _build_interest() -> void:
+	# Built once per tick here so the grid/_positions are reused by BOTH the fire
+	# broad-phase (_resolve_fires) and snapshots (_send_snapshots). Consequence: a pawn
+	# that respawns later this tick (_handle_respawns) has one-tick-stale interest-set
+	# membership in snapshots — its position DATA via state_map() is still fresh; only
+	# which interest sets it falls into lags by a tick. Accepted to keep the grid
+	# single-build per tick (the perf goal); self-corrects next tick.
+	_positions.clear()
+	_grid.clear()
+	for id in _sim.world.pawns:
+		var p: Pawn = _sim.world.pawns[id]
+		_positions[id] = p.pos
+		_grid.insert(id, p.pos)
 
 func _step_movement() -> void:
 	var inputs := {}
@@ -85,7 +131,6 @@ func _resolve_fires() -> void:
 		var firing: bool = (inp["buttons"] & InputCommand.BTN_FIRE) != 0
 		if not firing:
 			c["shot_index"] = 0
-			c["trigger_down"] = false
 			if (inp["buttons"] & InputCommand.BTN_RELOAD) and not c["reloading"] and c["ammo"] < Weapon.get_def(c["weapon"])["mag_size"]:
 				c["reloading"] = true
 				c["reload_done_tick"] = _sim.tick + int(round(Weapon.get_def(c["weapon"])["reload_secs"] * TICK_RATE))
@@ -99,7 +144,6 @@ func _resolve_fires() -> void:
 		c["ammo"] -= 1
 		var shot_index: int = c["shot_index"]
 		c["shot_index"] = shot_index + 1
-		c["trigger_down"] = true
 		_shots += 1
 		_fire_shot(id, shooter, inp, shot_index)
 
@@ -118,11 +162,16 @@ func _fire_shot(shooter_id: int, shooter: Pawn, inp: Dictionary, shot_index: int
 	var frame := _lag.rewind(view_tick)
 
 	var max_range: float = Weapon.get_def(wid)["range_m"]
+	# Broad-phase: only candidates near the shooter (current positions + lag-comp margin),
+	# instead of scanning the whole rewound frame. Objective clustering raises density, so
+	# this keeps per-shot cost bounded. Precise test still uses the rewound state.
+	var candidates: Array = _grid.query(shooter.pos, max_range + FIRE_RANGE_MARGIN, _positions)
 	var best_t := max_range + 1.0
 	var best_victim := 0
 	var best_head := false
-	for tid in frame:
+	for tid in candidates:
 		if tid == shooter_id: continue
+		if not frame.has(tid): continue
 		var st = frame[tid]
 		if not st["alive"] or st["team"] == shooter.team: continue
 		var to_target: Vector3 = st["pos"] - ray["origin"]
@@ -142,6 +191,7 @@ func _fire_shot(shooter_id: int, shooter: Pawn, inp: Dictionary, shot_index: int
 		victim.health = 0
 		victim.alive = false
 		_clients[best_victim]["respawn_tick"] = _sim.tick + RESPAWN_DELAY_TICKS
+		_conquest.register_death(victim.team)
 		_kills += 1
 		var ev := Protocol.encode_kill(best_victim, shooter_id, wid, best_head)
 		for cid in _clients:
@@ -153,7 +203,7 @@ func _handle_respawns() -> void:
 		var p: Pawn = _sim.world.get_pawn(id)
 		if p == null or p.alive: continue
 		if c["respawn_tick"] > 0 and _sim.tick >= c["respawn_tick"]:
-			p.pos = _spawn_pos(p.team)
+			p.pos = _select_spawn(id)
 			p.velocity = Vector3.ZERO
 			p.health = 100
 			p.alive = true
@@ -162,18 +212,57 @@ func _handle_respawns() -> void:
 			c["ammo"] = Weapon.get_def(c["weapon"])["mag_size"]
 			c["reloading"] = false
 
+func _select_spawn(id: int) -> Vector3:
+	var c = _clients[id]
+	var team: int = c["team"]
+	var obj := _objective_for(team)
+	var mates: Array = []
+	for mid in _squads.members(team, c["squad"]):
+		if mid == id: continue
+		var mp: Pawn = _sim.world.get_pawn(mid)
+		if mp != null and mp.alive: mates.append(mp.pos)
+	return SpawnSelect.select(team, _map, _conquest, mates, obj)
+
+func _objective_for(team: int) -> Vector3:
+	var base := _map.base_for(team)
+	var from: Vector3 = base["pos"] if not base.is_empty() else Vector3.ZERO
+	var idx := _conquest.nearest_capturable_index(team, from)
+	return _conquest.points[idx]["pos"] if idx >= 0 else from
+
+func _owner_snapshot() -> Array:
+	var a: Array = []
+	for pt in _conquest.points: a.append(pt["owner"])
+	return a
+
+func _track_and_broadcast_match_state() -> void:
+	var owners := _owner_snapshot()
+	for i in owners.size():
+		if i < _prev_owners.size() and owners[i] != _prev_owners[i]:
+			_cap_events += 1
+			_cap_events_total += 1
+	_prev_owners = owners
+	if _conquest.match_over and not _match_over_broadcast:
+		_match_over_broadcast = true
+		_match_end_tick = _sim.tick
+		var bytes := Protocol.encode_match_state(_conquest.points,
+			[_conquest.tickets_int(0), _conquest.tickets_int(1)], true, _conquest.winner, int(_conquest.elapsed))
+		for cid in _clients:
+			_net.send_to(_clients[cid]["peer"], NetHost.CHANNEL_CONTROL, bytes, ENetPacketPeer.FLAG_RELIABLE)
+		print("[match] OVER winner=%d t0=%d t1=%d elapsed=%ds cap_events=%d"
+			% [_conquest.winner, _conquest.tickets_int(0), _conquest.tickets_int(1), int(_conquest.elapsed), _cap_events_total])
+	elif not _match_over_broadcast and _sim.tick % MATCH_STATE_INTERVAL == 0:
+		var bytes := Protocol.encode_match_state(_conquest.points,
+			[_conquest.tickets_int(0), _conquest.tickets_int(1)], false, _conquest.winner, int(_conquest.elapsed))
+		for cid in _clients:
+			_net.send_to(_clients[cid]["peer"], NetHost.CHANNEL_SNAPSHOT, bytes, 0)
+
 func _send_snapshots() -> void:
 	var state := _sim.world.state_map()
-	var positions := {}
-	_grid.clear()
-	for id in state:
-		positions[id] = state[id].pos
-		_grid.insert(id, state[id].pos)
 	for id in _clients:
 		var c = _clients[id]
 		var self_pawn = _sim.world.get_pawn(id)
 		if self_pawn == null: continue
-		var ids := _grid.query(self_pawn.pos, INTEREST_RADIUS, positions)
+		var ids := _grid.query(self_pawn.pos, INTEREST_RADIUS, _positions)
 		var current := {}
 		for vid in ids: current[vid] = state[vid]
 		var baseline_seq: int = c["last_acked_seq"]
@@ -212,19 +301,21 @@ func _handle_hello(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
 	_team_counts[team] += 1
 	var cls := Loadout.random_class()
 	var wid := Loadout.weapon_for(cls)
+	var squad := _squads.assign(id, team)
 	_peer_to_id[peer] = id
 	_clients[id] = {
 		"peer": peer, "queued_input": null, "last_input": null, "last_input_tick": 0,
 		"last_acked_seq": 0, "next_seq": 1, "history": {},
-		"team": team, "class": cls, "weapon": wid, "ammo": Weapon.get_def(wid)["mag_size"],
+		"team": team, "squad": squad, "class": cls, "weapon": wid, "ammo": Weapon.get_def(wid)["mag_size"],
 		"reloading": false, "reload_done_tick": 0, "last_fire_time": -999.0,
-		"shot_index": 0, "trigger_down": false, "respawn_tick": 0,
+		"shot_index": 0, "respawn_tick": 0,
 	}
 	var p := _sim.world.spawn(id)
 	p.team = team
-	p.pos = _spawn_pos(team)
+	p.squad = squad
+	p.pos = _select_spawn(id)
 	_net.send_to(peer, NetHost.CHANNEL_CONTROL, Protocol.encode_welcome(id, TICK_RATE), ENetPacketPeer.FLAG_RELIABLE)
-	print("[server] welcomed peer %d ('%s') team=%d class=%d — %d peers" % [id, pname, team, cls, _clients.size()])
+	print("[server] welcomed peer %d ('%s') team=%d squad=%d class=%d — %d peers" % [id, pname, team, squad, cls, _clients.size()])
 
 func _handle_input(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
 	var id = _peer_to_id.get(peer, 0)
@@ -243,17 +334,12 @@ func _on_peer_disconnected(peer: ENetPacketPeer) -> void:
 	var id = _peer_to_id.get(peer, 0)
 	_peer_to_id.erase(peer)
 	if id != 0 and _clients.has(id):
-		_team_counts[_clients[id]["team"]] -= 1
+		var team: int = _clients[id]["team"]
+		_team_counts[team] -= 1
+		_squads.remove(id, team)
 		_clients.erase(id)
 		_sim.world.despawn(id)
 		print("[server] peer %d disconnected — %d peers" % [id, _clients.size()])
-
-func _spawn_pos(team: int) -> Vector3:
-	# Two opposing zones spread along a wide z-front (low linear density keeps interest
-	# cost / tick bounded, near M1's wide-spacing baseline) while still letting the teams
-	# converge and fight. Tuned so the M2 gate holds 30Hz AND bots make contact.
-	var x: float = randf_range(-400.0, -150.0) if team == 0 else randf_range(150.0, 400.0)
-	return Vector3(x, 0.0, randf_range(-900.0, 900.0))
 
 func _log_telemetry() -> void:
 	var n := _clients.size()
@@ -262,7 +348,10 @@ func _log_telemetry() -> void:
 		if _sim.world.pawns[id].alive: alive += 1
 	var mbit := float(_tele.total_bytes()) * 8.0 / 1_000_000.0
 	var hit_rate := 0.0 if _shots == 0 else float(_hits) / float(_shots)
-	print("[telemetry] players=%d alive=%d tick_mean=%.2fms tick_p99=%.2fms agg=%.1fMbit/s kills=%d shots=%d hit_rate=%.2f starv=%d rewind_clamped=%d"
-		% [n, alive, _tele.mean_tick_ms(), _tele.p99_tick_ms(), mbit, _kills, _shots, hit_rate, _tele.starvation, _rewind_clamped])
+	var pts := ""
+	for pt in _conquest.points:
+		pts += "." if pt["owner"] == -1 else str(pt["owner"])
+	print("[telemetry] players=%d alive=%d tick_mean=%.2fms tick_p99=%.2fms agg=%.1fMbit/s kills=%d shots=%d hit_rate=%.2f starv=%d rewind_clamped=%d t0=%d t1=%d pts=%s cap_events=%d"
+		% [n, alive, _tele.mean_tick_ms(), _tele.p99_tick_ms(), mbit, _kills, _shots, hit_rate, _tele.starvation, _rewind_clamped, _conquest.tickets_int(0), _conquest.tickets_int(1), pts, _cap_events])
 	_tele.reset_window()
-	_kills = 0; _shots = 0; _hits = 0; _rewind_clamped = 0
+	_kills = 0; _shots = 0; _hits = 0; _rewind_clamped = 0; _cap_events = 0
