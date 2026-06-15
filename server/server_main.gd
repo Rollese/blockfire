@@ -288,7 +288,11 @@ func _fire_shot(shooter_id: int, shooter: Pawn, inp: Dictionary, shot_index: int
 		if blocked["hit"] and float(blocked["dist"]) < best_t:
 			var block_id := int(blocked["id"])
 			var rec: Dictionary = _store.get_record(block_id)
+			if rec.is_empty():
+				return   # piece gone (defensive; matches the guard in _emit_structure_deltas)
 			var mat := _catalog.material_of(int(rec["type"]))
+			# `blk` counts every shot a piece was interposed on (pen OR stop); `pen` (below) counts
+			# only the subset that penetrated through. They overlap by design — blk is "intersected".
 			_shots_blocked += 1
 			if not PieceCatalog.is_penetrable(mat):
 				_damage_structure(block_id, body_dmg)   # non-pen: piece eats it, shot stops
