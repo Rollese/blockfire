@@ -17,6 +17,7 @@ Canonical source of truth for what's being worked on. Claim a task (set owner + 
 | M5 | [Vehicles (land + air)](milestones/M5-vehicles.md) | todo | Vehicles usable under load; bots can occupy/transport. Requires RPG (M4.5) for anti-vehicle play; Engineer repair kit defined in M4.5, wired to vehicle HP here. |
 | M6 | [Voice (proximity + squad)](milestones/M6-voice.md) | todo | Voice works for human testers in a live match without breaking tick budget. |
 | M7 | [Art pass + UX polish](milestones/M7-art-ux.md) | todo | End-to-end human playtest of a full Conquest match. |
+| M7.5 | [Bot intelligence (tactical AI)](milestones/M7.5-bot-intelligence.md) | todo | Tactical, human-like, fair-play infantry bots (cover/stance, revive/resupply, attack/defend roles, grenades-vs-cover) usable as 128-player match-fillers; admin free-fly spectator + bot-AI debug overlay; bot-driver CPU scales to 128; Conquest reaches a winner; operator visual sign-off. |
 | M8 | [Hardening & ops](milestones/M8-hardening-ops.md) | todo | Documented one-command stress run spins server + 128 bots in Docker. |
 | M9 | [Online services (accounts, anti-cheat detection, matchmaking)](milestones/M9-online-services.md) | todo | Steam auth → skill-tier placement → matched into an official 128-slot server (with dynamic tier-merge); signed match reports update rating; a seeded cheat trace is flagged. |
 
