@@ -649,7 +649,7 @@ func _handle_hello(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
 	p.squad = squad
 	p.pos = _select_spawn(id)
 	p.bandage_count = Revive.bandage_count_for(cls == Loadout.MEDIC)
-	_net.send_to(peer, NetHost.CHANNEL_CONTROL, Protocol.encode_welcome(id, TICK_RATE), ENetPacketPeer.FLAG_RELIABLE)
+	_net.send_to(peer, NetHost.CHANNEL_CONTROL, Protocol.encode_welcome(id, TICK_RATE, cls), ENetPacketPeer.FLAG_RELIABLE)
 	print("[server] welcomed peer %d ('%s') team=%d squad=%d class=%d — %d peers" % [id, pname, team, squad, cls, _clients.size()])
 
 func _handle_input(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:

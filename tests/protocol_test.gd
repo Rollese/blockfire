@@ -127,3 +127,8 @@ func test_gadget_action_roundtrip_pos() -> void:
 func test_gadget_action_roundtrip_target() -> void:
 	var d := Protocol.decode_gadget_action(Protocol.encode_gadget_action(Protocol.GA_GIVE_START, Vector3.ZERO, Vector3(0, 0, 1), 777))
 	assert_eq(d["target"], 777)
+
+func test_welcome_carries_class() -> void:
+	var d := Protocol.decode_welcome(Protocol.encode_welcome(5, 30, Loadout.ENGINEER))
+	assert_eq(d["id"], 5)
+	assert_eq(d["class"], Loadout.ENGINEER)

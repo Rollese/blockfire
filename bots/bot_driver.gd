@@ -52,6 +52,8 @@ func _spawn_bot(index: int) -> void:
 		"reload_until": 0, "burst_start": -1,
 		"last_build_tick": -100000, "structs": {}, "builds_made": 0,
 		"last_grenade_tick": -100000, "nades_thrown": 0, "smokes_thrown": 0,
+		"class": 0, "rpg_fired": false, "c4_placed": false, "c4_detonated": false,
+		"mine_placed": false, "gave_until": 0,
 	}
 	net.peer_connected.connect(func(peer: ENetPacketPeer) -> void:
 		bot["peer"] = peer
@@ -137,6 +139,8 @@ func _drive(bot: Dictionary, delta: float) -> void:
 		bot["reload_until"] = cb[1]
 		bot["burst_start"] = cb[2]
 		_maybe_grenade(bot, me, target)
+		_maybe_rpg(bot, me, target)
+		_maybe_c4(bot, me, target)
 	else:
 		# no enemy in view: march to the objective (capture/defend)
 		var flat := Vector2(obj.x - me.pos.x, obj.z - me.pos.z)
@@ -150,7 +154,9 @@ func _drive(bot: Dictionary, delta: float) -> void:
 	# the combat zone where shots cross it. (Marching bots move, so this won't fire mid-route.)
 	if move_x == 0.0 and move_y == 0.0:
 		_maybe_build(bot, me)
+		_maybe_mine(bot, me)
 
+	_maybe_give(bot, me)
 	_send(bot, move_x, move_y, bot["yaw"], bot["pitch"], buttons)
 
 func _nearest_downed_teammate(bot: Dictionary, me: EntityState) -> int:
@@ -225,6 +231,70 @@ func _maybe_smoke(bot: Dictionary, me: EntityState, obj: Vector3) -> void:
 		Protocol.encode_grenade_throw(dir.normalized(), Grenade.SMOKE), 0)
 	bot["last_grenade_tick"] = st
 	bot["smokes_thrown"] = int(bot["smokes_thrown"]) + 1
+
+## Engineer RPG: fire once at an in-range enemy via GADGET_ACTION. The server rejects it unless the
+## bot actually has the RPG equipped (it assigned ~1/3 of Engineers the RPG), so non-RPG bots no-op.
+func _maybe_rpg(bot: Dictionary, me: EntityState, target: EntityState) -> void:
+	if bot["class"] != Loadout.ENGINEER or bool(bot["rpg_fired"]): return
+	var d := target.pos - me.pos
+	if d.length() < 0.001 or d.length() > 60.0: return
+	(bot["net"] as NetHost).send_to(bot["peer"], NetHost.CHANNEL_INPUT,
+		Protocol.encode_gadget_action(Protocol.GA_RPG_FIRE, Vector3.ZERO, d.normalized(), 0), 0)
+	bot["rpg_fired"] = true
+
+## Engineer C4: place one near a structure between us and the enemy, then detonate it next pass.
+func _maybe_c4(bot: Dictionary, me: EntityState, target: EntityState) -> void:
+	if bot["class"] != Loadout.ENGINEER: return
+	if not bool(bot["c4_placed"]):
+		if not _cover_between(bot, me.pos, target.pos): return
+		var place := me.pos + (target.pos - me.pos).normalized() * 2.0
+		(bot["net"] as NetHost).send_to(bot["peer"], NetHost.CHANNEL_INPUT,
+			Protocol.encode_gadget_action(Protocol.GA_C4_PLACE, place, Vector3.ZERO, 0), 0)
+		bot["c4_placed"] = true
+	elif not bool(bot["c4_detonated"]):
+		(bot["net"] as NetHost).send_to(bot["peer"], NetHost.CHANNEL_INPUT,
+			Protocol.encode_gadget_action(Protocol.GA_C4_DETONATE, Vector3.ZERO, Vector3.ZERO, 0), 0)
+		bot["c4_detonated"] = true
+
+## Recon claymore: drop one facing the objective while holding a point.
+func _maybe_mine(bot: Dictionary, me: EntityState) -> void:
+	if bot["class"] != Loadout.RECON or bool(bot["mine_placed"]): return
+	var face := Vector3(sin(me.yaw), 0.0, cos(me.yaw))
+	var place := me.pos + face * 1.5
+	(bot["net"] as NetHost).send_to(bot["peer"], NetHost.CHANNEL_INPUT,
+		Protocol.encode_gadget_action(Protocol.GA_MINE_PLACE, place, face, 0), 0)
+	bot["mine_placed"] = true
+
+## Medic/Support: if a same-team mate within give range is hurt, aim at them and hold the active
+## give for a short window; also throw a bag the first time so the thrown-bag path is exercised.
+func _maybe_give(bot: Dictionary, me: EntityState) -> void:
+	if bot["class"] != Loadout.MEDIC and bot["class"] != Loadout.SUPPORT: return
+	var view: Dictionary = bot["view"]
+	var best := 0
+	var best_d := 3.0
+	for id in view:
+		if id == bot["id"]: continue
+		var e: EntityState = view[id]
+		if not e.alive or e.is_downed or e.team != me.team: continue
+		var d: float = me.pos.distance_to(e.pos)
+		if d <= best_d:
+			best_d = d; best = id
+	if best == 0:
+		if int(bot["gave_until"]) != 0:
+			(bot["net"] as NetHost).send_to(bot["peer"], NetHost.CHANNEL_INPUT,
+				Protocol.encode_gadget_action(Protocol.GA_GIVE_STOP, Vector3.ZERO, Vector3.ZERO, 0), 0)
+			bot["gave_until"] = 0
+		return
+	var tpos: Vector3 = (view[best] as EntityState).pos
+	var aim := tpos - me.pos
+	bot["yaw"] = atan2(aim.x, aim.z)
+	bot["pitch"] = clampf(asin(clampf(aim.y / maxf(aim.length(), 0.001), -1.0, 1.0)), -Pawn.MAX_PITCH, Pawn.MAX_PITCH)
+	(bot["net"] as NetHost).send_to(bot["peer"], NetHost.CHANNEL_INPUT,
+		Protocol.encode_gadget_action(Protocol.GA_GIVE_START, Vector3.ZERO, aim.normalized(), best), 0)
+	if int(bot["gave_until"]) == 0:
+		(bot["net"] as NetHost).send_to(bot["peer"], NetHost.CHANNEL_INPUT,
+			Protocol.encode_gadget_action(Protocol.GA_BAG_THROW, tpos, Vector3.ZERO, 0), 0)
+		bot["gave_until"] = 1
 
 ## True if any known structure's cell-centre lies near the segment from `a` to `b` (coarse: the
 ## bot only knows piece positions from its mirror, not exact AABBs). Bounds the throw to useful cases.
@@ -326,9 +396,11 @@ func _send(bot: Dictionary, mx: float, my: float, yaw: float, pitch: float, butt
 func _on_packet(bot: Dictionary, bytes: PackedByteArray) -> void:
 	match Protocol.msg_type(bytes):
 		Protocol.Msg.WELCOME:
-			bot["id"] = Protocol.body_reader(bytes).get_u32()
+			var w := Protocol.decode_welcome(bytes)
+			bot["id"] = int(w["id"])
+			bot["class"] = int(w["class"])
 			bot["connected"] = true
-			print("[bots] bot %d connected (id %d) — %d/%d" % [bot["index"], bot["id"], _connected_count(), _bot_count])
+			print("[bots] bot %d connected (id %d class %d) — %d/%d" % [bot["index"], bot["id"], bot["class"], _connected_count(), _bot_count])
 		Protocol.Msg.SNAPSHOT:
 			var hdr := Snapshot.decode_apply(bytes, bot["view"])
 			bot["last_seq"] = maxi(bot["last_seq"], int(hdr["seq"]))

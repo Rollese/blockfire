@@ -52,12 +52,18 @@ static func encode_hello(player_name: String) -> PackedByteArray:
 	return buf.data_array
 
 
-static func encode_welcome(peer_id: int, tick_rate: int) -> PackedByteArray:
+static func encode_welcome(peer_id: int, tick_rate: int, cls: int = 0) -> PackedByteArray:
 	var buf := StreamPeerBuffer.new()
 	buf.put_u8(Msg.WELCOME)
 	buf.put_u32(peer_id)
 	buf.put_u16(tick_rate)
+	buf.put_u8(cls)
 	return buf.data_array
+
+
+static func decode_welcome(bytes: PackedByteArray) -> Dictionary:
+	var r := body_reader(bytes)
+	return {"id": r.get_u32(), "tick_rate": r.get_u16(), "class": r.get_u8()}
 
 
 static func encode_reject(reason: String) -> PackedByteArray:
