@@ -433,7 +433,8 @@ func _step_active_give() -> void:
 		for tid in _sim.world.pawns:
 			if tid == gid: continue
 			var t: Pawn = _sim.world.pawns[tid]
-			if not t.alive or t.team != giver.team: continue
+			# Downed teammates are handled by revive (P1), not give/resupply — skip them.
+			if not t.alive or t.is_downed or t.team != giver.team: continue
 			var d2 := giver.pos.distance_to(t.pos)
 			if d2 <= rng and d2 < best and Gadget.give_hits(giver.eye_position(), aim, t.pos, t.stance, rng):
 				best = d2; target = tid
@@ -965,7 +966,7 @@ func _step_bags() -> void:
 		var dispensed := 0
 		for pid in _sim.world.pawns:
 			var t: Pawn = _sim.world.pawns[pid]
-			if not t.alive or t.team != int(b["team"]): continue
+			if not t.alive or t.is_downed or t.team != int(b["team"]): continue
 			if t.pos.distance_to(b["pos"]) > radius: continue
 			if kind == Gadget.KIND_HEAL:
 				if t.health >= 100: continue
