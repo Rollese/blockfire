@@ -85,12 +85,14 @@ var _nades := 0               # frag detonations this window
 var _splash_kills := 0        # pawn deaths from blasts this window
 var _smokes := 0              # smoke zones deployed this window
 var _rockets_det := 0         # RPG rockets detonated this window
+var _c4_det := 0              # C4 detonations (per detonate action) this window
 var _rstruct := 0             # structures hit by rockets this window
 var _pending_removes: Array = []   # [{id, cell}] removes awaiting send (degradation queue)
 var _dmg_touched := {}             # id -> true: pieces damaged (alive) this tick, for bucket diff
 var _last_bucket := {}             # id -> last SENT bucket (missing => pristine bucket 3)
 var _grenades: Array = []     # [{owner, team, type, pos, vel, detonate_tick}] — server-side, not replicated
 var _rockets: Array = []      # [{owner, team, pos, vel}] — server-side, not replicated
+var _c4: Dictionary = {}      # owner_id -> Array of {pos, cell:Vector3i}
 var _smoke_zones: Array = []  # [{pos, radius, expire_tick}] — server-side; M7 LOS culling consumes
 var _prev_owners: Array = []
 var _match_over_broadcast := false
@@ -657,7 +659,9 @@ func _handle_gadget_action(peer: ENetPacketPeer, bytes: PackedByteArray) -> void
 	var d := Protocol.decode_gadget_action(bytes)
 	match int(d["action"]):
 		Protocol.GA_RPG_FIRE: _fire_rocket(id, p, d["dir"])
-		_: pass   # C4/mine/give actions wired in later tasks
+		Protocol.GA_C4_PLACE: _place_c4(id, p, d["pos"])
+		Protocol.GA_C4_DETONATE: _detonate_c4(id)
+		_: pass   # mine/give actions wired in later tasks
 
 ## Launch an RPG rocket if the player has the RPG equipped, rockets remaining, and is off cooldown.
 func _fire_rocket(id: int, p: Pawn, dir: Vector3) -> void:
@@ -670,6 +674,35 @@ func _fire_rocket(id: int, p: Pawn, dir: Vector3) -> void:
 	c["last_rocket_tick"] = _sim.tick
 	c["rockets"] = int(c["rockets"]) - 1
 	_rockets.append({"owner": id, "team": p.team, "pos": p.eye_position(), "vel": Grenade.launch_velocity(dir)})
+
+func _place_c4(id: int, p: Pawn, pos: Vector3) -> void:
+	if Loadout.gadget_for(int(_clients[id]["class"])) != Loadout.GADGET_C4: return
+	var cdef: Dictionary = _gadgets.def_of_kind(Gadget.KIND_C4)
+	var owned: Array = _c4.get(id, [])
+	if owned.size() >= int(cdef["max_active"]): return
+	if p.pos.distance_to(pos) > StructureStore.BUILD_RANGE: return   # within reach
+	owned.append({"pos": pos, "cell": BuildGrid.cell_of(Vector3(pos.x, 0.0, pos.z))})
+	_c4[id] = owned
+
+func _detonate_c4(id: int) -> void:
+	var owned: Array = _c4.get(id, [])
+	if owned.is_empty(): return
+	var cdef: Dictionary = _gadgets.def_of_kind(Gadget.KIND_C4)
+	var team: int = _sim.world.get_pawn(id).team if _sim.world.get_pawn(id) != null else int(_clients[id]["team"])
+	for c4 in owned:
+		_c4_det += 1
+		_blast_at(c4["pos"], id, team, int(cdef["pawn_damage"]), float(cdef["pawn_radius"]),
+			int(cdef["struct_damage"]), float(cdef["struct_radius"]))
+	_c4.erase(id)
+
+## Drop any placed C4 whose ground cell matches a just-destroyed structure cell (spec §"C4").
+func _remove_c4_on_cell(cell: Vector3i) -> void:
+	for owner in _c4:
+		var kept: Array = []
+		for c4 in _c4[owner]:
+			if c4["cell"] != cell:
+				kept.append(c4)
+		_c4[owner] = kept
 
 func _handle_self_bandage(peer: ENetPacketPeer, _bytes: PackedByteArray) -> void:
 	var id = _peer_to_id.get(peer, 0)
@@ -811,6 +844,7 @@ func _damage_structure(id: int, amount: int) -> void:
 		_pending_removes.append({"id": id, "cell": cell})
 		_dmg_touched.erase(id)
 		_last_bucket.erase(id)
+		_remove_c4_on_cell(cell)
 	else:
 		_dmg_touched[id] = true
 
@@ -888,8 +922,8 @@ func _log_telemetry() -> void:
 	var pts := ""
 	for pt in _conquest.points:
 		pts += "." if pt["owner"] == -1 else str(pt["owner"])
-	print("[telemetry] players=%d alive=%d tick_mean=%.2fms tick_p99=%.2fms agg=%.1fMbit/s kills=%d shots=%d hit_rate=%.2f starv=%d rewind_clamped=%d t0=%d t1=%d pts=%s cap_events=%d struct=%d bld=%d rmv=%d blk=%d pen=%d dmg=%d destroyed=%d nades=%d splash=%d smoke=%d rockets=%d rstruct=%d downed=%d bleedouts=%d revives=%d"
-		% [n, alive, _tele.mean_tick_ms(), _tele.p99_tick_ms(), mbit, _kills, _shots, hit_rate, _tele.starvation, _rewind_clamped, _conquest.tickets_int(0), _conquest.tickets_int(1), pts, _cap_events, _store.count(), _builds, _removes, _shots_blocked, _pen, _dmg, _destroyed, _nades, _splash_kills, _smokes, _rockets_det, _rstruct, _downed, _bleedouts, _revives])
+	print("[telemetry] players=%d alive=%d tick_mean=%.2fms tick_p99=%.2fms agg=%.1fMbit/s kills=%d shots=%d hit_rate=%.2f starv=%d rewind_clamped=%d t0=%d t1=%d pts=%s cap_events=%d struct=%d bld=%d rmv=%d blk=%d pen=%d dmg=%d destroyed=%d nades=%d splash=%d smoke=%d rockets=%d rstruct=%d downed=%d bleedouts=%d revives=%d c4=%d"
+		% [n, alive, _tele.mean_tick_ms(), _tele.p99_tick_ms(), mbit, _kills, _shots, hit_rate, _tele.starvation, _rewind_clamped, _conquest.tickets_int(0), _conquest.tickets_int(1), pts, _cap_events, _store.count(), _builds, _removes, _shots_blocked, _pen, _dmg, _destroyed, _nades, _splash_kills, _smokes, _rockets_det, _rstruct, _downed, _bleedouts, _revives, _c4_det])
 	var pt := maxi(_phase_ticks, 1)
 	print("[perf] us/tick: poll=%d move=%d lag=%d interest=%d fire=%d respawn=%d conquest=%d match=%d snap=%d (ticks=%d)"
 		% [_phase_us["poll"] / pt, _phase_us["move"] / pt, _phase_us["lag"] / pt, _phase_us["interest"] / pt, _phase_us["fire"] / pt, _phase_us["respawn"] / pt, _phase_us["conquest"] / pt, _phase_us["match"] / pt, _phase_us["snap"] / pt, _phase_ticks])
@@ -898,4 +932,4 @@ func _log_telemetry() -> void:
 	_tele.reset_window()
 	_kills = 0; _shots = 0; _hits = 0; _rewind_clamped = 0; _cap_events = 0
 	_builds = 0; _removes = 0; _shots_blocked = 0; _pen = 0
-	_dmg = 0; _destroyed = 0; _nades = 0; _splash_kills = 0; _smokes = 0; _rockets_det = 0; _rstruct = 0; _downed = 0; _bleedouts = 0; _revives = 0
+	_dmg = 0; _destroyed = 0; _nades = 0; _splash_kills = 0; _smokes = 0; _rockets_det = 0; _rstruct = 0; _downed = 0; _bleedouts = 0; _revives = 0; _c4_det = 0
