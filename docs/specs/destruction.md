@@ -19,10 +19,11 @@ tick + bandwidth budget. This is M4's highest-cost feature — graceful degradat
 | In scope (this gate) | Deferred |
 |---|---|
 | **Bullet damage** to pieces (fire ray damages the blocking piece; remove at 0 HP) | Destructible **pre-placed environment cover** (later; reuses this cell-health model with `start_health` in the map/catalog) |
-| **Explosives**: thrown, server-side, area damage to **structures + pawns** | Grenade **in-flight replication** / client VFX (M7, with rendering) |
+| **Explosives (frag)**: thrown, server-side, area damage to **structures + pawns** | Grenade **in-flight replication** / client VFX (M7, with rendering) |
+| **Smoke grenades**: thrown, server-side, spawn smoke zone entity (position + duration); no damage; client VFX deferred to M7 | Smoke **LOS culling** integration (M7, anti-wallhack extension — server zone data already present) |
 | **Throttled HP-bucket** damage replication (75/50/25 %) | Per-fragment / voxel-shatter physics (coarse cell-health only, forever) |
 | **Graceful degradation** fallback (delta-send throttling) | Explosive **self-damage** balancing (FF-off incl. self in v1; tunable later) |
-| Bot AI: throw explosives at cover/enemy clusters | Resource/supply economy for explosives (rejected, as for building) |
+| Bot AI: throw frag explosives at cover/enemy clusters; throw smoke to obscure a rush | Resource/supply economy for explosives (rejected, as for building) |
 
 ## Design decisions (ratified)
 
@@ -62,6 +63,8 @@ shared/sim/
                           r) -> Array[Vector3i] (occupied cells only). All pure data ops.
   grenade.gd         NEW  Grenade record + pure helpers: fuse/step trajectory; blast_cells(center,
                           radius) and falloff_damage(center, point, max_dmg, radius) -> int.
+                          Grenade has a `type` field: FRAG (area damage) or SMOKE (spawn zone, no
+                          damage). Throw/arc/fuse logic is identical for both types.
 shared/net/
   protocol.gd        (mod) + Msg.GRENADE_THROW; + OP_DAMAGE; STRUCTURE_DELTA carries {id, bucket}
                           for OP_DAMAGE; (Msg.DETONATION reserved, NOT sent in the gate)
@@ -69,9 +72,10 @@ shared/net/
 pieces/
   fortifications.json (reuse) per-type `health` already authored (Phase 1)
 server/server_main.gd  (mod) bullet damage in _fire_shot; grenade poll → spawn → fuse → detonate
-                              (structure + pawn area damage, FF-off, present-time); bucket-diff
-                              emission after fire+blast; MAX_STRUCTURE_DELTAS_PER_TICK send cap;
-                              telemetry (dmg/destroyed/nades/splash_kills + blast [perf])
+                              (frag: structure + pawn area damage, FF-off, present-time;
+                               smoke: spawn _smoke_zones entry, broadcast SMOKE_DEPLOYED);
+                              bucket-diff emission after fire+blast; MAX_STRUCTURE_DELTAS_PER_TICK
+                              send cap; telemetry (dmg/destroyed/nades/splash_kills + blast [perf])
 bots/bot_driver.gd     (mod) grenade heuristic: throw at cover/enemy when blocked, cooldown + cap
 ci/m4_destruction_test.sh NEW  gate: 128 bots build + destroy under load; assert destroyed +
                               nades + splash + replicate + budget + winner
@@ -126,6 +130,31 @@ unit-tested independently of the server. A **`Msg.DETONATION`** event (position 
 **reserved** for M7 client VFX but **not sent** in this gate (off the snapshot path; nothing new
 rides per-tick replication).
 
+## B.5 Smoke grenades
+
+`Grenade` gains a `type` field (`FRAG` / `SMOKE`). The throw path (§B), cooldown gating, arc integration, and fuse/contact detonation logic are **identical** for both types. Only the detonation side effect differs.
+
+On smoke detonation the server:
+1. Does **not** apply any damage.
+2. Creates a **server-side smoke zone** `{pos, radius=SMOKE_RADIUS, expire_tick = now + SMOKE_DURATION_TICKS}` in `_smoke_zones: Array`.
+3. Broadcasts a **`SMOKE_DEPLOYED`** event (reliable CONTROL) to interested clients — the full zone record at detonation time. No per-tick update; clients know the zone by position, radius, and `expire_tick`.
+4. Cleans up expired zones each tick (O(zones), negligible).
+
+Smoke zones are also consumed in M7 for server-side LOS culling (anti-wallhack extension): when a pawn is inside a smoke zone the server may withhold enemy snapshot state from clients without LOS through the smoke — the zone data is already present from this milestone.
+
+**No damage path is called on smoke detonation.** Smoke is FF-neutral (there is no harm to block).
+
+Bot AI: throw smoke to obscure a rush route at an objective or to cover a DBNO revive attempt (M4.5 context). Smoke throw uses the same `last_grenade_tick` cooldown as frags (one shared throw cooldown per player; only one grenade type thrown per class per cooldown window).
+
+**Constants:**
+
+| Const | Value | Meaning |
+|---|---|---|
+| `SMOKE_DURATION_TICKS` | 150 (5 s) | smoke zone lifetime |
+| `SMOKE_RADIUS` | 6.0 m | smoke zone radius (matches blast radius for consistency) |
+
+---
+
 ## C. Throttled HP-bucket replication
 
 Pieces have 4 visible states by remaining-health fraction `f = health / max_health`:
@@ -155,9 +184,10 @@ New message + one new `STRUCTURE_DELTA` op (no changes to existing bodies):
 
 | Msg / op | Dir | Channel/reliability | Body |
 |---|---|---|---|
-| `GRENADE_THROW` (12) | C→S | INPUT, unreliable-seq | `dir (quantized i16×3 or yaw/pitch), [charge u8]` |
+| `GRENADE_THROW` (12) | C→S | INPUT, unreliable-seq | `dir (quantized i16×3 or yaw/pitch), type u8 (0=FRAG 1=SMOKE), [charge u8]` |
 | `STRUCTURE_DELTA OP_DAMAGE` (op=2) | S→C | CONTROL, reliable | `op u8 (=2), id u16, bucket u8` |
 | `DETONATION` (13) | S→C | *reserved, not sent in gate* | `pos i16×3, radius u8` (M7 VFX) |
+| `SMOKE_DEPLOYED` (14) | S→C | CONTROL, reliable | `pos i16×3, radius u8, expire_tick u16` |
 
 `encode_structure_delta`/`decode_structure_delta` extend their existing op switch: `OP_PLACE` →
 full record (Phase 1), `OP_REMOVE` → `id` (Phase 1), `OP_DAMAGE` → `id, bucket` (new). All
