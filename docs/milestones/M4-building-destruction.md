@@ -1,6 +1,6 @@
 # M4 — Building & Destruction
 
-**Status:** Phase 1 (Building) — laptop-48 gate PASS 2026-06-15, fleet-128 pending; Phase 2 (Destruction) next · *(M4–M6 may be reordered)*
+**Status:** Phase 1 (Building) — gate PASS 2026-06-15 (laptop-48 + fleet-128); Phase 2 (Destruction) next · *(M4–M6 may be reordered)*
 
 **Objective:** BattleBit's signature fortification building and destructible environment, networked efficiently.
 
@@ -55,18 +55,31 @@ stays clear and attrition still converges the match), and cap each bot at `MAX_B
 stalemate — no winner). `MAX_BOT_BUILDS` in `bots/bot_driver.gd` is the convergence/cover
 tuning knob if the 128-bot fleet over-blocks.
 
-### Fleet — 128 bots — **PENDING** (run on the unraid W-2275 Docker fleet, not the laptop)
-Per HANDOVER the 128-bot gate runs on the separate-host fleet (`docker/`, server pinned to
-isolated cores, bots in containers). Reproduce:
+### Fleet — 128 bots — **PASS** (2026-06-15, unraid W-2275 "SENET", Docker Compose v5.1.2)
+Run on the separate-host fleet (`docker/`, `full` profile): dedicated server pinned to isolated
+cores (`SERVER_CPUS=0,1,14,15`), 128 bots across 4 containers on the rest (`BOTS_CPUS=2-13,16-27`),
+`TICKETS=80 TIME_LIMIT=900`. Built from this branch's tree (rsynced to `/mnt/app/blockfire`).
+Metrics from the server + bot container logs:
 ```
-cd docker && SERVER_CPUS=0,1,14,15 BOTS_CPUS=2-13,16-27 ./run-gate.sh
+[match] OVER winner=1 t0=0 t1=26 elapsed=230s cap_events=3
+peak-window tick_mean = 30.89 ms  (budget 33.3)   [tick_p99 peak 50.35 ms]
+peak struct = 37   total builds = 37   total blocked_shots = 618   kills = 122
+[bots] structures synced: bot 98 sees 1 piece(s)
+no SCRIPT ERRORs (server or bots)
 ```
-> Action for the maintainer: `docker/run-gate.sh` currently invokes the M3 conquest gate.
-> Building is always-on in the server now, so the existing run already exercises M4, but it
-> does **not** assert `struct`/`bld`/`blk`. Point `run-gate.sh` at `ci/m4_building_test.sh`
-> (or run that script inside the fleet containers) to get the M4 assertions. Record the
-> `[m4] winner=… peak tick=…ms peak struct=… builds=… blocked_shots=…` + `structures synced`
-> lines and the PASS/FAIL verdict here once run.
+Winner declared via attrition (t0→0) in 230 s (< the 900 s fail-safe); pieces accumulate
+(struct 37), placements + cap-recycle exercised (builds 37), cover blocks shots (618),
+replication reaches bots (synced), and Conquest still resolves — building did not break the M3
+loop. **Peak tick 30.89 ms is under budget but thinner than M3's 28.6 ms** (building adds
+~2.3 ms; the engagement-bounded cover march keeps it in check). The p99 spike (50 ms) is in the
+single peak-combat window and does not breach the mean-based gate (M3 had comparable p99
+excursions) — worth watching as M5+ adds tick cost.
 
-**Phase 1 verdict:** laptop-48 **PASS**; fleet-128 **pending** (maintainer). Phase 2
-(Destruction) remains.
+> Fleet how-to: `docker/run-gate.sh` still applies the **M3** assertions (winner/cap/tick).
+> Building is always-on in the server, so it already exercises M4; the M4 `struct`/`bld`/`blk`
+> + `structures synced` assertions above were collected directly from the container logs
+> (`docker compose --profile full logs server|bots`). A dedicated `run-m4-gate.sh` that bakes
+> in those assertions is a nice-to-have follow-up.
+
+**Phase 1 (Building) verdict:** laptop-48 **PASS** + fleet-128 **PASS** → **Phase 1 gate CLOSED.**
+Phase 2 (Destruction, `docs/specs/destruction.md`) remains.
