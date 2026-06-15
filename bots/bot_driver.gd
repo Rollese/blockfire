@@ -192,6 +192,20 @@ static func combat_button(fire: bool, st: int, reload_until: int, burst_start: i
 		return [InputCommand.BTN_RELOAD, st + RELOAD_TICKS, -1]
 	return [InputCommand.BTN_FIRE, reload_until, burst_start]
 
+## Apply a decoded STRUCTURE_DELTA to a bot's local mirror (id->record). PLACE inserts, DAMAGE
+## updates the record's bucket in place (must NOT remove), REMOVE erases. Pure + unit-tested;
+## the live path runs inside _on_packet. See docs/specs/destruction.md.
+static func apply_structure_delta(structs: Dictionary, d: Dictionary) -> void:
+	var op: int = d["op"]
+	if op == Protocol.OP_PLACE:
+		structs[d["rec"]["id"]] = d["rec"]
+	elif op == Protocol.OP_DAMAGE:
+		var id: int = d["id"]
+		if structs.has(id):
+			structs[id]["bucket"] = d["bucket"]
+	else:
+		structs.erase(d["id"])
+
 func _objective_pos(me: EntityState) -> Vector3:
 	if _map == null or _map.points.is_empty():
 		return me.pos
@@ -224,11 +238,7 @@ func _on_packet(bot: Dictionary, bytes: PackedByteArray) -> void:
 		Protocol.Msg.MATCH_STATE:
 			_match_points = Protocol.decode_match_state(bytes)["points"]
 		Protocol.Msg.STRUCTURE_DELTA:
-			var d := Protocol.decode_structure_delta(bytes)
-			if d["op"] == Protocol.OP_PLACE:
-				bot["structs"][d["rec"]["id"]] = d["rec"]
-			else:
-				bot["structs"].erase(d["id"])
+			apply_structure_delta(bot["structs"], Protocol.decode_structure_delta(bytes))
 			_note_sync(bot)
 		Protocol.Msg.STRUCTURE_BASELINE:
 			for rec in Protocol.decode_structure_baseline(bytes)["records"]:
