@@ -115,6 +115,24 @@ func apply_damage(id: int, amount: int) -> Dictionary:
 	rec["health"] = h
 	return {"hit": true, "destroyed": false, "health": h, "bucket": bucket_of(h, max_health)}
 
+## Ids of occupied pieces whose cell-centre is within `radius_m` of the world point `center`.
+## Bounded by the (small) blast cell neighbourhood; used by explosive area damage. Array[int].
+func ids_in_radius(center: Vector3, radius_m: float) -> Array:
+	var out: Array = []
+	var cr := int(ceil(radius_m / BuildGrid.CELL_SIZE))
+	var cc := BuildGrid.cell_of(center)
+	var half := BuildGrid.CELL_SIZE * 0.5
+	for dx in range(-cr, cr + 1):
+		for dy in range(-cr, cr + 1):
+			for dz in range(-cr, cr + 1):
+				var cell := Vector3i(cc.x + dx, cc.y + dy, cc.z + dz)
+				if not _occupancy.has(cell):
+					continue
+				var wc := BuildGrid.cell_min(cell) + Vector3(half, half, half)
+				if wc.distance_to(center) <= radius_m:
+					out.append(int(_occupancy[cell]))
+	return out
+
 ## The owner's oldest piece id (FIFO front) without removing it, or 0 if none.
 func oldest_id(owner: int) -> int:
 	var ids: Array = _by_owner.get(owner, [])

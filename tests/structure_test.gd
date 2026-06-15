@@ -123,3 +123,16 @@ func test_apply_damage_destroys_and_frees_cell() -> void:
 func test_apply_damage_unknown_id_is_noop() -> void:
 	var s := _store()
 	assert_eq(s.apply_damage(999, 50)["hit"], false)
+
+func test_ids_in_radius_returns_occupied_within_range() -> void:
+	var s := _store()
+	# cell centres: (0,0,0)->(1,1,1), (2,0,0)->(5,1,1), (3,0,0)->(7,1,1)
+	s.place(1, 1, Vector3i(0, 0, 0), 0, 7)
+	s.place(2, 1, Vector3i(2, 0, 0), 0, 7)
+	s.place(3, 1, Vector3i(3, 0, 0), 0, 7)
+	var near := s.ids_in_radius(Vector3(1, 1, 1), 3.0)   # only id1 (id2 is 4m away)
+	assert_eq(near.size(), 1)
+	assert_eq(near[0], 1)
+	var wider := s.ids_in_radius(Vector3(1, 1, 1), 4.5)  # id1 (0m) + id2 (4m)
+	assert_eq(wider.size(), 2)
+	assert_eq(wider.has(1) and wider.has(2), true)
