@@ -10,6 +10,13 @@ const MAX_PLAYERS := 128
 const INTEREST_RADIUS := 250.0
 const CELL_SIZE := 64.0
 const MAX_HISTORY := 32
+const SNAPSHOT_STRIDE := 2   # send each client a snapshot every Nth tick (round-robin by id),
+                             # so per-tick encode cost is ~clients/STRIDE instead of O(clients).
+                             # Client-side interpolation smooths the lower send rate (30/STRIDE Hz).
+const MAX_SNAPSHOT_ENTITIES := 32   # relevance cap: a snapshot carries at most the N most
+                                    # relevant entities (enemies first, then nearest teammates),
+                                    # bounding the worst case (a dense cluster) where every client
+                                    # would otherwise see ~everyone (O(N^2) encode at the peak).
 const RESPAWN_DELAY_TICKS := 150   # 5s @30Hz
 const FIRE_CONE_DOT := 0.985       # broad-phase: target within ~10deg of ray
 const FIRE_RANGE_MARGIN := 20.0    # grid broad-phase slack for lag-comp movement
@@ -30,6 +37,9 @@ var _conquest: ConquestState
 var _squads := SquadManager.new()
 var _next_id := 1
 var _tele_accum := 0.0
+# Per-phase tick profiling (mean usec/tick over the telemetry window).
+var _phase_us := {"poll": 0, "move": 0, "lag": 0, "interest": 0, "fire": 0, "respawn": 0, "conquest": 0, "match": 0, "snap": 0}
+var _phase_ticks := 0
 var _team_counts := {0: 0, 1: 0}
 var _positions := {}               # id -> Vector3, rebuilt each tick before fires
 
@@ -74,15 +84,34 @@ func _ready() -> void:
 func _physics_process(delta: float) -> void:
 	var t0 := Time.get_ticks_usec()
 	_net.poll()
+	var t_poll := Time.get_ticks_usec()
 	_step_movement()
+	var t_move := Time.get_ticks_usec()
 	_lag.record(_sim.tick, _sim.world)
+	var t_lag := Time.get_ticks_usec()
 	_build_interest()
+	var t_int := Time.get_ticks_usec()
 	_resolve_fires()
+	var t_fire := Time.get_ticks_usec()
 	_handle_respawns()
+	var t_resp := Time.get_ticks_usec()
 	_conquest.step(SimLoop.DT, _sim.world)
+	var t_conq := Time.get_ticks_usec()
 	_track_and_broadcast_match_state()
+	var t_match := Time.get_ticks_usec()
 	_send_snapshots()
-	_tele.record_tick_ms(float(Time.get_ticks_usec() - t0) / 1000.0)
+	var t_snap := Time.get_ticks_usec()
+	_phase_us["poll"] += t_poll - t0
+	_phase_us["move"] += t_move - t_poll
+	_phase_us["lag"] += t_lag - t_move
+	_phase_us["interest"] += t_int - t_lag
+	_phase_us["fire"] += t_fire - t_int
+	_phase_us["respawn"] += t_resp - t_fire
+	_phase_us["conquest"] += t_conq - t_resp
+	_phase_us["match"] += t_match - t_conq
+	_phase_us["snap"] += t_snap - t_match
+	_phase_ticks += 1
+	_tele.record_tick_ms(float(t_snap - t0) / 1000.0)
 	_tele_accum += delta
 	if _tele_accum >= 1.0:
 		_log_telemetry(); _tele_accum = 0.0
@@ -259,10 +288,36 @@ func _track_and_broadcast_match_state() -> void:
 func _send_snapshots() -> void:
 	var state := _sim.world.state_map()
 	for id in _clients:
+		# Stagger sends across ticks so the per-tick snapshot encode cost (the dominant tick
+		# cost at high player counts) is ~clients/SNAPSHOT_STRIDE rather than O(clients).
+		if (_sim.tick + id) % SNAPSHOT_STRIDE != 0:
+			continue
 		var c = _clients[id]
 		var self_pawn = _sim.world.get_pawn(id)
 		if self_pawn == null: continue
 		var ids := _grid.query(self_pawn.pos, INTEREST_RADIUS, _positions)
+		if ids.size() > MAX_SNAPSHOT_ENTITIES:
+			# Relevance cull to the cap, prioritising ENEMIES (a player must see nearby foes
+			# even inside a crowd of teammates — pure nearest-N would hide them) and always
+			# keeping self (needed for reconciliation). Enemies first by distance, then the
+			# nearest teammates fill the rest. Only paid when over the cap (dense clusters).
+			var sp: Vector3 = self_pawn.pos
+			var myteam: int = self_pawn.team
+			var ranked: Array = []
+			ranked.resize(ids.size())
+			for i in ids.size():
+				var vid: int = ids[i]
+				var key: float = sp.distance_squared_to(_positions[vid])
+				if int(state[vid].team) == myteam:
+					key += 1.0e15   # teammates rank after every enemy
+				ranked[i] = [key, vid]
+			ranked.sort()
+			var kept := {id: true}
+			for pair in ranked:
+				if kept.size() >= MAX_SNAPSHOT_ENTITIES:
+					break
+				kept[pair[1]] = true
+			ids = kept.keys()
 		var current := {}
 		for vid in ids: current[vid] = state[vid]
 		var baseline_seq: int = c["last_acked_seq"]
@@ -353,5 +408,10 @@ func _log_telemetry() -> void:
 		pts += "." if pt["owner"] == -1 else str(pt["owner"])
 	print("[telemetry] players=%d alive=%d tick_mean=%.2fms tick_p99=%.2fms agg=%.1fMbit/s kills=%d shots=%d hit_rate=%.2f starv=%d rewind_clamped=%d t0=%d t1=%d pts=%s cap_events=%d"
 		% [n, alive, _tele.mean_tick_ms(), _tele.p99_tick_ms(), mbit, _kills, _shots, hit_rate, _tele.starvation, _rewind_clamped, _conquest.tickets_int(0), _conquest.tickets_int(1), pts, _cap_events])
+	var pt := maxi(_phase_ticks, 1)
+	print("[perf] us/tick: poll=%d move=%d lag=%d interest=%d fire=%d respawn=%d conquest=%d match=%d snap=%d (ticks=%d)"
+		% [_phase_us["poll"] / pt, _phase_us["move"] / pt, _phase_us["lag"] / pt, _phase_us["interest"] / pt, _phase_us["fire"] / pt, _phase_us["respawn"] / pt, _phase_us["conquest"] / pt, _phase_us["match"] / pt, _phase_us["snap"] / pt, _phase_ticks])
+	for k in _phase_us: _phase_us[k] = 0
+	_phase_ticks = 0
 	_tele.reset_window()
 	_kills = 0; _shots = 0; _hits = 0; _rewind_clamped = 0; _cap_events = 0
