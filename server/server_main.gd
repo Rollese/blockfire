@@ -36,6 +36,8 @@ const GRENADE_DAMAGE_STRUCT := 200    # frag structure splash at centre, linear 
 const SMOKE_DURATION_TICKS := 150     # 5s @30Hz — smoke zone lifetime
 const SMOKE_RADIUS := 6.0             # m — smoke zone radius (matches blast radius)
 const PIECES_PATH := "res://pieces/fortifications.json"
+const GADGETS_PATH := "res://data/gadgets.json"
+const ATTACHMENTS_PATH := "res://data/attachments.json"
 
 var _net: NetHost
 var _port := 27015
@@ -50,6 +52,8 @@ var _conquest: ConquestState
 var _squads := SquadManager.new()
 var _catalog: PieceCatalog
 var _store: StructureStore
+var _gadgets: Gadget
+var _attachments: Attachment
 var _next_struct_id := 1
 var _next_id := 1
 var _tele_accum := 0.0
@@ -74,6 +78,7 @@ var _cap_events_total := 0    # cumulative over the match (for the match-end sum
 var _builds := 0
 var _removes := 0
 var _shots_blocked := 0
+var _pen := 0                 # bullet penetrations through a piece this window
 var _dmg := 0                 # damage events applied this window
 var _destroyed := 0           # pieces removed by damage/blast this window
 var _nades := 0               # frag detonations this window
@@ -111,6 +116,12 @@ func _ready() -> void:
 		push_error("[server] failed to load pieces %s" % PIECES_PATH); get_tree().quit(1); return
 	_store = StructureStore.new(_catalog)
 	_sim.structures = _store
+	_gadgets = Gadget.load_file(GADGETS_PATH)
+	if _gadgets == null:
+		push_error("[server] failed to load gadgets %s" % GADGETS_PATH); get_tree().quit(1); return
+	_attachments = Attachment.load_file(ATTACHMENTS_PATH)
+	if _attachments == null:
+		push_error("[server] failed to load attachments %s" % ATTACHMENTS_PATH); get_tree().quit(1); return
 	_net = NetHost.new()
 	add_child(_net)
 	_net.peer_connected.connect(func(_p): pass)
@@ -202,6 +213,9 @@ func _resolve_fires() -> void:
 		if inp == null: continue
 		var shooter: Pawn = _sim.world.get_pawn(id)
 		if shooter == null or not shooter.alive: continue
+		if c["weapon"] == Weapon.RPG:
+			c["shot_index"] = 0
+			continue   # RPG fires via GADGET_ACTION(GA_RPG_FIRE), not the hit-scan path
 		var firing: bool = (inp["buttons"] & InputCommand.BTN_FIRE) != 0
 		if not firing:
 			c["shot_index"] = 0
@@ -227,15 +241,17 @@ func _fire_shot(shooter_id: int, shooter: Pawn, inp: Dictionary, shot_index: int
 	elif shooter.lean == Stance.LEAN_RIGHT: lean_sign = 1
 	var moving: bool = absf(inp["move_x"]) + absf(inp["move_y"]) > 0.01
 	var wid: int = _clients[shooter_id]["weapon"]
+	var wdef: Dictionary = _clients[shooter_id]["weapon_def"]
+	var prone: bool = shooter.stance == Stance.PRONE
 	var ray := Combat.reconstruct_ray(wid, shooter.eye_position(),
-		inp["yaw"], inp["pitch"], lean_sign, shooter_id, _sim.tick, shot_index, moving)
+		inp["yaw"], inp["pitch"], lean_sign, shooter_id, _sim.tick, shot_index, moving, prone, wdef)
 
 	var view_tick: int = inp["view_server_tick"]
 	if view_tick < _sim.tick - LagComp.MAX_REWIND or view_tick > _sim.tick:
 		_rewind_clamped += 1
 	var frame := _lag.rewind(view_tick)
 
-	var max_range: float = Weapon.get_def(wid)["range_m"]
+	var max_range: float = wdef["range_m"]
 	# Broad-phase: only candidates near the shooter (current positions + lag-comp margin),
 	# instead of scanning the whole rewound frame. Objective clustering raises density, so
 	# this keeps per-shot cost bounded. Precise test still uses the rewound state.
@@ -254,10 +270,14 @@ func _fire_shot(shooter_id: int, shooter: Pawn, inp: Dictionary, shot_index: int
 		var hit := Hitbox.raycast_pawn(ray["origin"], ray["dir"], st["pos"], st["stance"], max_range)
 		if hit["hit"] and hit["t"] < best_t:
 			best_t = hit["t"]; best_victim = tid; best_head = hit["headshot"]
-	# Cover: a structure strictly nearer than the enemy absorbs the shot (Phase 1: no piece
-	# damage; ties go to the enemy). Skip the march entirely when nothing is built yet.
-	var block_dist := INF
-	var block_id := 0
+
+	# Resolve the enemy hit damage up front (incl. headshot/range) — penetration scales it.
+	var enemy_dmg := 0
+	if best_victim != 0:
+		enemy_dmg = Combat.damage_for(wid, best_head, best_t, wdef)
+	var body_dmg := int(wdef["damage_body"])
+
+	# Cover / penetration: a structure strictly nearer than the enemy is in the way.
 	if _store.count() > 0:
 		# Only a structure NEARER than the resolved enemy hit can change the outcome, so bound
 		# the march by best_t (the enemy distance) when an enemy was hit — in combat that is the
@@ -265,19 +285,31 @@ func _fire_shot(shooter_id: int, shooter: Pawn, inp: Dictionary, shot_index: int
 		# When no enemy was hit, march the full range to detect a pure cover absorb.
 		var march_max: float = best_t if best_victim != 0 else max_range
 		var blocked := _store.march(ray["origin"], ray["dir"], march_max)
-		if blocked["hit"]:
-			block_dist = blocked["dist"]
-			block_id = int(blocked["id"])
-	if best_victim == 0 or block_dist < best_t:
-		if block_id != 0:
+		if blocked["hit"] and float(blocked["dist"]) < best_t:
+			var block_id := int(blocked["id"])
+			var rec: Dictionary = _store.get_record(block_id)
+			var mat := _catalog.material_of(int(rec["type"]))
 			_shots_blocked += 1
-			_damage_structure(block_id, int(Weapon.get_def(wid)["damage_body"]))
+			if not PieceCatalog.is_penetrable(mat):
+				_damage_structure(block_id, body_dmg)   # non-pen: piece eats it, shot stops
+				return
+			# Penetrable: piece takes body*absorption; if it survives, bullet exits at *transmit.
+			var split := Combat.apply_penetration(body_dmg, enemy_dmg,
+				PieceCatalog.absorption_of(mat), PieceCatalog.transmit_of(mat))
+			_damage_structure(block_id, int(split["piece_damage"]))
+			if _store.get_record(block_id).is_empty():
+				return   # 1-pen: a piece destroyed this shot consumes the bullet
+			if best_victim == 0:
+				return   # nothing beyond to hit
+			_pen += 1
+			enemy_dmg = int(split["exit_damage"])
+
+	if best_victim == 0 or enemy_dmg <= 0:
 		return
 	_hits += 1
-	var dmg := Combat.damage_for(wid, best_head, best_t)
 	var victim: Pawn = _sim.world.get_pawn(best_victim)
 	if victim == null or not victim.alive: return
-	_apply_pawn_damage(best_victim, victim, dmg, best_head, Revive.Source.BULLET, shooter_id, wid)
+	_apply_pawn_damage(best_victim, victim, enemy_dmg, best_head, Revive.Source.BULLET, shooter_id, wid)
 
 func _is_medic(id: int) -> bool:
 	return _clients.has(id) and int(_clients[id]["class"]) == Loadout.MEDIC
@@ -511,13 +543,22 @@ func _handle_hello(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
 	var team: int = 0 if _team_counts[0] <= _team_counts[1] else 1
 	_team_counts[team] += 1
 	var cls := Loadout.random_class()
-	var wid := Loadout.weapon_for(cls)
+	var wid: int = Loadout.weapon_for(cls)
+	if cls == Loadout.ENGINEER and id % 3 == 0:
+		wid = Weapon.RPG
+	if not Loadout.can_equip(cls, wid):   # authoritative guard (RPG -> Engineer only)
+		wid = Loadout.weapon_for(cls)
+	var attachments := Loadout.default_attachments()
+	var weapon_def := Weapon.effective_def(wid, _attachments.multipliers(attachments))
+	var start_rockets := int(_gadgets.def_of_kind(Gadget.KIND_RPG)["max_active"]) if wid == Weapon.RPG else 0
 	var squad := _squads.assign(id, team)
 	_peer_to_id[peer] = id
 	_clients[id] = {
 		"peer": peer, "queued_input": null, "last_input": null, "last_input_tick": 0,
 		"last_acked_seq": 0, "next_seq": 1, "history": {},
-		"team": team, "squad": squad, "class": cls, "weapon": wid, "ammo": Weapon.get_def(wid)["mag_size"],
+		"team": team, "squad": squad, "class": cls, "weapon": wid, "weapon_def": weapon_def,
+		"rockets": start_rockets, "last_rocket_tick": -100000,
+		"ammo": Weapon.get_def(wid)["mag_size"],
 		"reloading": false, "reload_done_tick": 0, "last_fire_time": -999.0,
 		"shot_index": 0, "respawn_tick": 0,
 		"last_build_tick": -100000, "last_grenade_tick": -100000, "known_regions": {},
@@ -777,8 +818,8 @@ func _log_telemetry() -> void:
 	var pts := ""
 	for pt in _conquest.points:
 		pts += "." if pt["owner"] == -1 else str(pt["owner"])
-	print("[telemetry] players=%d alive=%d tick_mean=%.2fms tick_p99=%.2fms agg=%.1fMbit/s kills=%d shots=%d hit_rate=%.2f starv=%d rewind_clamped=%d t0=%d t1=%d pts=%s cap_events=%d struct=%d bld=%d rmv=%d blk=%d dmg=%d destroyed=%d nades=%d splash=%d smoke=%d downed=%d bleedouts=%d revives=%d"
-		% [n, alive, _tele.mean_tick_ms(), _tele.p99_tick_ms(), mbit, _kills, _shots, hit_rate, _tele.starvation, _rewind_clamped, _conquest.tickets_int(0), _conquest.tickets_int(1), pts, _cap_events, _store.count(), _builds, _removes, _shots_blocked, _dmg, _destroyed, _nades, _splash_kills, _smokes, _downed, _bleedouts, _revives])
+	print("[telemetry] players=%d alive=%d tick_mean=%.2fms tick_p99=%.2fms agg=%.1fMbit/s kills=%d shots=%d hit_rate=%.2f starv=%d rewind_clamped=%d t0=%d t1=%d pts=%s cap_events=%d struct=%d bld=%d rmv=%d blk=%d pen=%d dmg=%d destroyed=%d nades=%d splash=%d smoke=%d downed=%d bleedouts=%d revives=%d"
+		% [n, alive, _tele.mean_tick_ms(), _tele.p99_tick_ms(), mbit, _kills, _shots, hit_rate, _tele.starvation, _rewind_clamped, _conquest.tickets_int(0), _conquest.tickets_int(1), pts, _cap_events, _store.count(), _builds, _removes, _shots_blocked, _pen, _dmg, _destroyed, _nades, _splash_kills, _smokes, _downed, _bleedouts, _revives])
 	var pt := maxi(_phase_ticks, 1)
 	print("[perf] us/tick: poll=%d move=%d lag=%d interest=%d fire=%d respawn=%d conquest=%d match=%d snap=%d (ticks=%d)"
 		% [_phase_us["poll"] / pt, _phase_us["move"] / pt, _phase_us["lag"] / pt, _phase_us["interest"] / pt, _phase_us["fire"] / pt, _phase_us["respawn"] / pt, _phase_us["conquest"] / pt, _phase_us["match"] / pt, _phase_us["snap"] / pt, _phase_ticks])
@@ -786,5 +827,5 @@ func _log_telemetry() -> void:
 	_phase_ticks = 0
 	_tele.reset_window()
 	_kills = 0; _shots = 0; _hits = 0; _rewind_clamped = 0; _cap_events = 0
-	_builds = 0; _removes = 0; _shots_blocked = 0
+	_builds = 0; _removes = 0; _shots_blocked = 0; _pen = 0
 	_dmg = 0; _destroyed = 0; _nades = 0; _splash_kills = 0; _smokes = 0; _downed = 0; _bleedouts = 0; _revives = 0
