@@ -110,3 +110,75 @@ func validate_place(cell: Vector3i, player_pos: Vector3, now_tick: int, last_bui
 	if cell.y > 0 and not _occupancy.has(Vector3i(cell.x, cell.y - 1, cell.z)):
 		return {"ok": false, "reason": "support"}
 	return {"ok": true, "reason": ""}
+
+const MARCH_STEP := 0.5   # ray-march sampling step (m); < CELL_SIZE so no cell is skipped
+
+## Walk a ray through the build grid up to max_dist. Returns {hit:bool, dist:float, id:int}.
+## Samples cells along the ray (coarse discovery), then runs an exact height-aware ray-AABB
+## test on each occupied cell; returns the nearest blocking hit. Bounded by max_dist/MARCH_STEP.
+func march(origin: Vector3, dir: Vector3, max_dist: float) -> Dictionary:
+	var d := dir.normalized()
+	var best_t := INF
+	var best_id := 0
+	var seen := {}
+	var t := 0.0
+	while t <= max_dist:
+		var cell := BuildGrid.cell_of(origin + d * t)
+		if not seen.has(cell):
+			seen[cell] = true
+			var id: int = _occupancy.get(cell, 0)
+			if id != 0:
+				var hit_t := _ray_piece(origin, d, _by_id[id])
+				if hit_t >= 0.0 and hit_t <= max_dist and hit_t < best_t:
+					best_t = hit_t
+					best_id = id
+		t += MARCH_STEP
+	if best_id != 0:
+		return {"hit": true, "dist": best_t, "id": best_id}
+	return {"hit": false, "dist": INF, "id": 0}
+
+func _ray_piece(origin: Vector3, d: Vector3, rec: Dictionary) -> float:
+	var mn := BuildGrid.cell_min(rec["cell"])
+	var h := BuildGrid.CELL_SIZE * (0.5 if _catalog.is_half(rec["type"]) else 1.0)
+	var mx := Vector3(mn.x + BuildGrid.CELL_SIZE, mn.y + h, mn.z + BuildGrid.CELL_SIZE)
+	return _ray_aabb(origin, d, mn, mx)
+
+## Slab test. Returns entry distance >= 0 if the ray hits the AABB, else -1.
+func _ray_aabb(origin: Vector3, d: Vector3, mn: Vector3, mx: Vector3) -> float:
+	var tmin := 0.0
+	var tmax := INF
+	for a in 3:
+		var o: float = origin[a]
+		var dir_a: float = d[a]
+		if absf(dir_a) < 1.0e-9:
+			if o < mn[a] or o > mx[a]:
+				return -1.0
+		else:
+			var inv := 1.0 / dir_a
+			var t1 := (mn[a] - o) * inv
+			var t2 := (mx[a] - o) * inv
+			if t1 > t2:
+				var tmp := t1; t1 = t2; t2 = tmp
+			tmin = maxf(tmin, t1)
+			tmax = minf(tmax, t2)
+			if tmin > tmax:
+				return -1.0
+	if tmax < 0.0:
+		return -1.0
+	return tmin
+
+## Coarse movement collision: if the destination ground cell is blocked, slide axis-separated;
+## if both axes blocked, stay. y is preserved (movement uses the ground cell). All v1 pieces block.
+func resolve_movement(from: Vector3, to: Vector3) -> Vector3:
+	if not _blocks_ground(to):
+		return to
+	var try_x := Vector3(to.x, to.y, from.z)
+	if not _blocks_ground(try_x):
+		return try_x
+	var try_z := Vector3(from.x, to.y, to.z)
+	if not _blocks_ground(try_z):
+		return try_z
+	return Vector3(from.x, to.y, from.z)
+
+func _blocks_ground(p: Vector3) -> bool:
+	return _occupancy.has(BuildGrid.cell_of(Vector3(p.x, 0.0, p.z)))
