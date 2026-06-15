@@ -79,3 +79,12 @@ func test_validate_accepts_valid() -> void:
 	var s := _store()
 	var ppos := Vector3(0.0, 0.0, 1.0)   # player in cell (0,0,0); place into adjacent (0,0,1)
 	assert_eq(s.validate_place(Vector3i(0, 0, 1), ppos, 1000, 0, 1000.0)["ok"], true)
+
+func test_oldest_id_peeks_without_removing() -> void:
+	var s := _store()
+	assert_eq(s.oldest_id(7), 0)                  # none yet
+	s.place(1, 0, Vector3i(0, 0, 0), 0, 7)
+	s.place(2, 0, Vector3i(1, 0, 0), 0, 7)
+	assert_eq(s.oldest_id(7), 1)                  # FIFO front
+	assert_eq(s.count(), 2)                       # peek did NOT remove
+	assert_eq(s.oldest_id(7), 1)                  # still there

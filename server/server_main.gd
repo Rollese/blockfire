@@ -413,10 +413,12 @@ func _handle_build_request(peer: ENetPacketPeer, bytes: PackedByteArray) -> void
 	var v := _store.validate_place(cell, p.pos, _sim.tick, c["last_build_tick"], Pawn.WORLD_HALF)
 	if not v["ok"]: return
 	if _store.owner_count(id) >= StructureStore.MAX_PIECES_PER_PLAYER:
-		var old_id := _store.recycle_oldest(id)
+		var old_id := _store.oldest_id(id)
 		if old_id != 0:
-			_emit_structure_delta(Protocol.OP_REMOVE, {"id": old_id}, _cell_of_struct(old_id))
+			var old_cell := _cell_of_struct(old_id)   # capture BEFORE removal (record still present)
+			_store.recycle_oldest(id)
 			_removes += 1
+			_emit_structure_delta(Protocol.OP_REMOVE, {"id": old_id}, old_cell)
 	var sid := _next_struct_id
 	_next_struct_id += 1
 	var rec := _store.place(sid, type, cell, d["yaw"], id)

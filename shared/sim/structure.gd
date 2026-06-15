@@ -83,6 +83,11 @@ func remove(id: int) -> void:
 		_by_region[region].erase(id)
 	_by_id.erase(id)
 
+## The owner's oldest piece id (FIFO front) without removing it, or 0 if none.
+func oldest_id(owner: int) -> int:
+	var ids: Array = _by_owner.get(owner, [])
+	return ids[0] if not ids.is_empty() else 0
+
 ## Remove the owner's oldest piece. Returns the removed id, or 0 if none.
 func recycle_oldest(owner: int) -> int:
 	var ids: Array = _by_owner.get(owner, [])
