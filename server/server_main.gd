@@ -339,6 +339,7 @@ func _step_revives() -> void:
 		var tp: Pawn = _sim.world.get_pawn(target_id)
 		if rp == null or not rp.alive or rp.is_downed: continue
 		if tp == null or not tp.is_downed: continue
+		if tp.team != rp.team: continue   # only a teammate may revive (spec P1)
 		if rp.pos.distance_to(tp.pos) > Revive.REVIVE_RANGE: continue
 		active_targets[target_id] = reviver_id
 	# Drop progress for targets no longer being revived.

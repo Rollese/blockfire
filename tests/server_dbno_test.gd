@@ -75,18 +75,50 @@ func test_halted_pawn_never_bleeds_out() -> void:
 		bh = Revive.bleed_step(bh, true)
 	assert_false(Revive.is_bled_out(bh), "self-bandaged pawn holds")
 
-func test_revive_completes_at_threshold_non_medic() -> void:
-	var done := 0
-	for _i in Revive.revive_ticks(false):
-		done += 1
-	assert_eq(done, Revive.REVIVE_TICKS)
+func test_revive_threshold_non_medic_is_revive_ticks() -> void:
+	assert_eq(Revive.revive_ticks(false), Revive.REVIVE_TICKS)
 
 func test_medic_revive_threshold_is_half() -> void:
-	assert_true(Revive.revive_ticks(true) < Revive.revive_ticks(false))
+	assert_eq(Revive.revive_ticks(true) * 2, Revive.revive_ticks(false))
 
-func test_revive_restores_to_revive_hp() -> void:
-	# Mirror of _complete_revive's pawn mutation.
-	var p := Pawn.new(1); p.is_downed = true; p.alive = true; p.health = 0; p.bleed_health = -20
-	p.is_downed = false; p.health = Revive.REVIVE_HP; p.bleed_health = 0; p.bleed_halted = false
-	assert_false(p.is_downed)
-	assert_eq(p.health, Revive.REVIVE_HP)
+# Mirrors server _step_revives accumulation + _complete_revive restore for one
+# in-range teammate reviver, isolated to Pawn + Revive (server node isn't headless-instantiable).
+func _drive_revive(reviver: Pawn, target: Pawn, is_medic: bool, ticks: int) -> void:
+	var acc := 0
+	for _i in ticks:
+		# validity gate (mirror of _step_revives)
+		if not reviver.alive or reviver.is_downed: continue
+		if not target.is_downed: continue
+		if reviver.team != target.team: continue
+		if reviver.pos.distance_to(target.pos) > Revive.REVIVE_RANGE: continue
+		acc += 1
+		if acc >= Revive.revive_ticks(is_medic):
+			# _complete_revive restore
+			target.is_downed = false
+			target.health = Revive.REVIVE_HP
+			target.bleed_health = 0
+			target.bleed_halted = false
+			return
+
+func test_revive_completes_and_restores_after_threshold() -> void:
+	var medic := Pawn.new(1); medic.team = 0; medic.alive = true; medic.pos = Vector3.ZERO
+	var downed := Pawn.new(2); downed.team = 0; downed.is_downed = true; downed.health = 0
+	downed.bleed_health = -20; downed.pos = Vector3(1.0, 0.0, 0.0)  # within REVIVE_RANGE=2.0
+	_drive_revive(medic, downed, false, Revive.REVIVE_TICKS)
+	assert_false(downed.is_downed, "completes after full hold")
+	assert_eq(downed.health, Revive.REVIVE_HP)
+	assert_eq(downed.bleed_health, 0)
+
+func test_revive_blocked_when_not_teammate() -> void:
+	var enemy := Pawn.new(1); enemy.team = 1; enemy.alive = true; enemy.pos = Vector3.ZERO
+	var downed := Pawn.new(2); downed.team = 0; downed.is_downed = true
+	downed.pos = Vector3(1.0, 0.0, 0.0)
+	_drive_revive(enemy, downed, false, Revive.REVIVE_TICKS * 2)
+	assert_true(downed.is_downed, "enemy cannot revive — stays downed")
+
+func test_revive_blocked_when_out_of_range() -> void:
+	var medic := Pawn.new(1); medic.team = 0; medic.alive = true; medic.pos = Vector3.ZERO
+	var downed := Pawn.new(2); downed.team = 0; downed.is_downed = true
+	downed.pos = Vector3(0.0, 0.0, Revive.REVIVE_RANGE + 1.0)  # out of range
+	_drive_revive(medic, downed, false, Revive.REVIVE_TICKS * 2)
+	assert_true(downed.is_downed, "out-of-range reviver makes no progress")
