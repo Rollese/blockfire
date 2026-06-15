@@ -10,9 +10,12 @@ const BURST_TICKS := 60   # server ticks (~2.0s @30Hz) of firing before reloadin
                           # than the fastest mag-empty time so no weapon runs dry mid-burst
 const RELOAD_TICKS := 84  # server ticks (~2.8s) to hold BTN_RELOAD; > the slowest weapon
                           # reload (2.6s) so the mag is surely refilled before the next burst
+const BUILD_COOLDOWN_TICKS := 150   # match server StructureStore.BUILD_COOLDOWN_TICKS (5s)
+const BUILD_DIST := 3.0             # how far ahead (m) to drop cover; within server BUILD_RANGE
 
 var _map: MapDef
 var _match_points: Array = []   # array of {owner, attacker, cap}, index == map point index
+var _synced_logged := false   # logs once when any bot first sees a structure (gate signal)
 
 var _server_ip := "127.0.0.1"
 var _port := 27015
@@ -40,6 +43,7 @@ func _spawn_bot(index: int) -> void:
 		"tick": 0, "last_seq": 0, "server_tick": 0, "view": {},
 		"yaw": randf() * TAU, "pitch": 0.0, "heading": randf() * TAU, "turn_timer": 0.0,
 		"reload_until": 0, "burst_start": -1,
+		"last_build_tick": -100000, "structs": {},
 	}
 	net.peer_connected.connect(func(peer: ENetPacketPeer) -> void:
 		bot["peer"] = peer
@@ -106,8 +110,27 @@ func _drive(bot: Dictionary, delta: float) -> void:
 		if flat.length() > 0.001: flat = flat.normalized()
 		move_x = flat.x; move_y = flat.y
 		bot["yaw"] = atan2(move_x, move_y)
+		_maybe_build(bot, me, obj)
 
 	_send(bot, move_x, move_y, bot["yaw"], bot["pitch"], buttons)
+
+func _maybe_build(bot: Dictionary, me: EntityState, obj: Vector3) -> void:
+	var st: int = bot["server_tick"]
+	if st - int(bot["last_build_tick"]) < BUILD_COOLDOWN_TICKS:
+		return
+	# Only build when actually near the objective (holding it), not while marching across the map.
+	var to_obj := Vector2(obj.x - me.pos.x, obj.z - me.pos.z)
+	if to_obj.length() > 25.0:
+		return
+	# Drop cover one step toward the objective/threat direction.
+	var dir := to_obj.normalized() if to_obj.length() > 0.001 else Vector2(sin(me.yaw), cos(me.yaw))
+	var target := me.pos + Vector3(dir.x, 0.0, dir.y) * BUILD_DIST
+	var cell := BuildGrid.cell_of(Vector3(target.x, 0.0, target.z))
+	var yaw_step := int(round(me.yaw / (TAU / float(BuildGrid.YAW_STEPS)))) % BuildGrid.YAW_STEPS
+	if yaw_step < 0: yaw_step += BuildGrid.YAW_STEPS
+	var bytes := Protocol.encode_build_request(0, cell, yaw_step)   # type 0 = sandbag
+	(bot["net"] as NetHost).send_to(bot["peer"], NetHost.CHANNEL_INPUT, bytes, 0)
+	bot["last_build_tick"] = st
 
 func angle_diff(a: float, b: float) -> float:
 	return wrapf(a - b, -PI, PI)
@@ -188,8 +211,24 @@ func _on_packet(bot: Dictionary, bytes: PackedByteArray) -> void:
 			bot["server_tick"] = int(hdr["server_tick"])
 		Protocol.Msg.MATCH_STATE:
 			_match_points = Protocol.decode_match_state(bytes)["points"]
+		Protocol.Msg.STRUCTURE_DELTA:
+			var d := Protocol.decode_structure_delta(bytes)
+			if d["op"] == Protocol.OP_PLACE:
+				bot["structs"][d["rec"]["id"]] = d["rec"]
+			else:
+				bot["structs"].erase(d["id"])
+			_note_sync(bot)
+		Protocol.Msg.STRUCTURE_BASELINE:
+			for rec in Protocol.decode_structure_baseline(bytes)["records"]:
+				bot["structs"][rec["id"]] = rec
+			_note_sync(bot)
 		_:
 			pass
+
+func _note_sync(bot: Dictionary) -> void:
+	if not _synced_logged and not bot["structs"].is_empty():
+		_synced_logged = true
+		print("[bots] structures synced: bot %d sees %d piece(s)" % [bot["id"], bot["structs"].size()])
 
 func _connected_count() -> int:
 	var n := 0
