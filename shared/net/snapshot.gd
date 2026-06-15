@@ -10,7 +10,7 @@ const F_POS_Y := 2
 const F_POS_Z := 4
 const F_YAW := 8
 const F_PITCH := 16
-const F_STATE := 32   # packed: stance(0-1) | lean(2-3) | team(4) | alive(5)
+const F_STATE := 32   # packed: stance(0-1) | lean(2-3) | team(4) | alive(5) | downed(6)
 const F_HEALTH := 64
 const F_SQUAD := 128
 const F_ALL := 255
@@ -21,7 +21,8 @@ const FLAG_LEAVE := 2
 const FLAG_CHANGED := 4
 
 static func _state_byte(e: EntityState) -> int:
-	return (e.stance & 3) | ((e.lean & 3) << 2) | ((1 if e.team != 0 else 0) << 4) | ((1 if e.alive else 0) << 5)
+	return (e.stance & 3) | ((e.lean & 3) << 2) | ((1 if e.team != 0 else 0) << 4) \
+		| ((1 if e.alive else 0) << 5) | ((1 if e.is_downed else 0) << 6)
 
 static func encode(server_tick: int, seq: int, baseline_seq: int, last_input_tick: int,
 		current: Dictionary, baseline: Dictionary) -> PackedByteArray:
@@ -84,6 +85,7 @@ static func decode_apply(bytes: PackedByteArray, view: Dictionary) -> Dictionary
 			e.lean = (sb >> 2) & 3
 			e.team = (sb >> 4) & 1
 			e.alive = ((sb >> 5) & 1) == 1
+			e.is_downed = ((sb >> 6) & 1) == 1
 		if mask & F_HEALTH: e.health = buf.get_u8()
 		if mask & F_SQUAD: e.squad = buf.get_u8()
 	return {"server_tick": server_tick, "seq": seq, "baseline_seq": baseline_seq, "last_input_tick": last_input_tick}

@@ -94,3 +94,17 @@ func test_smoke_deployed_roundtrip() -> void:
 	assert_eq(d["pos"], Vector3(10, 0, -20))
 	assert_eq(d["radius"], 6)
 	assert_eq(d["expire_tick"], 1234)
+
+func test_revive_action_roundtrip() -> void:
+	var bytes := Protocol.encode_revive_action(4242, true)
+	assert_eq(Protocol.msg_type(bytes), Protocol.Msg.REVIVE_ACTION)
+	var d := Protocol.decode_revive_action(bytes)
+	assert_eq(d["target"], 4242)
+	assert_true(d["active"])
+
+func test_revive_action_inactive_roundtrip() -> void:
+	var d := Protocol.decode_revive_action(Protocol.encode_revive_action(1, false))
+	assert_false(d["active"])
+
+func test_self_bandage_type() -> void:
+	assert_eq(Protocol.msg_type(Protocol.encode_self_bandage()), Protocol.Msg.SELF_BANDAGE)

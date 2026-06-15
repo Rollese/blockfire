@@ -18,6 +18,11 @@ func assert_true(cond: bool, msg := "") -> void:
 	if not cond:
 		failures.append("assert_true failed: %s" % msg)
 
+func assert_false(cond: bool, msg := "") -> void:
+	assertions += 1
+	if cond:
+		failures.append("assert_false failed: %s" % msg)
+
 func assert_eq(a, b, msg := "") -> void:
 	assertions += 1
 	if a != b:

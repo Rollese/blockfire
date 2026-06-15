@@ -13,10 +13,13 @@ const MAX_HISTORY := 32
 const SNAPSHOT_STRIDE := 2   # send each client a snapshot every Nth tick (round-robin by id),
                              # so per-tick encode cost is ~clients/STRIDE instead of O(clients).
                              # Client-side interpolation smooths the lower send rate (30/STRIDE Hz).
-const MAX_SNAPSHOT_ENTITIES := 32   # relevance cap: a snapshot carries at most the N most
-                                    # relevant entities (enemies first, then nearest teammates),
-                                    # bounding the worst case (a dense cluster) where every client
-                                    # would otherwise see ~everyone (O(N^2) encode at the peak).
+const MAX_SNAPSHOT_ENTITIES := 32   # over this many entities in interest range, the relevance cull
+                                    # runs: ALL teammates are kept (friendlies are never hidden — no
+                                    # wallhack concern, and you must see downed squadmates to revive)
+                                    # and only enemies are capped (see _build_interest).
+const MAX_ENEMY_SNAPSHOT := 24      # max enemies per snapshot (nearest-first) once the cull runs —
+                                    # the only set with a wallhack concern; bounds the O(N^2) peak.
+                                    # Total snapshot ≈ (teammates in range) + ≤24 enemies.
 const RESPAWN_DELAY_TICKS := 150   # 5s @30Hz
 const FIRE_CONE_DOT := 0.985       # broad-phase: target within ~10deg of ray
 const FIRE_RANGE_MARGIN := 20.0    # grid broad-phase slack for lag-comp movement
@@ -56,9 +59,15 @@ var _phase_ticks := 0
 var _team_counts := {0: 0, 1: 0}
 var _positions := {}               # id -> Vector3, rebuilt each tick before fires
 
+var _reviving := {}            # reviver_id -> target_id, set per tick by REVIVE_ACTION(active)
+var _revive_ticks := {}        # target_id -> accumulated revive ticks
+var _revives := 0              # completed revives this window
+
 var _kills := 0
 var _shots := 0
 var _hits := 0
+var _downed := 0              # pawns sent to DOWNED this window
+var _bleedouts := 0           # downed pawns that bled out (true deaths) this window
 var _rewind_clamped := 0
 var _cap_events := 0          # per-telemetry-window (reset each second)
 var _cap_events_total := 0    # cumulative over the match (for the match-end summary)
@@ -126,6 +135,8 @@ func _physics_process(delta: float) -> void:
 	var t_fire := Time.get_ticks_usec()
 	_step_grenades()
 	_expire_smoke_zones()
+	_step_revives()
+	_step_downed()
 	_handle_respawns()
 	var t_resp := Time.get_ticks_usec()
 	_conquest.step(SimLoop.DT, _sim.world)
@@ -266,16 +277,98 @@ func _fire_shot(shooter_id: int, shooter: Pawn, inp: Dictionary, shot_index: int
 	var dmg := Combat.damage_for(wid, best_head, best_t)
 	var victim: Pawn = _sim.world.get_pawn(best_victim)
 	if victim == null or not victim.alive: return
+	_apply_pawn_damage(best_victim, victim, dmg, best_head, Revive.Source.BULLET, shooter_id, wid)
+
+func _is_medic(id: int) -> bool:
+	return _clients.has(id) and int(_clients[id]["class"]) == Loadout.MEDIC
+
+func _down_pawn(victim: Pawn) -> void:
+	victim.is_downed = true
+	victim.bleed_health = 0
+	victim.bleed_halted = false
+	_downed += 1
+	# No ticket cost and no KILL event at down — only true death spends a ticket.
+
+func _kill_pawn(vid: int, victim: Pawn, killer_id: int, weapon_id: int, headshot: bool, source: int) -> void:
+	victim.alive = false
+	victim.is_downed = false
+	_clients[vid]["respawn_tick"] = _sim.tick + RESPAWN_DELAY_TICKS
+	_conquest.register_death(victim.team)
+	_kills += 1
+	if source == Revive.Source.BLAST:
+		_splash_kills += 1
+	var ev := Protocol.encode_kill(vid, killer_id, weapon_id, headshot)
+	for cid in _clients:
+		_net.send_to(_clients[cid]["peer"], NetHost.CHANNEL_CONTROL, ev, ENetPacketPeer.FLAG_RELIABLE)
+
+## Single routing path for all pawn damage. A standing pawn is killed outright by a headshot or
+## blast (instant-kill bypass) and otherwise downed. DOWNED pawns are immune to weapon damage
+## (no finishing, BattleBit-style) — they resolve only via passive bleed-out or a teammate revive.
+func _apply_pawn_damage(vid: int, victim: Pawn, dmg: int, headshot: bool, source: int,
+		killer_id: int, weapon_id: int) -> void:
+	if victim.is_downed:
+		return  # immune to damage while downed
 	victim.health -= dmg
-	if victim.health <= 0:
-		victim.health = 0
-		victim.alive = false
-		_clients[best_victim]["respawn_tick"] = _sim.tick + RESPAWN_DELAY_TICKS
-		_conquest.register_death(victim.team)
-		_kills += 1
-		var ev := Protocol.encode_kill(best_victim, shooter_id, wid, best_head)
-		for cid in _clients:
-			_net.send_to(_clients[cid]["peer"], NetHost.CHANNEL_CONTROL, ev, ENetPacketPeer.FLAG_RELIABLE)
+	if victim.health > 0:
+		return
+	victim.health = 0
+	if Revive.is_instant_kill(headshot, source):
+		_kill_pawn(vid, victim, killer_id, weapon_id, headshot, source)
+	else:
+		_down_pawn(victim)
+
+func _complete_revive(target_id: int) -> void:
+	var p: Pawn = _sim.world.get_pawn(target_id)
+	if p == null: return
+	p.is_downed = false
+	p.health = Revive.REVIVE_HP
+	p.bleed_health = 0
+	p.bleed_halted = false
+	_revives += 1
+	# No ticket refund needed — DOWNED never spent one.
+
+## Accumulate revive progress for downed teammates being held by an in-range, alive reviver.
+## Revive intent is LATCHED — set by REVIVE_ACTION(active) and held in `_reviving` across ticks
+## until the revive ends — so a per-tick REVIVE_ACTION packet dropped under fleet input-starvation
+## does NOT reset progress. Validity is re-checked each tick against authoritative state, so only the
+## reviver actually leaving range interrupts the hold; the latch is dropped when the revive is over.
+func _step_revives() -> void:
+	var active_targets := {}   # target_id -> reviver_id (one reviver advances a target per tick)
+	var done: Array = []       # latched intents to drop: revive ended or can never succeed
+	for reviver_id in _reviving:
+		var target_id: int = _reviving[reviver_id]
+		var rp: Pawn = _sim.world.get_pawn(reviver_id)
+		var tp: Pawn = _sim.world.get_pawn(target_id)
+		if tp == null or not tp.is_downed: done.append(reviver_id); continue          # target resolved
+		if rp == null or not rp.alive or rp.is_downed: done.append(reviver_id); continue  # reviver can't
+		if tp.team != rp.team: done.append(reviver_id); continue                       # enemy can't revive
+		if rp.pos.distance_to(tp.pos) > Revive.REVIVE_RANGE: continue                  # transient: hold latch, no progress
+		active_targets[target_id] = reviver_id
+	# Drop accumulated progress for downed targets with no in-range reviver this tick.
+	for t in _revive_ticks.keys():
+		if not active_targets.has(t):
+			_revive_ticks.erase(t)
+	# Advance + complete.
+	for target_id in active_targets:
+		var reviver_id: int = active_targets[target_id]
+		_revive_ticks[target_id] = int(_revive_ticks.get(target_id, 0)) + 1
+		if _revive_ticks[target_id] >= Revive.revive_ticks(_is_medic(reviver_id)):
+			_complete_revive(target_id)
+			_revive_ticks.erase(target_id)
+			done.append(reviver_id)
+	for rid in done:
+		_reviving.erase(rid)
+
+## Per-tick bleed for every downed pawn; bleed-out is a true death (spends a ticket).
+func _step_downed() -> void:
+	for id in _clients:
+		var p: Pawn = _sim.world.get_pawn(id)
+		if p == null or not p.is_downed:
+			continue
+		p.bleed_health = Revive.bleed_step(p.bleed_health, p.bleed_halted)
+		if Revive.is_bled_out(p.bleed_health):
+			_kill_pawn(id, p, id, 0, false, Revive.Source.BULLET)  # killer = self (bleed-out)
+			_bleedouts += 1
 
 func _handle_respawns() -> void:
 	for id in _clients:
@@ -288,6 +381,9 @@ func _handle_respawns() -> void:
 			p.health = 100
 			p.alive = true
 			p.stamina = Pawn.STAMINA_MAX
+			p.is_downed = false
+			p.bleed_halted = false
+			p.bandage_count = Revive.bandage_count_for(_is_medic(id))
 			c["respawn_tick"] = 0
 			c["ammo"] = Weapon.get_def(c["weapon"])["mag_size"]
 			c["reloading"] = false
@@ -349,26 +445,29 @@ func _send_snapshots() -> void:
 		_sync_structure_baselines(c, self_pawn.pos)
 		var ids := _grid.query(self_pawn.pos, INTEREST_RADIUS, _positions)
 		if ids.size() > MAX_SNAPSHOT_ENTITIES:
-			# Relevance cull to the cap, prioritising ENEMIES (a player must see nearby foes
-			# even inside a crowd of teammates — pure nearest-N would hide them) and always
-			# keeping self (needed for reconciliation). Enemies first by distance, then the
-			# nearest teammates fill the rest. Only paid when over the cap (dense clusters).
+			# Cull ENEMIES only — they are the sole wallhack concern. Every TEAMMATE in interest
+			# range is always replicated: there is no security reason to hide friendlies, and a
+			# client must see its downed squadmates to revive them (hard count-culling hid them at
+			# fleet density, which broke revive). Enemies are kept nearest-first up to
+			# MAX_ENEMY_SNAPSHOT. Self always kept (needed for reconciliation). Only paid over cap.
+			# (True 256-scale wants rate/precision LOD on distant entities — separate netcode work.)
 			var sp: Vector3 = self_pawn.pos
 			var myteam: int = self_pawn.team
-			var ranked: Array = []
-			ranked.resize(ids.size())
-			for i in ids.size():
-				var vid: int = ids[i]
-				var key: float = sp.distance_squared_to(_positions[vid])
-				if int(state[vid].team) == myteam:
-					key += 1.0e15   # teammates rank after every enemy
-				ranked[i] = [key, vid]
-			ranked.sort()
 			var kept := {id: true}
-			for pair in ranked:
-				if kept.size() >= MAX_SNAPSHOT_ENTITIES:
+			var enemies: Array = []
+			for vid in ids:
+				if vid == id: continue
+				if int(state[vid].team) == myteam:
+					kept[vid] = true   # always replicate every teammate in range
+				else:
+					enemies.append([sp.distance_squared_to(_positions[vid]), vid])
+			enemies.sort()   # nearest enemies first
+			var enemy_kept := 0
+			for pair in enemies:
+				if enemy_kept >= MAX_ENEMY_SNAPSHOT:
 					break
 				kept[pair[1]] = true
+				enemy_kept += 1
 			ids = kept.keys()
 		var current := {}
 		for vid in ids: current[vid] = state[vid]
@@ -393,6 +492,8 @@ func _on_packet(peer: ENetPacketPeer, _channel: int, bytes: PackedByteArray) -> 
 		Protocol.Msg.BUILD_REQUEST: _handle_build_request(peer, bytes)
 		Protocol.Msg.BUILD_REMOVE: _handle_build_remove(peer, bytes)
 		Protocol.Msg.GRENADE_THROW: _handle_grenade_throw(peer, bytes)
+		Protocol.Msg.REVIVE_ACTION: _handle_revive_action(peer, bytes)
+		Protocol.Msg.SELF_BANDAGE: _handle_self_bandage(peer, bytes)
 		_: pass
 
 func _handle_hello(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
@@ -425,6 +526,7 @@ func _handle_hello(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
 	p.team = team
 	p.squad = squad
 	p.pos = _select_spawn(id)
+	p.bandage_count = Revive.bandage_count_for(cls == Loadout.MEDIC)
 	_net.send_to(peer, NetHost.CHANNEL_CONTROL, Protocol.encode_welcome(id, TICK_RATE), ENetPacketPeer.FLAG_RELIABLE)
 	print("[server] welcomed peer %d ('%s') team=%d squad=%d class=%d — %d peers" % [id, pname, team, squad, cls, _clients.size()])
 
@@ -496,6 +598,24 @@ func _handle_grenade_throw(peer: ENetPacketPeer, bytes: PackedByteArray) -> void
 		"detonate_tick": _sim.tick + GRENADE_FUSE_TICKS,
 	})
 
+func _handle_self_bandage(peer: ENetPacketPeer, _bytes: PackedByteArray) -> void:
+	var id = _peer_to_id.get(peer, 0)
+	if id == 0 or not _clients.has(id): return
+	var p: Pawn = _sim.world.get_pawn(id)
+	if p == null or not p.is_downed or p.bleed_halted: return
+	if p.bandage_count <= 0: return
+	p.bandage_count -= 1
+	p.bleed_halted = true
+
+func _handle_revive_action(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
+	var id = _peer_to_id.get(peer, 0)
+	if id == 0 or not _clients.has(id): return
+	var d := Protocol.decode_revive_action(bytes)
+	if bool(d["active"]):
+		_reviving[id] = int(d["target"])
+	else:
+		_reviving.erase(id)
+
 ## Integrate live grenades; detonate on fuse or ground contact (v1). Detonation is present-time.
 func _step_grenades() -> void:
 	if _grenades.is_empty():
@@ -538,17 +658,7 @@ func _detonate(g: Dictionary) -> void:
 		if not victim.alive or victim.team == team: continue
 		var pd := Grenade.falloff_damage(center, victim.pos, GRENADE_DAMAGE_PAWN, BLAST_PAWN_RADIUS)
 		if pd <= 0: continue
-		victim.health -= pd
-		if victim.health <= 0:
-			victim.health = 0
-			victim.alive = false
-			_clients[pid]["respawn_tick"] = _sim.tick + RESPAWN_DELAY_TICKS
-			_conquest.register_death(victim.team)
-			_kills += 1
-			_splash_kills += 1
-			var ev := Protocol.encode_kill(pid, owner, 0, false)
-			for cid in _clients:
-				_net.send_to(_clients[cid]["peer"], NetHost.CHANNEL_CONTROL, ev, ENetPacketPeer.FLAG_RELIABLE)
+		_apply_pawn_damage(pid, victim, pd, false, Revive.Source.BLAST, owner, 0)
 
 ## Smoke detonation: no damage. Record a server-side zone and broadcast it (low-frequency, like
 ## KILL — bounded by the throw cooldown). M7 LOS culling will read _smoke_zones; here it just
@@ -667,8 +777,8 @@ func _log_telemetry() -> void:
 	var pts := ""
 	for pt in _conquest.points:
 		pts += "." if pt["owner"] == -1 else str(pt["owner"])
-	print("[telemetry] players=%d alive=%d tick_mean=%.2fms tick_p99=%.2fms agg=%.1fMbit/s kills=%d shots=%d hit_rate=%.2f starv=%d rewind_clamped=%d t0=%d t1=%d pts=%s cap_events=%d struct=%d bld=%d rmv=%d blk=%d dmg=%d destroyed=%d nades=%d splash=%d smoke=%d"
-		% [n, alive, _tele.mean_tick_ms(), _tele.p99_tick_ms(), mbit, _kills, _shots, hit_rate, _tele.starvation, _rewind_clamped, _conquest.tickets_int(0), _conquest.tickets_int(1), pts, _cap_events, _store.count(), _builds, _removes, _shots_blocked, _dmg, _destroyed, _nades, _splash_kills, _smokes])
+	print("[telemetry] players=%d alive=%d tick_mean=%.2fms tick_p99=%.2fms agg=%.1fMbit/s kills=%d shots=%d hit_rate=%.2f starv=%d rewind_clamped=%d t0=%d t1=%d pts=%s cap_events=%d struct=%d bld=%d rmv=%d blk=%d dmg=%d destroyed=%d nades=%d splash=%d smoke=%d downed=%d bleedouts=%d revives=%d"
+		% [n, alive, _tele.mean_tick_ms(), _tele.p99_tick_ms(), mbit, _kills, _shots, hit_rate, _tele.starvation, _rewind_clamped, _conquest.tickets_int(0), _conquest.tickets_int(1), pts, _cap_events, _store.count(), _builds, _removes, _shots_blocked, _dmg, _destroyed, _nades, _splash_kills, _smokes, _downed, _bleedouts, _revives])
 	var pt := maxi(_phase_ticks, 1)
 	print("[perf] us/tick: poll=%d move=%d lag=%d interest=%d fire=%d respawn=%d conquest=%d match=%d snap=%d (ticks=%d)"
 		% [_phase_us["poll"] / pt, _phase_us["move"] / pt, _phase_us["lag"] / pt, _phase_us["interest"] / pt, _phase_us["fire"] / pt, _phase_us["respawn"] / pt, _phase_us["conquest"] / pt, _phase_us["match"] / pt, _phase_us["snap"] / pt, _phase_ticks])
@@ -677,4 +787,4 @@ func _log_telemetry() -> void:
 	_tele.reset_window()
 	_kills = 0; _shots = 0; _hits = 0; _rewind_clamped = 0; _cap_events = 0
 	_builds = 0; _removes = 0; _shots_blocked = 0
-	_dmg = 0; _destroyed = 0; _nades = 0; _splash_kills = 0; _smokes = 0
+	_dmg = 0; _destroyed = 0; _nades = 0; _splash_kills = 0; _smokes = 0; _downed = 0; _bleedouts = 0; _revives = 0

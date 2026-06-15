@@ -29,6 +29,10 @@ var alive: bool = true
 var team: int = 0
 var squad: int = 0
 var _regen_cooldown: float = 0.0
+var is_downed: bool = false
+var bleed_health: int = 0          # 0 at down, drains to Revive.BLEEDOUT_FLOOR
+var bleed_halted: bool = false     # set by self-bandage; stops the drain
+var bandage_count: int = Revive.BANDAGE_COUNT
 
 func _init(p_id: int = 0) -> void:
 	id = p_id
@@ -36,6 +40,9 @@ func _init(p_id: int = 0) -> void:
 func step(dt: float, cmd: Dictionary) -> void:
 	yaw = cmd.get("yaw", yaw)
 	pitch = clampf(cmd.get("pitch", pitch), -MAX_PITCH, MAX_PITCH)
+	if is_downed:
+		_step_downed(dt, cmd)
+		return
 	var buttons: int = cmd.get("buttons", 0)
 
 	# stance
@@ -91,6 +98,24 @@ func step(dt: float, cmd: Dictionary) -> void:
 	pos.x = clampf(pos.x, -WORLD_HALF, WORLD_HALF)
 	pos.z = clampf(pos.z, -WORLD_HALF, WORLD_HALF)
 
+func _step_downed(dt: float, cmd: Dictionary) -> void:
+	# Crawl-only: forced prone, no lean, no sprint/jump, gravity still applies.
+	stance = Stance.PRONE
+	lean = Stance.LEAN_NONE
+	var move := Vector3(cmd.get("move_x", 0.0), 0.0, cmd.get("move_y", 0.0))
+	if move.length() > 1.0:
+		move = move.normalized()
+	velocity.x = move.x * Revive.DOWNED_CRAWL_SPEED
+	velocity.z = move.z * Revive.DOWNED_CRAWL_SPEED
+	velocity.y -= GRAVITY * dt
+	pos += velocity * dt
+	if pos.y <= 0.0:
+		pos.y = 0.0
+		velocity.y = 0.0
+		grounded = true
+	pos.x = clampf(pos.x, -WORLD_HALF, WORLD_HALF)
+	pos.z = clampf(pos.z, -WORLD_HALF, WORLD_HALF)
+
 func eye_position() -> Vector3:
 	return pos + Vector3(0.0, Stance.eye_height(stance), 0.0)
 
@@ -105,4 +130,5 @@ func to_state() -> EntityState:
 	e.squad = squad
 	e.alive = alive
 	e.health = health
+	e.is_downed = is_downed
 	return e

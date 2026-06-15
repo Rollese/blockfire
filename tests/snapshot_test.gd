@@ -89,3 +89,21 @@ func test_squad_change_is_a_delta() -> void:
 	var view := {5: EntityState.new()}; view[5].squad = 1
 	Snapshot.decode_apply(bytes, view)
 	assert_eq(view[5].squad, 4)
+
+func test_downed_replicates_through_state_byte() -> void:
+	var cur := {}
+	var down := EntityState.new()
+	down.is_downed = true
+	cur[7] = down
+	var bytes := Snapshot.encode(1, 1, 0, 0, cur, {})  # keyframe (empty baseline)
+	var view := {}
+	Snapshot.decode_apply(bytes, view)
+	assert_true(view.has(7))
+	assert_true((view[7] as EntityState).is_downed, "DOWNED survives encode/decode")
+
+func test_not_downed_default_replicates_false() -> void:
+	var cur := {}
+	cur[8] = EntityState.new()  # is_downed defaults false
+	var view := {}
+	Snapshot.decode_apply(Snapshot.encode(1, 1, 0, 0, cur, {}), view)
+	assert_false((view[8] as EntityState).is_downed)

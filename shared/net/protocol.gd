@@ -25,6 +25,8 @@ enum Msg {
 	GRENADE_THROW = 12,     ## client -> server: throw a grenade (type FRAG/SMOKE) in a look dir
 	# DETONATION = 13       ## RESERVED (M7 frag VFX); not sent in the M4-P2 gate
 	SMOKE_DEPLOYED = 14,    ## server -> clients: a smoke zone was created (pos/radius/expire)
+	REVIVE_ACTION = 15,     ## client -> server: begin/continue (active) or stop reviving a downed teammate
+	SELF_BANDAGE = 16,      ## client -> server: use a bandage on self to halt bleed
 }
 
 const OP_PLACE := 0
@@ -217,6 +219,25 @@ static func decode_smoke_deployed(bytes: PackedByteArray) -> Dictionary:
 	var r := body_reader(bytes)
 	var pos := Vector3(r.get_16(), r.get_16(), r.get_16())
 	return {"pos": pos, "radius": r.get_u8(), "expire_tick": r.get_u16()}
+
+
+static func encode_revive_action(target_id: int, active: bool) -> PackedByteArray:
+	var buf := StreamPeerBuffer.new()
+	buf.put_u8(Msg.REVIVE_ACTION)
+	buf.put_u32(target_id)
+	buf.put_u8(1 if active else 0)
+	return buf.data_array
+
+
+static func decode_revive_action(bytes: PackedByteArray) -> Dictionary:
+	var r := body_reader(bytes)
+	return {"target": r.get_u32(), "active": r.get_u8() == 1}
+
+
+static func encode_self_bandage() -> PackedByteArray:
+	var buf := StreamPeerBuffer.new()
+	buf.put_u8(Msg.SELF_BANDAGE)
+	return buf.data_array
 
 
 static func encode_structure_baseline(region: Vector2i, records: Array) -> PackedByteArray:

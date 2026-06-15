@@ -79,6 +79,30 @@ func _drive(bot: Dictionary, delta: float) -> void:
 		_send(bot, 0.0, 0.0, bot["yaw"], 0.0, 0)
 		return
 
+	# DBNO: downed pawns are immune to weapon damage, so a downed bot holds still and waits to be
+	# revived. It does NOT self-bandage — halting the bleed under the immune model would make it
+	# immortal and stall the match; instead it bleeds out if no teammate reaches it in time.
+	if me.is_downed:
+		_send(bot, 0.0, 0.0, bot["yaw"], 0.0, 0)
+		return
+
+	# Revive a downed teammate if one is close enough.
+	var rid := _nearest_downed_teammate(bot, me)
+	if rid != 0:
+		var tpos: Vector3 = (bot["view"][rid] as EntityState).pos
+		var to := tpos - me.pos
+		if to.length() <= Revive.REVIVE_RANGE:
+			(bot["net"] as NetHost).send_to(bot["peer"], NetHost.CHANNEL_INPUT,
+				Protocol.encode_revive_action(rid, true), 0)
+			# Hold still, face the downed mate, and crouch over them (BattleBit medic posture —
+			# smaller silhouette / steadier hold) for the duration of the revive.
+			_send(bot, 0.0, 0.0, atan2(to.x, to.z), 0.0, InputCommand.BTN_CROUCH)
+			return
+		else:
+			var myaw := atan2(to.x, to.z)
+			_send(bot, sin(myaw), cos(myaw), myaw, 0.0, 0)
+			return
+
 	var target: EntityState = null
 	var best := INF
 	for id in view:
@@ -128,6 +152,24 @@ func _drive(bot: Dictionary, delta: float) -> void:
 		_maybe_build(bot, me)
 
 	_send(bot, move_x, move_y, bot["yaw"], bot["pitch"], buttons)
+
+func _nearest_downed_teammate(bot: Dictionary, me: EntityState) -> int:
+	if me == null:
+		return 0
+	var best := 0
+	var best_d := INF
+	var view: Dictionary = bot["view"]
+	for id in view:
+		var e: EntityState = view[id]
+		if not e.is_downed:
+			continue
+		if e.team != me.team:
+			continue
+		var d: float = me.pos.distance_to(e.pos)
+		if d < best_d and d < 20.0:
+			best_d = d
+			best = id
+	return best
 
 func _maybe_build(bot: Dictionary, me: EntityState) -> void:
 	if int(bot["builds_made"]) >= MAX_BOT_BUILDS:
