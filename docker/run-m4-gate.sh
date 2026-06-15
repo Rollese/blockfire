@@ -1,14 +1,17 @@
 #!/usr/bin/env bash
-# One-command isolated M4 Phase-1 (Building) gate via Docker (single host, `full` profile):
+# One-command isolated M4 (Building + Destruction) gate via Docker (single host, `full` profile):
 # brings up the dedicated server + bot fleet in separate containers (server uncontended on its
 # own cores), waits for the match to finish, and applies the M4 assertions on top of the M3
 # ones. Building is always-on in the server, so the same compose topology exercises it; this
 # script reads the structure telemetry the M3 run-gate.sh ignores.
 #
 # M4 verdict = M3 criteria (valid winner, points captured, peak-window tick < budget, match
-# ended via tickets not the time fail-safe) PLUS: pieces accumulated (peak struct >= 1),
+# ended via tickets not the time fail-safe) PLUS Phase 1: pieces accumulated (peak struct >= 1),
 # placements occurred (sum bld >= 1), cover blocked shots (sum blk >= 1), and structures
-# replicated to the fleet (a "structures synced" line in the bot containers' logs).
+# replicated to the fleet (a "structures synced" line in the bot containers' logs); PLUS Phase 2
+# (Destruction): pieces destroyed (sum destroyed >= 1) and frags detonated (sum nades >= 1).
+# splash (blast pawn kills) and smoke (zones deployed) are reported but not gated — destruction
+# is the frag-driven path; smoke has no gameplay effect until M7 LOS culling.
 #
 # Usage:  ./run-m4-gate.sh
 # Env:    TIME_LIMIT TICK_BUDGET_MS MAX_WAIT PORT TICKETS BOT_COUNT BOT_REPLICAS
@@ -52,9 +55,14 @@ peak_tick="$(echo "$srvlog"   | grep -oE 'tick_mean=[0-9.]+' | sed 's/tick_mean=
 peak_struct="$(echo "$srvlog" | grep -oE 'struct=[0-9]+'    | sed 's/struct=//'    | sort -n | tail -1)"
 bld_total="$(echo "$srvlog"   | grep -oE 'bld=[0-9]+'       | sed 's/bld=//'       | awk '{s+=$1} END{print s+0}')"
 blk_total="$(echo "$srvlog"   | grep -oE 'blk=[0-9]+'       | sed 's/blk=//'       | awk '{s+=$1} END{print s+0}')"
+destroyed_total="$(echo "$srvlog" | grep -oE 'destroyed=[0-9]+' | sed 's/destroyed=//' | awk '{s+=$1} END{print s+0}')"
+nades_total="$(echo "$srvlog"  | grep -oE 'nades=[0-9]+'    | sed 's/nades=//'     | awk '{s+=$1} END{print s+0}')"
+splash_total="$(echo "$srvlog" | grep -oE 'splash=[0-9]+'   | sed 's/splash=//'    | awk '{s+=$1} END{print s+0}')"
+smoke_total="$(echo "$srvlog"  | grep -oE 'smoke=[0-9]+'    | sed 's/smoke=//'     | awk '{s+=$1} END{print s+0}')"
 synced="$(echo "$botslog" | grep -m1 'structures synced' || true)"
 echo "[m4-gate] winner=${winner} elapsed=${elapsed}s cap_events=${cap_events} peak tick=${peak_tick}ms (budget ${TICK_BUDGET_MS})"
 echo "[m4-gate] peak struct=${peak_struct} builds=${bld_total} blocked_shots=${blk_total}"
+echo "[m4-gate] destroyed=${destroyed_total} nades=${nades_total} splash=${splash_total} smoke=${smoke_total}"
 echo "[m4-gate] ${synced:-<no structures synced to bots>}"
 
 ok=1
@@ -63,6 +71,8 @@ ok=1
 [ "${peak_struct:-0}" -ge 1 ] || { echo "FAIL: no pieces accumulated"; ok=0; }
 [ "${bld_total:-0}" -ge 1 ]  || { echo "FAIL: no pieces were placed"; ok=0; }
 [ "${blk_total:-0}" -ge 1 ]  || { echo "FAIL: cover never blocked a shot"; ok=0; }
+[ "${destroyed_total:-0}" -ge 1 ] || { echo "FAIL: no pieces were destroyed"; ok=0; }
+[ "${nades_total:-0}" -ge 1 ] || { echo "FAIL: no frags detonated"; ok=0; }
 [ -n "$synced" ] || { echo "FAIL: structures did not replicate to bots"; ok=0; }
 awk "BEGIN{exit !(${peak_tick:-999} < $TICK_BUDGET_MS)}" || { echo "FAIL: peak-window tick over budget"; ok=0; }
 awk "BEGIN{exit !(${elapsed:-99999} < $TIME_LIMIT)}" || { echo "FAIL: match hit time fail-safe, not tickets"; ok=0; }
