@@ -87,6 +87,10 @@ var _smokes := 0              # smoke zones deployed this window
 var _rockets_det := 0         # RPG rockets detonated this window
 var _c4_det := 0              # C4 detonations (per detonate action) this window
 var _mine_trips := 0          # claymore/mine detonations this window
+var _heals := 0          # active+bag HP-dispensing events this window
+var _ammo_gives := 0     # active+bag ammo-resupply events this window
+var _bags_thrown := 0    # bags deployed this window
+var _bags_exhausted := 0 # bags that hit pool 0 and vanished this window
 var _rstruct := 0             # structures hit by rockets this window
 var _pending_removes: Array = []   # [{id, cell}] removes awaiting send (degradation queue)
 var _dmg_touched := {}             # id -> true: pieces damaged (alive) this tick, for bucket diff
@@ -94,6 +98,8 @@ var _last_bucket := {}             # id -> last SENT bucket (missing => pristine
 var _grenades: Array = []     # [{owner, team, type, pos, vel, detonate_tick}] — server-side, not replicated
 var _rockets: Array = []      # [{owner, team, pos, vel}] — server-side, not replicated
 var _mines: Array = []        # [{owner, team, pos, facing, armed_after_tick}]
+var _giving: Dictionary = {}   # giver_id -> tick the give began (latched; cleared on STOP/invalid)
+var _bags: Array = []          # [{owner, team, kind, pos, pool}]
 var _c4: Dictionary = {}      # owner_id -> Array of {pos, cell:Vector3i}
 var _smoke_zones: Array = []  # [{pos, radius, expire_tick}] — server-side; M7 LOS culling consumes
 var _prev_owners: Array = []
@@ -154,6 +160,8 @@ func _physics_process(delta: float) -> void:
 	_step_grenades()
 	_step_rockets()
 	_step_mines()
+	_step_active_give()
+	_step_bags()
 	_expire_smoke_zones()
 	_step_revives()
 	_step_downed()
@@ -403,6 +411,62 @@ func _step_revives() -> void:
 			done.append(reviver_id)
 	for rid in done:
 		_reviving.erase(rid)
+
+## RMB active give: each held giver raycasts from its aim at one teammate in range and heals
+## (medic) or resupplies (support) at the active rate. Latched like revive — held in _giving until
+## GA_GIVE_STOP or invalidation.
+func _step_active_give() -> void:
+	if _giving.is_empty():
+		return
+	var done: Array = []
+	for gid in _giving:
+		var giver: Pawn = _sim.world.get_pawn(gid)
+		if giver == null or not giver.alive or giver.is_downed: done.append(gid); continue
+		var kind := _giver_kind(int(_clients[gid]["class"]))
+		if kind == -1: done.append(gid); continue
+		var gdef: Dictionary = _gadgets.def_of_kind(kind)
+		var aim := Combat._forward(giver.yaw, giver.pitch)
+		var rng := float(gdef["give_range"])
+		# Find the nearest in-range teammate on the aim ray.
+		var target := 0
+		var best := INF
+		for tid in _sim.world.pawns:
+			if tid == gid: continue
+			var t: Pawn = _sim.world.pawns[tid]
+			if not t.alive or t.team != giver.team: continue
+			var d2 := giver.pos.distance_to(t.pos)
+			if d2 <= rng and d2 < best and Gadget.give_hits(giver.eye_position(), aim, t.pos, t.stance, rng):
+				best = d2; target = tid
+		if target == 0: continue   # nothing to give to this tick; keep the latch
+		if kind == Gadget.KIND_HEAL:
+			_give_heal(target, int(gdef["active_rate"]))
+		else:
+			_give_ammo(gid, target, int(gdef["active_rate"]))
+	for gid in done:
+		_giving.erase(gid)
+
+func _give_heal(target_id: int, rate: int) -> void:
+	var t: Pawn = _sim.world.get_pawn(target_id)
+	if t == null or not t.alive or t.health >= 100: return
+	t.health = mini(100, t.health + rate)
+	_heals += 1
+
+## Ammo give at 1 mag per `period` ticks (active_rate is the period). Refills ammo + a bandage.
+func _give_ammo(giver_id: int, target_id: int, period: int) -> void:
+	if period <= 0 or _sim.tick % period != 0: return
+	if not _clients.has(target_id): return
+	var tc = _clients[target_id]
+	var cap: int = int(Weapon.get_def(int(tc["weapon"]))["mag_size"])
+	if int(tc["ammo"]) >= cap and _pawn_bandages_full(target_id): return
+	tc["ammo"] = cap
+	var tp: Pawn = _sim.world.get_pawn(target_id)
+	if tp != null:
+		tp.bandage_count = Revive.bandage_count_for(_is_medic(target_id))
+	_ammo_gives += 1
+
+func _pawn_bandages_full(id: int) -> bool:
+	var p: Pawn = _sim.world.get_pawn(id)
+	return p != null and p.bandage_count >= Revive.bandage_count_for(_is_medic(id))
 
 ## Per-tick bleed for every downed pawn; bleed-out is a true death (spends a ticket).
 func _step_downed() -> void:
@@ -665,6 +729,9 @@ func _handle_gadget_action(peer: ENetPacketPeer, bytes: PackedByteArray) -> void
 		Protocol.GA_C4_PLACE: _place_c4(id, p, d["pos"])
 		Protocol.GA_C4_DETONATE: _detonate_c4(id)
 		Protocol.GA_MINE_PLACE: _place_mine(id, p, d["pos"], d["dir"])
+		Protocol.GA_GIVE_START: _giving[id] = _sim.tick
+		Protocol.GA_GIVE_STOP: _giving.erase(id)
+		Protocol.GA_BAG_THROW: _throw_bag(id, p, d["pos"])
 		_: pass
 
 ## Launch an RPG rocket if the player has the RPG equipped, rockets remaining, and is off cooldown.
@@ -699,6 +766,24 @@ func _place_mine(id: int, p: Pawn, pos: Vector3, facing: Vector3) -> void:
 	var face := facing.normalized() if facing.length() > 0.001 else Vector3(sin(p.yaw), 0.0, cos(p.yaw))
 	_mines.append({"owner": id, "team": p.team, "pos": pos, "facing": face,
 		"armed_after_tick": _sim.tick + int(mdef["arm_delay_ticks"])})
+
+func _throw_bag(id: int, p: Pawn, pos: Vector3) -> void:
+	var kind := _giver_kind(int(_clients[id]["class"]))
+	if kind == -1: return
+	var gdef: Dictionary = _gadgets.def_of_kind(kind)
+	var bag_count := 0
+	for b in _bags:
+		if int(b["owner"]) == id: bag_count += 1
+	if bag_count >= int(gdef["max_bags"]): return
+	_bags.append({"owner": id, "team": p.team, "kind": kind, "pos": pos, "pool": int(gdef["bag_pool"])})
+	_bags_thrown += 1
+
+## Maps a class to its give-tool kind (heal/ammo), or -1 if the class has no give tool.
+func _giver_kind(cls: int) -> int:
+	var g := Loadout.gadget_for(cls)
+	if g == Loadout.GADGET_HEAL: return Gadget.KIND_HEAL
+	if g == Loadout.GADGET_AMMO: return Gadget.KIND_AMMO
+	return -1
 
 func _detonate_c4(id: int) -> void:
 	var owned: Array = _c4.get(id, [])
@@ -867,6 +952,46 @@ func _expire_smoke_zones() -> void:
 			live.append(z)
 	_smoke_zones = live
 
+## Thrown bags dispense to every teammate in radius at 25% of the active rate, drawing from a
+## finite pool; a bag vanishes when its pool hits 0 (spec §"Medic heal tool & Support ammo tool").
+func _step_bags() -> void:
+	if _bags.is_empty():
+		return
+	var still: Array = []
+	for b in _bags:
+		var kind: int = int(b["kind"])
+		var gdef: Dictionary = _gadgets.def_of_kind(kind)
+		var radius := float(gdef["bag_radius"])
+		var dispensed := 0
+		for pid in _sim.world.pawns:
+			var t: Pawn = _sim.world.pawns[pid]
+			if not t.alive or t.team != int(b["team"]): continue
+			if t.pos.distance_to(b["pos"]) > radius: continue
+			if kind == Gadget.KIND_HEAL:
+				if t.health >= 100: continue
+				# 25% of active rate, rounded up to >=1 HP so the bag makes progress.
+				var amt := maxi(1, int(gdef["active_rate"]) / 4)
+				t.health = mini(100, t.health + amt)
+				dispensed += amt
+				_heals += 1
+			else:
+				# Ammo bag: top up at most once per active period, costing 1 pool (mag).
+				if _sim.tick % maxi(1, int(gdef["active_rate"]) * 4) != 0: continue
+				if not _clients.has(pid): continue
+				var tc = _clients[pid]
+				var cap: int = int(Weapon.get_def(int(tc["weapon"]))["mag_size"])
+				if int(tc["ammo"]) >= cap: continue
+				tc["ammo"] = cap
+				dispensed += 1
+				_ammo_gives += 1
+		if dispensed > 0:
+			b["pool"] = Gadget.decrement_pool(int(b["pool"]), dispensed)
+		if int(b["pool"]) <= 0:
+			_bags_exhausted += 1
+		else:
+			still.append(b)
+	_bags = still
+
 ## Cell of a still-present record (for remove-delta routing). Returns a far cell if gone.
 func _cell_of_struct(id: int) -> Vector3i:
 	var rec := _store.get_record(id)
@@ -964,8 +1089,8 @@ func _log_telemetry() -> void:
 	var pts := ""
 	for pt in _conquest.points:
 		pts += "." if pt["owner"] == -1 else str(pt["owner"])
-	print("[telemetry] players=%d alive=%d tick_mean=%.2fms tick_p99=%.2fms agg=%.1fMbit/s kills=%d shots=%d hit_rate=%.2f starv=%d rewind_clamped=%d t0=%d t1=%d pts=%s cap_events=%d struct=%d bld=%d rmv=%d blk=%d pen=%d dmg=%d destroyed=%d nades=%d splash=%d smoke=%d rockets=%d rstruct=%d downed=%d bleedouts=%d revives=%d c4=%d mines=%d"
-		% [n, alive, _tele.mean_tick_ms(), _tele.p99_tick_ms(), mbit, _kills, _shots, hit_rate, _tele.starvation, _rewind_clamped, _conquest.tickets_int(0), _conquest.tickets_int(1), pts, _cap_events, _store.count(), _builds, _removes, _shots_blocked, _pen, _dmg, _destroyed, _nades, _splash_kills, _smokes, _rockets_det, _rstruct, _downed, _bleedouts, _revives, _c4_det, _mine_trips])
+	print("[telemetry] players=%d alive=%d tick_mean=%.2fms tick_p99=%.2fms agg=%.1fMbit/s kills=%d shots=%d hit_rate=%.2f starv=%d rewind_clamped=%d t0=%d t1=%d pts=%s cap_events=%d struct=%d bld=%d rmv=%d blk=%d pen=%d dmg=%d destroyed=%d nades=%d splash=%d smoke=%d rockets=%d rstruct=%d downed=%d bleedouts=%d revives=%d c4=%d mines=%d heals=%d ammo=%d bags=%d bagx=%d"
+		% [n, alive, _tele.mean_tick_ms(), _tele.p99_tick_ms(), mbit, _kills, _shots, hit_rate, _tele.starvation, _rewind_clamped, _conquest.tickets_int(0), _conquest.tickets_int(1), pts, _cap_events, _store.count(), _builds, _removes, _shots_blocked, _pen, _dmg, _destroyed, _nades, _splash_kills, _smokes, _rockets_det, _rstruct, _downed, _bleedouts, _revives, _c4_det, _mine_trips, _heals, _ammo_gives, _bags_thrown, _bags_exhausted])
 	var pt := maxi(_phase_ticks, 1)
 	print("[perf] us/tick: poll=%d move=%d lag=%d interest=%d fire=%d respawn=%d conquest=%d match=%d snap=%d (ticks=%d)"
 		% [_phase_us["poll"] / pt, _phase_us["move"] / pt, _phase_us["lag"] / pt, _phase_us["interest"] / pt, _phase_us["fire"] / pt, _phase_us["respawn"] / pt, _phase_us["conquest"] / pt, _phase_us["match"] / pt, _phase_us["snap"] / pt, _phase_ticks])
@@ -974,4 +1099,4 @@ func _log_telemetry() -> void:
 	_tele.reset_window()
 	_kills = 0; _shots = 0; _hits = 0; _rewind_clamped = 0; _cap_events = 0
 	_builds = 0; _removes = 0; _shots_blocked = 0; _pen = 0
-	_dmg = 0; _destroyed = 0; _nades = 0; _splash_kills = 0; _smokes = 0; _rockets_det = 0; _rstruct = 0; _downed = 0; _bleedouts = 0; _revives = 0; _c4_det = 0; _mine_trips = 0
+	_dmg = 0; _destroyed = 0; _nades = 0; _splash_kills = 0; _smokes = 0; _rockets_det = 0; _rstruct = 0; _downed = 0; _bleedouts = 0; _revives = 0; _c4_det = 0; _mine_trips = 0; _heals = 0; _ammo_gives = 0; _bags_thrown = 0; _bags_exhausted = 0
