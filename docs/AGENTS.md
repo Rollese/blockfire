@@ -2,9 +2,17 @@
 
 This project is built largely by AI agents. Follow these rules so we stay coordinated and don't trample each other's work.
 
-## 1. Read before you write — use graphify
+## 1. Explore the code with graphify, not by reading files manually
 
-Before modifying or analyzing any non-trivial part of the codebase, **use `graphify`** to build/query the knowledge graph of the code. Treat any question about architecture, file relationships, or "where does X happen" as a **graphify query first**, not a guess. If `graphify-out/` exists, query it before re-scanning.
+**From now on, every agent explores this codebase through `graphify` first — not by opening, grepping, or scanning files by hand.** As of 2026-06-15 the entire GDScript codebase (`.gd`) is indexed as **code** alongside the docs, so the knowledge graph in `graphify-out/` covers classes, functions, methods, call graphs, and `extends` inheritance across `shared/`, `client/`, `server/`, `bots/`, and the test suites — not just the design docs.
+
+Rules:
+
+- **Default to a graphify query.** Any question about architecture, file relationships, call flow, or "where does X happen / what calls Y / what extends Z" is a **`graphify query "…"` first**, not a manual file hunt and not a guess.
+- **The graph already exists.** When `graphify-out/graph.json` is present, query it directly — do not re-scan or rebuild for a read-only question.
+- **Manual file reading is the fallback, not the default.** Open files directly only to read/edit the specific lines a graphify query has already pointed you to, or for something genuinely outside the graph.
+- **Keep the graph fresh.** After landing non-trivial code or doc changes, run `/graphify --update` so the graph reflects reality for the next agent.
+- Pass this same rule to any subagent you dispatch to explore or analyze the code.
 
 ## 2. Use the superpowers skills
 
