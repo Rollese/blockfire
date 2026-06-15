@@ -22,6 +22,17 @@ Canonical source of truth for what's being worked on. Claim a task (set owner + 
 
 > Milestones are **sequenced and gated**. Do not start a milestone before the previous gate passes. M4–M6 may be reordered but each remains independently gated.
 
+## Active work — M4.5 Phase 1 (Survivability)
+
+Spec: [`docs/specs/combat-depth.md`](specs/combat-depth.md) (three-phase split). Plan: [`docs/plans/2026-06-15-m4.5-p1-survivability.md`](plans/2026-06-15-m4.5-p1-survivability.md) — 9 TDD tasks (DBNO/revive/bandages). Branch `m4.5-combat-depth`. Execute via `subagent-driven-development`; P2 (gadgets/RPG/penetration/attachments) and P3 (movement) get their own plans next.
+
+| Task | Owner | Status | Notes |
+|---|---|---|---|
+| M4.5-P1 brainstorm + spec | claude | done | `docs/specs/combat-depth.md` committed |
+| M4.5-P1 implementation plan | claude | done | `docs/plans/2026-06-15-m4.5-p1-survivability.md` |
+| M4.5-P1 execute (9 tasks) | — | todo | subagent-driven; Tasks 5 & 7 get a review subagent |
+| M4.5-P1 fleet 128-bot gate | — | todo | unraid SENET; assert `downed≥1 revives≥1`, winner, peak tick <33.3ms |
+
 ## Active tasks (M0) — complete ✅
 
 | Task | Owner | Status | Notes |
