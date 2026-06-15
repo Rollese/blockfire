@@ -9,6 +9,8 @@
 - Full HUD: health, ammo, minimap, capture status, killfeed, scoreboard.
 - Deploy / squad / settings menus.
 - Audio/visual feedback polish (hit markers, damage indicators).
+- **Steam integration (first rendered client)**: Steam auth via session tickets + **VAC** baseline (via GodotSteam; keep it client/server-edge, never in `shared/`). Steam Direct $100/app.
+- **Anti-cheat Layer 3 — line-of-sight replication culling**: don't replicate enemies a player has no sight line to (extends interest culling + the 32-entity relevance cap), using M4 occlusion data. Anti-wallhack/ESP. See [anti-cheat-matchmaking spec](../specs/anti-cheat-matchmaking.md) / [ADR-0004](../adr/0004-anti-cheat-and-skill-matchmaking.md).
 
 ## Gate
 End-to-end **human playtest of a full Conquest match** with the real art and complete HUD.

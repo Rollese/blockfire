@@ -17,6 +17,7 @@ Canonical source of truth for what's being worked on. Claim a task (set owner + 
 | M6 | [Voice (proximity + squad)](milestones/M6-voice.md) | todo | Voice works for human testers in a live match without breaking tick budget. |
 | M7 | [Art pass + UX polish](milestones/M7-art-ux.md) | todo | End-to-end human playtest of a full Conquest match. |
 | M8 | [Hardening & ops](milestones/M8-hardening-ops.md) | todo | Documented one-command stress run spins server + 128 bots in Docker. |
+| M9 | [Online services (accounts, anti-cheat detection, matchmaking)](milestones/M9-online-services.md) | todo | Steam auth → skill-tier placement → matched into an official 128-slot server (with dynamic tier-merge); signed match reports update rating; a seeded cheat trace is flagged. |
 
 > Milestones are **sequenced and gated**. Do not start a milestone before the previous gate passes. M4–M6 may be reordered but each remains independently gated.
 
