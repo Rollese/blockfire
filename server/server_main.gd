@@ -23,6 +23,7 @@ const FIRE_RANGE_MARGIN := 20.0    # grid broad-phase slack for lag-comp movemen
 const MAP_PATH := "res://maps/conquest_proving_grounds.json"
 const MATCH_STATE_INTERVAL := 15   # ticks between match-state broadcasts (2 Hz)
 const MATCH_END_DRAIN_TICKS := 60  # keep running ~2s after a win, then exit
+const PIECES_PATH := "res://pieces/fortifications.json"
 
 var _net: NetHost
 var _port := 27015
@@ -35,6 +36,9 @@ var _tele := Telemetry.new()
 var _map: MapDef
 var _conquest: ConquestState
 var _squads := SquadManager.new()
+var _catalog: PieceCatalog
+var _store: StructureStore
+var _next_struct_id := 1
 var _next_id := 1
 var _tele_accum := 0.0
 # Per-phase tick profiling (mean usec/tick over the telemetry window).
@@ -49,6 +53,9 @@ var _hits := 0
 var _rewind_clamped := 0
 var _cap_events := 0          # per-telemetry-window (reset each second)
 var _cap_events_total := 0    # cumulative over the match (for the match-end summary)
+var _builds := 0
+var _removes := 0
+var _shots_blocked := 0
 var _prev_owners: Array = []
 var _match_over_broadcast := false
 var _match_end_tick := -1
@@ -71,6 +78,11 @@ func _ready() -> void:
 	if _time_limit > 0.0:
 		_conquest.time_limit = _time_limit
 	_prev_owners = _owner_snapshot()
+	_catalog = PieceCatalog.load_file(PIECES_PATH)
+	if _catalog == null:
+		push_error("[server] failed to load pieces %s" % PIECES_PATH); get_tree().quit(1); return
+	_store = StructureStore.new(_catalog)
+	_sim.structures = _store
 	_net = NetHost.new()
 	add_child(_net)
 	_net.peer_connected.connect(func(_p): pass)
@@ -338,6 +350,8 @@ func _on_packet(peer: ENetPacketPeer, _channel: int, bytes: PackedByteArray) -> 
 	match Protocol.msg_type(bytes):
 		Protocol.Msg.HELLO: _handle_hello(peer, bytes)
 		Protocol.Msg.INPUT: _handle_input(peer, bytes)
+		Protocol.Msg.BUILD_REQUEST: _handle_build_request(peer, bytes)
+		Protocol.Msg.BUILD_REMOVE: _handle_build_remove(peer, bytes)
 		_: pass
 
 func _handle_hello(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
@@ -364,6 +378,7 @@ func _handle_hello(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
 		"team": team, "squad": squad, "class": cls, "weapon": wid, "ammo": Weapon.get_def(wid)["mag_size"],
 		"reloading": false, "reload_done_tick": 0, "last_fire_time": -999.0,
 		"shot_index": 0, "respawn_tick": 0,
+		"last_build_tick": -100000, "known_regions": {},
 	}
 	var p := _sim.world.spawn(id)
 	p.team = team
@@ -384,6 +399,55 @@ func _handle_input(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
 		c["last_acked_seq"] = ack
 		for s in c["history"].keys():
 			if s < ack: c["history"].erase(s)
+
+func _handle_build_request(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
+	var id = _peer_to_id.get(peer, 0)
+	if id == 0 or not _clients.has(id): return
+	var c = _clients[id]
+	var p: Pawn = _sim.world.get_pawn(id)
+	if p == null or not p.alive: return
+	var d := Protocol.decode_build_request(bytes)
+	var type: int = d["type"]
+	if type < 0 or type >= _catalog.size(): return
+	var cell: Vector3i = d["cell"]
+	var v := _store.validate_place(cell, p.pos, _sim.tick, c["last_build_tick"], Pawn.WORLD_HALF)
+	if not v["ok"]: return
+	if _store.owner_count(id) >= StructureStore.MAX_PIECES_PER_PLAYER:
+		var old_id := _store.recycle_oldest(id)
+		if old_id != 0:
+			_emit_structure_delta(Protocol.OP_REMOVE, {"id": old_id}, _cell_of_struct(old_id))
+			_removes += 1
+	var sid := _next_struct_id
+	_next_struct_id += 1
+	var rec := _store.place(sid, type, cell, d["yaw"], id)
+	if rec.is_empty(): return   # lost a race for the cell
+	c["last_build_tick"] = _sim.tick
+	_builds += 1
+	_emit_structure_delta(Protocol.OP_PLACE, rec, cell)
+
+func _handle_build_remove(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
+	var id = _peer_to_id.get(peer, 0)
+	if id == 0 or not _clients.has(id): return
+	var rid: int = Protocol.decode_build_remove(bytes)["id"]
+	var rec := _store.get_record(rid)
+	if rec.is_empty() or int(rec["owner"]) != id: return
+	var cell: Vector3i = rec["cell"]
+	_store.remove(rid)
+	_removes += 1
+	_emit_structure_delta(Protocol.OP_REMOVE, {"id": rid}, cell)
+
+## Cell of a still-present record (for remove-delta routing). Returns a far cell if gone.
+func _cell_of_struct(id: int) -> Vector3i:
+	var rec := _store.get_record(id)
+	return rec["cell"] if not rec.is_empty() else Vector3i(0, 0, 0)
+
+## Send a structure delta to every client whose current interest region covers the cell's region.
+func _emit_structure_delta(op: int, rec: Dictionary, cell: Vector3i) -> void:
+	var region := _store.region_of(cell)
+	var bytes := Protocol.encode_structure_delta(op, rec)
+	for cid in _clients:
+		if _clients[cid]["known_regions"].has(region):
+			_net.send_to(_clients[cid]["peer"], NetHost.CHANNEL_CONTROL, bytes, ENetPacketPeer.FLAG_RELIABLE)
 
 func _on_peer_disconnected(peer: ENetPacketPeer) -> void:
 	var id = _peer_to_id.get(peer, 0)
