@@ -13,10 +13,13 @@ const MAX_HISTORY := 32
 const SNAPSHOT_STRIDE := 2   # send each client a snapshot every Nth tick (round-robin by id),
                              # so per-tick encode cost is ~clients/STRIDE instead of O(clients).
                              # Client-side interpolation smooths the lower send rate (30/STRIDE Hz).
-const MAX_SNAPSHOT_ENTITIES := 32   # relevance cap: a snapshot carries at most the N most
-                                    # relevant entities (enemies first, then nearest teammates),
-                                    # bounding the worst case (a dense cluster) where every client
-                                    # would otherwise see ~everyone (O(N^2) encode at the peak).
+const MAX_SNAPSHOT_ENTITIES := 32   # over this many entities in interest range, the relevance cull
+                                    # runs: ALL teammates are kept (friendlies are never hidden — no
+                                    # wallhack concern, and you must see downed squadmates to revive)
+                                    # and only enemies are capped (see _build_interest).
+const MAX_ENEMY_SNAPSHOT := 24      # max enemies per snapshot (nearest-first) once the cull runs —
+                                    # the only set with a wallhack concern; bounds the O(N^2) peak.
+                                    # Total snapshot ≈ (teammates in range) + ≤24 enemies.
 const RESPAWN_DELAY_TICKS := 150   # 5s @30Hz
 const FIRE_CONE_DOT := 0.985       # broad-phase: target within ~10deg of ray
 const FIRE_RANGE_MARGIN := 20.0    # grid broad-phase slack for lag-comp movement
@@ -442,26 +445,29 @@ func _send_snapshots() -> void:
 		_sync_structure_baselines(c, self_pawn.pos)
 		var ids := _grid.query(self_pawn.pos, INTEREST_RADIUS, _positions)
 		if ids.size() > MAX_SNAPSHOT_ENTITIES:
-			# Relevance cull to the cap, prioritising ENEMIES (a player must see nearby foes
-			# even inside a crowd of teammates — pure nearest-N would hide them) and always
-			# keeping self (needed for reconciliation). Enemies first by distance, then the
-			# nearest teammates fill the rest. Only paid when over the cap (dense clusters).
+			# Cull ENEMIES only — they are the sole wallhack concern. Every TEAMMATE in interest
+			# range is always replicated: there is no security reason to hide friendlies, and a
+			# client must see its downed squadmates to revive them (hard count-culling hid them at
+			# fleet density, which broke revive). Enemies are kept nearest-first up to
+			# MAX_ENEMY_SNAPSHOT. Self always kept (needed for reconciliation). Only paid over cap.
+			# (True 256-scale wants rate/precision LOD on distant entities — separate netcode work.)
 			var sp: Vector3 = self_pawn.pos
 			var myteam: int = self_pawn.team
-			var ranked: Array = []
-			ranked.resize(ids.size())
-			for i in ids.size():
-				var vid: int = ids[i]
-				var key: float = sp.distance_squared_to(_positions[vid])
-				if int(state[vid].team) == myteam:
-					key += 1.0e15   # teammates rank after every enemy
-				ranked[i] = [key, vid]
-			ranked.sort()
 			var kept := {id: true}
-			for pair in ranked:
-				if kept.size() >= MAX_SNAPSHOT_ENTITIES:
+			var enemies: Array = []
+			for vid in ids:
+				if vid == id: continue
+				if int(state[vid].team) == myteam:
+					kept[vid] = true   # always replicate every teammate in range
+				else:
+					enemies.append([sp.distance_squared_to(_positions[vid]), vid])
+			enemies.sort()   # nearest enemies first
+			var enemy_kept := 0
+			for pair in enemies:
+				if enemy_kept >= MAX_ENEMY_SNAPSHOT:
 					break
 				kept[pair[1]] = true
+				enemy_kept += 1
 			ids = kept.keys()
 		var current := {}
 		for vid in ids: current[vid] = state[vid]

@@ -14,7 +14,8 @@ const BLEEDOUT_FLOOR := -240     # death threshold; |floor|/rate = 240 ticks (8 
                                  # passive bleed-out is their only death path if not revived.
 const REVIVE_TICKS := 90         # revive hold duration, non-medic (3 s @30 Hz)
 const REVIVE_HP := 30            # HP restored on revive
-const REVIVE_RANGE := 2.0        # max range (m) to begin/hold revive
+const REVIVE_RANGE := 3.0        # max range (m) to begin/hold revive (gate-tuned up from 2.0 for
+                                 # positioning margin so a reviver's drift doesn't drop progress)
 const DOWNED_CRAWL_SPEED := 1.0  # m/s while DOWNED
 
 # Damage source tags — who/what dealt the (potentially) lethal hit.

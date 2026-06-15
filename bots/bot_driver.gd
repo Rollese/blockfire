@@ -94,7 +94,9 @@ func _drive(bot: Dictionary, delta: float) -> void:
 		if to.length() <= Revive.REVIVE_RANGE:
 			(bot["net"] as NetHost).send_to(bot["peer"], NetHost.CHANNEL_INPUT,
 				Protocol.encode_revive_action(rid, true), 0)
-			_send(bot, 0.0, 0.0, atan2(to.x, to.z), 0.0, 0)
+			# Hold still, face the downed mate, and crouch over them (BattleBit medic posture —
+			# smaller silhouette / steadier hold) for the duration of the revive.
+			_send(bot, 0.0, 0.0, atan2(to.x, to.z), 0.0, InputCommand.BTN_CROUCH)
 			return
 		else:
 			var myaw := atan2(to.x, to.z)
