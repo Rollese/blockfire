@@ -84,10 +84,13 @@ var _destroyed := 0           # pieces removed by damage/blast this window
 var _nades := 0               # frag detonations this window
 var _splash_kills := 0        # pawn deaths from blasts this window
 var _smokes := 0              # smoke zones deployed this window
+var _rockets_det := 0         # RPG rockets detonated this window
+var _rstruct := 0             # structures hit by rockets this window
 var _pending_removes: Array = []   # [{id, cell}] removes awaiting send (degradation queue)
 var _dmg_touched := {}             # id -> true: pieces damaged (alive) this tick, for bucket diff
 var _last_bucket := {}             # id -> last SENT bucket (missing => pristine bucket 3)
 var _grenades: Array = []     # [{owner, team, type, pos, vel, detonate_tick}] — server-side, not replicated
+var _rockets: Array = []      # [{owner, team, pos, vel}] — server-side, not replicated
 var _smoke_zones: Array = []  # [{pos, radius, expire_tick}] — server-side; M7 LOS culling consumes
 var _prev_owners: Array = []
 var _match_over_broadcast := false
@@ -145,6 +148,7 @@ func _physics_process(delta: float) -> void:
 	_resolve_fires()
 	var t_fire := Time.get_ticks_usec()
 	_step_grenades()
+	_step_rockets()
 	_expire_smoke_zones()
 	_step_revives()
 	_step_downed()
@@ -423,6 +427,7 @@ func _handle_respawns() -> void:
 			c["respawn_tick"] = 0
 			c["ammo"] = Weapon.get_def(c["weapon"])["mag_size"]
 			c["reloading"] = false
+			c["rockets"] = int(_gadgets.def_of_kind(Gadget.KIND_RPG)["max_active"]) if int(c["weapon"]) == Weapon.RPG else 0
 
 func _select_spawn(id: int) -> Vector3:
 	var c = _clients[id]
@@ -530,6 +535,7 @@ func _on_packet(peer: ENetPacketPeer, _channel: int, bytes: PackedByteArray) -> 
 		Protocol.Msg.GRENADE_THROW: _handle_grenade_throw(peer, bytes)
 		Protocol.Msg.REVIVE_ACTION: _handle_revive_action(peer, bytes)
 		Protocol.Msg.SELF_BANDAGE: _handle_self_bandage(peer, bytes)
+		Protocol.Msg.GADGET_ACTION: _handle_gadget_action(peer, bytes)
 		_: pass
 
 func _handle_hello(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
@@ -643,6 +649,28 @@ func _handle_grenade_throw(peer: ENetPacketPeer, bytes: PackedByteArray) -> void
 		"detonate_tick": _sim.tick + GRENADE_FUSE_TICKS,
 	})
 
+func _handle_gadget_action(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
+	var id = _peer_to_id.get(peer, 0)
+	if id == 0 or not _clients.has(id): return
+	var p: Pawn = _sim.world.get_pawn(id)
+	if p == null or not p.alive or p.is_downed: return
+	var d := Protocol.decode_gadget_action(bytes)
+	match int(d["action"]):
+		Protocol.GA_RPG_FIRE: _fire_rocket(id, p, d["dir"])
+		_: pass   # C4/mine/give actions wired in later tasks
+
+## Launch an RPG rocket if the player has the RPG equipped, rockets remaining, and is off cooldown.
+func _fire_rocket(id: int, p: Pawn, dir: Vector3) -> void:
+	var c = _clients[id]
+	if int(c["weapon"]) != Weapon.RPG: return
+	if int(c["rockets"]) <= 0: return
+	var rdef: Dictionary = _gadgets.def_of_kind(Gadget.KIND_RPG)
+	if _sim.tick - int(c["last_rocket_tick"]) < int(rdef["cooldown_ticks"]): return
+	if dir.length() < 0.001: return
+	c["last_rocket_tick"] = _sim.tick
+	c["rockets"] = int(c["rockets"]) - 1
+	_rockets.append({"owner": id, "team": p.team, "pos": p.eye_position(), "vel": Grenade.launch_velocity(dir.normalized())})
+
 func _handle_self_bandage(peer: ENetPacketPeer, _bytes: PackedByteArray) -> void:
 	var id = _peer_to_id.get(peer, 0)
 	if id == 0 or not _clients.has(id): return
@@ -679,6 +707,60 @@ func _step_grenades() -> void:
 			still.append(g)
 	_grenades = still
 
+## Generalized blast: structure damage (cell radius) + pawn splash (sphere, current positions,
+## FF-off incl. owner). Shared by frag grenades, RPG, C4, and mines. `source` tags the kill
+## (BLAST). Returns the number of pawns that took damage (for kill/trigger bookkeeping).
+func _blast_at(center: Vector3, owner: int, team: int, pawn_dmg: int, pawn_radius: float,
+		struct_dmg: int, struct_radius: float) -> int:
+	if struct_dmg > 0 and struct_radius > 0.0:
+		for sid in _store.ids_in_radius(center, struct_radius):
+			var rec: Dictionary = _store.get_record(sid)
+			if rec.is_empty(): continue
+			var at := BuildGrid.cell_min(rec["cell"]) + Vector3.ONE * (BuildGrid.CELL_SIZE * 0.5)
+			var sd := Grenade.falloff_damage(center, at, struct_dmg, struct_radius)
+			if sd > 0:
+				_damage_structure(sid, sd)
+	var hits := 0
+	for pid in _sim.world.pawns:
+		if pid == owner: continue
+		var victim: Pawn = _sim.world.pawns[pid]
+		if not victim.alive or victim.team == team: continue
+		var pd := Grenade.falloff_damage(center, victim.pos, pawn_dmg, pawn_radius)
+		if pd <= 0: continue
+		_apply_pawn_damage(pid, victim, pd, false, Revive.Source.BLAST, owner, 0)
+		hits += 1
+	return hits
+
+## Integrate live RPG rockets; detonate on structure march-hit, ground, or world bound. Reuses the
+## Grenade ballistic model (spec §"RPG"). Present-time blast via _blast_at; FF-off.
+func _step_rockets() -> void:
+	if _rockets.is_empty():
+		return
+	var rdef: Dictionary = _gadgets.def_of_kind(Gadget.KIND_RPG)
+	var still: Array = []
+	for r in _rockets:
+		var s := Grenade.integrate(r["pos"], r["vel"], SimLoop.DT)
+		var nxt: Vector3 = s["pos"]
+		# Structure contact along this step (march from old pos toward new).
+		var seg := nxt - r["pos"]
+		var seg_len := seg.length()
+		var struck := false
+		if _store.count() > 0 and seg_len > 0.0001:
+			var m := _store.march(r["pos"], seg / seg_len, seg_len)
+			if bool(m["hit"]):
+				struck = true
+		if struck or nxt.y <= 0.0:
+			if nxt.y < 0.0: nxt.y = 0.0
+			_rockets_det += 1
+			_rstruct += _store.ids_in_radius(nxt, float(rdef["struct_radius"])).size()
+			_blast_at(nxt, int(r["owner"]), int(r["team"]),
+				int(rdef["pawn_damage"]), float(rdef["pawn_radius"]),
+				int(rdef["struct_damage"]), float(rdef["struct_radius"]))
+			continue
+		r["pos"] = nxt; r["vel"] = s["vel"]
+		still.append(r)
+	_rockets = still
+
 ## Frag: area damage at the grenade's current position — structures (cell radius) + pawns (sphere,
 ## current positions, FF-off incl. thrower). Removes/bucket-drops route through _damage_structure.
 ## (Smoke is handled by a branch added in Task 9.)
@@ -687,23 +769,7 @@ func _detonate(g: Dictionary) -> void:
 		_deploy_smoke(g)
 		return
 	_nades += 1
-	var center: Vector3 = g["pos"]
-	for sid in _store.ids_in_radius(center, BLAST_STRUCT_RADIUS):
-		var rec := _store.get_record(sid)
-		if rec.is_empty(): continue
-		var at := BuildGrid.cell_min(rec["cell"]) + Vector3.ONE * (BuildGrid.CELL_SIZE * 0.5)
-		var sd := Grenade.falloff_damage(center, at, GRENADE_DAMAGE_STRUCT, BLAST_STRUCT_RADIUS)
-		if sd > 0:
-			_damage_structure(sid, sd)
-	var owner: int = int(g["owner"])
-	var team: int = int(g["team"])
-	for pid in _sim.world.pawns:
-		if pid == owner: continue
-		var victim: Pawn = _sim.world.pawns[pid]
-		if not victim.alive or victim.team == team: continue
-		var pd := Grenade.falloff_damage(center, victim.pos, GRENADE_DAMAGE_PAWN, BLAST_PAWN_RADIUS)
-		if pd <= 0: continue
-		_apply_pawn_damage(pid, victim, pd, false, Revive.Source.BLAST, owner, 0)
+	_blast_at(g["pos"], int(g["owner"]), int(g["team"]), GRENADE_DAMAGE_PAWN, BLAST_PAWN_RADIUS, GRENADE_DAMAGE_STRUCT, BLAST_STRUCT_RADIUS)
 
 ## Smoke detonation: no damage. Record a server-side zone and broadcast it (low-frequency, like
 ## KILL — bounded by the throw cooldown). M7 LOS culling will read _smoke_zones; here it just
@@ -822,8 +888,8 @@ func _log_telemetry() -> void:
 	var pts := ""
 	for pt in _conquest.points:
 		pts += "." if pt["owner"] == -1 else str(pt["owner"])
-	print("[telemetry] players=%d alive=%d tick_mean=%.2fms tick_p99=%.2fms agg=%.1fMbit/s kills=%d shots=%d hit_rate=%.2f starv=%d rewind_clamped=%d t0=%d t1=%d pts=%s cap_events=%d struct=%d bld=%d rmv=%d blk=%d pen=%d dmg=%d destroyed=%d nades=%d splash=%d smoke=%d downed=%d bleedouts=%d revives=%d"
-		% [n, alive, _tele.mean_tick_ms(), _tele.p99_tick_ms(), mbit, _kills, _shots, hit_rate, _tele.starvation, _rewind_clamped, _conquest.tickets_int(0), _conquest.tickets_int(1), pts, _cap_events, _store.count(), _builds, _removes, _shots_blocked, _pen, _dmg, _destroyed, _nades, _splash_kills, _smokes, _downed, _bleedouts, _revives])
+	print("[telemetry] players=%d alive=%d tick_mean=%.2fms tick_p99=%.2fms agg=%.1fMbit/s kills=%d shots=%d hit_rate=%.2f starv=%d rewind_clamped=%d t0=%d t1=%d pts=%s cap_events=%d struct=%d bld=%d rmv=%d blk=%d pen=%d dmg=%d destroyed=%d nades=%d splash=%d smoke=%d rockets=%d rstruct=%d downed=%d bleedouts=%d revives=%d"
+		% [n, alive, _tele.mean_tick_ms(), _tele.p99_tick_ms(), mbit, _kills, _shots, hit_rate, _tele.starvation, _rewind_clamped, _conquest.tickets_int(0), _conquest.tickets_int(1), pts, _cap_events, _store.count(), _builds, _removes, _shots_blocked, _pen, _dmg, _destroyed, _nades, _splash_kills, _smokes, _rockets_det, _rstruct, _downed, _bleedouts, _revives])
 	var pt := maxi(_phase_ticks, 1)
 	print("[perf] us/tick: poll=%d move=%d lag=%d interest=%d fire=%d respawn=%d conquest=%d match=%d snap=%d (ticks=%d)"
 		% [_phase_us["poll"] / pt, _phase_us["move"] / pt, _phase_us["lag"] / pt, _phase_us["interest"] / pt, _phase_us["fire"] / pt, _phase_us["respawn"] / pt, _phase_us["conquest"] / pt, _phase_us["match"] / pt, _phase_us["snap"] / pt, _phase_ticks])
@@ -832,4 +898,4 @@ func _log_telemetry() -> void:
 	_tele.reset_window()
 	_kills = 0; _shots = 0; _hits = 0; _rewind_clamped = 0; _cap_events = 0
 	_builds = 0; _removes = 0; _shots_blocked = 0; _pen = 0
-	_dmg = 0; _destroyed = 0; _nades = 0; _splash_kills = 0; _smokes = 0; _downed = 0; _bleedouts = 0; _revives = 0
+	_dmg = 0; _destroyed = 0; _nades = 0; _splash_kills = 0; _smokes = 0; _rockets_det = 0; _rstruct = 0; _downed = 0; _bleedouts = 0; _revives = 0
