@@ -442,10 +442,11 @@ func _step_active_give() -> void:
 		if kind == Gadget.KIND_HEAL:
 			_give_heal(target, int(gdef["active_rate"]))
 		else:
-			_give_ammo(gid, target, int(gdef["active_rate"]))
+			_give_ammo(target, int(gdef["active_rate"]))
 	for gid in done:
 		_giving.erase(gid)
 
+## Heals target by `rate` HP, capped at 100. No-op if dead or already full.
 func _give_heal(target_id: int, rate: int) -> void:
 	var t: Pawn = _sim.world.get_pawn(target_id)
 	if t == null or not t.alive or t.health >= 100: return
@@ -453,7 +454,7 @@ func _give_heal(target_id: int, rate: int) -> void:
 	_heals += 1
 
 ## Ammo give at 1 mag per `period` ticks (active_rate is the period). Refills ammo + a bandage.
-func _give_ammo(giver_id: int, target_id: int, period: int) -> void:
+func _give_ammo(target_id: int, period: int) -> void:
 	if period <= 0 or _sim.tick % period != 0: return
 	if not _clients.has(target_id): return
 	var tc = _clients[target_id]
@@ -970,7 +971,7 @@ func _step_bags() -> void:
 			if t.pos.distance_to(b["pos"]) > radius: continue
 			if kind == Gadget.KIND_HEAL:
 				if t.health >= 100: continue
-				# 25% of active rate, rounded up to >=1 HP so the bag makes progress.
+				# Integer div (active_rate=2 → 0), floored to 1 so low-rate bags still make progress.
 				var amt := maxi(1, int(gdef["active_rate"]) / 4)
 				t.health = mini(100, t.health + amt)
 				dispensed += amt
