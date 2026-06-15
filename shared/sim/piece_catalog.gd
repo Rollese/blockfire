@@ -5,7 +5,37 @@ extends RefCounted
 ## geometry/health shared by server (validation, cover) and the structure store (AABB).
 ## Index in array order == the u8 `type` on the wire. See docs/specs/building.md.
 
-var pieces: Array = []   # [{id:String, half:bool, health:int}]
+# Material tags (spec §"Bullet penetration"). Index-free enum-style ints; the wire never
+# carries material (server-only, used in the fire path), so order is internal.
+const MAT_WOOD := 0
+const MAT_METAL_THIN := 1
+const MAT_CONCRETE := 2
+const MAT_METAL_THICK := 3
+
+const _MATERIALS := {
+	"WOOD": MAT_WOOD, "METAL_THIN": MAT_METAL_THIN,
+	"CONCRETE": MAT_CONCRETE, "METAL_THICK": MAT_METAL_THICK,
+}
+
+# Per-material penetration factors: {penetrable, absorption, transmit}. Non-penetrable
+# materials stop the shot (the piece eats full body damage; nothing exits).
+const _PEN := {
+	MAT_WOOD:        {"penetrable": true,  "absorption": 0.40, "transmit": 0.60},
+	MAT_METAL_THIN:  {"penetrable": true,  "absorption": 0.65, "transmit": 0.35},
+	MAT_CONCRETE:    {"penetrable": false, "absorption": 1.0,  "transmit": 0.0},
+	MAT_METAL_THICK: {"penetrable": false, "absorption": 1.0,  "transmit": 0.0},
+}
+
+static func is_penetrable(material: int) -> bool:
+	return bool(_PEN[material]["penetrable"])
+
+static func absorption_of(material: int) -> float:
+	return float(_PEN[material]["absorption"])
+
+static func transmit_of(material: int) -> float:
+	return float(_PEN[material]["transmit"])
+
+var pieces: Array = []   # [{id:String, half:bool, health:int, material:int}]
 
 func size() -> int:
 	return pieces.size()
@@ -18,6 +48,9 @@ func health_of(type: int) -> int:
 
 func name_of(type: int) -> String:
 	return String(pieces[type]["id"])
+
+func material_of(type: int) -> int:
+	return int(pieces[type]["material"])
 
 static func from_json_string(text: String) -> Dictionary:
 	var data = JSON.parse_string(text)
@@ -46,7 +79,10 @@ static func from_dict(data: Dictionary) -> Dictionary:
 			return {"ok": false, "catalog": null, "error": "health must be > 0"}
 		if String(p.get("blocks", "both")) != "both":
 			return {"ok": false, "catalog": null, "error": "blocks must be 'both' (v1)"}
-		c.pieces.append({"id": id, "half": height == "half", "health": health})
+		var mat_str := String(p.get("material", "CONCRETE"))
+		if not _MATERIALS.has(mat_str):
+			return {"ok": false, "catalog": null, "error": "unknown material '%s'" % mat_str}
+		c.pieces.append({"id": id, "half": height == "half", "health": health, "material": _MATERIALS[mat_str]})
 	return {"ok": true, "catalog": c, "error": ""}
 
 static func load_file(path: String) -> PieceCatalog:
