@@ -23,6 +23,7 @@ const FIRE_RANGE_MARGIN := 20.0    # grid broad-phase slack for lag-comp movemen
 const MAP_PATH := "res://maps/conquest_proving_grounds.json"
 const MATCH_STATE_INTERVAL := 15   # ticks between match-state broadcasts (2 Hz)
 const MATCH_END_DRAIN_TICKS := 60  # keep running ~2s after a win, then exit
+const PIECES_PATH := "res://pieces/fortifications.json"
 
 var _net: NetHost
 var _port := 27015
@@ -35,6 +36,9 @@ var _tele := Telemetry.new()
 var _map: MapDef
 var _conquest: ConquestState
 var _squads := SquadManager.new()
+var _catalog: PieceCatalog
+var _store: StructureStore
+var _next_struct_id := 1
 var _next_id := 1
 var _tele_accum := 0.0
 # Per-phase tick profiling (mean usec/tick over the telemetry window).
@@ -49,6 +53,9 @@ var _hits := 0
 var _rewind_clamped := 0
 var _cap_events := 0          # per-telemetry-window (reset each second)
 var _cap_events_total := 0    # cumulative over the match (for the match-end summary)
+var _builds := 0
+var _removes := 0
+var _shots_blocked := 0
 var _prev_owners: Array = []
 var _match_over_broadcast := false
 var _match_end_tick := -1
@@ -71,6 +78,11 @@ func _ready() -> void:
 	if _time_limit > 0.0:
 		_conquest.time_limit = _time_limit
 	_prev_owners = _owner_snapshot()
+	_catalog = PieceCatalog.load_file(PIECES_PATH)
+	if _catalog == null:
+		push_error("[server] failed to load pieces %s" % PIECES_PATH); get_tree().quit(1); return
+	_store = StructureStore.new(_catalog)
+	_sim.structures = _store
 	_net = NetHost.new()
 	add_child(_net)
 	_net.peer_connected.connect(func(_p): pass)
@@ -209,7 +221,21 @@ func _fire_shot(shooter_id: int, shooter: Pawn, inp: Dictionary, shot_index: int
 		var hit := Hitbox.raycast_pawn(ray["origin"], ray["dir"], st["pos"], st["stance"], max_range)
 		if hit["hit"] and hit["t"] < best_t:
 			best_t = hit["t"]; best_victim = tid; best_head = hit["headshot"]
-	if best_victim == 0:
+	# Cover: a structure strictly nearer than the enemy absorbs the shot (Phase 1: no piece
+	# damage; ties go to the enemy). Skip the march entirely when nothing is built yet.
+	var block_dist := INF
+	if _store.count() > 0:
+		# Only a structure NEARER than the resolved enemy hit can change the outcome, so bound
+		# the march by best_t (the enemy distance) when an enemy was hit — in combat that is the
+		# engagement range, far short of the full weapon range, cutting per-shot march cost.
+		# When no enemy was hit, march the full range to detect a pure cover absorb.
+		var march_max: float = best_t if best_victim != 0 else max_range
+		var blocked := _store.march(ray["origin"], ray["dir"], march_max)
+		if blocked["hit"]:
+			block_dist = blocked["dist"]
+	if best_victim == 0 or block_dist < best_t:
+		if block_dist < INF:
+			_shots_blocked += 1
 		return
 	_hits += 1
 	var dmg := Combat.damage_for(wid, best_head, best_t)
@@ -295,6 +321,7 @@ func _send_snapshots() -> void:
 		var c = _clients[id]
 		var self_pawn = _sim.world.get_pawn(id)
 		if self_pawn == null: continue
+		_sync_structure_baselines(c, self_pawn.pos)
 		var ids := _grid.query(self_pawn.pos, INTEREST_RADIUS, _positions)
 		if ids.size() > MAX_SNAPSHOT_ENTITIES:
 			# Relevance cull to the cap, prioritising ENEMIES (a player must see nearby foes
@@ -338,6 +365,8 @@ func _on_packet(peer: ENetPacketPeer, _channel: int, bytes: PackedByteArray) -> 
 	match Protocol.msg_type(bytes):
 		Protocol.Msg.HELLO: _handle_hello(peer, bytes)
 		Protocol.Msg.INPUT: _handle_input(peer, bytes)
+		Protocol.Msg.BUILD_REQUEST: _handle_build_request(peer, bytes)
+		Protocol.Msg.BUILD_REMOVE: _handle_build_remove(peer, bytes)
 		_: pass
 
 func _handle_hello(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
@@ -364,6 +393,7 @@ func _handle_hello(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
 		"team": team, "squad": squad, "class": cls, "weapon": wid, "ammo": Weapon.get_def(wid)["mag_size"],
 		"reloading": false, "reload_done_tick": 0, "last_fire_time": -999.0,
 		"shot_index": 0, "respawn_tick": 0,
+		"last_build_tick": -100000, "known_regions": {},
 	}
 	var p := _sim.world.spawn(id)
 	p.team = team
@@ -384,6 +414,77 @@ func _handle_input(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
 		c["last_acked_seq"] = ack
 		for s in c["history"].keys():
 			if s < ack: c["history"].erase(s)
+
+func _handle_build_request(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
+	var id = _peer_to_id.get(peer, 0)
+	if id == 0 or not _clients.has(id): return
+	var c = _clients[id]
+	var p: Pawn = _sim.world.get_pawn(id)
+	if p == null or not p.alive: return
+	var d := Protocol.decode_build_request(bytes)
+	var type: int = d["type"]
+	if type < 0 or type >= _catalog.size(): return
+	var cell: Vector3i = d["cell"]
+	var v := _store.validate_place(cell, p.pos, _sim.tick, c["last_build_tick"], Pawn.WORLD_HALF)
+	if not v["ok"]: return
+	if _store.owner_count(id) >= StructureStore.MAX_PIECES_PER_PLAYER:
+		var old_id := _store.oldest_id(id)
+		if old_id != 0:
+			var old_cell := _cell_of_struct(old_id)   # capture BEFORE removal (record still present)
+			_store.recycle_oldest(id)
+			_removes += 1
+			_emit_structure_delta(Protocol.OP_REMOVE, {"id": old_id}, old_cell)
+	var sid := _next_struct_id
+	_next_struct_id += 1
+	var rec := _store.place(sid, type, cell, d["yaw"], id)
+	if rec.is_empty(): return   # lost a race for the cell
+	c["last_build_tick"] = _sim.tick
+	_builds += 1
+	_emit_structure_delta(Protocol.OP_PLACE, rec, cell)
+
+func _handle_build_remove(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
+	var id = _peer_to_id.get(peer, 0)
+	if id == 0 or not _clients.has(id): return
+	var rid: int = Protocol.decode_build_remove(bytes)["id"]
+	var rec := _store.get_record(rid)
+	if rec.is_empty() or int(rec["owner"]) != id: return
+	var cell: Vector3i = rec["cell"]
+	_store.remove(rid)
+	_removes += 1
+	_emit_structure_delta(Protocol.OP_REMOVE, {"id": rid}, cell)
+
+## Cell of a still-present record (for remove-delta routing). Returns a far cell if gone.
+func _cell_of_struct(id: int) -> Vector3i:
+	var rec := _store.get_record(id)
+	return rec["cell"] if not rec.is_empty() else Vector3i(0, 0, 0)
+
+## Send a structure delta to every client whose current interest region covers the cell's region.
+func _emit_structure_delta(op: int, rec: Dictionary, cell: Vector3i) -> void:
+	var region := _store.region_of(cell)
+	var bytes := Protocol.encode_structure_delta(op, rec)
+	for cid in _clients:
+		if _clients[cid]["known_regions"].has(region):
+			_net.send_to(_clients[cid]["peer"], NetHost.CHANNEL_CONTROL, bytes, ENetPacketPeer.FLAG_RELIABLE)
+
+## After computing a client's interest entities, send baselines for any structured regions
+## newly covered by its interest set. known_regions caches what the client already has.
+func _sync_structure_baselines(c: Dictionary, self_pos: Vector3) -> void:
+	if _store.count() == 0:
+		return
+	var center := _grid.key_of(self_pos)
+	var span := int(ceil(INTEREST_RADIUS / CELL_SIZE))
+	var known: Dictionary = c["known_regions"]
+	for dx in range(-span, span + 1):
+		for dz in range(-span, span + 1):
+			var region := Vector2i(center.x + dx, center.y + dz)
+			if known.has(region):
+				continue
+			var recs := _store.records_in_region(region)
+			if recs.is_empty():
+				continue
+			known[region] = true
+			var bytes := Protocol.encode_structure_baseline(region, recs)
+			_net.send_to(c["peer"], NetHost.CHANNEL_CONTROL, bytes, ENetPacketPeer.FLAG_RELIABLE)
 
 func _on_peer_disconnected(peer: ENetPacketPeer) -> void:
 	var id = _peer_to_id.get(peer, 0)
@@ -406,8 +507,8 @@ func _log_telemetry() -> void:
 	var pts := ""
 	for pt in _conquest.points:
 		pts += "." if pt["owner"] == -1 else str(pt["owner"])
-	print("[telemetry] players=%d alive=%d tick_mean=%.2fms tick_p99=%.2fms agg=%.1fMbit/s kills=%d shots=%d hit_rate=%.2f starv=%d rewind_clamped=%d t0=%d t1=%d pts=%s cap_events=%d"
-		% [n, alive, _tele.mean_tick_ms(), _tele.p99_tick_ms(), mbit, _kills, _shots, hit_rate, _tele.starvation, _rewind_clamped, _conquest.tickets_int(0), _conquest.tickets_int(1), pts, _cap_events])
+	print("[telemetry] players=%d alive=%d tick_mean=%.2fms tick_p99=%.2fms agg=%.1fMbit/s kills=%d shots=%d hit_rate=%.2f starv=%d rewind_clamped=%d t0=%d t1=%d pts=%s cap_events=%d struct=%d bld=%d rmv=%d blk=%d"
+		% [n, alive, _tele.mean_tick_ms(), _tele.p99_tick_ms(), mbit, _kills, _shots, hit_rate, _tele.starvation, _rewind_clamped, _conquest.tickets_int(0), _conquest.tickets_int(1), pts, _cap_events, _store.count(), _builds, _removes, _shots_blocked])
 	var pt := maxi(_phase_ticks, 1)
 	print("[perf] us/tick: poll=%d move=%d lag=%d interest=%d fire=%d respawn=%d conquest=%d match=%d snap=%d (ticks=%d)"
 		% [_phase_us["poll"] / pt, _phase_us["move"] / pt, _phase_us["lag"] / pt, _phase_us["interest"] / pt, _phase_us["fire"] / pt, _phase_us["respawn"] / pt, _phase_us["conquest"] / pt, _phase_us["match"] / pt, _phase_us["snap"] / pt, _phase_ticks])
@@ -415,3 +516,4 @@ func _log_telemetry() -> void:
 	_phase_ticks = 0
 	_tele.reset_window()
 	_kills = 0; _shots = 0; _hits = 0; _rewind_clamped = 0; _cap_events = 0
+	_builds = 0; _removes = 0; _shots_blocked = 0

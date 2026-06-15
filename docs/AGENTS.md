@@ -44,6 +44,10 @@ A milestone closes only when its **gate** passes with **recorded evidence** (bot
 - The **server is authoritative**. Never trust client-reported state for anything that affects others; clients send *intent* (input), the server decides outcomes.
 - Gameplay rules that run on both sides live in `shared/` so client prediction and server authority can't diverge. Don't fork rule logic into `client/` or `server/`.
 
+## 8. Unraid fleet host — stay confined
+
+The 128-bot fleet gate runs on the unraid box **SENET** via `ssh root@192.168.1.10` (Docker + Compose installed). **HARD RULE for every agent:** when operating on unraid the working directory is **`/mnt/app/blockfire`** and you must **NEVER read or write any files outside it** — treat it as a chroot. unraid hosts live array/data shares; stray access risks unrelated data. Keep the repo, logs, and temp files all under `/mnt/app/blockfire`. Pass this rule explicitly to any subagent you dispatch to touch the fleet.
+
 ## Quick map
 
 - Plan of record: `~/.claude/plans/sorted-plotting-pebble.md`

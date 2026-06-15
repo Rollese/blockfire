@@ -19,3 +19,8 @@ func test_clear_empties_grid() -> void:
 	grid.clear()
 	var positions := {1: Vector3.ZERO}
 	assert_eq(grid.query(Vector3.ZERO, 100.0, positions), [])
+
+func test_key_of_matches_cell_math() -> void:
+	var g := InterestGrid.new(64.0)
+	assert_eq(g.key_of(Vector3(0.0, 0.0, 0.0)), Vector2i(0, 0))
+	assert_eq(g.key_of(Vector3(65.0, 0.0, -1.0)), Vector2i(1, -1))
