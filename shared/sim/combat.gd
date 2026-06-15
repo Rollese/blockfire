@@ -40,3 +40,14 @@ static func damage_for(weapon_id: int, headshot: bool, distance: float) -> int:
 	if headshot:
 		dmg *= w["headshot_mult"]
 	return int(round(dmg))
+
+## Split a shot at a penetrable piece. `piece_body` is the weapon body damage applied to the
+## piece; `enemy_damage` is the already-resolved damage (incl. headshot/range) the target beyond
+## would take with no obstruction. Returns {piece_damage, exit_damage}: the piece takes
+## body*absorption, the target beyond takes enemy_damage*transmit. The caller enforces the 1-pen
+## cap and the "only continue if the piece survives" rule (spec §"Bullet penetration").
+static func apply_penetration(piece_body: int, enemy_damage: int, absorption: float, transmit: float) -> Dictionary:
+	return {
+		"piece_damage": int(round(float(piece_body) * absorption)),
+		"exit_damage": int(round(float(enemy_damage) * transmit)),
+	}
