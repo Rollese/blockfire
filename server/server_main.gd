@@ -669,7 +669,7 @@ func _fire_rocket(id: int, p: Pawn, dir: Vector3) -> void:
 	if dir.length() < 0.001: return
 	c["last_rocket_tick"] = _sim.tick
 	c["rockets"] = int(c["rockets"]) - 1
-	_rockets.append({"owner": id, "team": p.team, "pos": p.eye_position(), "vel": Grenade.launch_velocity(dir.normalized())})
+	_rockets.append({"owner": id, "team": p.team, "pos": p.eye_position(), "vel": Grenade.launch_velocity(dir)})
 
 func _handle_self_bandage(peer: ENetPacketPeer, _bytes: PackedByteArray) -> void:
 	var id = _peer_to_id.get(peer, 0)
@@ -731,7 +731,7 @@ func _blast_at(center: Vector3, owner: int, team: int, pawn_dmg: int, pawn_radiu
 		hits += 1
 	return hits
 
-## Integrate live RPG rockets; detonate on structure march-hit, ground, or world bound. Reuses the
+## Integrate live RPG rockets; detonate on structure march-hit or ground contact. Reuses the
 ## Grenade ballistic model (spec §"RPG"). Present-time blast via _blast_at; FF-off.
 func _step_rockets() -> void:
 	if _rockets.is_empty():
@@ -742,7 +742,7 @@ func _step_rockets() -> void:
 		var s := Grenade.integrate(r["pos"], r["vel"], SimLoop.DT)
 		var nxt: Vector3 = s["pos"]
 		# Structure contact along this step (march from old pos toward new).
-		var seg := nxt - r["pos"]
+		var seg: Vector3 = nxt - (r["pos"] as Vector3)
 		var seg_len := seg.length()
 		var struck := false
 		if _store.count() > 0 and seg_len > 0.0001:
