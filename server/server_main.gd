@@ -30,6 +30,8 @@ const BLAST_PAWN_RADIUS := 6.0        # m, sphere (current positions, FF-off)
 const BLAST_STRUCT_RADIUS := 4.0      # m (~2 build cells)
 const GRENADE_DAMAGE_PAWN := 100      # frag pawn splash at centre, linear falloff
 const GRENADE_DAMAGE_STRUCT := 200    # frag structure splash at centre, linear falloff
+const SMOKE_DURATION_TICKS := 150     # 5s @30Hz — smoke zone lifetime
+const SMOKE_RADIUS := 6.0             # m — smoke zone radius (matches blast radius)
 const PIECES_PATH := "res://pieces/fortifications.json"
 
 var _net: NetHost
@@ -72,6 +74,7 @@ var _pending_removes: Array = []   # [{id, cell}] removes awaiting send (degrada
 var _dmg_touched := {}             # id -> true: pieces damaged (alive) this tick, for bucket diff
 var _last_bucket := {}             # id -> last SENT bucket (missing => pristine bucket 3)
 var _grenades: Array = []     # [{owner, team, type, pos, vel, detonate_tick}] — server-side, not replicated
+var _smoke_zones: Array = []  # [{pos, radius, expire_tick}] — server-side; M7 LOS culling consumes
 var _prev_owners: Array = []
 var _match_over_broadcast := false
 var _match_end_tick := -1
@@ -122,6 +125,7 @@ func _physics_process(delta: float) -> void:
 	_resolve_fires()
 	var t_fire := Time.get_ticks_usec()
 	_step_grenades()
+	_expire_smoke_zones()
 	_handle_respawns()
 	var t_resp := Time.get_ticks_usec()
 	_conquest.step(SimLoop.DT, _sim.world)
@@ -514,6 +518,9 @@ func _step_grenades() -> void:
 ## current positions, FF-off incl. thrower). Removes/bucket-drops route through _damage_structure.
 ## (Smoke is handled by a branch added in Task 9.)
 func _detonate(g: Dictionary) -> void:
+	if int(g["type"]) == Grenade.SMOKE:
+		_deploy_smoke(g)
+		return
 	_nades += 1
 	var center: Vector3 = g["pos"]
 	for sid in _store.ids_in_radius(center, BLAST_STRUCT_RADIUS):
@@ -542,6 +549,27 @@ func _detonate(g: Dictionary) -> void:
 			var ev := Protocol.encode_kill(pid, owner, 0, false)
 			for cid in _clients:
 				_net.send_to(_clients[cid]["peer"], NetHost.CHANNEL_CONTROL, ev, ENetPacketPeer.FLAG_RELIABLE)
+
+## Smoke detonation: no damage. Record a server-side zone and broadcast it (low-frequency, like
+## KILL — bounded by the throw cooldown). M7 LOS culling will read _smoke_zones; here it just
+## replicates the zone so clients know it exists.
+func _deploy_smoke(g: Dictionary) -> void:
+	_smokes += 1
+	var expire: int = _sim.tick + SMOKE_DURATION_TICKS
+	_smoke_zones.append({"pos": g["pos"], "radius": SMOKE_RADIUS, "expire_tick": expire})
+	var bytes := Protocol.encode_smoke_deployed(g["pos"], SMOKE_RADIUS, expire)
+	for cid in _clients:
+		_net.send_to(_clients[cid]["peer"], NetHost.CHANNEL_CONTROL, bytes, ENetPacketPeer.FLAG_RELIABLE)
+
+## Drop expired smoke zones (O(zones); negligible). Keeps _smoke_zones bounded for the M7 reader.
+func _expire_smoke_zones() -> void:
+	if _smoke_zones.is_empty():
+		return
+	var live: Array = []
+	for z in _smoke_zones:
+		if _sim.tick < int(z["expire_tick"]):
+			live.append(z)
+	_smoke_zones = live
 
 ## Cell of a still-present record (for remove-delta routing). Returns a far cell if gone.
 func _cell_of_struct(id: int) -> Vector3i:
