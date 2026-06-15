@@ -25,3 +25,44 @@ func test_match_state_round_trip() -> void:
 	assert_eq(d["match_over"], false)
 	assert_eq(d["winner"], -1)
 	assert_eq(d["elapsed"], 42)
+
+
+func test_build_request_round_trip() -> void:
+	var b := Protocol.encode_build_request(1, Vector3i(-5, 0, 12), 3)
+	assert_eq(Protocol.msg_type(b), Protocol.Msg.BUILD_REQUEST)
+	var d := Protocol.decode_build_request(b)
+	assert_eq(d["type"], 1)
+	assert_eq(d["cell"], Vector3i(-5, 0, 12))
+	assert_eq(d["yaw"], 3)
+
+func test_build_remove_round_trip() -> void:
+	var b := Protocol.encode_build_remove(4242)
+	assert_eq(Protocol.decode_build_remove(b)["id"], 4242)
+
+func test_structure_delta_place_round_trip() -> void:
+	var rec := {"id": 9, "type": 1, "cell": Vector3i(2, 0, -3), "yaw": 5, "health": 350, "owner": 7}
+	var b := Protocol.encode_structure_delta(Protocol.OP_PLACE, rec)
+	var d := Protocol.decode_structure_delta(b)
+	assert_eq(d["op"], Protocol.OP_PLACE)
+	assert_eq(d["rec"]["id"], 9)
+	assert_eq(d["rec"]["cell"], Vector3i(2, 0, -3))
+	assert_eq(d["rec"]["health"], 350)
+	assert_eq(d["rec"]["owner"], 7)
+
+func test_structure_delta_remove_round_trip() -> void:
+	var b := Protocol.encode_structure_delta(Protocol.OP_REMOVE, {"id": 9})
+	var d := Protocol.decode_structure_delta(b)
+	assert_eq(d["op"], Protocol.OP_REMOVE)
+	assert_eq(d["id"], 9)
+
+func test_structure_baseline_round_trip() -> void:
+	var recs := [
+		{"id": 1, "type": 0, "cell": Vector3i(0, 0, 0), "yaw": 0, "health": 150, "owner": 7},
+		{"id": 2, "type": 1, "cell": Vector3i(1, 0, 0), "yaw": 2, "health": 350, "owner": 7},
+	]
+	var b := Protocol.encode_structure_baseline(Vector2i(3, -4), recs)
+	var d := Protocol.decode_structure_baseline(b)
+	assert_eq(d["region"], Vector2i(3, -4))
+	assert_eq(d["records"].size(), 2)
+	assert_eq(d["records"][1]["cell"], Vector3i(1, 0, 0))
+	assert_eq(d["records"][1]["yaw"], 2)

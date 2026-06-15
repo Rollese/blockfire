@@ -18,7 +18,14 @@ enum Msg {
 	SNAPSHOT = 5, ## server -> client: delta snapshot (see snapshot.gd)
 	KILL = 6,     ## server -> clients: kill event (victim, killer, weapon, headshot)
 	MATCH_STATE = 7, ## server -> clients: conquest state (point owners/cap, tickets, win)
+	BUILD_REQUEST = 8,      ## client -> server: place a fortification piece
+	BUILD_REMOVE = 9,       ## client -> server: remove an owned piece by id
+	STRUCTURE_DELTA = 10,   ## server -> clients: piece placed/removed (event-based)
+	STRUCTURE_BASELINE = 11,## server -> client: all pieces in a region (on interest entry)
 }
+
+const OP_PLACE := 0
+const OP_REMOVE := 1
 
 
 static func encode_hello(player_name: String) -> PackedByteArray:
@@ -100,3 +107,89 @@ static func decode_match_state(bytes: PackedByteArray) -> Dictionary:
 	var win := r.get_8()
 	var el := r.get_u16()
 	return {"points": pts, "tickets": [t0, t1], "match_over": over, "winner": win, "elapsed": el}
+
+
+static func encode_build_request(type: int, cell: Vector3i, yaw: int) -> PackedByteArray:
+	var buf := StreamPeerBuffer.new()
+	buf.put_u8(Msg.BUILD_REQUEST)
+	buf.put_u8(type)
+	buf.put_16(cell.x); buf.put_16(cell.y); buf.put_16(cell.z)
+	buf.put_u8(yaw)
+	return buf.data_array
+
+
+static func decode_build_request(bytes: PackedByteArray) -> Dictionary:
+	var r := body_reader(bytes)
+	var type := r.get_u8()
+	var cell := Vector3i(r.get_16(), r.get_16(), r.get_16())
+	return {"type": type, "cell": cell, "yaw": r.get_u8()}
+
+
+static func encode_build_remove(id: int) -> PackedByteArray:
+	var buf := StreamPeerBuffer.new()
+	buf.put_u8(Msg.BUILD_REMOVE)
+	buf.put_u16(id)
+	return buf.data_array
+
+
+static func decode_build_remove(bytes: PackedByteArray) -> Dictionary:
+	return {"id": body_reader(bytes).get_u16()}
+
+
+static func _put_record(buf: StreamPeerBuffer, rec: Dictionary) -> void:
+	buf.put_u8(int(rec["type"]))
+	buf.put_u16(int(rec["id"]))
+	var cell: Vector3i = rec["cell"]
+	buf.put_16(cell.x); buf.put_16(cell.y); buf.put_16(cell.z)
+	buf.put_u8(int(rec["yaw"]))
+	buf.put_u16(int(rec["health"]))
+	buf.put_u16(int(rec["owner"]))
+
+
+static func _get_record(r: StreamPeerBuffer) -> Dictionary:
+	var type := r.get_u8()
+	var id := r.get_u16()
+	var cell := Vector3i(r.get_16(), r.get_16(), r.get_16())
+	var yaw := r.get_u8()
+	var health := r.get_u16()
+	var owner := r.get_u16()
+	return {"id": id, "type": type, "cell": cell, "yaw": yaw, "health": health, "owner": owner}
+
+
+static func encode_structure_delta(op: int, rec: Dictionary) -> PackedByteArray:
+	var buf := StreamPeerBuffer.new()
+	buf.put_u8(Msg.STRUCTURE_DELTA)
+	buf.put_u8(op)
+	if op == OP_PLACE:
+		_put_record(buf, rec)
+	else:
+		buf.put_u16(int(rec["id"]))
+	return buf.data_array
+
+
+static func decode_structure_delta(bytes: PackedByteArray) -> Dictionary:
+	var r := body_reader(bytes)
+	var op := r.get_u8()
+	if op == OP_PLACE:
+		return {"op": op, "rec": _get_record(r)}
+	return {"op": op, "id": r.get_u16()}
+
+
+static func encode_structure_baseline(region: Vector2i, records: Array) -> PackedByteArray:
+	var buf := StreamPeerBuffer.new()
+	buf.put_u8(Msg.STRUCTURE_BASELINE)
+	buf.put_32(region.x); buf.put_32(region.y)
+	buf.put_u16(records.size())
+	for rec in records:
+		_put_record(buf, rec)
+	return buf.data_array
+
+
+static func decode_structure_baseline(bytes: PackedByteArray) -> Dictionary:
+	var r := body_reader(bytes)
+	var region := Vector2i(r.get_32(), r.get_32())
+	var n := r.get_u16()
+	var records: Array = []
+	for _i in n:
+		records.append(_get_record(r))
+	return {"region": region, "records": records}
