@@ -58,3 +58,19 @@ func test_non_lethal_body_shot_leaves_pawn_standing() -> void:
 	assert_true(p.alive)
 	assert_false(p.is_downed)
 	assert_eq(p.health, 70)
+
+func test_downed_bleeds_out_after_enough_ticks() -> void:
+	var bh := 0
+	var ticks := 0
+	while not Revive.is_bled_out(bh):
+		bh = Revive.bleed_step(bh, false)
+		ticks += 1
+		assert_true(ticks < 1000, "must terminate")
+	# 50 HP / 2 per tick = 25 ticks to floor
+	assert_eq(ticks, -Revive.BLEEDOUT_FLOOR / Revive.BLEED_RATE)
+
+func test_halted_pawn_never_bleeds_out() -> void:
+	var bh := -10
+	for _i in 100:
+		bh = Revive.bleed_step(bh, true)
+	assert_false(Revive.is_bled_out(bh), "self-bandaged pawn holds")
