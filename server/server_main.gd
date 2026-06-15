@@ -120,6 +120,7 @@ func _physics_process(delta: float) -> void:
 	var t_conq := Time.get_ticks_usec()
 	_track_and_broadcast_match_state()
 	var t_match := Time.get_ticks_usec()
+	_emit_structure_deltas()
 	_send_snapshots()
 	var t_snap := Time.get_ticks_usec()
 	_phase_us["poll"] += t_poll - t0
@@ -487,6 +488,31 @@ func _damage_structure(id: int, amount: int) -> void:
 	else:
 		_dmg_touched[id] = true
 
+## Flush queued removes + bucket drops to interested clients, bounded by
+## MAX_STRUCTURE_DELTAS_PER_TICK (removes first; overflow carried to next tick). Authoritative
+## state is already applied — only the SEND volume is throttled. See docs/specs/destruction.md.
+func _emit_structure_deltas() -> void:
+	var budget := MAX_STRUCTURE_DELTAS_PER_TICK
+	while not _pending_removes.is_empty() and budget > 0:
+		var r: Dictionary = _pending_removes.pop_front()
+		_removes += 1
+		_emit_structure_delta(Protocol.OP_REMOVE, {"id": r["id"]}, r["cell"])
+		budget -= 1
+	for id in _dmg_touched.keys():
+		if budget <= 0:
+			break
+		var rec := _store.get_record(id)
+		if rec.is_empty():
+			_dmg_touched.erase(id)
+			continue
+		var max_health := _catalog.health_of(int(rec["type"]))
+		var bucket := StructureStore.bucket_of(int(rec["health"]), max_health)
+		if bucket < int(_last_bucket.get(id, 3)):
+			_last_bucket[id] = bucket
+			_emit_structure_delta(Protocol.OP_DAMAGE, {"id": id, "bucket": bucket}, rec["cell"])
+		_dmg_touched.erase(id)
+		budget -= 1
+
 ## Send a structure delta to every client whose current interest region covers the cell's region.
 func _emit_structure_delta(op: int, rec: Dictionary, cell: Vector3i) -> void:
 	var region := _store.region_of(cell)
@@ -546,3 +572,4 @@ func _log_telemetry() -> void:
 	_tele.reset_window()
 	_kills = 0; _shots = 0; _hits = 0; _rewind_clamped = 0; _cap_events = 0
 	_builds = 0; _removes = 0; _shots_blocked = 0
+	_dmg = 0; _destroyed = 0; _nades = 0; _splash_kills = 0; _smokes = 0
