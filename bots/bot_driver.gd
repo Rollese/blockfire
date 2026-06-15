@@ -12,6 +12,10 @@ const RELOAD_TICKS := 84  # server ticks (~2.8s) to hold BTN_RELOAD; > the slowe
                           # reload (2.6s) so the mag is surely refilled before the next burst
 const BUILD_COOLDOWN_TICKS := 150   # match server StructureStore.BUILD_COOLDOWN_TICKS (5s)
 const BUILD_DIST := 3.0             # how far ahead (m) to drop cover; within server BUILD_RANGE
+const MAX_BOT_BUILDS := 1           # walls each bot drops before stopping. Keeps the contested
+                                    # zone covered (cover blocks crossfire, so blk>0) without
+                                    # boxing every bot in — combat still flows so attrition
+                                    # converges the match to a winner. Tuned via the 48-bot smoke.
 
 var _map: MapDef
 var _match_points: Array = []   # array of {owner, attacker, cap}, index == map point index
@@ -43,7 +47,7 @@ func _spawn_bot(index: int) -> void:
 		"tick": 0, "last_seq": 0, "server_tick": 0, "view": {},
 		"yaw": randf() * TAU, "pitch": 0.0, "heading": randf() * TAU, "turn_timer": 0.0,
 		"reload_until": 0, "burst_start": -1,
-		"last_build_tick": -100000, "structs": {},
+		"last_build_tick": -100000, "structs": {}, "builds_made": 0,
 	}
 	net.peer_connected.connect(func(peer: ENetPacketPeer) -> void:
 		bot["peer"] = peer
@@ -110,27 +114,35 @@ func _drive(bot: Dictionary, delta: float) -> void:
 		if flat.length() > 0.001: flat = flat.normalized()
 		move_x = flat.x; move_y = flat.y
 		bot["yaw"] = atan2(move_x, move_y)
-		_maybe_build(bot, me, obj)
+
+	# Build cover only while stationary (holding a point or firing) — so the bot drops a wall
+	# toward the contested objective without walking into its own piece, and the cover lands in
+	# the combat zone where shots cross it. (Marching bots move, so this won't fire mid-route.)
+	if move_x == 0.0 and move_y == 0.0:
+		_maybe_build(bot, me)
 
 	_send(bot, move_x, move_y, bot["yaw"], bot["pitch"], buttons)
 
-func _maybe_build(bot: Dictionary, me: EntityState, obj: Vector3) -> void:
+func _maybe_build(bot: Dictionary, me: EntityState) -> void:
+	if int(bot["builds_made"]) >= MAX_BOT_BUILDS:
+		return
 	var st: int = bot["server_tick"]
 	if st - int(bot["last_build_tick"]) < BUILD_COOLDOWN_TICKS:
 		return
-	# Only build when actually near the objective (holding it), not while marching across the map.
-	var to_obj := Vector2(obj.x - me.pos.x, obj.z - me.pos.z)
-	if to_obj.length() > 25.0:
-		return
-	# Drop cover one step toward the objective/threat direction.
-	var dir := to_obj.normalized() if to_obj.length() > 0.001 else Vector2(sin(me.yaw), cos(me.yaw))
+	# Drop cover to the bot's SIDE (perpendicular to its facing), one step away. The caller only
+	# invokes this while stationary. A full-height WALL is used so it blocks standing eye-height
+	# shots (a half-height sandbag sits below the ~1.6 m sight line and never blocks combat).
+	# Placing it to the side rather than down the firing line means the bot keeps engaging
+	# forward (so attrition still converges the match) while the wall blocks flanking crossfire.
+	var dir := Vector2(cos(me.yaw), -sin(me.yaw))   # right-hand perpendicular to facing
 	var target := me.pos + Vector3(dir.x, 0.0, dir.y) * BUILD_DIST
 	var cell := BuildGrid.cell_of(Vector3(target.x, 0.0, target.z))
 	var yaw_step := int(round(me.yaw / (TAU / float(BuildGrid.YAW_STEPS)))) % BuildGrid.YAW_STEPS
 	if yaw_step < 0: yaw_step += BuildGrid.YAW_STEPS
-	var bytes := Protocol.encode_build_request(0, cell, yaw_step)   # type 0 = sandbag
+	var bytes := Protocol.encode_build_request(1, cell, yaw_step)   # type 1 = wall (full height)
 	(bot["net"] as NetHost).send_to(bot["peer"], NetHost.CHANNEL_INPUT, bytes, 0)
 	bot["last_build_tick"] = st
+	bot["builds_made"] = int(bot["builds_made"]) + 1
 
 func angle_diff(a: float, b: float) -> float:
 	return wrapf(a - b, -PI, PI)
