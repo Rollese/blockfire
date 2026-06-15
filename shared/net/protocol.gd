@@ -254,8 +254,8 @@ static func encode_gadget_action(action: int, pos: Vector3, dir: Vector3, target
 	var buf := StreamPeerBuffer.new()
 	buf.put_u8(Msg.GADGET_ACTION)
 	buf.put_u8(action)
-	# pos quantized at 0.01 m (i16 ×100; ±327 m range) — finer than the 0.05 m test tolerance
-	buf.put_16(roundi(pos.x * 100.0)); buf.put_16(roundi(pos.y * 100.0)); buf.put_16(roundi(pos.z * 100.0))
+	# pos quantized at 0.1 m (i16 ×10 → ±3276 m, covers the ±1000 m world_half; spec sketch)
+	buf.put_16(roundi(pos.x * 10.0)); buf.put_16(roundi(pos.y * 10.0)); buf.put_16(roundi(pos.z * 10.0))
 	var dn := dir.normalized() if dir.length() > 0.0001 else Vector3.ZERO
 	buf.put_16(roundi(dn.x * 10000.0)); buf.put_16(roundi(dn.y * 10000.0)); buf.put_16(roundi(dn.z * 10000.0))
 	buf.put_u32(target_id)
@@ -265,7 +265,7 @@ static func encode_gadget_action(action: int, pos: Vector3, dir: Vector3, target
 static func decode_gadget_action(bytes: PackedByteArray) -> Dictionary:
 	var r := body_reader(bytes)
 	var action := r.get_u8()
-	var pos := Vector3(float(r.get_16()) / 100.0, float(r.get_16()) / 100.0, float(r.get_16()) / 100.0)
+	var pos := Vector3(float(r.get_16()) / 10.0, float(r.get_16()) / 10.0, float(r.get_16()) / 10.0)
 	var dir := Vector3(float(r.get_16()) / 10000.0, float(r.get_16()) / 10000.0, float(r.get_16()) / 10000.0)
 	return {"action": action, "pos": pos, "dir": dir, "target": r.get_u32()}
 
