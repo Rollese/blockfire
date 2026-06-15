@@ -10,10 +10,13 @@ static func _forward(yaw: float, pitch: float) -> Vector3:
 static func _seed(shooter_id: int, fire_tick: int, shot_index: int) -> int:
 	return (shooter_id * 73856093) ^ (fire_tick * 19349663) ^ ((shot_index + 1) * 83492791)
 
-## Returns {origin, dir}. lean: -1 left, 0 none, +1 right. moving adds spread.
+## Returns {origin, dir}. lean: -1 left, 0 none, +1 right. moving adds spread. `prone` enables the
+## bipod zero-spread case; `def` (optional) is an effective weapon def (Weapon.effective_def) used
+## instead of the base when non-empty — this is how loadout attachments reach the shot.
 static func reconstruct_ray(weapon_id: int, eye: Vector3, yaw: float, pitch: float,
-		lean: int, shooter_id: int, fire_tick: int, shot_index: int, moving: bool) -> Dictionary:
-	var w := Weapon.get_def(weapon_id)
+		lean: int, shooter_id: int, fire_tick: int, shot_index: int, moving: bool,
+		prone: bool = false, def: Dictionary = {}) -> Dictionary:
+	var w: Dictionary = def if not def.is_empty() else Weapon.get_def(weapon_id)
 	var rng := RandomNumberGenerator.new()
 	rng.seed = _seed(shooter_id, fire_tick, shot_index)
 
@@ -22,7 +25,9 @@ static func reconstruct_ray(weapon_id: int, eye: Vector3, yaw: float, pitch: flo
 
 	var spread := deg_to_rad(w["spread_base_deg"] + w["spread_bloom_deg"] * minf(float(shot_index), 6.0))
 	if moving:
-		spread += deg_to_rad(1.5)
+		spread += deg_to_rad(1.5) * float(w.get("move_spread_mult", 1.0))
+	if prone and bool(w.get("prone_spread_zero", false)):
+		spread = 0.0
 	var ang := rng.randf_range(0.0, TAU)
 	var mag := rng.randf() * spread
 
@@ -32,8 +37,8 @@ static func reconstruct_ray(weapon_id: int, eye: Vector3, yaw: float, pitch: flo
 	var origin := eye + right * (Stance.LEAN_OFFSET * float(lean))
 	return {"origin": origin, "dir": dir}
 
-static func damage_for(weapon_id: int, headshot: bool, distance: float) -> int:
-	var w := Weapon.get_def(weapon_id)
+static func damage_for(weapon_id: int, headshot: bool, distance: float, def: Dictionary = {}) -> int:
+	var w: Dictionary = def if not def.is_empty() else Weapon.get_def(weapon_id)
 	if distance > w["range_m"]:
 		return 0
 	var dmg := float(w["damage_body"])
