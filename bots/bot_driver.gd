@@ -154,7 +154,7 @@ func _drive(bot: Dictionary, delta: float) -> void:
 	# the combat zone where shots cross it. (Marching bots move, so this won't fire mid-route.)
 	if move_x == 0.0 and move_y == 0.0:
 		_maybe_build(bot, me)
-		_maybe_mine(bot, me)
+		_maybe_mine(bot, me, obj)
 
 	_maybe_give(bot, me)
 	_send(bot, move_x, move_y, bot["yaw"], bot["pitch"], buttons)
@@ -256,11 +256,15 @@ func _maybe_c4(bot: Dictionary, me: EntityState, target: EntityState) -> void:
 			Protocol.encode_gadget_action(Protocol.GA_C4_DETONATE, Vector3.ZERO, Vector3.ZERO, 0), 0)
 		bot["c4_detonated"] = true
 
-## Recon claymore: drop one facing the objective while holding a point.
-func _maybe_mine(bot: Dictionary, me: EntityState) -> void:
+## Recon claymore: drop one facing the contested objective (where enemies converge within the
+## 1.5 m trip radius) while holding a point. Facing/placing toward the objective rather than the
+## bot's idle yaw maximizes the chance an attacking enemy crosses the cone.
+func _maybe_mine(bot: Dictionary, me: EntityState, obj: Vector3) -> void:
 	if bot["class"] != Loadout.RECON or bool(bot["mine_placed"]): return
-	var face := Vector3(sin(me.yaw), 0.0, cos(me.yaw))
-	var place := me.pos + face * 1.5
+	var to_obj := Vector3(obj.x - me.pos.x, 0.0, obj.z - me.pos.z)
+	var face := to_obj.normalized() if to_obj.length() > 0.001 else Vector3(sin(me.yaw), 0.0, cos(me.yaw))
+	# Place toward the objective, within the server's 2.0 m place_range.
+	var place := me.pos + face * minf(1.8, maxf(to_obj.length(), 0.001))
 	(bot["net"] as NetHost).send_to(bot["peer"], NetHost.CHANNEL_INPUT,
 		Protocol.encode_gadget_action(Protocol.GA_MINE_PLACE, place, face, 0), 0)
 	bot["mine_placed"] = true
