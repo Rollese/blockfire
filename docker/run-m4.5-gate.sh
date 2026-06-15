@@ -40,6 +40,11 @@ while [ "$waited" -lt "$MAX_WAIT" ]; do
 done
 
 srvlog="$("${DC[@]}" logs server 2>/dev/null)"
+# Persist the full server log (telemetry + [perf] breakdown) as recorded gate evidence
+# (AGENTS.md §6) and for post-run tick-budget diagnosis once containers are torn down.
+srvlog_file="srvlog-$(date +%Y%m%d-%H%M%S).log"
+printf '%s\n' "$srvlog" > "$srvlog_file"
+echo "[m4.5-gate] full server log saved to $(pwd)/$srvlog_file"
 echo "--- match result ---"; echo "$over"
 if [ -z "$over" ]; then
 	echo "FAIL: no winner within ${MAX_WAIT}s"; echo "$srvlog" | tail -25

@@ -79,15 +79,15 @@ func _drive(bot: Dictionary, delta: float) -> void:
 		_send(bot, 0.0, 0.0, bot["yaw"], 0.0, 0)
 		return
 
-	# DBNO self-care: if downed, self-bandage once then crawl toward objective.
+	# DBNO self-care: self-bandage once, then hold still to await rescue. Crawling toward the
+	# objective carried the downed body out of a reviver's REVIVE_RANGE before the hold completed,
+	# so revives never finished at fleet density — a downed pawn stays put to be revived.
 	if me.is_downed:
 		if not bot.get("bandaged", false):
 			(bot["net"] as NetHost).send_to(bot["peer"], NetHost.CHANNEL_INPUT,
 				Protocol.encode_self_bandage(), 0)
 			bot["bandaged"] = true
-		var crawl := _objective_pos(me) - me.pos
-		var cyaw := atan2(crawl.x, crawl.z)
-		_send(bot, sin(cyaw), cos(cyaw), cyaw, 0.0, 0)
+		_send(bot, 0.0, 0.0, bot["yaw"], 0.0, 0)
 		return
 	bot["bandaged"] = false
 
