@@ -1,0 +1,6 @@
+{
+  "pieces": [
+    {"id": "sandbag", "height": "half", "health": 150, "blocks": "both"},
+    {"id": "wall",    "height": "full", "health": 350, "blocks": "both"}
+  ]
+}
