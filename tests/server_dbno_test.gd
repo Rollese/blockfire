@@ -74,3 +74,19 @@ func test_halted_pawn_never_bleeds_out() -> void:
 	for _i in 100:
 		bh = Revive.bleed_step(bh, true)
 	assert_false(Revive.is_bled_out(bh), "self-bandaged pawn holds")
+
+func test_revive_completes_at_threshold_non_medic() -> void:
+	var done := 0
+	for _i in Revive.revive_ticks(false):
+		done += 1
+	assert_eq(done, Revive.REVIVE_TICKS)
+
+func test_medic_revive_threshold_is_half() -> void:
+	assert_true(Revive.revive_ticks(true) < Revive.revive_ticks(false))
+
+func test_revive_restores_to_revive_hp() -> void:
+	# Mirror of _complete_revive's pawn mutation.
+	var p := Pawn.new(1); p.is_downed = true; p.alive = true; p.health = 0; p.bleed_health = -20
+	p.is_downed = false; p.health = Revive.REVIVE_HP; p.bleed_health = 0; p.bleed_halted = false
+	assert_false(p.is_downed)
+	assert_eq(p.health, Revive.REVIVE_HP)

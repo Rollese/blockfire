@@ -56,6 +56,10 @@ var _phase_ticks := 0
 var _team_counts := {0: 0, 1: 0}
 var _positions := {}               # id -> Vector3, rebuilt each tick before fires
 
+var _reviving := {}            # reviver_id -> target_id, set per tick by REVIVE_ACTION(active)
+var _revive_ticks := {}        # target_id -> accumulated revive ticks
+var _revives := 0              # completed revives this window
+
 var _kills := 0
 var _shots := 0
 var _hits := 0
@@ -128,6 +132,7 @@ func _physics_process(delta: float) -> void:
 	var t_fire := Time.get_ticks_usec()
 	_step_grenades()
 	_expire_smoke_zones()
+	_step_revives()
 	_step_downed()
 	_handle_respawns()
 	var t_resp := Time.get_ticks_usec()
@@ -314,6 +319,41 @@ func _apply_pawn_damage(vid: int, victim: Pawn, dmg: int, headshot: bool, source
 	else:
 		_down_pawn(victim)
 
+func _complete_revive(target_id: int) -> void:
+	var p: Pawn = _sim.world.get_pawn(target_id)
+	if p == null: return
+	p.is_downed = false
+	p.health = Revive.REVIVE_HP
+	p.bleed_health = 0
+	p.bleed_halted = false
+	_revives += 1
+	# No ticket refund needed — DOWNED never spent one.
+
+## Accumulate revive progress for targets being actively revived by an in-range, alive reviver.
+## Requires the reviver to re-send REVIVE_ACTION(active) each tick (intent consumed per tick).
+func _step_revives() -> void:
+	var active_targets := {}   # target_id -> reviver_id
+	for reviver_id in _reviving:
+		var target_id: int = _reviving[reviver_id]
+		var rp: Pawn = _sim.world.get_pawn(reviver_id)
+		var tp: Pawn = _sim.world.get_pawn(target_id)
+		if rp == null or not rp.alive or rp.is_downed: continue
+		if tp == null or not tp.is_downed: continue
+		if rp.pos.distance_to(tp.pos) > Revive.REVIVE_RANGE: continue
+		active_targets[target_id] = reviver_id
+	# Drop progress for targets no longer being revived.
+	for t in _revive_ticks.keys():
+		if not active_targets.has(t):
+			_revive_ticks.erase(t)
+	# Advance + complete.
+	for target_id in active_targets:
+		var reviver_id: int = active_targets[target_id]
+		_revive_ticks[target_id] = int(_revive_ticks.get(target_id, 0)) + 1
+		if _revive_ticks[target_id] >= Revive.revive_ticks(_is_medic(reviver_id)):
+			_complete_revive(target_id)
+			_revive_ticks.erase(target_id)
+	_reviving.clear()  # consume intent; reviver must keep sending to continue
+
 ## Per-tick bleed for every downed pawn; bleed-out is a true death (spends a ticket).
 func _step_downed() -> void:
 	for id in _clients:
@@ -444,6 +484,8 @@ func _on_packet(peer: ENetPacketPeer, _channel: int, bytes: PackedByteArray) -> 
 		Protocol.Msg.BUILD_REQUEST: _handle_build_request(peer, bytes)
 		Protocol.Msg.BUILD_REMOVE: _handle_build_remove(peer, bytes)
 		Protocol.Msg.GRENADE_THROW: _handle_grenade_throw(peer, bytes)
+		Protocol.Msg.REVIVE_ACTION: _handle_revive_action(peer, bytes)
+		Protocol.Msg.SELF_BANDAGE: _handle_self_bandage(peer, bytes)
 		_: pass
 
 func _handle_hello(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
@@ -547,6 +589,24 @@ func _handle_grenade_throw(peer: ENetPacketPeer, bytes: PackedByteArray) -> void
 		"pos": p.eye_position(), "vel": Grenade.launch_velocity(dir),
 		"detonate_tick": _sim.tick + GRENADE_FUSE_TICKS,
 	})
+
+func _handle_self_bandage(peer: ENetPacketPeer, _bytes: PackedByteArray) -> void:
+	var id = _peer_to_id.get(peer, 0)
+	if id == 0 or not _clients.has(id): return
+	var p: Pawn = _sim.world.get_pawn(id)
+	if p == null or not p.is_downed or p.bleed_halted: return
+	if p.bandage_count <= 0: return
+	p.bandage_count -= 1
+	p.bleed_halted = true
+
+func _handle_revive_action(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
+	var id = _peer_to_id.get(peer, 0)
+	if id == 0 or not _clients.has(id): return
+	var d := Protocol.decode_revive_action(bytes)
+	if bool(d["active"]):
+		_reviving[id] = int(d["target"])
+	else:
+		_reviving.erase(id)
 
 ## Integrate live grenades; detonate on fuse or ground contact (v1). Detonation is present-time.
 func _step_grenades() -> void:
@@ -709,8 +769,8 @@ func _log_telemetry() -> void:
 	var pts := ""
 	for pt in _conquest.points:
 		pts += "." if pt["owner"] == -1 else str(pt["owner"])
-	print("[telemetry] players=%d alive=%d tick_mean=%.2fms tick_p99=%.2fms agg=%.1fMbit/s kills=%d shots=%d hit_rate=%.2f starv=%d rewind_clamped=%d t0=%d t1=%d pts=%s cap_events=%d struct=%d bld=%d rmv=%d blk=%d dmg=%d destroyed=%d nades=%d splash=%d smoke=%d downed=%d bleedouts=%d"
-		% [n, alive, _tele.mean_tick_ms(), _tele.p99_tick_ms(), mbit, _kills, _shots, hit_rate, _tele.starvation, _rewind_clamped, _conquest.tickets_int(0), _conquest.tickets_int(1), pts, _cap_events, _store.count(), _builds, _removes, _shots_blocked, _dmg, _destroyed, _nades, _splash_kills, _smokes, _downed, _bleedouts])
+	print("[telemetry] players=%d alive=%d tick_mean=%.2fms tick_p99=%.2fms agg=%.1fMbit/s kills=%d shots=%d hit_rate=%.2f starv=%d rewind_clamped=%d t0=%d t1=%d pts=%s cap_events=%d struct=%d bld=%d rmv=%d blk=%d dmg=%d destroyed=%d nades=%d splash=%d smoke=%d downed=%d bleedouts=%d revives=%d"
+		% [n, alive, _tele.mean_tick_ms(), _tele.p99_tick_ms(), mbit, _kills, _shots, hit_rate, _tele.starvation, _rewind_clamped, _conquest.tickets_int(0), _conquest.tickets_int(1), pts, _cap_events, _store.count(), _builds, _removes, _shots_blocked, _dmg, _destroyed, _nades, _splash_kills, _smokes, _downed, _bleedouts, _revives])
 	var pt := maxi(_phase_ticks, 1)
 	print("[perf] us/tick: poll=%d move=%d lag=%d interest=%d fire=%d respawn=%d conquest=%d match=%d snap=%d (ticks=%d)"
 		% [_phase_us["poll"] / pt, _phase_us["move"] / pt, _phase_us["lag"] / pt, _phase_us["interest"] / pt, _phase_us["fire"] / pt, _phase_us["respawn"] / pt, _phase_us["conquest"] / pt, _phase_us["match"] / pt, _phase_us["snap"] / pt, _phase_ticks])
@@ -719,4 +779,4 @@ func _log_telemetry() -> void:
 	_tele.reset_window()
 	_kills = 0; _shots = 0; _hits = 0; _rewind_clamped = 0; _cap_events = 0
 	_builds = 0; _removes = 0; _shots_blocked = 0
-	_dmg = 0; _destroyed = 0; _nades = 0; _splash_kills = 0; _smokes = 0; _downed = 0; _bleedouts = 0
+	_dmg = 0; _destroyed = 0; _nades = 0; _splash_kills = 0; _smokes = 0; _downed = 0; _bleedouts = 0; _revives = 0
