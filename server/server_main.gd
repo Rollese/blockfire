@@ -316,6 +316,7 @@ func _send_snapshots() -> void:
 		var c = _clients[id]
 		var self_pawn = _sim.world.get_pawn(id)
 		if self_pawn == null: continue
+		_sync_structure_baselines(c, self_pawn.pos)
 		var ids := _grid.query(self_pawn.pos, INTEREST_RADIUS, _positions)
 		if ids.size() > MAX_SNAPSHOT_ENTITIES:
 			# Relevance cull to the cap, prioritising ENEMIES (a player must see nearby foes
@@ -459,6 +460,26 @@ func _emit_structure_delta(op: int, rec: Dictionary, cell: Vector3i) -> void:
 	for cid in _clients:
 		if _clients[cid]["known_regions"].has(region):
 			_net.send_to(_clients[cid]["peer"], NetHost.CHANNEL_CONTROL, bytes, ENetPacketPeer.FLAG_RELIABLE)
+
+## After computing a client's interest entities, send baselines for any structured regions
+## newly covered by its interest set. known_regions caches what the client already has.
+func _sync_structure_baselines(c: Dictionary, self_pos: Vector3) -> void:
+	if _store.count() == 0:
+		return
+	var center := _grid.key_of(self_pos)
+	var span := int(ceil(INTEREST_RADIUS / CELL_SIZE))
+	var known: Dictionary = c["known_regions"]
+	for dx in range(-span, span + 1):
+		for dz in range(-span, span + 1):
+			var region := Vector2i(center.x + dx, center.y + dz)
+			if known.has(region):
+				continue
+			var recs := _store.records_in_region(region)
+			if recs.is_empty():
+				continue
+			known[region] = true
+			var bytes := Protocol.encode_structure_baseline(region, recs)
+			_net.send_to(c["peer"], NetHost.CHANNEL_CONTROL, bytes, ENetPacketPeer.FLAG_RELIABLE)
 
 func _on_peer_disconnected(peer: ENetPacketPeer) -> void:
 	var id = _peer_to_id.get(peer, 0)
