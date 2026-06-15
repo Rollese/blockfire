@@ -86,12 +86,14 @@ var _splash_kills := 0        # pawn deaths from blasts this window
 var _smokes := 0              # smoke zones deployed this window
 var _rockets_det := 0         # RPG rockets detonated this window
 var _c4_det := 0              # C4 detonations (per detonate action) this window
+var _mine_trips := 0          # claymore/mine detonations this window
 var _rstruct := 0             # structures hit by rockets this window
 var _pending_removes: Array = []   # [{id, cell}] removes awaiting send (degradation queue)
 var _dmg_touched := {}             # id -> true: pieces damaged (alive) this tick, for bucket diff
 var _last_bucket := {}             # id -> last SENT bucket (missing => pristine bucket 3)
 var _grenades: Array = []     # [{owner, team, type, pos, vel, detonate_tick}] — server-side, not replicated
 var _rockets: Array = []      # [{owner, team, pos, vel}] — server-side, not replicated
+var _mines: Array = []        # [{owner, team, pos, facing, armed_after_tick}]
 var _c4: Dictionary = {}      # owner_id -> Array of {pos, cell:Vector3i}
 var _smoke_zones: Array = []  # [{pos, radius, expire_tick}] — server-side; M7 LOS culling consumes
 var _prev_owners: Array = []
@@ -151,6 +153,7 @@ func _physics_process(delta: float) -> void:
 	var t_fire := Time.get_ticks_usec()
 	_step_grenades()
 	_step_rockets()
+	_step_mines()
 	_expire_smoke_zones()
 	_step_revives()
 	_step_downed()
@@ -661,7 +664,8 @@ func _handle_gadget_action(peer: ENetPacketPeer, bytes: PackedByteArray) -> void
 		Protocol.GA_RPG_FIRE: _fire_rocket(id, p, d["dir"])
 		Protocol.GA_C4_PLACE: _place_c4(id, p, d["pos"])
 		Protocol.GA_C4_DETONATE: _detonate_c4(id)
-		_: pass   # mine/give actions wired in later tasks
+		Protocol.GA_MINE_PLACE: _place_mine(id, p, d["pos"], d["dir"])
+		_: pass
 
 ## Launch an RPG rocket if the player has the RPG equipped, rockets remaining, and is off cooldown.
 func _fire_rocket(id: int, p: Pawn, dir: Vector3) -> void:
@@ -683,6 +687,18 @@ func _place_c4(id: int, p: Pawn, pos: Vector3) -> void:
 	if p.pos.distance_to(pos) > StructureStore.BUILD_RANGE: return   # within reach
 	owned.append({"pos": pos, "cell": BuildGrid.cell_of(Vector3(pos.x, 0.0, pos.z))})
 	_c4[id] = owned
+
+func _place_mine(id: int, p: Pawn, pos: Vector3, facing: Vector3) -> void:
+	if Loadout.gadget_for(int(_clients[id]["class"])) != Loadout.GADGET_MINE: return
+	var mdef: Dictionary = _gadgets.def_of_kind(Gadget.KIND_MINE)
+	var mine_count := 0
+	for m in _mines:
+		if int(m["owner"]) == id: mine_count += 1
+	if mine_count >= int(mdef["max_active"]): return
+	if p.pos.distance_to(pos) > float(mdef["place_range"]): return
+	var face := facing.normalized() if facing.length() > 0.001 else Vector3(sin(p.yaw), 0.0, cos(p.yaw))
+	_mines.append({"owner": id, "team": p.team, "pos": pos, "facing": face,
+		"armed_after_tick": _sim.tick + int(mdef["arm_delay_ticks"])})
 
 func _detonate_c4(id: int) -> void:
 	var owned: Array = _c4.get(id, [])
@@ -793,6 +809,32 @@ func _step_rockets() -> void:
 		r["pos"] = nxt; r["vel"] = s["vel"]
 		still.append(r)
 	_rockets = still
+
+## Proximity check for armed mines: if an enemy enters the trigger cone, detonate (FF-off blast).
+## O(mines × pawns); mine count is capped per player. Claymore = directional cone (spec §"Mine").
+func _step_mines() -> void:
+	if _mines.is_empty():
+		return
+	var mdef: Dictionary = _gadgets.def_of_kind(Gadget.KIND_MINE)
+	var radius := float(mdef["trigger_radius"])
+	var half_angle := deg_to_rad(60.0) if bool(mdef.get("directional", false)) else PI
+	var still: Array = []
+	for m in _mines:
+		if _sim.tick < int(m["armed_after_tick"]):
+			still.append(m); continue
+		var tripped := false
+		for pid in _sim.world.pawns:
+			var v: Pawn = _sim.world.pawns[pid]
+			if not v.alive or v.team == int(m["team"]): continue
+			if Gadget.in_cone(m["pos"], m["facing"], v.pos, radius, half_angle):
+				tripped = true; break
+		if tripped:
+			_mine_trips += 1
+			_blast_at(m["pos"], int(m["owner"]), int(m["team"]), int(mdef["pawn_damage"]),
+				float(mdef["pawn_radius"]), 0, 0.0)
+		else:
+			still.append(m)
+	_mines = still
 
 ## Frag: area damage at the grenade's current position — structures (cell radius) + pawns (sphere,
 ## current positions, FF-off incl. thrower). Removes/bucket-drops route through _damage_structure.
@@ -922,8 +964,8 @@ func _log_telemetry() -> void:
 	var pts := ""
 	for pt in _conquest.points:
 		pts += "." if pt["owner"] == -1 else str(pt["owner"])
-	print("[telemetry] players=%d alive=%d tick_mean=%.2fms tick_p99=%.2fms agg=%.1fMbit/s kills=%d shots=%d hit_rate=%.2f starv=%d rewind_clamped=%d t0=%d t1=%d pts=%s cap_events=%d struct=%d bld=%d rmv=%d blk=%d pen=%d dmg=%d destroyed=%d nades=%d splash=%d smoke=%d rockets=%d rstruct=%d downed=%d bleedouts=%d revives=%d c4=%d"
-		% [n, alive, _tele.mean_tick_ms(), _tele.p99_tick_ms(), mbit, _kills, _shots, hit_rate, _tele.starvation, _rewind_clamped, _conquest.tickets_int(0), _conquest.tickets_int(1), pts, _cap_events, _store.count(), _builds, _removes, _shots_blocked, _pen, _dmg, _destroyed, _nades, _splash_kills, _smokes, _rockets_det, _rstruct, _downed, _bleedouts, _revives, _c4_det])
+	print("[telemetry] players=%d alive=%d tick_mean=%.2fms tick_p99=%.2fms agg=%.1fMbit/s kills=%d shots=%d hit_rate=%.2f starv=%d rewind_clamped=%d t0=%d t1=%d pts=%s cap_events=%d struct=%d bld=%d rmv=%d blk=%d pen=%d dmg=%d destroyed=%d nades=%d splash=%d smoke=%d rockets=%d rstruct=%d downed=%d bleedouts=%d revives=%d c4=%d mines=%d"
+		% [n, alive, _tele.mean_tick_ms(), _tele.p99_tick_ms(), mbit, _kills, _shots, hit_rate, _tele.starvation, _rewind_clamped, _conquest.tickets_int(0), _conquest.tickets_int(1), pts, _cap_events, _store.count(), _builds, _removes, _shots_blocked, _pen, _dmg, _destroyed, _nades, _splash_kills, _smokes, _rockets_det, _rstruct, _downed, _bleedouts, _revives, _c4_det, _mine_trips])
 	var pt := maxi(_phase_ticks, 1)
 	print("[perf] us/tick: poll=%d move=%d lag=%d interest=%d fire=%d respawn=%d conquest=%d match=%d snap=%d (ticks=%d)"
 		% [_phase_us["poll"] / pt, _phase_us["move"] / pt, _phase_us["lag"] / pt, _phase_us["interest"] / pt, _phase_us["fire"] / pt, _phase_us["respawn"] / pt, _phase_us["conquest"] / pt, _phase_us["match"] / pt, _phase_us["snap"] / pt, _phase_ticks])
@@ -932,4 +974,4 @@ func _log_telemetry() -> void:
 	_tele.reset_window()
 	_kills = 0; _shots = 0; _hits = 0; _rewind_clamped = 0; _cap_events = 0
 	_builds = 0; _removes = 0; _shots_blocked = 0; _pen = 0
-	_dmg = 0; _destroyed = 0; _nades = 0; _splash_kills = 0; _smokes = 0; _rockets_det = 0; _rstruct = 0; _downed = 0; _bleedouts = 0; _revives = 0; _c4_det = 0
+	_dmg = 0; _destroyed = 0; _nades = 0; _splash_kills = 0; _smokes = 0; _rockets_det = 0; _rstruct = 0; _downed = 0; _bleedouts = 0; _revives = 0; _c4_det = 0; _mine_trips = 0
