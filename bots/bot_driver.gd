@@ -78,6 +78,14 @@ func _drive(bot: Dictionary, delta: float) -> void:
 	var move_y := 0.0
 
 	if me == null or not me.alive:
+		# Reset per-life gadget flags so the bot re-deploys on its next spawn. Over a full match this
+		# yields many claymore/C4/RPG uses per bot instead of one-per-process-life, which is what the
+		# fleet gate counters need (esp. mines: a single early claymore rarely catches a point-blank
+		# enemy, but one placed fresh each life — facing the current enemy — reliably trips).
+		bot["rpg_fired"] = false
+		bot["c4_placed"] = false
+		bot["c4_detonated"] = false
+		bot["mine_placed"] = false
 		_send(bot, 0.0, 0.0, bot["yaw"], 0.0, 0)
 		return
 
@@ -141,6 +149,7 @@ func _drive(bot: Dictionary, delta: float) -> void:
 		_maybe_grenade(bot, me, target)
 		_maybe_rpg(bot, me, target)
 		_maybe_c4(bot, me, target)
+		_maybe_mine(bot, me, target.pos)   # face the claymore at the enemy we're fighting
 	else:
 		# no enemy in view: march to the objective (capture/defend)
 		var flat := Vector2(obj.x - me.pos.x, obj.z - me.pos.z)
@@ -256,15 +265,16 @@ func _maybe_c4(bot: Dictionary, me: EntityState, target: EntityState) -> void:
 			Protocol.encode_gadget_action(Protocol.GA_C4_DETONATE, Vector3.ZERO, Vector3.ZERO, 0), 0)
 		bot["c4_detonated"] = true
 
-## Recon claymore: drop one facing the contested objective (where enemies converge within the
-## 1.5 m trip radius) while holding a point. Facing/placing toward the objective rather than the
-## bot's idle yaw maximizes the chance an attacking enemy crosses the cone.
-func _maybe_mine(bot: Dictionary, me: EntityState, obj: Vector3) -> void:
+## Recon claymore: drop one facing `toward` (the current enemy when fighting, else the contested
+## objective) — claymore sits between the Recon and where enemies advance from, so an attacker
+## (or the bot's own killer pushing in) crosses the 1.5 m trip cone. Re-placed each life (flags
+## reset on death), so claymores keep appearing along the front rather than one stale one per match.
+func _maybe_mine(bot: Dictionary, me: EntityState, toward: Vector3) -> void:
 	if bot["class"] != Loadout.RECON or bool(bot["mine_placed"]): return
-	var to_obj := Vector3(obj.x - me.pos.x, 0.0, obj.z - me.pos.z)
-	var face := to_obj.normalized() if to_obj.length() > 0.001 else Vector3(sin(me.yaw), 0.0, cos(me.yaw))
-	# Place toward the objective, within the server's 2.0 m place_range.
-	var place := me.pos + face * minf(1.8, maxf(to_obj.length(), 0.001))
+	var to_t := Vector3(toward.x - me.pos.x, 0.0, toward.z - me.pos.z)
+	var face := to_t.normalized() if to_t.length() > 0.001 else Vector3(sin(me.yaw), 0.0, cos(me.yaw))
+	# Place toward `toward`, within the server's 2.0 m place_range.
+	var place := me.pos + face * minf(1.8, maxf(to_t.length(), 0.001))
 	(bot["net"] as NetHost).send_to(bot["peer"], NetHost.CHANNEL_INPUT,
 		Protocol.encode_gadget_action(Protocol.GA_MINE_PLACE, place, face, 0), 0)
 	bot["mine_placed"] = true
