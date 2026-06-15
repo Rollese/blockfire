@@ -41,3 +41,30 @@ func test_to_state_copies_team_and_squad() -> void:
 	var e := p.to_state()
 	assert_eq(e.team, 1)
 	assert_eq(e.squad, 3)
+
+func test_downed_pawn_crawls_at_crawl_speed() -> void:
+	var p := Pawn.new(1)
+	p.is_downed = true
+	p.step(1.0, _cmd(1.0, 0.0))
+	assert_almost_eq(p.pos.x, Revive.DOWNED_CRAWL_SPEED, 0.001, "downed moves at crawl speed")
+
+func test_downed_pawn_cannot_sprint() -> void:
+	var p := Pawn.new(1)
+	p.is_downed = true
+	p.step(1.0, _cmd(1.0, 0.0, 0.0, 0.0, InputCommand.BTN_SPRINT))
+	assert_almost_eq(p.pos.x, Revive.DOWNED_CRAWL_SPEED, 0.001, "no sprint while downed")
+
+func test_downed_pawn_cannot_jump() -> void:
+	var p := Pawn.new(1)
+	p.is_downed = true
+	p.step(0.1, _cmd(0, 0, 0, 0, InputCommand.BTN_JUMP))
+	assert_almost_eq(p.pos.y, 0.0, 0.05, "downed cannot jump off the ground")
+
+func test_default_bandage_count() -> void:
+	var p := Pawn.new(1)
+	assert_eq(p.bandage_count, Revive.BANDAGE_COUNT)
+
+func test_to_state_copies_downed() -> void:
+	var p := Pawn.new(1)
+	p.is_downed = true
+	assert_true(p.to_state().is_downed)
