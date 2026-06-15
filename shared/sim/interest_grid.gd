@@ -34,5 +34,9 @@ func query(center: Vector3, radius: float, positions: Dictionary) -> Array:
 					out.append(id)
 	return out
 
+## Public region key for a position (same cell math as the grid uses internally).
+func key_of(pos: Vector3) -> Vector2i:
+	return _key(pos)
+
 func _key(pos: Vector3) -> Vector2i:
 	return Vector2i(floori(pos.x / cell_size), floori(pos.z / cell_size))
