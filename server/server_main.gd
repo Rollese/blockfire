@@ -221,11 +221,15 @@ func _fire_shot(shooter_id: int, shooter: Pawn, inp: Dictionary, shot_index: int
 		var hit := Hitbox.raycast_pawn(ray["origin"], ray["dir"], st["pos"], st["stance"], max_range)
 		if hit["hit"] and hit["t"] < best_t:
 			best_t = hit["t"]; best_victim = tid; best_head = hit["headshot"]
-	# Cover: a structure between shooter and target absorbs the shot (Phase 1: no piece damage).
-	var blocked := _store.march(ray["origin"], ray["dir"], max_range)
-	var block_dist: float = blocked["dist"] if blocked["hit"] else INF
-	if best_victim == 0 or block_dist < best_t:
+	# Cover: a structure strictly nearer than the enemy absorbs the shot (Phase 1: no piece
+	# damage; ties go to the enemy). Skip the march entirely when nothing is built yet.
+	var block_dist := INF
+	if _store.count() > 0:
+		var blocked := _store.march(ray["origin"], ray["dir"], max_range)
 		if blocked["hit"]:
+			block_dist = blocked["dist"]
+	if best_victim == 0 or block_dist < best_t:
+		if block_dist < INF:
 			_shots_blocked += 1
 		return
 	_hits += 1
