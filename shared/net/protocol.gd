@@ -22,10 +22,14 @@ enum Msg {
 	BUILD_REMOVE = 9,       ## client -> server: remove an owned piece by id
 	STRUCTURE_DELTA = 10,   ## server -> clients: piece placed/removed (event-based)
 	STRUCTURE_BASELINE = 11,## server -> client: all pieces in a region (on interest entry)
+	GRENADE_THROW = 12,     ## client -> server: throw a grenade (type FRAG/SMOKE) in a look dir
+	# DETONATION = 13       ## RESERVED (M7 frag VFX); not sent in the M4-P2 gate
+	SMOKE_DEPLOYED = 14,    ## server -> clients: a smoke zone was created (pos/radius/expire)
 }
 
 const OP_PLACE := 0
 const OP_REMOVE := 1
+const OP_DAMAGE := 2   ## STRUCTURE_DELTA payload {id u16, bucket u8} — partial-health bucket drop
 
 
 static func encode_hello(player_name: String) -> PackedByteArray:
@@ -162,6 +166,9 @@ static func encode_structure_delta(op: int, rec: Dictionary) -> PackedByteArray:
 	buf.put_u8(op)
 	if op == OP_PLACE:
 		_put_record(buf, rec)
+	elif op == OP_DAMAGE:
+		buf.put_u16(int(rec["id"]))
+		buf.put_u8(int(rec["bucket"]))
 	else:
 		buf.put_u16(int(rec["id"]))
 	return buf.data_array
@@ -172,7 +179,44 @@ static func decode_structure_delta(bytes: PackedByteArray) -> Dictionary:
 	var op := r.get_u8()
 	if op == OP_PLACE:
 		return {"op": op, "rec": _get_record(r)}
+	elif op == OP_DAMAGE:
+		var id := r.get_u16()
+		return {"op": op, "id": id, "bucket": r.get_u8()}
 	return {"op": op, "id": r.get_u16()}
+
+
+static func encode_grenade_throw(dir: Vector3, type: int) -> PackedByteArray:
+	var buf := StreamPeerBuffer.new()
+	buf.put_u8(Msg.GRENADE_THROW)
+	var d := dir.normalized()
+	buf.put_16(roundi(d.x * 10000.0))
+	buf.put_16(roundi(d.y * 10000.0))
+	buf.put_16(roundi(d.z * 10000.0))
+	buf.put_u8(type)
+	return buf.data_array
+
+
+static func decode_grenade_throw(bytes: PackedByteArray) -> Dictionary:
+	var r := body_reader(bytes)
+	var x := float(r.get_16()) / 10000.0
+	var y := float(r.get_16()) / 10000.0
+	var z := float(r.get_16()) / 10000.0
+	return {"dir": Vector3(x, y, z), "type": r.get_u8()}
+
+
+static func encode_smoke_deployed(pos: Vector3, radius: float, expire_tick: int) -> PackedByteArray:
+	var buf := StreamPeerBuffer.new()
+	buf.put_u8(Msg.SMOKE_DEPLOYED)
+	buf.put_16(roundi(pos.x)); buf.put_16(roundi(pos.y)); buf.put_16(roundi(pos.z))
+	buf.put_u8(clampi(roundi(radius), 0, 255))
+	buf.put_u16(clampi(expire_tick, 0, 65535))   # absolute tick (u16); fine for gate-length matches
+	return buf.data_array
+
+
+static func decode_smoke_deployed(bytes: PackedByteArray) -> Dictionary:
+	var r := body_reader(bytes)
+	var pos := Vector3(r.get_16(), r.get_16(), r.get_16())
+	return {"pos": pos, "radius": r.get_u8(), "expire_tick": r.get_u16()}
 
 
 static func encode_structure_baseline(region: Vector2i, records: Array) -> PackedByteArray:
