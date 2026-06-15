@@ -13,6 +13,12 @@ const BUILD_COOLDOWN_TICKS := 150   # 5s @30Hz
 const BUILD_RANGE := 5.0            # max placement distance from the player (m)
 const REGION_CELL := 64.0           # must match server InterestGrid CELL_SIZE
 
+## Damage buckets as fractions of max health. A piece is bucket 3 (pristine) above 0.75, then
+## 2/1/0 as it drops past 0.50/0.25. health<=0 is destroyed (removed; no bucket). Replication
+## emits a STRUCTURE_DELTA(OP_DAMAGE) only when a piece crosses to a lower bucket. See
+## docs/specs/destruction.md.
+const DAMAGE_BUCKETS := [0.75, 0.50, 0.25]
+
 var _catalog: PieceCatalog
 var _by_id: Dictionary = {}         # id -> record
 var _occupancy: Dictionary = {}     # Vector3i cell -> id
@@ -82,6 +88,32 @@ func remove(id: int) -> void:
 	if _by_region.has(region):
 		_by_region[region].erase(id)
 	_by_id.erase(id)
+
+## Current damage bucket from remaining-health fraction: 3=pristine .. 0=heavy. Pure/static.
+static func bucket_of(health: int, max_health: int) -> int:
+	if max_health <= 0:
+		return 0
+	var f := float(health) / float(max_health)
+	var b := 0
+	for thr in DAMAGE_BUCKETS:
+		if f > thr:
+			b += 1
+	return b
+
+## Apply `amount` damage to piece `id`. Returns {hit, destroyed, health, bucket}; hit=false if
+## the id is unknown. On destruction the piece is removed from all indexes here (the caller emits
+## the remove delta). Pure over store state — unit-testable.
+func apply_damage(id: int, amount: int) -> Dictionary:
+	if not _by_id.has(id):
+		return {"hit": false, "destroyed": false, "health": 0, "bucket": 0}
+	var rec: Dictionary = _by_id[id]
+	var max_health := _catalog.health_of(int(rec["type"]))
+	var h: int = int(rec["health"]) - amount
+	if h <= 0:
+		remove(id)
+		return {"hit": true, "destroyed": true, "health": 0, "bucket": 0}
+	rec["health"] = h
+	return {"hit": true, "destroyed": false, "health": h, "bucket": bucket_of(h, max_health)}
 
 ## The owner's oldest piece id (FIFO front) without removing it, or 0 if none.
 func oldest_id(owner: int) -> int:
