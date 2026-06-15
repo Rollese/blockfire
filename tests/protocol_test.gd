@@ -108,3 +108,21 @@ func test_revive_action_inactive_roundtrip() -> void:
 
 func test_self_bandage_type() -> void:
 	assert_eq(Protocol.msg_type(Protocol.encode_self_bandage()), Protocol.Msg.SELF_BANDAGE)
+
+func test_gadget_action_type() -> void:
+	var b := Protocol.encode_gadget_action(Protocol.GA_RPG_FIRE, Vector3.ZERO, Vector3(0, 0, 1), 0)
+	assert_eq(Protocol.msg_type(b), Protocol.Msg.GADGET_ACTION)
+
+func test_gadget_action_roundtrip_dir() -> void:
+	var d := Protocol.decode_gadget_action(Protocol.encode_gadget_action(Protocol.GA_RPG_FIRE, Vector3.ZERO, Vector3(0, 0, 1), 0))
+	assert_eq(d["action"], Protocol.GA_RPG_FIRE)
+	assert_true(d["dir"].normalized().dot(Vector3(0, 0, 1)) > 0.999)
+
+func test_gadget_action_roundtrip_pos() -> void:
+	var d := Protocol.decode_gadget_action(Protocol.encode_gadget_action(Protocol.GA_C4_PLACE, Vector3(12.5, 0.0, -8.25), Vector3.ZERO, 0))
+	assert_almost_eq(d["pos"].x, 12.5, 0.05)
+	assert_almost_eq(d["pos"].z, -8.25, 0.05)
+
+func test_gadget_action_roundtrip_target() -> void:
+	var d := Protocol.decode_gadget_action(Protocol.encode_gadget_action(Protocol.GA_GIVE_START, Vector3.ZERO, Vector3(0, 0, 1), 777))
+	assert_eq(d["target"], 777)
