@@ -1,0 +1,201 @@
+--- a/detect.py
++++ b/detect.py
+@@ -25,7 +25,7 @@
+ 
+ _MANIFEST_PATH = "graphify-out/manifest.json"
+ 
+-CODE_EXTENSIONS = {'.py', '.ts', '.tsx', '.js', '.jsx', '.mjs', '.ejs', '.ets', '.go', '.rs', '.java', '.groovy', '.gradle', '.cpp', '.cc', '.cxx', '.c', '.h', '.hpp', '.rb', '.swift', '.kt', '.kts', '.cs', '.scala', '.php', '.lua', '.luau', '.toc', '.zig', '.ps1', '.ex', '.exs', '.m', '.mm', '.jl', '.vue', '.svelte', '.astro', '.dart', '.v', '.sv', '.svh', '.sql', '.r', '.f', '.F', '.f90', '.F90', '.f95', '.F95', '.f03', '.F03', '.f08', '.F08', '.pas', '.pp', '.dpr', '.dpk', '.lpr', '.inc', '.dfm', '.lfm', '.lpk', '.sh', '.bash', '.json', '.tf', '.tfvars', '.hcl', '.dm', '.dme', '.dmi', '.dmm', '.dmf', '.sln', '.slnx', '.csproj', '.fsproj', '.vbproj', '.razor', '.cshtml', '.cls', '.trigger'}
++CODE_EXTENSIONS = {'.py', '.ts', '.tsx', '.js', '.jsx', '.mjs', '.ejs', '.ets', '.go', '.rs', '.java', '.groovy', '.gradle', '.cpp', '.cc', '.cxx', '.c', '.h', '.hpp', '.rb', '.swift', '.kt', '.kts', '.cs', '.scala', '.php', '.lua', '.luau', '.toc', '.gd', '.zig', '.ps1', '.ex', '.exs', '.m', '.mm', '.jl', '.vue', '.svelte', '.astro', '.dart', '.v', '.sv', '.svh', '.sql', '.r', '.f', '.F', '.f90', '.F90', '.f95', '.F95', '.f03', '.F03', '.f08', '.F08', '.pas', '.pp', '.dpr', '.dpk', '.lpr', '.inc', '.dfm', '.lfm', '.lpk', '.sh', '.bash', '.json', '.tf', '.tfvars', '.hcl', '.dm', '.dme', '.dmi', '.dmm', '.dmf', '.sln', '.slnx', '.csproj', '.fsproj', '.vbproj', '.razor', '.cshtml', '.cls', '.trigger'}
+ DOC_EXTENSIONS = {'.md', '.mdx', '.qmd', '.txt', '.rst', '.html', '.yaml', '.yml'}
+ PAPER_EXTENSIONS = {'.pdf'}
+ IMAGE_EXTENSIONS = {'.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg'}
+--- a/extract.py
++++ b/extract.py
+@@ -466,6 +466,12 @@
+     # Extra walk hook called after generic dispatch (for JS arrow functions, C# namespaces, etc.)
+     extra_walk_fn: Callable | None = None
+ 
++    # Optional grammar loader returning a ready tree_sitter.Language. Used when
++    # the grammar has no standalone tree-sitter-* PyPI module (e.g. GDScript,
++    # which is sourced from tree-sitter-language-pack). When set, bypasses the
++    # importlib(ts_module) lookup in _extract_generic.
++    language_loader: Callable | None = None
++
+ 
+ # ── Generic helpers ───────────────────────────────────────────────────────────
+ 
+@@ -2090,6 +2096,32 @@
+                 })
+ 
+ 
++def _load_gdscript_language():
++    """Load the GDScript tree-sitter grammar.
++
++    GDScript has no standalone `tree-sitter-gdscript` package on PyPI, so the
++    grammar is sourced from `tree-sitter-language-pack`, which bundles it and
++    returns a ready `tree_sitter.Language` object."""
++    from tree_sitter_language_pack import get_language
++    return get_language("gdscript")
++
++
++_GDSCRIPT_CONFIG = LanguageConfig(
++    ts_module="tree_sitter_gdscript",
++    language_loader=_load_gdscript_language,
++    class_types=frozenset({"class_name_statement", "class_definition"}),
++    function_types=frozenset({"function_definition", "constructor_definition"}),
++    call_types=frozenset({"call", "attribute_call"}),
++    name_field="name",
++    name_fallback_child_types=("name", "identifier"),
++    body_field="body",
++    body_fallback_child_types=("body", "class_body"),
++    function_boundary_types=frozenset({"function_definition", "constructor_definition"}),
++)
++# `extends` inheritance is handled directly in _extract_generic's walk (it needs
++# to materialise the base-class node, which an import_handler cannot do).
++
++
+ _LUA_CONFIG = LanguageConfig(
+     ts_module="tree_sitter_lua",
+     ts_language_fn="language",
+@@ -2165,29 +2197,39 @@
+ 
+ def _extract_generic(path: Path, config: LanguageConfig) -> dict:
+     """Generic AST extractor driven by LanguageConfig."""
+-    try:
+-        mod = importlib.import_module(config.ts_module)
+-        from tree_sitter import Language, Parser
+-        lang_fn = getattr(mod, config.ts_language_fn, None)
+-        if lang_fn is None:
+-            # Fallback for PHP: try "language_php" then "language"
+-            lang_fn = getattr(mod, "language", None)
+-        if lang_fn is None:
+-            return {"nodes": [], "edges": [], "error": f"No language function in {config.ts_module}"}
+-        language = Language(lang_fn())
+-    except ImportError:
+-        return {"nodes": [], "edges": [], "error": f"{config.ts_module} not installed"}
+-    except TypeError as e:
+-        # tree-sitter version mismatch: old Language() expects (lib_path),
+-        # new Language() expects (language_capsule, name). Surface a hint
+-        # so users see the upgrade path instead of a bare TypeError.
+-        hint = (
+-            f"tree-sitter version mismatch for {config.ts_module}: {e}. "
+-            "Try: pip install --upgrade tree-sitter tree-sitter-languages"
+-        )
+-        return {"nodes": [], "edges": [], "error": hint}
+-    except Exception as e:
+-        return {"nodes": [], "edges": [], "error": str(e)}
++    from tree_sitter import Language, Parser
++    if config.language_loader is not None:
++        # Grammar sourced from a custom loader (e.g. tree-sitter-language-pack
++        # for GDScript) which returns a ready tree_sitter.Language.
++        try:
++            language = config.language_loader()
++        except ImportError as e:
++            return {"nodes": [], "edges": [], "error": f"{config.ts_module} grammar not installed: {e}"}
++        except Exception as e:
++            return {"nodes": [], "edges": [], "error": f"{config.ts_module} grammar unavailable: {e}"}
++    else:
++        try:
++            mod = importlib.import_module(config.ts_module)
++            lang_fn = getattr(mod, config.ts_language_fn, None)
++            if lang_fn is None:
++                # Fallback for PHP: try "language_php" then "language"
++                lang_fn = getattr(mod, "language", None)
++            if lang_fn is None:
++                return {"nodes": [], "edges": [], "error": f"No language function in {config.ts_module}"}
++            language = Language(lang_fn())
++        except ImportError:
++            return {"nodes": [], "edges": [], "error": f"{config.ts_module} not installed"}
++        except TypeError as e:
++            # tree-sitter version mismatch: old Language() expects (lib_path),
++            # new Language() expects (language_capsule, name). Surface a hint
++            # so users see the upgrade path instead of a bare TypeError.
++            hint = (
++                f"tree-sitter version mismatch for {config.ts_module}: {e}. "
++                "Try: pip install --upgrade tree-sitter tree-sitter-languages"
++            )
++            return {"nodes": [], "edges": [], "error": hint}
++        except Exception as e:
++            return {"nodes": [], "edges": [], "error": str(e)}
+ 
+     try:
+         parser = Parser(language)
+@@ -2261,6 +2303,23 @@
+     def walk(node, parent_class_nid: str | None = None) -> None:
+         t = node.type
+ 
++        # GDScript inheritance: `extends Base` / `extends "res://path/base.gd"`.
++        # Materialise the base as a node (deterministic _make_id) so the edge
++        # survives graph build and scripts sharing a base converge on one hub.
++        if t == "extends_statement" and config.ts_module == "tree_sitter_gdscript":
++            base = None
++            for child in node.named_children:
++                if child.type in ("type", "name", "identifier", "string"):
++                    raw = _read_text(child, source).strip().strip('"').strip("'")
++                    base = raw.split(".")[-1].split("/")[-1].removesuffix(".gd")
++                    break
++            if base:
++                line = node.start_point[0] + 1
++                base_nid = ensure_named_node(base, line)
++                if base_nid != file_nid:
++                    add_edge(file_nid, base_nid, "inherits", line, context="extends")
++            return
++
+         # Import types
+         if t in config.import_types:
+             if config.import_handler:
+@@ -2843,6 +2902,9 @@
+                 func_name: str | None = "deinit"
+             elif t == "subscript_declaration":
+                 func_name = "subscript"
++            elif t == "constructor_definition":
++                # GDScript: `func _init():` has no name field
++                func_name = "_init"
+             elif config.resolve_function_name_fn is not None:
+                 # C/C++ style: use declarator
+                 declarator = node.child_by_field_name("declarator")
+@@ -3279,6 +3341,15 @@
+                         name = func_node.child_by_field_name("field") or func_node.child_by_field_name("name")
+                         if name:
+                             callee_name = _read_text(name, source)
++            elif config.ts_module == "tree_sitter_gdscript":
++                # GDScript: `foo()` is `call` and `obj.foo()` is `attribute_call`;
++                # in both the callee identifier is the first named child (no
++                # `function` field exists on the call node).
++                if node.type == "attribute_call":
++                    is_member_call = True
++                first = node.named_children[0] if node.named_children else None
++                if first is not None and first.type == "identifier":
++                    callee_name = _read_text(first, source)
+             else:
+                 # Generic: get callee from call_function_field
+                 func_node = node.child_by_field_name(config.call_function_field) if config.call_function_field else None
+@@ -3479,7 +3550,7 @@
+     clean_edges = []
+     for edge in edges:
+         src, tgt = edge["source"], edge["target"]
+-        if src in valid_ids and (tgt in valid_ids or edge["relation"] in ("imports", "imports_from", "re_exports")):
++        if src in valid_ids and (tgt in valid_ids or edge["relation"] in ("imports", "imports_from", "re_exports", "inherits")):
+             clean_edges.append(edge)
+ 
+     result = {"nodes": nodes, "edges": clean_edges, "raw_calls": raw_calls}
+@@ -5433,6 +5504,11 @@
+     return _extract_generic(path, _LUA_CONFIG)
+ 
+ 
++def extract_gdscript(path: Path) -> dict:
++    """Extract classes, functions, methods, `extends` inheritance, and calls from a .gd (Godot/GDScript) file."""
++    return _extract_generic(path, _GDSCRIPT_CONFIG)
++
++
+ def extract_swift(path: Path) -> dict:
+     """Extract classes, structs, protocols, functions, imports, and calls from a .swift file."""
+     return _extract_generic(path, _SWIFT_CONFIG)
+@@ -11420,6 +11496,7 @@
+     ".lua": extract_lua,
+     ".luau": extract_lua,
+     ".toc": extract_lua,
++    ".gd": extract_gdscript,
+     ".zig": extract_zig,
+     ".ps1": extract_powershell,
+     ".ex": extract_elixir,
