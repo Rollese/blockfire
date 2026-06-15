@@ -66,3 +66,31 @@ func test_structure_baseline_round_trip() -> void:
 	assert_eq(d["records"].size(), 2)
 	assert_eq(d["records"][1]["cell"], Vector3i(1, 0, 0))
 	assert_eq(d["records"][1]["yaw"], 2)
+
+func test_structure_delta_damage_roundtrip() -> void:
+	var b := Protocol.encode_structure_delta(Protocol.OP_DAMAGE, {"id": 42, "bucket": 1})
+	var d := Protocol.decode_structure_delta(b)
+	assert_eq(d["op"], Protocol.OP_DAMAGE)
+	assert_eq(d["id"], 42)
+	assert_eq(d["bucket"], 1)
+
+func test_structure_delta_place_and_remove_still_roundtrip() -> void:
+	var rec := {"id": 7, "type": 1, "cell": Vector3i(-3, 0, 5), "yaw": 2, "health": 350, "owner": 9}
+	var pd := Protocol.decode_structure_delta(Protocol.encode_structure_delta(Protocol.OP_PLACE, rec))
+	assert_eq(pd["rec"]["id"], 7)
+	assert_eq(pd["rec"]["health"], 350)
+	var rd := Protocol.decode_structure_delta(Protocol.encode_structure_delta(Protocol.OP_REMOVE, {"id": 7}))
+	assert_eq(rd["op"], Protocol.OP_REMOVE)
+	assert_eq(rd["id"], 7)
+
+func test_grenade_throw_roundtrip() -> void:
+	var d := Protocol.decode_grenade_throw(Protocol.encode_grenade_throw(Vector3(1, 0, 0), Grenade.SMOKE))
+	assert_almost_eq(d["dir"].x, 1.0, 0.001)
+	assert_almost_eq(d["dir"].y, 0.0, 0.001)
+	assert_eq(d["type"], Grenade.SMOKE)
+
+func test_smoke_deployed_roundtrip() -> void:
+	var d := Protocol.decode_smoke_deployed(Protocol.encode_smoke_deployed(Vector3(10, 0, -20), 6.0, 1234))
+	assert_eq(d["pos"], Vector3(10, 0, -20))
+	assert_eq(d["radius"], 6)
+	assert_eq(d["expire_tick"], 1234)

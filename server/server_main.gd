@@ -23,6 +23,15 @@ const FIRE_RANGE_MARGIN := 20.0    # grid broad-phase slack for lag-comp movemen
 const MAP_PATH := "res://maps/conquest_proving_grounds.json"
 const MATCH_STATE_INTERVAL := 15   # ticks between match-state broadcasts (2 Hz)
 const MATCH_END_DRAIN_TICKS := 60  # keep running ~2s after a win, then exit
+const MAX_STRUCTURE_DELTAS_PER_TICK := 64   # graceful degradation: cap delta SENDS/tick
+const GRENADE_FUSE_TICKS := 45        # 1.5s @30Hz
+const GRENADE_COOLDOWN_TICKS := 300   # 10s between a player's throws (shared frag/smoke)
+const BLAST_PAWN_RADIUS := 6.0        # m, sphere (current positions, FF-off)
+const BLAST_STRUCT_RADIUS := 4.0      # m (~2 build cells)
+const GRENADE_DAMAGE_PAWN := 100      # frag pawn splash at centre, linear falloff
+const GRENADE_DAMAGE_STRUCT := 200    # frag structure splash at centre, linear falloff
+const SMOKE_DURATION_TICKS := 150     # 5s @30Hz — smoke zone lifetime
+const SMOKE_RADIUS := 6.0             # m — smoke zone radius (matches blast radius)
 const PIECES_PATH := "res://pieces/fortifications.json"
 
 var _net: NetHost
@@ -56,6 +65,16 @@ var _cap_events_total := 0    # cumulative over the match (for the match-end sum
 var _builds := 0
 var _removes := 0
 var _shots_blocked := 0
+var _dmg := 0                 # damage events applied this window
+var _destroyed := 0           # pieces removed by damage/blast this window
+var _nades := 0               # frag detonations this window
+var _splash_kills := 0        # pawn deaths from blasts this window
+var _smokes := 0              # smoke zones deployed this window
+var _pending_removes: Array = []   # [{id, cell}] removes awaiting send (degradation queue)
+var _dmg_touched := {}             # id -> true: pieces damaged (alive) this tick, for bucket diff
+var _last_bucket := {}             # id -> last SENT bucket (missing => pristine bucket 3)
+var _grenades: Array = []     # [{owner, team, type, pos, vel, detonate_tick}] — server-side, not replicated
+var _smoke_zones: Array = []  # [{pos, radius, expire_tick}] — server-side; M7 LOS culling consumes
 var _prev_owners: Array = []
 var _match_over_broadcast := false
 var _match_end_tick := -1
@@ -105,12 +124,15 @@ func _physics_process(delta: float) -> void:
 	var t_int := Time.get_ticks_usec()
 	_resolve_fires()
 	var t_fire := Time.get_ticks_usec()
+	_step_grenades()
+	_expire_smoke_zones()
 	_handle_respawns()
 	var t_resp := Time.get_ticks_usec()
 	_conquest.step(SimLoop.DT, _sim.world)
 	var t_conq := Time.get_ticks_usec()
 	_track_and_broadcast_match_state()
 	var t_match := Time.get_ticks_usec()
+	_emit_structure_deltas()
 	_send_snapshots()
 	var t_snap := Time.get_ticks_usec()
 	_phase_us["poll"] += t_poll - t0
@@ -224,6 +246,7 @@ func _fire_shot(shooter_id: int, shooter: Pawn, inp: Dictionary, shot_index: int
 	# Cover: a structure strictly nearer than the enemy absorbs the shot (Phase 1: no piece
 	# damage; ties go to the enemy). Skip the march entirely when nothing is built yet.
 	var block_dist := INF
+	var block_id := 0
 	if _store.count() > 0:
 		# Only a structure NEARER than the resolved enemy hit can change the outcome, so bound
 		# the march by best_t (the enemy distance) when an enemy was hit — in combat that is the
@@ -233,9 +256,11 @@ func _fire_shot(shooter_id: int, shooter: Pawn, inp: Dictionary, shot_index: int
 		var blocked := _store.march(ray["origin"], ray["dir"], march_max)
 		if blocked["hit"]:
 			block_dist = blocked["dist"]
+			block_id = int(blocked["id"])
 	if best_victim == 0 or block_dist < best_t:
-		if block_dist < INF:
+		if block_id != 0:
 			_shots_blocked += 1
+			_damage_structure(block_id, int(Weapon.get_def(wid)["damage_body"]))
 		return
 	_hits += 1
 	var dmg := Combat.damage_for(wid, best_head, best_t)
@@ -367,6 +392,7 @@ func _on_packet(peer: ENetPacketPeer, _channel: int, bytes: PackedByteArray) -> 
 		Protocol.Msg.INPUT: _handle_input(peer, bytes)
 		Protocol.Msg.BUILD_REQUEST: _handle_build_request(peer, bytes)
 		Protocol.Msg.BUILD_REMOVE: _handle_build_remove(peer, bytes)
+		Protocol.Msg.GRENADE_THROW: _handle_grenade_throw(peer, bytes)
 		_: pass
 
 func _handle_hello(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
@@ -393,7 +419,7 @@ func _handle_hello(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
 		"team": team, "squad": squad, "class": cls, "weapon": wid, "ammo": Weapon.get_def(wid)["mag_size"],
 		"reloading": false, "reload_done_tick": 0, "last_fire_time": -999.0,
 		"shot_index": 0, "respawn_tick": 0,
-		"last_build_tick": -100000, "known_regions": {},
+		"last_build_tick": -100000, "last_grenade_tick": -100000, "known_regions": {},
 	}
 	var p := _sim.world.spawn(id)
 	p.team = team
@@ -453,10 +479,144 @@ func _handle_build_remove(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
 	_removes += 1
 	_emit_structure_delta(Protocol.OP_REMOVE, {"id": rid}, cell)
 
+func _handle_grenade_throw(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
+	var id = _peer_to_id.get(peer, 0)
+	if id == 0 or not _clients.has(id): return
+	var c = _clients[id]
+	var p: Pawn = _sim.world.get_pawn(id)
+	if p == null or not p.alive: return
+	if _sim.tick - int(c["last_grenade_tick"]) < GRENADE_COOLDOWN_TICKS: return
+	var d := Protocol.decode_grenade_throw(bytes)
+	var dir: Vector3 = d["dir"]
+	if dir.length() < 0.001: return
+	c["last_grenade_tick"] = _sim.tick
+	_grenades.append({
+		"owner": id, "team": p.team, "type": int(d["type"]),
+		"pos": p.eye_position(), "vel": Grenade.launch_velocity(dir),
+		"detonate_tick": _sim.tick + GRENADE_FUSE_TICKS,
+	})
+
+## Integrate live grenades; detonate on fuse or ground contact (v1). Detonation is present-time.
+func _step_grenades() -> void:
+	if _grenades.is_empty():
+		return
+	var still: Array = []
+	for g in _grenades:
+		if _sim.tick >= int(g["detonate_tick"]):
+			_detonate(g)
+			continue
+		var s := Grenade.integrate(g["pos"], g["vel"], SimLoop.DT)
+		g["pos"] = s["pos"]; g["vel"] = s["vel"]
+		if g["pos"].y <= 0.0:
+			g["pos"].y = 0.0
+			_detonate(g)
+		else:
+			still.append(g)
+	_grenades = still
+
+## Frag: area damage at the grenade's current position — structures (cell radius) + pawns (sphere,
+## current positions, FF-off incl. thrower). Removes/bucket-drops route through _damage_structure.
+## (Smoke is handled by a branch added in Task 9.)
+func _detonate(g: Dictionary) -> void:
+	if int(g["type"]) == Grenade.SMOKE:
+		_deploy_smoke(g)
+		return
+	_nades += 1
+	var center: Vector3 = g["pos"]
+	for sid in _store.ids_in_radius(center, BLAST_STRUCT_RADIUS):
+		var rec := _store.get_record(sid)
+		if rec.is_empty(): continue
+		var at := BuildGrid.cell_min(rec["cell"]) + Vector3.ONE * (BuildGrid.CELL_SIZE * 0.5)
+		var sd := Grenade.falloff_damage(center, at, GRENADE_DAMAGE_STRUCT, BLAST_STRUCT_RADIUS)
+		if sd > 0:
+			_damage_structure(sid, sd)
+	var owner: int = int(g["owner"])
+	var team: int = int(g["team"])
+	for pid in _sim.world.pawns:
+		if pid == owner: continue
+		var victim: Pawn = _sim.world.pawns[pid]
+		if not victim.alive or victim.team == team: continue
+		var pd := Grenade.falloff_damage(center, victim.pos, GRENADE_DAMAGE_PAWN, BLAST_PAWN_RADIUS)
+		if pd <= 0: continue
+		victim.health -= pd
+		if victim.health <= 0:
+			victim.health = 0
+			victim.alive = false
+			_clients[pid]["respawn_tick"] = _sim.tick + RESPAWN_DELAY_TICKS
+			_conquest.register_death(victim.team)
+			_kills += 1
+			_splash_kills += 1
+			var ev := Protocol.encode_kill(pid, owner, 0, false)
+			for cid in _clients:
+				_net.send_to(_clients[cid]["peer"], NetHost.CHANNEL_CONTROL, ev, ENetPacketPeer.FLAG_RELIABLE)
+
+## Smoke detonation: no damage. Record a server-side zone and broadcast it (low-frequency, like
+## KILL — bounded by the throw cooldown). M7 LOS culling will read _smoke_zones; here it just
+## replicates the zone so clients know it exists.
+func _deploy_smoke(g: Dictionary) -> void:
+	_smokes += 1
+	var expire: int = _sim.tick + SMOKE_DURATION_TICKS
+	_smoke_zones.append({"pos": g["pos"], "radius": SMOKE_RADIUS, "expire_tick": expire})
+	var bytes := Protocol.encode_smoke_deployed(g["pos"], SMOKE_RADIUS, expire)
+	for cid in _clients:
+		_net.send_to(_clients[cid]["peer"], NetHost.CHANNEL_CONTROL, bytes, ENetPacketPeer.FLAG_RELIABLE)
+
+## Drop expired smoke zones (O(zones); negligible). Keeps _smoke_zones bounded for the M7 reader.
+func _expire_smoke_zones() -> void:
+	if _smoke_zones.is_empty():
+		return
+	var live: Array = []
+	for z in _smoke_zones:
+		if _sim.tick < int(z["expire_tick"]):
+			live.append(z)
+	_smoke_zones = live
+
 ## Cell of a still-present record (for remove-delta routing). Returns a far cell if gone.
 func _cell_of_struct(id: int) -> Vector3i:
 	var rec := _store.get_record(id)
 	return rec["cell"] if not rec.is_empty() else Vector3i(0, 0, 0)
+
+## Apply damage to a piece and record the side effects for end-of-tick replication
+## (_emit_structure_deltas). Destruction queues a remove + frees the cell (in apply_damage);
+## a non-lethal hit marks the piece for a bucket-diff check.
+func _damage_structure(id: int, amount: int) -> void:
+	var cell := _cell_of_struct(id)       # capture BEFORE possible removal
+	var res := _store.apply_damage(id, amount)
+	if not res["hit"]:
+		return
+	_dmg += 1
+	if res["destroyed"]:
+		_destroyed += 1
+		_pending_removes.append({"id": id, "cell": cell})
+		_dmg_touched.erase(id)
+		_last_bucket.erase(id)
+	else:
+		_dmg_touched[id] = true
+
+## Flush queued removes + bucket drops to interested clients, bounded by
+## MAX_STRUCTURE_DELTAS_PER_TICK (removes first; overflow carried to next tick). Authoritative
+## state is already applied — only the SEND volume is throttled. See docs/specs/destruction.md.
+func _emit_structure_deltas() -> void:
+	var budget := MAX_STRUCTURE_DELTAS_PER_TICK
+	while not _pending_removes.is_empty() and budget > 0:
+		var r: Dictionary = _pending_removes.pop_front()
+		_removes += 1
+		_emit_structure_delta(Protocol.OP_REMOVE, {"id": r["id"]}, r["cell"])
+		budget -= 1
+	for id in _dmg_touched.keys():
+		if budget <= 0:
+			break
+		var rec := _store.get_record(id)
+		if rec.is_empty():
+			_dmg_touched.erase(id)
+			continue
+		var max_health := _catalog.health_of(int(rec["type"]))
+		var bucket := StructureStore.bucket_of(int(rec["health"]), max_health)
+		if bucket < int(_last_bucket.get(id, 3)):
+			_last_bucket[id] = bucket
+			_emit_structure_delta(Protocol.OP_DAMAGE, {"id": id, "bucket": bucket}, rec["cell"])
+		_dmg_touched.erase(id)
+		budget -= 1
 
 ## Send a structure delta to every client whose current interest region covers the cell's region.
 func _emit_structure_delta(op: int, rec: Dictionary, cell: Vector3i) -> void:
@@ -507,8 +667,8 @@ func _log_telemetry() -> void:
 	var pts := ""
 	for pt in _conquest.points:
 		pts += "." if pt["owner"] == -1 else str(pt["owner"])
-	print("[telemetry] players=%d alive=%d tick_mean=%.2fms tick_p99=%.2fms agg=%.1fMbit/s kills=%d shots=%d hit_rate=%.2f starv=%d rewind_clamped=%d t0=%d t1=%d pts=%s cap_events=%d struct=%d bld=%d rmv=%d blk=%d"
-		% [n, alive, _tele.mean_tick_ms(), _tele.p99_tick_ms(), mbit, _kills, _shots, hit_rate, _tele.starvation, _rewind_clamped, _conquest.tickets_int(0), _conquest.tickets_int(1), pts, _cap_events, _store.count(), _builds, _removes, _shots_blocked])
+	print("[telemetry] players=%d alive=%d tick_mean=%.2fms tick_p99=%.2fms agg=%.1fMbit/s kills=%d shots=%d hit_rate=%.2f starv=%d rewind_clamped=%d t0=%d t1=%d pts=%s cap_events=%d struct=%d bld=%d rmv=%d blk=%d dmg=%d destroyed=%d nades=%d splash=%d smoke=%d"
+		% [n, alive, _tele.mean_tick_ms(), _tele.p99_tick_ms(), mbit, _kills, _shots, hit_rate, _tele.starvation, _rewind_clamped, _conquest.tickets_int(0), _conquest.tickets_int(1), pts, _cap_events, _store.count(), _builds, _removes, _shots_blocked, _dmg, _destroyed, _nades, _splash_kills, _smokes])
 	var pt := maxi(_phase_ticks, 1)
 	print("[perf] us/tick: poll=%d move=%d lag=%d interest=%d fire=%d respawn=%d conquest=%d match=%d snap=%d (ticks=%d)"
 		% [_phase_us["poll"] / pt, _phase_us["move"] / pt, _phase_us["lag"] / pt, _phase_us["interest"] / pt, _phase_us["fire"] / pt, _phase_us["respawn"] / pt, _phase_us["conquest"] / pt, _phase_us["match"] / pt, _phase_us["snap"] / pt, _phase_ticks])
@@ -517,3 +677,4 @@ func _log_telemetry() -> void:
 	_tele.reset_window()
 	_kills = 0; _shots = 0; _hits = 0; _rewind_clamped = 0; _cap_events = 0
 	_builds = 0; _removes = 0; _shots_blocked = 0
+	_dmg = 0; _destroyed = 0; _nades = 0; _splash_kills = 0; _smokes = 0

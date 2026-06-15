@@ -16,6 +16,9 @@ const MAX_BOT_BUILDS := 1           # walls each bot drops before stopping. Keep
                                     # zone covered (cover blocks crossfire, so blk>0) without
                                     # boxing every bot in — combat still flows so attrition
                                     # converges the match to a winner. Tuned via the 48-bot smoke.
+const GRENADE_COOLDOWN_TICKS := 300   # match server GRENADE_COOLDOWN_TICKS (10s, shared frag/smoke)
+const MAX_BOT_GRENADES := 1           # per-bot lifetime FRAG cap (convergence/over-destruction knob)
+const MAX_BOT_SMOKES := 1             # per-bot lifetime SMOKE cap (exercises the smoke path)
 
 var _map: MapDef
 var _match_points: Array = []   # array of {owner, attacker, cap}, index == map point index
@@ -48,6 +51,7 @@ func _spawn_bot(index: int) -> void:
 		"yaw": randf() * TAU, "pitch": 0.0, "heading": randf() * TAU, "turn_timer": 0.0,
 		"reload_until": 0, "burst_start": -1,
 		"last_build_tick": -100000, "structs": {}, "builds_made": 0,
+		"last_grenade_tick": -100000, "nades_thrown": 0, "smokes_thrown": 0,
 	}
 	net.peer_connected.connect(func(peer: ENetPacketPeer) -> void:
 		bot["peer"] = peer
@@ -108,12 +112,14 @@ func _drive(bot: Dictionary, delta: float) -> void:
 		buttons |= int(cb[0])
 		bot["reload_until"] = cb[1]
 		bot["burst_start"] = cb[2]
+		_maybe_grenade(bot, me, target)
 	else:
 		# no enemy in view: march to the objective (capture/defend)
 		var flat := Vector2(obj.x - me.pos.x, obj.z - me.pos.z)
 		if flat.length() > 0.001: flat = flat.normalized()
 		move_x = flat.x; move_y = flat.y
 		bot["yaw"] = atan2(move_x, move_y)
+		_maybe_smoke(bot, me, obj)
 
 	# Build cover only while stationary (holding a point or firing) — so the bot drops a wall
 	# toward the contested objective without walking into its own piece, and the cover lands in
@@ -143,6 +149,56 @@ func _maybe_build(bot: Dictionary, me: EntityState) -> void:
 	(bot["net"] as NetHost).send_to(bot["peer"], NetHost.CHANNEL_INPUT, bytes, 0)
 	bot["last_build_tick"] = st
 	bot["builds_made"] = int(bot["builds_made"]) + 1
+
+## Throw a FRAG at an in-view enemy when a structure sits roughly on the line between us and them
+## (so the blast clears cover) — shared cooldown + per-bot frag cap. Drives the blast/destruction gate.
+func _maybe_grenade(bot: Dictionary, me: EntityState, target: EntityState) -> void:
+	if int(bot["nades_thrown"]) >= MAX_BOT_GRENADES:
+		return
+	var st: int = bot["server_tick"]
+	if st - int(bot["last_grenade_tick"]) < GRENADE_COOLDOWN_TICKS:
+		return
+	if not _cover_between(bot, me.pos, target.pos):
+		return
+	var dir := target.pos - me.pos
+	if dir.length() < 0.001:
+		return
+	(bot["net"] as NetHost).send_to(bot["peer"], NetHost.CHANNEL_INPUT,
+		Protocol.encode_grenade_throw(dir.normalized(), Grenade.FRAG), 0)
+	bot["last_grenade_tick"] = st
+	bot["nades_thrown"] = int(bot["nades_thrown"]) + 1
+
+## Throw a SMOKE toward the objective while advancing (no target) — shared cooldown + per-bot smoke
+## cap. No gameplay effect until M7 LOS culling; exercises the smoke replication path for the gate.
+func _maybe_smoke(bot: Dictionary, me: EntityState, obj: Vector3) -> void:
+	if int(bot["smokes_thrown"]) >= MAX_BOT_SMOKES:
+		return
+	var st: int = bot["server_tick"]
+	if st - int(bot["last_grenade_tick"]) < GRENADE_COOLDOWN_TICKS:
+		return
+	var dir := obj - me.pos
+	if dir.length() < 0.001:
+		return
+	(bot["net"] as NetHost).send_to(bot["peer"], NetHost.CHANNEL_INPUT,
+		Protocol.encode_grenade_throw(dir.normalized(), Grenade.SMOKE), 0)
+	bot["last_grenade_tick"] = st
+	bot["smokes_thrown"] = int(bot["smokes_thrown"]) + 1
+
+## True if any known structure's cell-centre lies near the segment from `a` to `b` (coarse: the
+## bot only knows piece positions from its mirror, not exact AABBs). Bounds the throw to useful cases.
+func _cover_between(bot: Dictionary, a: Vector3, b: Vector3) -> bool:
+	var seg := b - a
+	var seg_len := seg.length()
+	if seg_len < 0.001:
+		return false
+	var n := seg / seg_len
+	for id in bot["structs"]:
+		var cell: Vector3i = bot["structs"][id]["cell"]
+		var c := BuildGrid.cell_min(cell) + Vector3.ONE * (BuildGrid.CELL_SIZE * 0.5)
+		var t := clampf((c - a).dot(n), 0.0, seg_len)
+		if (a + n * t).distance_to(c) <= BuildGrid.CELL_SIZE:   # within ~one cell of the line
+			return true
+	return false
 
 func angle_diff(a: float, b: float) -> float:
 	return wrapf(a - b, -PI, PI)
@@ -192,6 +248,20 @@ static func combat_button(fire: bool, st: int, reload_until: int, burst_start: i
 		return [InputCommand.BTN_RELOAD, st + RELOAD_TICKS, -1]
 	return [InputCommand.BTN_FIRE, reload_until, burst_start]
 
+## Apply a decoded STRUCTURE_DELTA to a bot's local mirror (id->record). PLACE inserts, DAMAGE
+## updates the record's bucket in place (must NOT remove), REMOVE erases. Pure + unit-tested;
+## the live path runs inside _on_packet. See docs/specs/destruction.md.
+static func apply_structure_delta(structs: Dictionary, d: Dictionary) -> void:
+	var op: int = d["op"]
+	if op == Protocol.OP_PLACE:
+		structs[d["rec"]["id"]] = d["rec"]
+	elif op == Protocol.OP_DAMAGE:
+		var id: int = d["id"]
+		if structs.has(id):
+			structs[id]["bucket"] = d["bucket"]
+	else:
+		structs.erase(d["id"])
+
 func _objective_pos(me: EntityState) -> Vector3:
 	if _map == null or _map.points.is_empty():
 		return me.pos
@@ -224,16 +294,14 @@ func _on_packet(bot: Dictionary, bytes: PackedByteArray) -> void:
 		Protocol.Msg.MATCH_STATE:
 			_match_points = Protocol.decode_match_state(bytes)["points"]
 		Protocol.Msg.STRUCTURE_DELTA:
-			var d := Protocol.decode_structure_delta(bytes)
-			if d["op"] == Protocol.OP_PLACE:
-				bot["structs"][d["rec"]["id"]] = d["rec"]
-			else:
-				bot["structs"].erase(d["id"])
+			apply_structure_delta(bot["structs"], Protocol.decode_structure_delta(bytes))
 			_note_sync(bot)
 		Protocol.Msg.STRUCTURE_BASELINE:
 			for rec in Protocol.decode_structure_baseline(bytes)["records"]:
 				bot["structs"][rec["id"]] = rec
 			_note_sync(bot)
+		Protocol.Msg.SMOKE_DEPLOYED:
+			pass   # no bot-side effect until M7 LOS culling; received reliably, nothing to do
 		_:
 			pass
 

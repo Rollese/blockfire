@@ -88,3 +88,51 @@ func test_oldest_id_peeks_without_removing() -> void:
 	assert_eq(s.oldest_id(7), 1)                  # FIFO front
 	assert_eq(s.count(), 2)                       # peek did NOT remove
 	assert_eq(s.oldest_id(7), 1)                  # still there
+
+func test_bucket_of_thresholds() -> void:
+	assert_eq(StructureStore.bucket_of(100, 100), 3)   # pristine
+	assert_eq(StructureStore.bucket_of(80, 100), 3)    # >0.75
+	assert_eq(StructureStore.bucket_of(75, 100), 2)    # ==0.75 -> not >0.75
+	assert_eq(StructureStore.bucket_of(60, 100), 2)
+	assert_eq(StructureStore.bucket_of(50, 100), 1)
+	assert_eq(StructureStore.bucket_of(40, 100), 1)
+	assert_eq(StructureStore.bucket_of(25, 100), 0)
+	assert_eq(StructureStore.bucket_of(10, 100), 0)
+	assert_eq(StructureStore.bucket_of(5, 0), 0)       # guard: max 0
+
+func test_apply_damage_reduces_health_and_buckets() -> void:
+	var s := _store()
+	s.place(1, 1, Vector3i(0, 0, 0), 0, 7)             # wall, health 350
+	var r := s.apply_damage(1, 100)                    # 250/350 = 0.714 -> bucket 2
+	assert_eq(r["hit"], true)
+	assert_eq(r["destroyed"], false)
+	assert_eq(r["health"], 250)
+	assert_eq(r["bucket"], 2)
+	assert_eq(s.get_record(1)["health"], 250)
+
+func test_apply_damage_destroys_and_frees_cell() -> void:
+	var s := _store()
+	s.place(1, 1, Vector3i(0, 0, 0), 0, 7)
+	var r := s.apply_damage(1, 400)                    # lethal
+	assert_eq(r["destroyed"], true)
+	assert_eq(r["health"], 0)
+	assert_eq(s.count(), 0)
+	assert_eq(s.occupied(Vector3i(0, 0, 0)), false)
+	assert_eq(s.owner_count(7), 0)
+
+func test_apply_damage_unknown_id_is_noop() -> void:
+	var s := _store()
+	assert_eq(s.apply_damage(999, 50)["hit"], false)
+
+func test_ids_in_radius_returns_occupied_within_range() -> void:
+	var s := _store()
+	# cell centres: (0,0,0)->(1,1,1), (2,0,0)->(5,1,1), (3,0,0)->(7,1,1)
+	s.place(1, 1, Vector3i(0, 0, 0), 0, 7)
+	s.place(2, 1, Vector3i(2, 0, 0), 0, 7)
+	s.place(3, 1, Vector3i(3, 0, 0), 0, 7)
+	var near := s.ids_in_radius(Vector3(1, 1, 1), 3.0)   # only id1 (id2 is 4m away)
+	assert_eq(near.size(), 1)
+	assert_eq(near[0], 1)
+	var wider := s.ids_in_radius(Vector3(1, 1, 1), 4.5)  # id1 (0m) + id2 (4m)
+	assert_eq(wider.size(), 2)
+	assert_eq(wider.has(1) and wider.has(2), true)
