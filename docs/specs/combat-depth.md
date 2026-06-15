@@ -72,7 +72,7 @@ DOWNED costs **no ticket**. The Conquest death-cost is deducted only at **true d
 | `MEDIC_EXTRA_BANDAGES` | 2 | extra bandage charges for Medic |
 | `BLEED_RATE` | 2 HP/tick | drain while DOWNED and not halted |
 | `BLEEDOUT_FLOOR` | −50 HP | death threshold |
-| `DOWNED_CRAWL_SPEED` | (tune) | crawl speed while DOWNED |
+| `DOWNED_CRAWL_SPEED` | 1.0 m/s | crawl speed while DOWNED |
 | `REVIVE_TICKS` | 90 (3 s) | revive duration (non-medic) |
 | `REVIVE_HP` | 30 | HP on revive |
 | `REVIVE_RANGE` | 2.0 m | max range to begin/hold revive |
@@ -149,15 +149,17 @@ Three slots per weapon — **Optic**, **Barrel**, **Underbarrel** — data-drive
 
 | Const | Value | Meaning |
 |---|---|---|
-| `MEDIC_GIVE_RANGE` / `AMMO_GIVE_RANGE` | (tune) | RMB active aim range |
-| `MEDIC_ACTIVE_RATE` / `AMMO_ACTIVE_RATE` | (tune) | HP-or-rounds per tick, active |
-| `MEDIC_BAG_RATE` / `AMMO_BAG_RATE` | 25% of active | per teammate in radius, thrown bag |
-| `MEDIC_BAG_POOL` / `AMMO_BAG_POOL` | (tune) | total dispensable before the bag vanishes |
+| `MEDIC_GIVE_RANGE` / `AMMO_GIVE_RANGE` | 3.0 m | RMB active aim range |
+| `MEDIC_ACTIVE_RATE` | 2 HP/tick (60 HP/s) | active heal; full top-up ≈1.7 s |
+| `AMMO_ACTIVE_RATE` | 1 mag / 30 ticks (1 mag/s) | active resupply |
+| `MEDIC_BAG_RATE` / `AMMO_BAG_RATE` | 25% of active (0.5 HP/tick · 1 mag/120 ticks) | per teammate in radius, thrown bag |
+| `MEDIC_BAG_POOL` | 300 HP | total HP dispensable before the bag vanishes (≈3 full heals) |
+| `AMMO_BAG_POOL` | 8 mags | total mags dispensable before the bag vanishes |
 | `MEDIC_BAG_RADIUS` / `AMMO_BAG_RADIUS` | 3.0 m | thrown-bag area |
 | `MAX_MEDIC_BAGS` / `MAX_AMMO_BAGS` | 1 | live thrown bags per player |
 | `MINE_TRIGGER_RADIUS` | 1.5 m | proximity trigger |
 | `MINE_ARMED_DELAY_TICKS` | 60 (2 s) | arm delay |
-| `MINE_PLACE_RANGE` | (tune) | placement reach |
+| `MINE_PLACE_RANGE` | 2.0 m | placement reach |
 | `MAX_MINES_PER_PLAYER` | 2 | live mines |
 | `MAX_C4_PLACED` | 2 | live C4 |
 | `MAX_ROCKETS` | 2 | rockets per spawn |
@@ -185,7 +187,7 @@ Server tracks `last_stance_change_tick` per pawn. Fire is blocked for `PRONE_TRA
 
 | Const | Value | Meaning |
 |---|---|---|
-| `LADDER_CLIMB_SPEED` | (tune) | vertical climb speed |
+| `LADDER_CLIMB_SPEED` | 3.0 m/s | vertical climb speed |
 | `VAULT_TICKS` | 8 | ticks to complete a vault |
 | `PRONE_TRANSITION_TICKS` | 10 | fire block after stand/crouch → prone |
 
@@ -283,6 +285,6 @@ TDD per task (AGENTS.md §2; tests in `tests/*_test.gd` extending `TestCase`). U
 
 ## Open / deferred decisions
 
-- Tunable constants marked "(tune)" are set during the gate-tuning pass.
+- All constants carry seeded initial values; final numbers are confirmed during the per-phase gate-tuning pass.
 - Smoke LOS, scope zoom, suppressor audio, attachment visuals, body-drag rendering — all M7.
 - Vehicle repair kit + RPG anti-vehicle damage — M5.
