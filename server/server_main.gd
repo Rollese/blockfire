@@ -23,6 +23,7 @@ const FIRE_RANGE_MARGIN := 20.0    # grid broad-phase slack for lag-comp movemen
 const MAP_PATH := "res://maps/conquest_proving_grounds.json"
 const MATCH_STATE_INTERVAL := 15   # ticks between match-state broadcasts (2 Hz)
 const MATCH_END_DRAIN_TICKS := 60  # keep running ~2s after a win, then exit
+const MAX_STRUCTURE_DELTAS_PER_TICK := 64   # graceful degradation: cap delta SENDS/tick
 const PIECES_PATH := "res://pieces/fortifications.json"
 
 var _net: NetHost
@@ -56,6 +57,14 @@ var _cap_events_total := 0    # cumulative over the match (for the match-end sum
 var _builds := 0
 var _removes := 0
 var _shots_blocked := 0
+var _dmg := 0                 # damage events applied this window
+var _destroyed := 0           # pieces removed by damage/blast this window
+var _nades := 0               # frag detonations this window
+var _splash_kills := 0        # pawn deaths from blasts this window
+var _smokes := 0              # smoke zones deployed this window
+var _pending_removes: Array = []   # [{id, cell}] removes awaiting send (degradation queue)
+var _dmg_touched := {}             # id -> true: pieces damaged (alive) this tick, for bucket diff
+var _last_bucket := {}             # id -> last SENT bucket (missing => pristine bucket 3)
 var _prev_owners: Array = []
 var _match_over_broadcast := false
 var _match_end_tick := -1
@@ -224,6 +233,7 @@ func _fire_shot(shooter_id: int, shooter: Pawn, inp: Dictionary, shot_index: int
 	# Cover: a structure strictly nearer than the enemy absorbs the shot (Phase 1: no piece
 	# damage; ties go to the enemy). Skip the march entirely when nothing is built yet.
 	var block_dist := INF
+	var block_id := 0
 	if _store.count() > 0:
 		# Only a structure NEARER than the resolved enemy hit can change the outcome, so bound
 		# the march by best_t (the enemy distance) when an enemy was hit — in combat that is the
@@ -233,9 +243,11 @@ func _fire_shot(shooter_id: int, shooter: Pawn, inp: Dictionary, shot_index: int
 		var blocked := _store.march(ray["origin"], ray["dir"], march_max)
 		if blocked["hit"]:
 			block_dist = blocked["dist"]
+			block_id = int(blocked["id"])
 	if best_victim == 0 or block_dist < best_t:
-		if block_dist < INF:
+		if block_id != 0:
 			_shots_blocked += 1
+			_damage_structure(block_id, int(Weapon.get_def(wid)["damage_body"]))
 		return
 	_hits += 1
 	var dmg := Combat.damage_for(wid, best_head, best_t)
@@ -457,6 +469,23 @@ func _handle_build_remove(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
 func _cell_of_struct(id: int) -> Vector3i:
 	var rec := _store.get_record(id)
 	return rec["cell"] if not rec.is_empty() else Vector3i(0, 0, 0)
+
+## Apply damage to a piece and record the side effects for end-of-tick replication
+## (_emit_structure_deltas). Destruction queues a remove + frees the cell (in apply_damage);
+## a non-lethal hit marks the piece for a bucket-diff check.
+func _damage_structure(id: int, amount: int) -> void:
+	var cell := _cell_of_struct(id)       # capture BEFORE possible removal
+	var res := _store.apply_damage(id, amount)
+	if not res["hit"]:
+		return
+	_dmg += 1
+	if res["destroyed"]:
+		_destroyed += 1
+		_pending_removes.append({"id": id, "cell": cell})
+		_dmg_touched.erase(id)
+		_last_bucket.erase(id)
+	else:
+		_dmg_touched[id] = true
 
 ## Send a structure delta to every client whose current interest region covers the cell's region.
 func _emit_structure_delta(op: int, rec: Dictionary, cell: Vector3i) -> void:

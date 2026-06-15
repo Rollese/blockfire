@@ -15,3 +15,16 @@ func test_wall_between_blocks_shot() -> void:
 func test_no_wall_does_not_block() -> void:
 	var store := StructureStore.new(PieceCatalog.from_json_string(CAT)["catalog"])
 	assert_eq(store.march(Vector3(0.0, 1.5, -1.0), Vector3(1, 0, 0), 50.0)["hit"], false)
+
+func test_repeated_shots_destroy_wall() -> void:
+	var store := StructureStore.new(PieceCatalog.from_json_string(CAT)["catalog"])
+	store.place(1, 0, Vector3i(2, 0, -1), 0, 99)        # wall health 350, between origin and +x
+	var origin := Vector3(0.0, 1.5, -1.0)
+	var dir := Vector3(1, 0, 0)
+	# 25 dmg/shot * 14 = 350 -> destroyed; the march must miss afterwards.
+	for i in 14:
+		var hit := store.march(origin, dir, 50.0)
+		assert_eq(hit["hit"], true, "wall still present at shot %d" % i)
+		store.apply_damage(int(hit["id"]), 25)
+	assert_eq(store.count(), 0)
+	assert_eq(store.march(origin, dir, 50.0)["hit"], false)
