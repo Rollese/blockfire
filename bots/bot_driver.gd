@@ -22,7 +22,6 @@ const MAX_BOT_GRENADES := 1           # per-bot lifetime FRAG cap (convergence/o
 const MAX_BOT_SMOKES := 1             # per-bot lifetime SMOKE cap (exercises the smoke path)
 const MAX_VEHICLE_BOTS := 6   # crew bots per process; minority so the win-convergence holds
 const VEHICLE_FULL_HP := 600       # transport max (v1 single vehicle type); used to detect a damaged ridden vehicle
-const VEHICLE_LOITER_RANGE := 35.0 # m; once an enemy is this close the crew creeps (0.25 throttle) instead of charging
 const VEHICLE_RPG_RANGE := 120.0   # fire an RPG at an enemy vehicle within this many metres
 const RPG_FIRE_COOLDOWN := 120     # ticks between RPG fire attempts (matches server cooldown_ticks)
 const ROCKET_SPEED := 150.0  # keep in sync with data/gadgets.json rpg.rocket_speed (bot lead math)
@@ -149,14 +148,7 @@ func _drive(bot: Dictionary, delta: float) -> void:
 				# no loiter hold, so the vehicle keeps pressing into the action where blast fire is.
 				var push := _hunt_pos(me, view)
 				var cmd := BotDriver.drive_toward(v.heading, me.pos, push)
-				# Once a live enemy is within VEHICLE_LOITER_RANGE, CREEP (low throttle, keep
-				# steering — never a full stop, which can wedge the hull) so the transport lingers
-				# as a sustained AT target instead of charging straight through the firefight.
-				var foe := BotDriver.nearest_enemy_pos(view, int(me.id), int(me.team), me.pos)
-				var throttle := 1.0
-				if bool(foe["found"]) and me.pos.distance_to(foe["pos"]) <= VEHICLE_LOITER_RANGE:
-					throttle = 0.25
-				_send(bot, float(cmd["move_x"]), throttle, float(cmd["yaw"]), 0.0, 0)
+				_send(bot, float(cmd["move_x"]), float(cmd["move_y"]), float(cmd["yaw"]), 0.0, 0)
 				return
 		else:
 			var vid := BotDriver.nearest_free_vehicle(bot["vview"], me.pos)
