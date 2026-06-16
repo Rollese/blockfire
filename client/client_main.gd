@@ -1,80 +1,340 @@
 extends Node
-## Client. M2 (headless): connect, send input (look + buttons + view tick), apply snapshots,
-## reconcile own pawn, track health/alive. Rendering/real input arrive later.
+## Client composition root — M7 C1 (rendered client).
+## Wires all client-side components; owns NO authority or rule logic (AGENTS.md §7).
+## Authority lives on the server; this file connects UI/input/prediction/rendering only.
 
 const Protocol := preload("res://shared/net/protocol.gd")
+const MAP_PATH := "res://maps/conquest_proving_grounds.json"
 
+# ---- network ----------------------------------------------------------------
 var _net: NetHost
 var _server_ip := "127.0.0.1"
 var _port := 27015
 var _player_name := "Player"
 var _peer: ENetPacketPeer
 
+# ---- identity / tick --------------------------------------------------------
 var my_id := 0
 var _client_tick := 0
 var _last_snapshot_seq := 0
 var _last_server_tick := 0
-var _view := {}
-var _pred := Prediction.new()
-var _interp := Interpolation.new()
 var _elapsed := 0.0
-var _log_accum := 0.0
 
+# ---- components (all non-scene, headless-safe) ------------------------------
+var _settings: ClientSettings
+var _map: MapDef
+var _conquest: ConquestState
+var _wv: WorldView
+var _pred: Prediction
+var _wpred: WeaponPredictor
+var _input_ctrl: InputController
+var _hud_model: HudModel
+
+# ---- scene nodes (created after WELCOME) ------------------------------------
+var _scene_root: Node3D        # ClientWorld node3D
+var _camera: Camera3D
+var _renderer: WorldRenderer
+var _hud_view: HudView
+var _deploy_menu: DeployMenu
+var _settings_menu: SettingsMenu
+
+# ---- state flags ------------------------------------------------------------
+var _scene_built := false
+var _deploy_menu_populated := false
+var _match_state: Dictionary = {}
+var _auto_deploy_ref: int = -1    # --deploy=N arg; -1 = not set
+var _auto_deploy_sent := false    # only send once
+
+# ---- configure (called by bootstrap before add_child) -----------------------
 func configure(args: Dictionary) -> void:
 	_server_ip = String(args.get("connect", _server_ip))
 	_port = int(args.get("port", _port))
 	_player_name = String(args.get("name", _player_name))
+	if args.has("deploy"):
+		_auto_deploy_ref = int(args["deploy"])
 
+# ---- _ready -----------------------------------------------------------------
 func _ready() -> void:
+	# 1. Load settings
+	_settings = ClientSettings.new()
+	_settings.load_from()
+
+	# 2. Load map + initial conquest state
+	_map = MapDef.load_file(MAP_PATH)
+	if _map == null:
+		push_error("[client] failed to load map: %s" % MAP_PATH)
+	_conquest = ConquestState.new(_map)
+
+	# 3. Create non-scene components
+	_wv = WorldView.new()
+	_pred = Prediction.new()
+	_wpred = WeaponPredictor.new()
+	_hud_model = HudModel.new()
+
+	# 4. InputController must be in the tree so _input() fires
+	_input_ctrl = InputController.new()
+	add_child(_input_ctrl)
+
+	# 5. Network
 	_net = NetHost.new()
 	add_child(_net)
 	_net.peer_connected.connect(_on_connected)
 	_net.packet_received.connect(_on_packet)
 	_peer = _net.start_client(_server_ip, _port)
 	if _peer == null:
-		push_error("[client] failed to create client host"); return
+		push_error("[client] failed to create ENet host")
+		return
 	print("[client] connecting to %s:%d ..." % [_server_ip, _port])
 
+# ---- physics tick -----------------------------------------------------------
 func _physics_process(delta: float) -> void:
 	_net.poll()
 	_elapsed += delta
-	if my_id != 0:
-		_client_tick += 1
-		_pred.record_input(_client_tick, 0.0, 0.0, 0.0)
+
+	if my_id == 0:
+		return   # not yet welcomed
+
+	var ss: EntityState = _wv.self_state()
+	var deployed: bool = ss != null and ss.alive
+
+	if deployed:
+		# Gather local input and run prediction
+		var cmd: Dictionary = _input_ctrl.gather(_settings)
+		_pred.record_cmd(_client_tick, cmd)
+
+		var buttons: int = int(cmd["buttons"])
+		var sprinting: bool = bool(buttons & InputCommand.BTN_SPRINT) \
+			and _pred.predicted.stance == Stance.STAND
+		var firing: bool = bool(buttons & InputCommand.BTN_FIRE)
+
+		# Predict weapon state — drop_shoot=false here; server gates authoritatively,
+		# and SELF_STATE reconciles the client's mag each tick so divergence is transient.
+		_wpred.step(_client_tick, firing, sprinting, false)
+
+		if buttons & InputCommand.BTN_RELOAD:
+			_wpred.begin_reload(_client_tick)
+
+		# Send input to server
 		_net.send_to(_peer, NetHost.CHANNEL_INPUT,
-			InputCommand.encode(_client_tick, _last_snapshot_seq, 0.0, 0.0, 0.0, 0.0, 0, _last_server_tick), 0)
-	_log_accum += delta
-	if _log_accum >= 2.0 and my_id != 0:
-		var hp: int = _view[my_id].health if _view.has(my_id) else -1
-		print("[client] id=%d tick=%d view=%d hp=%d" % [my_id, _client_tick, _view.size(), hp])
-		_log_accum = 0.0
+			InputCommand.encode(
+				_client_tick, _last_snapshot_seq,
+				float(cmd["move_x"]), float(cmd["move_y"]),
+				float(cmd["yaw"]), float(cmd["pitch"]),
+				buttons, _last_server_tick),
+			0)  # unreliable-sequenced
 
+		_client_tick += 1
+
+		if _scene_built:
+			_input_ctrl.capture_mouse()
+
+		# Hide deploy menu while alive
+		if _scene_built and _deploy_menu != null:
+			_deploy_menu.visible = false
+	else:
+		# Not deployed — show deploy menu and release mouse
+		if _scene_built:
+			_input_ctrl.release_mouse()
+			if _deploy_menu != null:
+				_deploy_menu.visible = true
+
+		# Auto-deploy once (--deploy arg; same intent as clicking the button)
+		if _auto_deploy_ref >= 0 and not _auto_deploy_sent:
+			_auto_deploy_sent = true
+			_send_deploy_request(_auto_deploy_ref)
+
+# ---- render frame -----------------------------------------------------------
+func _process(_dt: float) -> void:
+	if not _scene_built:
+		return
+
+	_renderer.update(_wv, _pred, _elapsed, _settings.fov)
+
+	var ctx: Dictionary = {
+		"weapon_predictor": _wpred,
+		"tick": _client_tick,
+		"self_pos": _pred.predicted.pos,
+		"self_yaw": _pred.predicted.yaw,
+		"objectives": _objectives(),
+		"match_state": _match_state,
+		"point_positions": _point_positions(),
+		"capture_radius": 8.0,
+		"now": _elapsed,
+	}
+	_hud_view.render(_hud_model.build(ctx))
+
+	# Settings menu toggle
+	if Input.is_action_just_pressed("menu"):
+		if _settings_menu != null:
+			_settings_menu.visible = not _settings_menu.visible
+
+	# Keep deploy menu visible only when undeployed
+	if _deploy_menu != null:
+		var ss: EntityState = _wv.self_state()
+		var deployed: bool = ss != null and ss.alive
+		_deploy_menu.visible = not deployed
+
+# ---- connect callback -------------------------------------------------------
 func _on_connected(peer: ENetPacketPeer) -> void:
-	_net.send_to(peer, NetHost.CHANNEL_CONTROL, Protocol.encode_hello(_player_name), ENetPacketPeer.FLAG_RELIABLE)
+	print("[client] connected — sending HELLO (manual deploy)")
+	# auto_deploy=false: we want MANUAL deploy via the DeployMenu (AGENTS.md §7 — no client authority)
+	_net.send_to(peer, NetHost.CHANNEL_CONTROL,
+		Protocol.encode_hello(_player_name, false),
+		ENetPacketPeer.FLAG_RELIABLE)
 
-func _on_packet(_peer: ENetPacketPeer, _channel: int, bytes: PackedByteArray) -> void:
+# ---- packet handler ---------------------------------------------------------
+func _on_packet(_from: ENetPacketPeer, _channel: int, bytes: PackedByteArray) -> void:
 	match Protocol.msg_type(bytes):
 		Protocol.Msg.WELCOME:
-			var r := Protocol.body_reader(bytes)
-			my_id = r.get_u32()
-			print("[client] WELCOME — id=%d, server tick=%dHz" % [my_id, r.get_u16()])
+			_handle_welcome(bytes)
 		Protocol.Msg.REJECT:
 			print("[client] REJECTED: %s" % Protocol.body_reader(bytes).get_utf8_string())
-		Protocol.Msg.KILL:
-			var k := Protocol.decode_kill(bytes)
-			if k["victim"] == my_id or k["killer"] == my_id:
-				print("[client] KILL victim=%d killer=%d head=%s" % [k["victim"], k["killer"], str(k["headshot"])])
 		Protocol.Msg.SNAPSHOT:
-			_apply_snapshot(bytes)
+			_handle_snapshot(bytes)
+		Protocol.Msg.SELF_STATE:
+			_handle_self_state(bytes)
+		Protocol.Msg.DAMAGE_EVENT:
+			var d: Dictionary = Protocol.decode_damage_event(bytes)
+			_hud_model.push_damage(float(d["bearing"]), int(d["amount"]), _elapsed)
+		Protocol.Msg.KILL:
+			var k: Dictionary = Protocol.decode_kill(bytes)
+			_hud_model.push_kill(k, _elapsed)
+		Protocol.Msg.MATCH_STATE:
+			_handle_match_state(bytes)
 
-func _apply_snapshot(bytes: PackedByteArray) -> void:
-	var hdr := Snapshot.decode_apply(bytes, _view)
+# ---- WELCOME ----------------------------------------------------------------
+func _handle_welcome(bytes: PackedByteArray) -> void:
+	var w: Dictionary = Protocol.decode_welcome(bytes)
+	my_id = int(w["id"])
+	var tick_rate: int = int(w["tick_rate"])
+	var cls: int = int(w["class"])
+
+	_wv.set_local_id(my_id)
+	_wpred.set_weapon(Loadout.weapon_for(cls))
+
+	print("[client] WELCOME — id=%d tick_rate=%dHz class=%d" % [my_id, tick_rate, cls])
+
+	# Build the 3D scene
+	_build_scene()
+
+# ---- SNAPSHOT ---------------------------------------------------------------
+func _handle_snapshot(bytes: PackedByteArray) -> void:
+	var hdr: Dictionary = _wv.apply_snapshot(bytes, _elapsed)
 	_last_snapshot_seq = maxi(_last_snapshot_seq, int(hdr["seq"]))
 	_last_server_tick = int(hdr["server_tick"])
-	if _view.has(my_id):
-		var mine: EntityState = _view[my_id]
-		_pred.reconcile(mine.pos, mine.yaw, int(hdr["last_input_tick"]))
-	var remotes := {}
-	for id in _view:
-		if id != my_id: remotes[id] = (_view[id] as EntityState).clone()
-	_interp.push(_elapsed, remotes)
+
+	var ss: EntityState = _wv.self_state()
+	if ss != null and ss.alive:
+		# Reconcile movement prediction from authoritative position + pitch
+		_pred.reconcile_full(ss.pos, ss.yaw, ss.pitch, int(hdr["last_input_tick"]))
+
+		# First time we see ourselves: populate deploy menu and hide it
+		if not _deploy_menu_populated and _scene_built and _deploy_menu != null:
+			_deploy_menu.populate(ss.team, _map, _conquest)
+			_deploy_menu.visible = false
+			_deploy_menu_populated = true
+	else:
+		# Dead / not yet deployed — show deploy menu if scene is up
+		if _scene_built and _deploy_menu != null:
+			if not _deploy_menu.visible:
+				if not _deploy_menu_populated and ss != null:
+					_deploy_menu.populate(ss.team, _map, _conquest)
+					_deploy_menu_populated = true
+				_deploy_menu.visible = true
+
+# ---- SELF_STATE -------------------------------------------------------------
+func _handle_self_state(bytes: PackedByteArray) -> void:
+	var d: Dictionary = Protocol.decode_self_state(bytes)
+	# Switch weapon if server assigned a different one (e.g. class change)
+	if int(d["weapon"]) != _wpred.weapon:
+		_wpred.set_weapon(int(d["weapon"]))
+	# Reconcile ammo from authority — no client rule logic, just snap
+	_wpred.reconcile(int(d["mag"]), bool(d["reloading"]), int(d["reload_remaining"]))
+
+# ---- MATCH_STATE ------------------------------------------------------------
+func _handle_match_state(bytes: PackedByteArray) -> void:
+	_match_state = Protocol.decode_match_state(bytes)
+	# Mirror point ownership into local ConquestState so DeployMenu sees current owners
+	var pts: Array = _match_state.get("points", [])
+	for i in mini(pts.size(), _conquest.points.size()):
+		_conquest.points[i]["owner"] = int(pts[i]["owner"])
+
+# ---- scene build (post-WELCOME) --------------------------------------------
+func _build_scene() -> void:
+	if _scene_built:
+		return
+
+	# Load and instantiate client.tscn (ClientWorld + Camera3D + HUD CanvasLayer)
+	var scene: PackedScene = load("res://client/client.tscn")
+	if scene == null:
+		push_error("[client] failed to load client.tscn")
+		return
+	var world_node: Node3D = scene.instantiate() as Node3D
+	add_child(world_node)
+
+	_scene_root = world_node
+	_camera = world_node.get_node("Camera3D") as Camera3D
+
+	# WorldRenderer — added under ClientWorld
+	_renderer = WorldRenderer.new()
+	world_node.add_child(_renderer)
+	_renderer.setup(_map, _camera)
+
+	# HUD layer
+	var hud_layer: CanvasLayer = world_node.get_node("HUD") as CanvasLayer
+
+	# HudView
+	_hud_view = HudView.new()
+	hud_layer.add_child(_hud_view)
+
+	# DeployMenu
+	_deploy_menu = DeployMenu.new()
+	_deploy_menu.visible = true   # visible until deployed
+	hud_layer.add_child(_deploy_menu)
+	_deploy_menu.deploy_requested.connect(_on_deploy_requested)
+
+	# SettingsMenu
+	_settings_menu = SettingsMenu.new()
+	_settings_menu.visible = false
+	hud_layer.add_child(_settings_menu)
+	_settings_menu.bind_settings(_settings)
+	_settings_menu.settings_applied.connect(_on_settings_applied)
+
+	_scene_built = true
+	print("[client] scene built")
+
+# ---- deploy request helpers -------------------------------------------------
+func _on_deploy_requested(spawn_ref: int) -> void:
+	_send_deploy_request(spawn_ref)
+
+func _send_deploy_request(spawn_ref: int) -> void:
+	_net.send_to(_peer, NetHost.CHANNEL_CONTROL,
+		Protocol.encode_deploy_request(spawn_ref),
+		ENetPacketPeer.FLAG_RELIABLE)
+	print("[client] deploy requested ref=%d" % spawn_ref)
+	if _scene_built and _deploy_menu != null:
+		_deploy_menu.set_awaiting(true)
+
+# ---- settings live-update ---------------------------------------------------
+func _on_settings_applied(new_settings: ClientSettings) -> void:
+	_settings = new_settings
+	# sensitivity and fov are read each frame from _settings — already live
+
+# ---- helpers ----------------------------------------------------------------
+func _objectives() -> Array:
+	if _map == null:
+		return []
+	var out: Array = []
+	var pts: Array = _match_state.get("points", [])
+	for i in _map.points.size():
+		var owner: int = int(pts[i]["owner"]) if i < pts.size() else -1
+		out.append({"pos": _map.points[i]["pos"], "owner": owner})
+	return out
+
+func _point_positions() -> Array:
+	if _map == null:
+		return []
+	var out: Array = []
+	for pt: Dictionary in _map.points:
+		out.append(pt["pos"])
+	return out

@@ -9,8 +9,8 @@ signal deploy_requested(spawn_ref: int)
 ## The refs currently shown, in order. Populated by populate(). Used by tests.
 var refs: Array = []
 
-@onready var _vbox: VBoxContainer = $VBoxContainer
-@onready var _await_label: Label = $AwaitLabel
+var _vbox: VBoxContainer
+var _await_label: Label
 
 func _ready() -> void:
 	# Nodes may not exist in headless/test construction; guard gracefully.
