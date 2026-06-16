@@ -66,6 +66,14 @@ When choosing gameplay/balance values — weapon ammo/reserves, damage, fire rat
 
 **Why this matters for gates:** overly conservative values can make a fleet gate fail to *exercise* a mechanic at all, which reads as a feature bug and burns expensive 128-bot iterations to diagnose. The canonical example (M5-P1): engineers were given a **single** RPG rocket per life, so the bot fleet could never land the concentrated anti-vehicle fire the vehicle-combat gate needed — several ~10-minute gate runs were spent before the real fix (BattleBit-style **3 rockets**, RPG used anti-vehicle-first) made it pass. Pick realistic values **up front**; when unsure, match BattleBit and note it in the spec. The silver lining is that gate failures surface real balance gaps — but it's cheaper to start from known-good numbers.
 
+## 10. Prove mechanics deterministically; defer bot-AI *feel* to the visual client
+
+A milestone gate must not depend on **emergent bot AI** to *exercise* a mechanic, and you must not tune bot-AI behaviour (pathing, target-finding, aim, tactics) "blind" off telemetry counters — that is a slow, low-signal loop (M5-P1 burned ~13 fleet runs / ~2 h chasing an RPG-kill that bots couldn't reliably stage; the underlying bugs would have been obvious in seconds on a rendered client).
+
+- **Prove the mechanic deterministically** — a scripted scenario / unit-integration test that drives the exact chain (e.g. RPG blast → vehicle HP → destruction; engineer repair → HP restored) in seconds, with no AI involved. That test is the authoritative proof.
+- **Use the bot fleet only for what it is uniquely good at** — scale, perf/tick budget, bandwidth, stability, match completion. Bots there generate *load*, not skilled play. Hard-gate those; mark AI-dependent combat counters **reported, not gated**.
+- **Defer bot-AI tactical quality/feel to the M7 visual-client pass** — the owner will watch matches and diagnose against BattleBit experience far faster than blind number-tuning. Log AI-feel shortfalls as deferred-to-M7 items rather than blocking a milestone on them.
+
 ## Quick map
 
 - Plan of record: `~/.claude/plans/sorted-plotting-pebble.md`
