@@ -8,6 +8,9 @@ var name: String = ""
 var world_half: float = 1000.0
 var points: Array = []   # [{id:String, pos:Vector3, radius:float, start_owner:int}]
 var bases: Array = []    # [{team:int, pos:Vector3, radius:float}]
+var ladders: Array = []   # [{bottom:Vector3, top:Vector3, radius:float}]
+var platforms: Array = [] # [{min:Vector3, max:Vector3}]
+var prebuilt: Array = []  # [{type:String (piece id), cell:Vector3i}] pre-placed at server start
 
 func base_for(team: int) -> Dictionary:
 	for b in bases:
@@ -51,6 +54,19 @@ static func from_dict(data: Dictionary) -> Dictionary:
 		m.bases.append({"team": int(b.get("team", 0)), "pos": _vec3(b["pos"]), "radius": float(b.get("radius", 1.0))})
 	if m.base_for(0).is_empty() or m.base_for(1).is_empty():
 		return {"ok": false, "map": null, "error": "need one base per team {0,1}"}
+	for l in data.get("ladders", []):
+		if not (l is Dictionary) or not l.has("bottom") or not l.has("top"):
+			return {"ok": false, "map": null, "error": "each ladder needs bottom + top"}
+		m.ladders.append({"bottom": _vec3(l["bottom"]), "top": _vec3(l["top"]), "radius": float(l.get("radius", 0.6))})
+	for pf in data.get("platforms", []):
+		if not (pf is Dictionary) or not pf.has("min") or not pf.has("max"):
+			return {"ok": false, "map": null, "error": "each platform needs min + max"}
+		m.platforms.append({"min": _vec3(pf["min"]), "max": _vec3(pf["max"])})
+	for pb in data.get("prebuilt", []):
+		if not (pb is Dictionary) or not pb.has("type") or not pb.has("cell") or pb["cell"].size() != 3:
+			return {"ok": false, "map": null, "error": "each prebuilt needs type + 3-int cell"}
+		var c = pb["cell"]
+		m.prebuilt.append({"type": String(pb["type"]), "cell": Vector3i(int(c[0]), int(c[1]), int(c[2]))})
 	return {"ok": true, "map": m, "error": ""}
 
 static func load_file(path: String) -> MapDef:
