@@ -62,7 +62,7 @@ var _phase_us := {"poll": 0, "move": 0, "lag": 0, "interest": 0, "fire": 0, "res
 var _phase_ticks := 0
 var _team_counts := {0: 0, 1: 0}
 var _positions := {}               # id -> Vector3, rebuilt each tick before fires
-var _prev_move_state: Dictionary = {}   # id -> {"c":bool,"v":bool} for climb/vault edge counting
+var _prev_climb_vault: Dictionary = {}   # id -> int bitmask: bit0=climbing, bit1=vaulting (edge counting)
 
 var _reviving := {}            # reviver_id -> target_id, set per tick by REVIVE_ACTION(active)
 var _revive_ticks := {}        # target_id -> accumulated revive ticks
@@ -165,12 +165,13 @@ func _physics_process(delta: float) -> void:
 	_step_movement()
 	for id in _sim.world.pawns:
 		var p: Pawn = _sim.world.pawns[id]
-		var prev: Dictionary = _prev_move_state.get(id, {"c": false, "v": false})
-		if p.climbing and not prev["c"]:
+		var cur: int = (1 if p.climbing else 0) | (2 if p.vaulting else 0)
+		var prv: int = _prev_climb_vault.get(id, 0)
+		if (cur & 1) != 0 and (prv & 1) == 0:
 			_climbs += 1
-		if p.vaulting and not prev["v"]:
+		if (cur & 2) != 0 and (prv & 2) == 0:
 			_vaults += 1
-		_prev_move_state[id] = {"c": p.climbing, "v": p.vaulting}
+		_prev_climb_vault[id] = cur
 	var t_move := Time.get_ticks_usec()
 	_lag.record(_sim.tick, _sim.world)
 	var t_lag := Time.get_ticks_usec()
@@ -1109,6 +1110,7 @@ func _on_peer_disconnected(peer: ENetPacketPeer) -> void:
 		_squads.remove(id, team)
 		_clients.erase(id)
 		_sim.world.despawn(id)
+		_prev_climb_vault.erase(id)
 		print("[server] peer %d disconnected — %d peers" % [id, _clients.size()])
 
 func _log_telemetry() -> void:
