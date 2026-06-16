@@ -1,0 +1,24 @@
+{
+  "vehicles": [
+    {
+      "name": "transport",
+      "max_hp": 1000,
+      "max_speed": 18.0,
+      "reverse_speed": 6.0,
+      "accel": 12.0,
+      "drag": 6.0,
+      "turn_rate": 1.6,
+      "respawn_ticks": 450,
+      "turret_offset": [0.0, 2.2, 0.0],
+      "exit_offset": [2.5, 0.0, 0.0],
+      "mounted_weapon": {"fire_interval": 0.12, "damage": 34, "range_m": 200.0},
+      "seats": [
+        {"role": "driver",    "offset": [0.0, 1.0, 1.6]},
+        {"role": "passenger", "offset": [1.0, 1.0, 0.2]},
+        {"role": "passenger", "offset": [-1.0, 1.0, 0.2]},
+        {"role": "passenger", "offset": [0.0, 1.0, -1.4]},
+        {"role": "gunner",    "offset": [0.0, 2.0, -0.2]}
+      ]
+    }
+  ]
+}
