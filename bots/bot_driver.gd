@@ -24,6 +24,7 @@ const MAX_VEHICLE_BOTS := 6   # crew bots per process; minority so the win-conve
 const VEHICLE_FULL_HP := 1000      # transport max (v1 single vehicle type); used to detect a damaged ridden vehicle
 const VEHICLE_RPG_RANGE := 120.0   # fire an RPG at an enemy vehicle within this many metres
 const RPG_FIRE_COOLDOWN := 120     # ticks between RPG fire attempts (matches server cooldown_ticks)
+const VEHICLE_HOLD_RANGE := 30.0  # stop this close to the nearest enemy so the hull is a stationary target
 
 var _map: MapDef
 var _match_points: Array = []   # array of {owner, attacker, cap}, index == map point index
@@ -140,12 +141,16 @@ func _drive(bot: Dictionary, delta: float) -> void:
 					(bot["net"] as NetHost).send_to(bot["peer"], NetHost.CHANNEL_INPUT,
 						Protocol.encode_gadget_action(Protocol.GA_REPAIR_STOP, Vector3.ZERO, Vector3.ZERO, 0), 0)
 					bot["repairing"] = false
-				# Drive the transport toward the nearest visible enemy (into the firefight),
-				# falling back to the enemy spawn until contact. Staying mobile in combat is fine —
-				# no loiter hold, so the vehicle keeps pressing into the action where blast fire is.
-				var push := _hunt_pos(me, view)
-				var cmd := BotDriver.drive_toward(v.heading, me.pos, push)
-				_send(bot, float(cmd["move_x"]), float(cmd["move_y"]), float(cmd["yaw"]), 0.0, 0)
+				# Drive into the firefight, then HOLD once close so the hull is a stationary target
+				# (moving transports dodge rockets; a parked one in the scrum gets hit -> rkt_veh/veh_dead,
+				# and soaks grenade fire -> the crew engineer repairs it -> repairs).
+				var foe := BotDriver.nearest_enemy_pos(view, int(me.id), int(me.team), me.pos)
+				if bool(foe["found"]) and me.pos.distance_to(foe["pos"]) <= VEHICLE_HOLD_RANGE:
+					_send(bot, 0.0, 0.0, bot["yaw"], 0.0, 0)   # hold in the firefight
+				else:
+					var push := _hunt_pos(me, view)
+					var cmd := BotDriver.drive_toward(v.heading, me.pos, push)
+					_send(bot, float(cmd["move_x"]), float(cmd["move_y"]), float(cmd["yaw"]), 0.0, 0)
 				return
 		else:
 			var vid := BotDriver.nearest_free_vehicle(bot["vview"], me.pos)
