@@ -22,7 +22,8 @@ const MAX_BOT_GRENADES := 1           # per-bot lifetime FRAG cap (convergence/o
 const MAX_BOT_SMOKES := 1             # per-bot lifetime SMOKE cap (exercises the smoke path)
 const MAX_VEHICLE_BOTS := 6   # crew bots per process; minority so the win-convergence holds
 const VEHICLE_FULL_HP := 1000      # transport max (v1 single vehicle type); used to detect a damaged ridden vehicle
-const VEHICLE_RPG_RANGE := 100.0   # fire an RPG at an enemy vehicle within this many metres
+const VEHICLE_RPG_RANGE := 120.0   # fire an RPG at an enemy vehicle within this many metres
+const RPG_FIRE_COOLDOWN := 120     # ticks between RPG fire attempts (matches server cooldown_ticks)
 
 var _map: MapDef
 var _match_points: Array = []   # array of {owner, attacker, cap}, index == map point index
@@ -56,7 +57,7 @@ func _spawn_bot(index: int) -> void:
 		"reload_until": 0, "burst_start": -1,
 		"last_build_tick": -100000, "structs": {}, "builds_made": 0,
 		"last_grenade_tick": -100000, "nades_thrown": 0, "smokes_thrown": 0,
-		"class": 0, "rpg_fired": false, "c4_placed": false, "c4_detonated": false,
+		"class": 0, "rpg_last_tick": -100000, "c4_placed": false, "c4_detonated": false,
 		"mine_placed": false, "gave_until": 0,
 		"vview": {}, "in_vehicle": 0, "boarded_origin": Vector3.ZERO, "repairing": false,
 	}
@@ -87,7 +88,6 @@ func _drive(bot: Dictionary, delta: float) -> void:
 		# yields many claymore/C4/RPG uses per bot instead of one-per-process-life, which is what the
 		# fleet gate counters need (esp. mines: a single early claymore rarely catches a point-blank
 		# enemy, but one placed fresh each life — facing the current enemy — reliably trips).
-		bot["rpg_fired"] = false
 		bot["repairing"] = false
 		bot["c4_placed"] = false
 		bot["c4_detonated"] = false
@@ -240,7 +240,6 @@ func _drive(bot: Dictionary, delta: float) -> void:
 		bot["reload_until"] = cb[1]
 		bot["burst_start"] = cb[2]
 		_maybe_grenade(bot, me, target)
-		_maybe_rpg(bot, me, target)
 		_maybe_c4(bot, me, target)
 		_maybe_mine(bot, me, target.pos)   # face the claymore at the enemy we're fighting
 	else:
@@ -283,6 +282,7 @@ func _drive(bot: Dictionary, delta: float) -> void:
 		_maybe_build(bot, me)
 		_maybe_mine(bot, me, obj)
 
+	_maybe_rpg(bot, me)
 	_maybe_give(bot, me)
 	_send(bot, move_x, move_y, bot["yaw"], bot["pitch"], buttons)
 
@@ -378,24 +378,20 @@ func _maybe_smoke(bot: Dictionary, me: EntityState, obj: Vector3) -> void:
 	bot["last_grenade_tick"] = st
 	bot["smokes_thrown"] = int(bot["smokes_thrown"]) + 1
 
-## Engineer RPG: fire once at an in-range enemy via GADGET_ACTION. The server rejects it unless the
-## bot actually has the RPG equipped (it assigned ~1/3 of Engineers the RPG), so non-RPG bots no-op.
-## Prefers an enemy vehicle target if one is within VEHICLE_RPG_RANGE; falls back to infantry.
-func _maybe_rpg(bot: Dictionary, me: EntityState, target: EntityState) -> void:
-	if bot["class"] != Loadout.ENGINEER or bool(bot["rpg_fired"]): return
+## Engineer RPG is anti-vehicle only: fire at the nearest enemy vehicle in range, rate-limited so we
+## don't spam (the server enforces the real per-rocket cooldown + the 3-rocket reserve). Re-fires across
+## the life until the reserve is spent, then refills on respawn.
+func _maybe_rpg(bot: Dictionary, me: EntityState) -> void:
+	if bot["class"] != Loadout.ENGINEER: return
+	if int(bot["server_tick"]) - int(bot["rpg_last_tick"]) < RPG_FIRE_COOLDOWN: return
 	var vveh := BotDriver.nearest_enemy_vehicle(bot["vview"], bot["view"], me.pos, int(me.team), VEHICLE_RPG_RANGE)
-	if vveh != 0:
-		var vv: VehicleState = bot["vview"][vveh]
-		var dveh := (vv.pos - me.pos)
-		(bot["net"] as NetHost).send_to(bot["peer"], NetHost.CHANNEL_INPUT,
-			Protocol.encode_gadget_action(Protocol.GA_RPG_FIRE, Vector3.ZERO, dveh.normalized(), 0), 0)
-		bot["rpg_fired"] = true
-		return
-	var d := target.pos - me.pos
-	if d.length() < 0.001 or d.length() > 60.0: return
+	if vveh == 0: return
+	var vv: VehicleState = bot["vview"][vveh]
+	var dveh := vv.pos - me.pos
+	if dveh.length() < 0.001: return
 	(bot["net"] as NetHost).send_to(bot["peer"], NetHost.CHANNEL_INPUT,
-		Protocol.encode_gadget_action(Protocol.GA_RPG_FIRE, Vector3.ZERO, d.normalized(), 0), 0)
-	bot["rpg_fired"] = true
+		Protocol.encode_gadget_action(Protocol.GA_RPG_FIRE, Vector3.ZERO, dveh.normalized(), 0), 0)
+	bot["rpg_last_tick"] = int(bot["server_tick"])
 
 ## Engineer C4: place one near a structure between us and the enemy, then detonate it next pass.
 func _maybe_c4(bot: Dictionary, me: EntityState, target: EntityState) -> void:

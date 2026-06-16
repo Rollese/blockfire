@@ -2,7 +2,7 @@
   "gadgets": [
     {"id": "c4",       "kind": "c4",   "max_active": 2, "pawn_damage": 120, "pawn_radius": 5.0, "struct_damage": 300, "struct_radius": 4.0},
     {"id": "claymore", "kind": "mine", "max_active": 2, "pawn_damage": 100, "pawn_radius": 4.0, "trigger_radius": 1.5, "place_range": 2.0, "arm_delay_ticks": 60, "directional": true},
-    {"id": "rpg",      "kind": "rpg",  "max_active": 2, "pawn_damage": 100, "pawn_radius": 6.0, "struct_damage": 250, "struct_radius": 4.0, "cooldown_ticks": 120},
+    {"id": "rpg",      "kind": "rpg",  "max_active": 2, "ammo": 3, "pawn_damage": 100, "pawn_radius": 6.0, "struct_damage": 250, "struct_radius": 4.0, "cooldown_ticks": 120},
     {"id": "medkit",   "kind": "heal", "give_range": 3.0, "active_rate": 2,  "bag_pool": 300, "bag_radius": 3.0, "max_bags": 1},
     {"id": "ammobag",  "kind": "ammo", "give_range": 3.0, "active_rate": 30, "bag_pool": 8,   "bag_radius": 3.0, "max_bags": 1},
     {"id": "repairkit", "kind": "repair", "rate": 10, "range": 4.0, "overheat_ticks": 50, "cooldown_ticks": 150}

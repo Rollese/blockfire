@@ -674,7 +674,7 @@ func _handle_respawns() -> void:
 			c["respawn_tick"] = 0
 			c["ammo"] = Weapon.get_def(c["weapon"])["mag_size"]
 			c["reloading"] = false
-			c["rockets"] = int(_gadgets.def_of_kind(Gadget.KIND_RPG)["max_active"]) if int(c["weapon"]) == Weapon.RPG else 0
+			c["rockets"] = int(_gadgets.def_of_kind(Gadget.KIND_RPG)["ammo"]) if int(c["weapon"]) == Weapon.RPG else 0
 
 func _select_spawn(id: int) -> Vector3:
 	var c = _clients[id]
@@ -820,7 +820,7 @@ func _handle_hello(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
 		wid = Loadout.weapon_for(cls)
 	var attachments := Loadout.default_attachments()
 	var weapon_def := Weapon.effective_def(wid, _attachments.multipliers(attachments))
-	var start_rockets := int(_gadgets.def_of_kind(Gadget.KIND_RPG)["max_active"]) if wid == Weapon.RPG else 0
+	var start_rockets := int(_gadgets.def_of_kind(Gadget.KIND_RPG)["ammo"]) if wid == Weapon.RPG else 0
 	var squad := _squads.assign(id, team)
 	_peer_to_id[peer] = id
 	_clients[id] = {
