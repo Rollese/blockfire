@@ -48,3 +48,10 @@ func test_nearest_enemy_vehicle_zero_when_out_of_range() -> void:
 	var v := VehicleState.new(); v.pos = Vector3(200, 0, 0); v.seats = [7, 0, 0, 0, 0]
 	var e := EntityState.new(); e.team = 1
 	assert_eq(BotDriver.nearest_enemy_vehicle({Vehicle.id_for(0): v}, {7: e}, Vector3.ZERO, 0, 60.0), 0)
+
+func test_farthest_point_index_picks_deepest() -> void:
+	var pts := [Vector3(0, 0, 0), Vector3(50, 0, 0), Vector3(900, 0, 0)]
+	assert_eq(BotDriver.farthest_point_index(pts, Vector3.ZERO), 2)
+
+func test_farthest_point_index_empty_is_negative() -> void:
+	assert_eq(BotDriver.farthest_point_index([], Vector3.ZERO), -1)

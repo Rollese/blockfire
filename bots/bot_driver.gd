@@ -122,7 +122,6 @@ func _drive(bot: Dictionary, delta: float) -> void:
 
 	var is_crew := int(bot["index"]) % 5 == 1 and int(bot["index"]) < MAX_VEHICLE_BOTS * 5
 	if is_crew:
-		var obj := _objective_pos(me)
 		if int(bot["in_vehicle"]) != 0:
 			var v: VehicleState = bot["vview"].get(bot["in_vehicle"])
 			if v == null:   # vehicle destroyed / out of view -> consider self ejected
@@ -141,14 +140,14 @@ func _drive(bot: Dictionary, delta: float) -> void:
 					(bot["net"] as NetHost).send_to(bot["peer"], NetHost.CHANNEL_INPUT,
 						Protocol.encode_gadget_action(Protocol.GA_REPAIR_STOP, Vector3.ZERO, Vector3.ZERO, 0), 0)
 					bot["repairing"] = false
-				# Drive the transport to the contested objective and LOITER there with the crew
-				# aboard: it soaks fire (-> repair) and stays a stationary target for enemy RPGs
-				# (-> rkt_veh/veh_dead). Crew never voluntarily dismounts; on destruction (the
-				# v == null branch above) they die, respawn, and re-board.
-				if me.pos.distance_to(obj) < 15.0:
-					_send(bot, 0.0, 0.0, bot["yaw"], 0.0, 0)   # hold at the objective
+				# Push the transport deep into enemy territory (farthest capture point) so it
+				# draws blast fire (grenades/RPGs/C4). Crew never voluntarily dismounts; on
+				# destruction (the v == null branch above) they die, respawn, and re-board.
+				var push := _enemy_push_pos(me)
+				if me.pos.distance_to(push) < 12.0:
+					_send(bot, 0.0, 0.0, bot["yaw"], 0.0, 0)   # hold at enemy push point
 				else:
-					var cmd := BotDriver.drive_toward(0.0, me.pos, obj)
+					var cmd := BotDriver.drive_toward(0.0, me.pos, push)
 					_send(bot, float(cmd["move_x"]), float(cmd["move_y"]), float(cmd["yaw"]), 0.0, 0)
 				return
 		else:
@@ -634,6 +633,18 @@ static func drive_toward(_heading: float, from: Vector3, objective: Vector3) -> 
 	var yaw := atan2(to.x, to.z)
 	return {"move_x": 0.0, "move_y": 1.0, "yaw": yaw}
 
+## Index of the capture point farthest from `from` (deep enemy territory for a bot driving out of
+## its own backfield). Returns -1 for an empty list. Used to point a crewed transport at the enemy
+## so it draws fire (vehicles only take blast damage). positions: Array[Vector3].
+static func farthest_point_index(positions: Array, from: Vector3) -> int:
+	var best := -1
+	var bestd := -1.0
+	for i in positions.size():
+		var d: float = from.distance_to(positions[i])
+		if d > bestd:
+			bestd = d; best = i
+	return best
+
 func _objective_pos(me: EntityState) -> Vector3:
 	if _map == null or _map.points.is_empty():
 		return me.pos
@@ -647,6 +658,18 @@ func _objective_pos(me: EntityState) -> Vector3:
 	# ticket bleed). A map-centre bias was tried but funnelled both teams onto the single
 	# centre point, which stayed perpetually contested and never captured.
 	var idx := choose_objective_index(positions, owners, me.team, me.pos, me.pos)
+	return positions[idx] if idx >= 0 else me.pos
+
+## Crew transports push at the enemy: the farthest capture point from the bot draws the vehicle
+## across the contested map into enemy fire (vehicles only take blast damage, which is where the
+## enemy's grenades/RPGs are). Falls back to the bot's own pos if the map has no points.
+func _enemy_push_pos(me: EntityState) -> Vector3:
+	if _map == null or _map.points.is_empty():
+		return me.pos
+	var positions: Array = []
+	for i in _map.points.size():
+		positions.append(_map.points[i]["pos"])
+	var idx := BotDriver.farthest_point_index(positions, me.pos)
 	return positions[idx] if idx >= 0 else me.pos
 
 func _send(bot: Dictionary, mx: float, my: float, yaw: float, pitch: float, buttons: int) -> void:
