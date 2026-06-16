@@ -6,10 +6,11 @@ extends RefCounted
 ## Geometry arrays (ladders/platforms) are set by the server; empty during client prediction.
 
 const DT := 1.0 / 30.0   # 30 Hz
+const MIN_MOVE_LEN := 0.001   # m; below this a pawn is treated as stationary (no vault trigger)
 
 var tick: int = 0
 var world := World.new()
-var structures = null     # optional StructureStore; resolves movement collision + vault blockers
+var structures: StructureStore = null     # optional StructureStore; resolves movement collision + vault blockers
 var ladders: Array = []   # [{bottom:Vector3, top:Vector3, radius:float}]
 var platforms: Array = [] # [{min:Vector3, max:Vector3}] walkable surfaces
 
@@ -20,8 +21,8 @@ func step(inputs: Dictionary) -> void:
 			continue
 		var prev := p.pos
 		var prev_stance: int = p.stance
-		p.step(DT, inputs.get(id, {}))
 		var cmd: Dictionary = inputs.get(id, {})
+		p.step(DT, cmd)
 		if p.climbing:
 			_step_climb(p, cmd)
 		elif p.vaulting:
@@ -45,10 +46,12 @@ func _step_climb(p: Pawn, cmd: Dictionary) -> void:
 	var bottom: Vector3 = ladder["bottom"]
 	if p.pos.y >= top.y - Ladder.ANCHOR_EPS:
 		p.pos.y = top.y          # reached top: dismount onto the platform
+		p.velocity.y = 0.0
 		p.grounded = true
 		p.climbing = false
 	elif p.pos.y <= bottom.y + Ladder.ANCHOR_EPS and move_y < 0.0:
 		p.pos.y = bottom.y       # reached bottom while descending: dismount to ground
+		p.velocity.y = 0.0
 		p.grounded = true
 		p.climbing = false
 
@@ -60,7 +63,7 @@ func _step_normal(p: Pawn, prev: Vector3, cmd: Dictionary) -> void:
 			# Blocked. Vault it if it is a low blocker and we are standing + moving.
 			var top: float = structures.ground_blocker_top(intended)
 			var flat := Vector3(intended.x - prev.x, 0.0, intended.z - prev.z)
-			var moving := flat.length() > 0.001
+			var moving := flat.length() > MIN_MOVE_LEN
 			if Vault.can_vault(top, p.stance, moving):
 				Vault.begin(p, prev, flat.normalized())
 				p.pos = prev
