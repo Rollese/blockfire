@@ -28,6 +28,8 @@ enum Msg {
 	REVIVE_ACTION = 15,     ## client -> server: begin/continue (active) or stop reviving a downed teammate
 	SELF_BANDAGE = 16,      ## client -> server: use a bandage on self to halt bleed
 	GADGET_ACTION = 17, ## client -> server: gadget intent (C4/mine/RPG/bag/active-give); action byte selects
+	VEHICLE_ACTION = 18,    ## client -> server: enter/exit a vehicle seat
+	VEHICLE_DESTROYED = 19, ## server -> clients: a vehicle was destroyed (vid)
 }
 
 const OP_PLACE := 0
@@ -42,6 +44,12 @@ const GA_RPG_FIRE := 3
 const GA_BAG_THROW := 4
 const GA_GIVE_START := 5
 const GA_GIVE_STOP := 6
+const GA_REPAIR_START := 7
+const GA_REPAIR_STOP := 8
+
+# VEHICLE_ACTION sub-actions.
+const VA_ENTER := 0
+const VA_EXIT := 1
 
 
 static func encode_hello(player_name: String) -> PackedByteArray:
@@ -294,3 +302,23 @@ static func decode_structure_baseline(bytes: PackedByteArray) -> Dictionary:
 	for _i in n:
 		records.append(_get_record(r))
 	return {"region": region, "records": records}
+
+
+static func encode_vehicle_action(action: int, vehicle_id: int, seat_hint: int) -> PackedByteArray:
+	var buf := StreamPeerBuffer.new()
+	buf.put_u8(Msg.VEHICLE_ACTION)
+	buf.put_u8(action); buf.put_u32(vehicle_id); buf.put_u8(seat_hint)
+	return buf.data_array
+
+static func decode_vehicle_action(bytes: PackedByteArray) -> Dictionary:
+	var r := body_reader(bytes)
+	return {"action": r.get_u8(), "vehicle_id": r.get_u32(), "seat_hint": r.get_u8()}
+
+static func encode_vehicle_destroyed(vehicle_id: int) -> PackedByteArray:
+	var buf := StreamPeerBuffer.new()
+	buf.put_u8(Msg.VEHICLE_DESTROYED)
+	buf.put_u32(vehicle_id)
+	return buf.data_array
+
+static func decode_vehicle_destroyed(bytes: PackedByteArray) -> Dictionary:
+	return {"vehicle_id": body_reader(bytes).get_u32()}
