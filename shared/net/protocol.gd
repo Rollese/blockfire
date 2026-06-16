@@ -31,6 +31,7 @@ enum Msg {
 	VEHICLE_ACTION = 18,    ## client -> server: enter/exit a vehicle seat
 	VEHICLE_DESTROYED = 19, ## server -> clients: a vehicle was destroyed (vid)
 	DEPLOY_REQUEST = 20,    ## client -> server: deploy me at spawn_ref (see DeploySpawn)
+	DAMAGE_EVENT = 21,      ## server -> client: damage taken, world bearing toward source + amount
 }
 
 const OP_PLACE := 0
@@ -333,3 +334,15 @@ static func encode_deploy_request(spawn_ref: int) -> PackedByteArray:
 
 static func decode_deploy_request(bytes: PackedByteArray) -> Dictionary:
 	return {"spawn_ref": body_reader(bytes).get_u8()}
+
+
+static func encode_damage_event(bearing: float, amount: int) -> PackedByteArray:
+	var buf := StreamPeerBuffer.new()
+	buf.put_u8(Msg.DAMAGE_EVENT)
+	buf.put_u16(Quantize.enc_angle(bearing))
+	buf.put_u8(clampi(amount, 0, 255))
+	return buf.data_array
+
+static func decode_damage_event(bytes: PackedByteArray) -> Dictionary:
+	var r := body_reader(bytes)
+	return {"bearing": Quantize.dec_angle(r.get_u16()), "amount": r.get_u8()}

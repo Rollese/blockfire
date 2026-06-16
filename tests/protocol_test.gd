@@ -137,3 +137,10 @@ func test_deploy_request_roundtrip() -> void:
 	var b := Protocol.encode_deploy_request(3)
 	assert_eq(Protocol.msg_type(b), Protocol.Msg.DEPLOY_REQUEST)
 	assert_eq(Protocol.decode_deploy_request(b)["spawn_ref"], 3)
+
+func test_damage_event_roundtrip() -> void:
+	var b := Protocol.encode_damage_event(1.2, 25)
+	assert_eq(Protocol.msg_type(b), Protocol.Msg.DAMAGE_EVENT)
+	var d := Protocol.decode_damage_event(b)
+	assert_almost_eq(d["bearing"], 1.2, 0.01, "world bearing preserved")
+	assert_eq(d["amount"], 25)
