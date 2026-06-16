@@ -8,8 +8,8 @@ func _veh() -> Vehicle:
 
 func test_make_copies_stats_and_seats() -> void:
 	var v := _veh()
-	assert_eq(v.hp, 1000)
-	assert_eq(v.max_hp, 1000)
+	assert_eq(v.hp, 600)
+	assert_eq(v.max_hp, 600)
 	assert_eq(v.team, 1)
 	assert_eq(v.seat_count(), 5)
 	assert_true(v.alive)

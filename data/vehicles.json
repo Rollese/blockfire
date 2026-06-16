@@ -2,7 +2,7 @@
   "vehicles": [
     {
       "name": "transport",
-      "max_hp": 1000,
+      "max_hp": 600,
       "max_speed": 18.0,
       "reverse_speed": 6.0,
       "accel": 12.0,

@@ -8,7 +8,7 @@ func test_blast_falloff_reduces_hp() -> void:
 	# RPG centre hit: falloff at distance 0 == full dmg
 	var dmg := Grenade.falloff_damage(Vector3.ZERO, v.pos, 500, 6.0)
 	v.hp -= dmg
-	assert_eq(v.hp, 500)
+	assert_eq(v.hp, 100)   # 600 hull - 500 centre hit
 
 func test_two_rockets_destroy_full_hull() -> void:
 	var v := Vehicle.make(Vehicle.id_for(0), 0, _def(), 1, Vector3.ZERO)

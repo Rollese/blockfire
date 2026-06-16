@@ -19,5 +19,5 @@ func test_heat_decays_when_idle() -> void:
 	assert_false(bool(r["repairing"]))
 
 func test_one_burst_repairs_about_500hp() -> void:
-	# 50 ticks * 10 hp = 500 (one rocket / 50% hull), then overheats.
-	assert_eq(50 * 10, 500)
+	# 50 ticks * 6 hp = 300 (~half a 600 hull), then overheats.
+	assert_eq(50 * 6, 300)

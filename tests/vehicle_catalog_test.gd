@@ -11,7 +11,7 @@ func test_loads_transport() -> void:
 
 func test_def_has_stats_and_seats() -> void:
 	var d: Dictionary = _cat().def_of(0)
-	assert_eq(int(d["max_hp"]), 1000)
+	assert_eq(int(d["max_hp"]), 600)
 	assert_almost_eq(float(d["max_speed"]), 18.0, 0.001)
 	assert_eq((d["seats"] as Array).size(), 5)
 

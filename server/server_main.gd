@@ -40,7 +40,7 @@ const GADGETS_PATH := "res://data/gadgets.json"
 const ATTACHMENTS_PATH := "res://data/attachments.json"
 const VEHICLES_PATH := "res://data/vehicles.json"
 const ENTER_RANGE := 3.0
-const RPG_VEHICLE_DMG := 500
+const RPG_VEHICLE_DMG := 800
 const C4_VEHICLE_DMG := 500
 const FRAG_VEHICLE_DMG := 80
 const MAX_VIEW_RATE := 0.6  # rad/tick; at 30Hz = 18 rad/s (~1031 deg/s) — generous cap for telemetry-only anomaly detection
