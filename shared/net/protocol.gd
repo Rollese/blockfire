@@ -27,11 +27,21 @@ enum Msg {
 	SMOKE_DEPLOYED = 14,    ## server -> clients: a smoke zone was created (pos/radius/expire)
 	REVIVE_ACTION = 15,     ## client -> server: begin/continue (active) or stop reviving a downed teammate
 	SELF_BANDAGE = 16,      ## client -> server: use a bandage on self to halt bleed
+	GADGET_ACTION = 17, ## client -> server: gadget intent (C4/mine/RPG/bag/active-give); action byte selects
 }
 
 const OP_PLACE := 0
 const OP_REMOVE := 1
 const OP_DAMAGE := 2   ## STRUCTURE_DELTA payload {id u16, bucket u8} — partial-health bucket drop
+
+# GADGET_ACTION sub-actions.
+const GA_C4_PLACE := 0
+const GA_C4_DETONATE := 1
+const GA_MINE_PLACE := 2
+const GA_RPG_FIRE := 3
+const GA_BAG_THROW := 4
+const GA_GIVE_START := 5
+const GA_GIVE_STOP := 6
 
 
 static func encode_hello(player_name: String) -> PackedByteArray:
@@ -42,12 +52,18 @@ static func encode_hello(player_name: String) -> PackedByteArray:
 	return buf.data_array
 
 
-static func encode_welcome(peer_id: int, tick_rate: int) -> PackedByteArray:
+static func encode_welcome(peer_id: int, tick_rate: int, cls: int = 0) -> PackedByteArray:
 	var buf := StreamPeerBuffer.new()
 	buf.put_u8(Msg.WELCOME)
 	buf.put_u32(peer_id)
 	buf.put_u16(tick_rate)
+	buf.put_u8(cls)
 	return buf.data_array
+
+
+static func decode_welcome(bytes: PackedByteArray) -> Dictionary:
+	var r := body_reader(bytes)
+	return {"id": r.get_u32(), "tick_rate": r.get_u16(), "class": r.get_u8()}
 
 
 static func encode_reject(reason: String) -> PackedByteArray:
@@ -238,6 +254,26 @@ static func encode_self_bandage() -> PackedByteArray:
 	var buf := StreamPeerBuffer.new()
 	buf.put_u8(Msg.SELF_BANDAGE)
 	return buf.data_array
+
+
+static func encode_gadget_action(action: int, pos: Vector3, dir: Vector3, target_id: int) -> PackedByteArray:
+	var buf := StreamPeerBuffer.new()
+	buf.put_u8(Msg.GADGET_ACTION)
+	buf.put_u8(action)
+	# pos quantized at 0.1 m (i16 ×10 → ±3276 m, covers the ±1000 m world_half; spec sketch)
+	buf.put_16(roundi(pos.x * 10.0)); buf.put_16(roundi(pos.y * 10.0)); buf.put_16(roundi(pos.z * 10.0))
+	var dn := dir.normalized() if dir.length() > 0.0001 else Vector3.ZERO
+	buf.put_16(roundi(dn.x * 10000.0)); buf.put_16(roundi(dn.y * 10000.0)); buf.put_16(roundi(dn.z * 10000.0))
+	buf.put_u32(target_id)
+	return buf.data_array
+
+
+static func decode_gadget_action(bytes: PackedByteArray) -> Dictionary:
+	var r := body_reader(bytes)
+	var action := r.get_u8()
+	var pos := Vector3(float(r.get_16()) / 10.0, float(r.get_16()) / 10.0, float(r.get_16()) / 10.0)
+	var dir := Vector3(float(r.get_16()) / 10000.0, float(r.get_16()) / 10000.0, float(r.get_16()) / 10000.0)
+	return {"action": action, "pos": pos, "dir": dir, "target": r.get_u32()}
 
 
 static func encode_structure_baseline(region: Vector2i, records: Array) -> PackedByteArray:

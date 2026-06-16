@@ -1,0 +1,14 @@
+{
+  "attachments": [
+    {"id": "iron",       "slot": "optic"},
+    {"id": "reddot",     "slot": "optic",       "spread_mult": 0.90},
+    {"id": "scope2x",    "slot": "optic",       "spread_mult": 0.80},
+    {"id": "scope4x",    "slot": "optic",       "spread_mult": 0.70},
+    {"id": "standard",   "slot": "barrel"},
+    {"id": "suppressor", "slot": "barrel",      "range_mult": 0.90},
+    {"id": "brake",      "slot": "barrel",      "recoil_mult": 0.80},
+    {"id": "none_ub",    "slot": "underbarrel"},
+    {"id": "grip",       "slot": "underbarrel", "move_spread_mult": 0.70},
+    {"id": "bipod",      "slot": "underbarrel", "prone_spread_zero": true}
+  ]
+}

@@ -34,6 +34,16 @@ Spec: [`docs/specs/combat-depth.md`](specs/combat-depth.md) (three-phase split).
 | M4.5-P1 execute (9 tasks) | claude | done | subagent-driven; Tasks 5 & 7 reviewed; immune-DBNO + latched-revive + friendlies-always added during gating |
 | M4.5-P1 fleet 128-bot gate | claude | **done** | PASS on `game2` (14900KS): `downed=5 revives=3 winner=1 peak tick=22.58ms`; `docker/srvlog-20260615-211516.log`. Fleet testing moved off prod unraid → game2. |
 
+## M4.5 Phase 2 (Combat Depth) — CLOSED ✅ (2026-06-16)
+
+Spec: [`docs/specs/combat-depth.md`](specs/combat-depth.md) (P2 section). Plan: [`docs/plans/2026-06-15-m4.5-p2-combat-depth.md`](plans/2026-06-15-m4.5-p2-combat-depth.md) — 15 TDD tasks. **One plan, one fleet gate** (per spec). Built on a `m4.5-p2-combat-depth` branch via `subagent-driven-development` (Tasks 9, 10, 13 got review subagents — they touch the authoritative fire path / new entity ticks). Data-driven via `data/gadgets.json` + `data/attachments.json`. Penetration wires into `server_main._fire_shot` (not `combat.gd march()`, which lives on `StructureStore`); P1's immune-DBNO preserved — **no finishing**. Gate evidence: `docker/srvlog-20260616-003326.log`; milestone `docs/milestones/M4.5-combat-depth.md`.
+
+| Task | Owner | Status | Notes |
+|---|---|---|---|
+| M4.5-P2 implementation plan | claude | done | `docs/plans/2026-06-15-m4.5-p2-combat-depth.md` (15 tasks) |
+| M4.5-P2 execute (15 tasks) | claude | **done** | subagent-driven; Tasks 9/10/13 two-stage reviewed; penetration + attachments + Gadget/RPG + C4/mines + medic/ammo tools + bot AI + gates. 214 unit tests green. |
+| M4.5-P2 fleet 128-bot gate | claude | **done** | PASS on `game2`: `winner=1 elapsed=229s peak tick=25.77ms (<33.3)`; `rockets=8 c4=8 mines=2 heals=211 ammo=13 bags=27` (all ≥1), agg 16.5 Mbit/s. `pen` reported (unit-tested, not gated — needs a shot crossing a penetrable half-height sandbag). Laptop-48 smoke also PASS. Evidence `docker/srvlog-20260616-003326.log`. |
+
 ## Active tasks (M0) — complete ✅
 
 | Task | Owner | Status | Notes |

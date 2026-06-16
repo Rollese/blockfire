@@ -36,6 +36,8 @@ const GRENADE_DAMAGE_STRUCT := 200    # frag structure splash at centre, linear 
 const SMOKE_DURATION_TICKS := 150     # 5s @30Hz — smoke zone lifetime
 const SMOKE_RADIUS := 6.0             # m — smoke zone radius (matches blast radius)
 const PIECES_PATH := "res://pieces/fortifications.json"
+const GADGETS_PATH := "res://data/gadgets.json"
+const ATTACHMENTS_PATH := "res://data/attachments.json"
 
 var _net: NetHost
 var _port := 27015
@@ -50,6 +52,8 @@ var _conquest: ConquestState
 var _squads := SquadManager.new()
 var _catalog: PieceCatalog
 var _store: StructureStore
+var _gadgets: Gadget
+var _attachments: Attachment
 var _next_struct_id := 1
 var _next_id := 1
 var _tele_accum := 0.0
@@ -74,15 +78,29 @@ var _cap_events_total := 0    # cumulative over the match (for the match-end sum
 var _builds := 0
 var _removes := 0
 var _shots_blocked := 0
+var _pen := 0                 # bullet penetrations through a piece this window
 var _dmg := 0                 # damage events applied this window
 var _destroyed := 0           # pieces removed by damage/blast this window
 var _nades := 0               # frag detonations this window
 var _splash_kills := 0        # pawn deaths from blasts this window
 var _smokes := 0              # smoke zones deployed this window
+var _rockets_det := 0         # RPG rockets detonated this window
+var _c4_det := 0              # C4 detonations (per detonate action) this window
+var _mine_trips := 0          # claymore/mine detonations this window
+var _heals := 0          # active+bag HP-dispensing events this window
+var _ammo_gives := 0     # active+bag ammo-resupply events this window
+var _bags_thrown := 0    # bags deployed this window
+var _bags_exhausted := 0 # bags that hit pool 0 and vanished this window
+var _rstruct := 0             # structures hit by rockets this window
 var _pending_removes: Array = []   # [{id, cell}] removes awaiting send (degradation queue)
 var _dmg_touched := {}             # id -> true: pieces damaged (alive) this tick, for bucket diff
 var _last_bucket := {}             # id -> last SENT bucket (missing => pristine bucket 3)
 var _grenades: Array = []     # [{owner, team, type, pos, vel, detonate_tick}] — server-side, not replicated
+var _rockets: Array = []      # [{owner, team, pos, vel}] — server-side, not replicated
+var _mines: Array = []        # [{owner, team, pos, facing, armed_after_tick}]
+var _giving: Dictionary = {}   # giver_id -> tick the give began (latched; cleared on STOP/invalid)
+var _bags: Array = []          # [{owner, team, kind, pos, pool}]
+var _c4: Dictionary = {}      # owner_id -> Array of {pos, cell:Vector3i}
 var _smoke_zones: Array = []  # [{pos, radius, expire_tick}] — server-side; M7 LOS culling consumes
 var _prev_owners: Array = []
 var _match_over_broadcast := false
@@ -111,6 +129,12 @@ func _ready() -> void:
 		push_error("[server] failed to load pieces %s" % PIECES_PATH); get_tree().quit(1); return
 	_store = StructureStore.new(_catalog)
 	_sim.structures = _store
+	_gadgets = Gadget.load_file(GADGETS_PATH)
+	if _gadgets == null:
+		push_error("[server] failed to load gadgets %s" % GADGETS_PATH); get_tree().quit(1); return
+	_attachments = Attachment.load_file(ATTACHMENTS_PATH)
+	if _attachments == null:
+		push_error("[server] failed to load attachments %s" % ATTACHMENTS_PATH); get_tree().quit(1); return
 	_net = NetHost.new()
 	add_child(_net)
 	_net.peer_connected.connect(func(_p): pass)
@@ -134,6 +158,10 @@ func _physics_process(delta: float) -> void:
 	_resolve_fires()
 	var t_fire := Time.get_ticks_usec()
 	_step_grenades()
+	_step_rockets()
+	_step_mines()
+	_step_active_give()
+	_step_bags()
 	_expire_smoke_zones()
 	_step_revives()
 	_step_downed()
@@ -202,6 +230,9 @@ func _resolve_fires() -> void:
 		if inp == null: continue
 		var shooter: Pawn = _sim.world.get_pawn(id)
 		if shooter == null or not shooter.alive: continue
+		if c["weapon"] == Weapon.RPG:
+			c["shot_index"] = 0
+			continue   # RPG fires via GADGET_ACTION(GA_RPG_FIRE), not the hit-scan path
 		var firing: bool = (inp["buttons"] & InputCommand.BTN_FIRE) != 0
 		if not firing:
 			c["shot_index"] = 0
@@ -227,15 +258,17 @@ func _fire_shot(shooter_id: int, shooter: Pawn, inp: Dictionary, shot_index: int
 	elif shooter.lean == Stance.LEAN_RIGHT: lean_sign = 1
 	var moving: bool = absf(inp["move_x"]) + absf(inp["move_y"]) > 0.01
 	var wid: int = _clients[shooter_id]["weapon"]
+	var wdef: Dictionary = _clients[shooter_id]["weapon_def"]
+	var prone: bool = shooter.stance == Stance.PRONE
 	var ray := Combat.reconstruct_ray(wid, shooter.eye_position(),
-		inp["yaw"], inp["pitch"], lean_sign, shooter_id, _sim.tick, shot_index, moving)
+		inp["yaw"], inp["pitch"], lean_sign, shooter_id, _sim.tick, shot_index, moving, prone, wdef)
 
 	var view_tick: int = inp["view_server_tick"]
 	if view_tick < _sim.tick - LagComp.MAX_REWIND or view_tick > _sim.tick:
 		_rewind_clamped += 1
 	var frame := _lag.rewind(view_tick)
 
-	var max_range: float = Weapon.get_def(wid)["range_m"]
+	var max_range: float = wdef["range_m"]
 	# Broad-phase: only candidates near the shooter (current positions + lag-comp margin),
 	# instead of scanning the whole rewound frame. Objective clustering raises density, so
 	# this keeps per-shot cost bounded. Precise test still uses the rewound state.
@@ -254,10 +287,14 @@ func _fire_shot(shooter_id: int, shooter: Pawn, inp: Dictionary, shot_index: int
 		var hit := Hitbox.raycast_pawn(ray["origin"], ray["dir"], st["pos"], st["stance"], max_range)
 		if hit["hit"] and hit["t"] < best_t:
 			best_t = hit["t"]; best_victim = tid; best_head = hit["headshot"]
-	# Cover: a structure strictly nearer than the enemy absorbs the shot (Phase 1: no piece
-	# damage; ties go to the enemy). Skip the march entirely when nothing is built yet.
-	var block_dist := INF
-	var block_id := 0
+
+	# Resolve the enemy hit damage up front (incl. headshot/range) — penetration scales it.
+	var enemy_dmg := 0
+	if best_victim != 0:
+		enemy_dmg = Combat.damage_for(wid, best_head, best_t, wdef)
+	var body_dmg := int(wdef["damage_body"])
+
+	# Cover / penetration: a structure strictly nearer than the enemy is in the way.
 	if _store.count() > 0:
 		# Only a structure NEARER than the resolved enemy hit can change the outcome, so bound
 		# the march by best_t (the enemy distance) when an enemy was hit — in combat that is the
@@ -265,19 +302,35 @@ func _fire_shot(shooter_id: int, shooter: Pawn, inp: Dictionary, shot_index: int
 		# When no enemy was hit, march the full range to detect a pure cover absorb.
 		var march_max: float = best_t if best_victim != 0 else max_range
 		var blocked := _store.march(ray["origin"], ray["dir"], march_max)
-		if blocked["hit"]:
-			block_dist = blocked["dist"]
-			block_id = int(blocked["id"])
-	if best_victim == 0 or block_dist < best_t:
-		if block_id != 0:
+		if blocked["hit"] and float(blocked["dist"]) < best_t:
+			var block_id := int(blocked["id"])
+			var rec: Dictionary = _store.get_record(block_id)
+			if rec.is_empty():
+				return   # piece gone (defensive; matches the guard in _emit_structure_deltas)
+			var mat := _catalog.material_of(int(rec["type"]))
+			# `blk` counts every shot a piece was interposed on (pen OR stop); `pen` (below) counts
+			# only the subset that penetrated through. They overlap by design — blk is "intersected".
 			_shots_blocked += 1
-			_damage_structure(block_id, int(Weapon.get_def(wid)["damage_body"]))
+			if not PieceCatalog.is_penetrable(mat):
+				_damage_structure(block_id, body_dmg)   # non-pen: piece eats it, shot stops
+				return
+			# Penetrable: piece takes body*absorption; if it survives, bullet exits at *transmit.
+			var split := Combat.apply_penetration(body_dmg, enemy_dmg,
+				PieceCatalog.absorption_of(mat), PieceCatalog.transmit_of(mat))
+			_damage_structure(block_id, int(split["piece_damage"]))
+			if _store.get_record(block_id).is_empty():
+				return   # 1-pen: a piece destroyed this shot consumes the bullet
+			if best_victim == 0:
+				return   # nothing beyond to hit
+			_pen += 1
+			enemy_dmg = int(split["exit_damage"])
+
+	if best_victim == 0 or enemy_dmg <= 0:
 		return
 	_hits += 1
-	var dmg := Combat.damage_for(wid, best_head, best_t)
 	var victim: Pawn = _sim.world.get_pawn(best_victim)
 	if victim == null or not victim.alive: return
-	_apply_pawn_damage(best_victim, victim, dmg, best_head, Revive.Source.BULLET, shooter_id, wid)
+	_apply_pawn_damage(best_victim, victim, enemy_dmg, best_head, Revive.Source.BULLET, shooter_id, wid)
 
 func _is_medic(id: int) -> bool:
 	return _clients.has(id) and int(_clients[id]["class"]) == Loadout.MEDIC
@@ -359,6 +412,64 @@ func _step_revives() -> void:
 	for rid in done:
 		_reviving.erase(rid)
 
+## RMB active give: each held giver raycasts from its aim at one teammate in range and heals
+## (medic) or resupplies (support) at the active rate. Latched like revive — held in _giving until
+## GA_GIVE_STOP or invalidation.
+func _step_active_give() -> void:
+	if _giving.is_empty():
+		return
+	var done: Array = []
+	for gid in _giving:
+		var giver: Pawn = _sim.world.get_pawn(gid)
+		if giver == null or not giver.alive or giver.is_downed: done.append(gid); continue
+		var kind := _giver_kind(int(_clients[gid]["class"]))
+		if kind == -1: done.append(gid); continue
+		var gdef: Dictionary = _gadgets.def_of_kind(kind)
+		var aim := Combat._forward(giver.yaw, giver.pitch)
+		var rng := float(gdef["give_range"])
+		# Find the nearest in-range teammate on the aim ray.
+		var target := 0
+		var best := INF
+		for tid in _sim.world.pawns:
+			if tid == gid: continue
+			var t: Pawn = _sim.world.pawns[tid]
+			# Downed teammates are handled by revive (P1), not give/resupply — skip them.
+			if not t.alive or t.is_downed or t.team != giver.team: continue
+			var d2 := giver.pos.distance_to(t.pos)
+			if d2 <= rng and d2 < best and Gadget.give_hits(giver.eye_position(), aim, t.pos, t.stance, rng):
+				best = d2; target = tid
+		if target == 0: continue   # nothing to give to this tick; keep the latch
+		if kind == Gadget.KIND_HEAL:
+			_give_heal(target, int(gdef["active_rate"]))
+		else:
+			_give_ammo(target, int(gdef["active_rate"]))
+	for gid in done:
+		_giving.erase(gid)
+
+## Heals target by `rate` HP, capped at 100. No-op if dead or already full.
+func _give_heal(target_id: int, rate: int) -> void:
+	var t: Pawn = _sim.world.get_pawn(target_id)
+	if t == null or not t.alive or t.health >= 100: return
+	t.health = mini(100, t.health + rate)
+	_heals += 1
+
+## Ammo give at 1 mag per `period` ticks (active_rate is the period). Refills ammo + a bandage.
+func _give_ammo(target_id: int, period: int) -> void:
+	if period <= 0 or _sim.tick % period != 0: return
+	if not _clients.has(target_id): return
+	var tc = _clients[target_id]
+	var cap: int = int(Weapon.get_def(int(tc["weapon"]))["mag_size"])
+	if int(tc["ammo"]) >= cap and _pawn_bandages_full(target_id): return
+	tc["ammo"] = cap
+	var tp: Pawn = _sim.world.get_pawn(target_id)
+	if tp != null:
+		tp.bandage_count = Revive.bandage_count_for(_is_medic(target_id))
+	_ammo_gives += 1
+
+func _pawn_bandages_full(id: int) -> bool:
+	var p: Pawn = _sim.world.get_pawn(id)
+	return p != null and p.bandage_count >= Revive.bandage_count_for(_is_medic(id))
+
 ## Per-tick bleed for every downed pawn; bleed-out is a true death (spends a ticket).
 func _step_downed() -> void:
 	for id in _clients:
@@ -387,6 +498,7 @@ func _handle_respawns() -> void:
 			c["respawn_tick"] = 0
 			c["ammo"] = Weapon.get_def(c["weapon"])["mag_size"]
 			c["reloading"] = false
+			c["rockets"] = int(_gadgets.def_of_kind(Gadget.KIND_RPG)["max_active"]) if int(c["weapon"]) == Weapon.RPG else 0
 
 func _select_spawn(id: int) -> Vector3:
 	var c = _clients[id]
@@ -494,6 +606,7 @@ func _on_packet(peer: ENetPacketPeer, _channel: int, bytes: PackedByteArray) -> 
 		Protocol.Msg.GRENADE_THROW: _handle_grenade_throw(peer, bytes)
 		Protocol.Msg.REVIVE_ACTION: _handle_revive_action(peer, bytes)
 		Protocol.Msg.SELF_BANDAGE: _handle_self_bandage(peer, bytes)
+		Protocol.Msg.GADGET_ACTION: _handle_gadget_action(peer, bytes)
 		_: pass
 
 func _handle_hello(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
@@ -511,13 +624,22 @@ func _handle_hello(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
 	var team: int = 0 if _team_counts[0] <= _team_counts[1] else 1
 	_team_counts[team] += 1
 	var cls := Loadout.random_class()
-	var wid := Loadout.weapon_for(cls)
+	var wid: int = Loadout.weapon_for(cls)
+	if cls == Loadout.ENGINEER and id % 3 == 0:
+		wid = Weapon.RPG
+	if not Loadout.can_equip(cls, wid):   # authoritative guard (RPG -> Engineer only)
+		wid = Loadout.weapon_for(cls)
+	var attachments := Loadout.default_attachments()
+	var weapon_def := Weapon.effective_def(wid, _attachments.multipliers(attachments))
+	var start_rockets := int(_gadgets.def_of_kind(Gadget.KIND_RPG)["max_active"]) if wid == Weapon.RPG else 0
 	var squad := _squads.assign(id, team)
 	_peer_to_id[peer] = id
 	_clients[id] = {
 		"peer": peer, "queued_input": null, "last_input": null, "last_input_tick": 0,
 		"last_acked_seq": 0, "next_seq": 1, "history": {},
-		"team": team, "squad": squad, "class": cls, "weapon": wid, "ammo": Weapon.get_def(wid)["mag_size"],
+		"team": team, "squad": squad, "class": cls, "weapon": wid, "weapon_def": weapon_def,
+		"rockets": start_rockets, "last_rocket_tick": -100000,
+		"ammo": Weapon.get_def(wid)["mag_size"],
 		"reloading": false, "reload_done_tick": 0, "last_fire_time": -999.0,
 		"shot_index": 0, "respawn_tick": 0,
 		"last_build_tick": -100000, "last_grenade_tick": -100000, "known_regions": {},
@@ -527,7 +649,7 @@ func _handle_hello(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
 	p.squad = squad
 	p.pos = _select_spawn(id)
 	p.bandage_count = Revive.bandage_count_for(cls == Loadout.MEDIC)
-	_net.send_to(peer, NetHost.CHANNEL_CONTROL, Protocol.encode_welcome(id, TICK_RATE), ENetPacketPeer.FLAG_RELIABLE)
+	_net.send_to(peer, NetHost.CHANNEL_CONTROL, Protocol.encode_welcome(id, TICK_RATE, cls), ENetPacketPeer.FLAG_RELIABLE)
 	print("[server] welcomed peer %d ('%s') team=%d squad=%d class=%d — %d peers" % [id, pname, team, squad, cls, _clients.size()])
 
 func _handle_input(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
@@ -598,6 +720,93 @@ func _handle_grenade_throw(peer: ENetPacketPeer, bytes: PackedByteArray) -> void
 		"detonate_tick": _sim.tick + GRENADE_FUSE_TICKS,
 	})
 
+func _handle_gadget_action(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
+	var id = _peer_to_id.get(peer, 0)
+	if id == 0 or not _clients.has(id): return
+	var p: Pawn = _sim.world.get_pawn(id)
+	if p == null or not p.alive or p.is_downed: return
+	var d := Protocol.decode_gadget_action(bytes)
+	match int(d["action"]):
+		Protocol.GA_RPG_FIRE: _fire_rocket(id, p, d["dir"])
+		Protocol.GA_C4_PLACE: _place_c4(id, p, d["pos"])
+		Protocol.GA_C4_DETONATE: _detonate_c4(id)
+		Protocol.GA_MINE_PLACE: _place_mine(id, p, d["pos"], d["dir"])
+		Protocol.GA_GIVE_START: _giving[id] = _sim.tick
+		Protocol.GA_GIVE_STOP: _giving.erase(id)
+		Protocol.GA_BAG_THROW: _throw_bag(id, p, d["pos"])
+		_: pass
+
+## Launch an RPG rocket if the player has the RPG equipped, rockets remaining, and is off cooldown.
+func _fire_rocket(id: int, p: Pawn, dir: Vector3) -> void:
+	var c = _clients[id]
+	if int(c["weapon"]) != Weapon.RPG: return
+	if int(c["rockets"]) <= 0: return
+	var rdef: Dictionary = _gadgets.def_of_kind(Gadget.KIND_RPG)
+	if _sim.tick - int(c["last_rocket_tick"]) < int(rdef["cooldown_ticks"]): return
+	if dir.length() < 0.001: return
+	c["last_rocket_tick"] = _sim.tick
+	c["rockets"] = int(c["rockets"]) - 1
+	_rockets.append({"owner": id, "team": p.team, "pos": p.eye_position(), "vel": Grenade.launch_velocity(dir)})
+
+func _place_c4(id: int, p: Pawn, pos: Vector3) -> void:
+	if Loadout.gadget_for(int(_clients[id]["class"])) != Loadout.GADGET_C4: return
+	var cdef: Dictionary = _gadgets.def_of_kind(Gadget.KIND_C4)
+	var owned: Array = _c4.get(id, [])
+	if owned.size() >= int(cdef["max_active"]): return
+	if p.pos.distance_to(pos) > StructureStore.BUILD_RANGE: return   # within reach
+	owned.append({"pos": pos, "cell": BuildGrid.cell_of(Vector3(pos.x, 0.0, pos.z))})
+	_c4[id] = owned
+
+func _place_mine(id: int, p: Pawn, pos: Vector3, facing: Vector3) -> void:
+	if Loadout.gadget_for(int(_clients[id]["class"])) != Loadout.GADGET_MINE: return
+	var mdef: Dictionary = _gadgets.def_of_kind(Gadget.KIND_MINE)
+	var mine_count := 0
+	for m in _mines:
+		if int(m["owner"]) == id: mine_count += 1
+	if mine_count >= int(mdef["max_active"]): return
+	if p.pos.distance_to(pos) > float(mdef["place_range"]): return
+	var face := facing.normalized() if facing.length() > 0.001 else Vector3(sin(p.yaw), 0.0, cos(p.yaw))
+	_mines.append({"owner": id, "team": p.team, "pos": pos, "facing": face,
+		"armed_after_tick": _sim.tick + int(mdef["arm_delay_ticks"])})
+
+func _throw_bag(id: int, p: Pawn, pos: Vector3) -> void:
+	var kind := _giver_kind(int(_clients[id]["class"]))
+	if kind == -1: return
+	var gdef: Dictionary = _gadgets.def_of_kind(kind)
+	var bag_count := 0
+	for b in _bags:
+		if int(b["owner"]) == id: bag_count += 1
+	if bag_count >= int(gdef["max_bags"]): return
+	_bags.append({"owner": id, "team": p.team, "kind": kind, "pos": pos, "pool": int(gdef["bag_pool"])})
+	_bags_thrown += 1
+
+## Maps a class to its give-tool kind (heal/ammo), or -1 if the class has no give tool.
+func _giver_kind(cls: int) -> int:
+	var g := Loadout.gadget_for(cls)
+	if g == Loadout.GADGET_HEAL: return Gadget.KIND_HEAL
+	if g == Loadout.GADGET_AMMO: return Gadget.KIND_AMMO
+	return -1
+
+func _detonate_c4(id: int) -> void:
+	var owned: Array = _c4.get(id, [])
+	if owned.is_empty(): return
+	var cdef: Dictionary = _gadgets.def_of_kind(Gadget.KIND_C4)
+	var team: int = _sim.world.get_pawn(id).team if _sim.world.get_pawn(id) != null else int(_clients[id]["team"])
+	for c4 in owned:
+		_c4_det += 1
+		_blast_at(c4["pos"], id, team, int(cdef["pawn_damage"]), float(cdef["pawn_radius"]),
+			int(cdef["struct_damage"]), float(cdef["struct_radius"]))
+	_c4.erase(id)
+
+## Drop any placed C4 whose ground cell matches a just-destroyed structure cell (spec §"C4").
+func _remove_c4_on_cell(cell: Vector3i) -> void:
+	for owner in _c4:
+		var kept: Array = []
+		for c4 in _c4[owner]:
+			if c4["cell"] != cell:
+				kept.append(c4)
+		_c4[owner] = kept
+
 func _handle_self_bandage(peer: ENetPacketPeer, _bytes: PackedByteArray) -> void:
 	var id = _peer_to_id.get(peer, 0)
 	if id == 0 or not _clients.has(id): return
@@ -634,6 +843,86 @@ func _step_grenades() -> void:
 			still.append(g)
 	_grenades = still
 
+## Generalized blast: structure damage (cell radius) + pawn splash (sphere, current positions,
+## FF-off incl. owner). Shared by frag grenades, RPG, C4, and mines. `source` tags the kill
+## (BLAST). Returns the number of pawns that took damage (for kill/trigger bookkeeping).
+func _blast_at(center: Vector3, owner: int, team: int, pawn_dmg: int, pawn_radius: float,
+		struct_dmg: int, struct_radius: float) -> int:
+	if struct_dmg > 0 and struct_radius > 0.0:
+		for sid in _store.ids_in_radius(center, struct_radius):
+			var rec: Dictionary = _store.get_record(sid)
+			if rec.is_empty(): continue
+			var at := BuildGrid.cell_min(rec["cell"]) + Vector3.ONE * (BuildGrid.CELL_SIZE * 0.5)
+			var sd := Grenade.falloff_damage(center, at, struct_dmg, struct_radius)
+			if sd > 0:
+				_damage_structure(sid, sd)
+	var hits := 0
+	for pid in _sim.world.pawns:
+		if pid == owner: continue
+		var victim: Pawn = _sim.world.pawns[pid]
+		if not victim.alive or victim.team == team: continue
+		var pd := Grenade.falloff_damage(center, victim.pos, pawn_dmg, pawn_radius)
+		if pd <= 0: continue
+		_apply_pawn_damage(pid, victim, pd, false, Revive.Source.BLAST, owner, 0)
+		hits += 1
+	return hits
+
+## Integrate live RPG rockets; detonate on structure march-hit or ground contact. Reuses the
+## Grenade ballistic model (spec §"RPG"). Present-time blast via _blast_at; FF-off.
+func _step_rockets() -> void:
+	if _rockets.is_empty():
+		return
+	var rdef: Dictionary = _gadgets.def_of_kind(Gadget.KIND_RPG)
+	var still: Array = []
+	for r in _rockets:
+		var s := Grenade.integrate(r["pos"], r["vel"], SimLoop.DT)
+		var nxt: Vector3 = s["pos"]
+		# Structure contact along this step (march from old pos toward new).
+		var seg: Vector3 = nxt - (r["pos"] as Vector3)
+		var seg_len := seg.length()
+		var struck := false
+		if _store.count() > 0 and seg_len > 0.0001:
+			var m := _store.march(r["pos"], seg / seg_len, seg_len)
+			if bool(m["hit"]):
+				struck = true
+		if struck or nxt.y <= 0.0:
+			if nxt.y < 0.0: nxt.y = 0.0
+			_rockets_det += 1
+			_rstruct += _store.ids_in_radius(nxt, float(rdef["struct_radius"])).size()
+			_blast_at(nxt, int(r["owner"]), int(r["team"]),
+				int(rdef["pawn_damage"]), float(rdef["pawn_radius"]),
+				int(rdef["struct_damage"]), float(rdef["struct_radius"]))
+			continue
+		r["pos"] = nxt; r["vel"] = s["vel"]
+		still.append(r)
+	_rockets = still
+
+## Proximity check for armed mines: if an enemy enters the trigger cone, detonate (FF-off blast).
+## O(mines × pawns); mine count is capped per player. Claymore = directional cone (spec §"Mine").
+func _step_mines() -> void:
+	if _mines.is_empty():
+		return
+	var mdef: Dictionary = _gadgets.def_of_kind(Gadget.KIND_MINE)
+	var radius := float(mdef["trigger_radius"])
+	var half_angle := deg_to_rad(60.0) if bool(mdef.get("directional", false)) else PI
+	var still: Array = []
+	for m in _mines:
+		if _sim.tick < int(m["armed_after_tick"]):
+			still.append(m); continue
+		var tripped := false
+		for pid in _sim.world.pawns:
+			var v: Pawn = _sim.world.pawns[pid]
+			if not v.alive or v.team == int(m["team"]): continue
+			if Gadget.in_cone(m["pos"], m["facing"], v.pos, radius, half_angle):
+				tripped = true; break
+		if tripped:
+			_mine_trips += 1
+			_blast_at(m["pos"], int(m["owner"]), int(m["team"]), int(mdef["pawn_damage"]),
+				float(mdef["pawn_radius"]), 0, 0.0)
+		else:
+			still.append(m)
+	_mines = still
+
 ## Frag: area damage at the grenade's current position — structures (cell radius) + pawns (sphere,
 ## current positions, FF-off incl. thrower). Removes/bucket-drops route through _damage_structure.
 ## (Smoke is handled by a branch added in Task 9.)
@@ -642,23 +931,7 @@ func _detonate(g: Dictionary) -> void:
 		_deploy_smoke(g)
 		return
 	_nades += 1
-	var center: Vector3 = g["pos"]
-	for sid in _store.ids_in_radius(center, BLAST_STRUCT_RADIUS):
-		var rec := _store.get_record(sid)
-		if rec.is_empty(): continue
-		var at := BuildGrid.cell_min(rec["cell"]) + Vector3.ONE * (BuildGrid.CELL_SIZE * 0.5)
-		var sd := Grenade.falloff_damage(center, at, GRENADE_DAMAGE_STRUCT, BLAST_STRUCT_RADIUS)
-		if sd > 0:
-			_damage_structure(sid, sd)
-	var owner: int = int(g["owner"])
-	var team: int = int(g["team"])
-	for pid in _sim.world.pawns:
-		if pid == owner: continue
-		var victim: Pawn = _sim.world.pawns[pid]
-		if not victim.alive or victim.team == team: continue
-		var pd := Grenade.falloff_damage(center, victim.pos, GRENADE_DAMAGE_PAWN, BLAST_PAWN_RADIUS)
-		if pd <= 0: continue
-		_apply_pawn_damage(pid, victim, pd, false, Revive.Source.BLAST, owner, 0)
+	_blast_at(g["pos"], int(g["owner"]), int(g["team"]), GRENADE_DAMAGE_PAWN, BLAST_PAWN_RADIUS, GRENADE_DAMAGE_STRUCT, BLAST_STRUCT_RADIUS)
 
 ## Smoke detonation: no damage. Record a server-side zone and broadcast it (low-frequency, like
 ## KILL — bounded by the throw cooldown). M7 LOS culling will read _smoke_zones; here it just
@@ -681,6 +954,46 @@ func _expire_smoke_zones() -> void:
 			live.append(z)
 	_smoke_zones = live
 
+## Thrown bags dispense to every teammate in radius at 25% of the active rate, drawing from a
+## finite pool; a bag vanishes when its pool hits 0 (spec §"Medic heal tool & Support ammo tool").
+func _step_bags() -> void:
+	if _bags.is_empty():
+		return
+	var still: Array = []
+	for b in _bags:
+		var kind: int = int(b["kind"])
+		var gdef: Dictionary = _gadgets.def_of_kind(kind)
+		var radius := float(gdef["bag_radius"])
+		var dispensed := 0
+		for pid in _sim.world.pawns:
+			var t: Pawn = _sim.world.pawns[pid]
+			if not t.alive or t.is_downed or t.team != int(b["team"]): continue
+			if t.pos.distance_to(b["pos"]) > radius: continue
+			if kind == Gadget.KIND_HEAL:
+				if t.health >= 100: continue
+				# Integer div (active_rate=2 → 0), floored to 1 so low-rate bags still make progress.
+				var amt := maxi(1, int(gdef["active_rate"]) / 4)
+				t.health = mini(100, t.health + amt)
+				dispensed += amt
+				_heals += 1
+			else:
+				# Ammo bag: top up at most once per active period, costing 1 pool (mag).
+				if _sim.tick % maxi(1, int(gdef["active_rate"]) * 4) != 0: continue
+				if not _clients.has(pid): continue
+				var tc = _clients[pid]
+				var cap: int = int(Weapon.get_def(int(tc["weapon"]))["mag_size"])
+				if int(tc["ammo"]) >= cap: continue
+				tc["ammo"] = cap
+				dispensed += 1
+				_ammo_gives += 1
+		if dispensed > 0:
+			b["pool"] = Gadget.decrement_pool(int(b["pool"]), dispensed)
+		if int(b["pool"]) <= 0:
+			_bags_exhausted += 1
+		else:
+			still.append(b)
+	_bags = still
+
 ## Cell of a still-present record (for remove-delta routing). Returns a far cell if gone.
 func _cell_of_struct(id: int) -> Vector3i:
 	var rec := _store.get_record(id)
@@ -700,6 +1013,7 @@ func _damage_structure(id: int, amount: int) -> void:
 		_pending_removes.append({"id": id, "cell": cell})
 		_dmg_touched.erase(id)
 		_last_bucket.erase(id)
+		_remove_c4_on_cell(cell)
 	else:
 		_dmg_touched[id] = true
 
@@ -777,8 +1091,8 @@ func _log_telemetry() -> void:
 	var pts := ""
 	for pt in _conquest.points:
 		pts += "." if pt["owner"] == -1 else str(pt["owner"])
-	print("[telemetry] players=%d alive=%d tick_mean=%.2fms tick_p99=%.2fms agg=%.1fMbit/s kills=%d shots=%d hit_rate=%.2f starv=%d rewind_clamped=%d t0=%d t1=%d pts=%s cap_events=%d struct=%d bld=%d rmv=%d blk=%d dmg=%d destroyed=%d nades=%d splash=%d smoke=%d downed=%d bleedouts=%d revives=%d"
-		% [n, alive, _tele.mean_tick_ms(), _tele.p99_tick_ms(), mbit, _kills, _shots, hit_rate, _tele.starvation, _rewind_clamped, _conquest.tickets_int(0), _conquest.tickets_int(1), pts, _cap_events, _store.count(), _builds, _removes, _shots_blocked, _dmg, _destroyed, _nades, _splash_kills, _smokes, _downed, _bleedouts, _revives])
+	print("[telemetry] players=%d alive=%d tick_mean=%.2fms tick_p99=%.2fms agg=%.1fMbit/s kills=%d shots=%d hit_rate=%.2f starv=%d rewind_clamped=%d t0=%d t1=%d pts=%s cap_events=%d struct=%d bld=%d rmv=%d blk=%d pen=%d dmg=%d destroyed=%d nades=%d splash=%d smoke=%d rockets=%d rstruct=%d downed=%d bleedouts=%d revives=%d c4=%d mines=%d heals=%d ammo=%d bags=%d bagx=%d"
+		% [n, alive, _tele.mean_tick_ms(), _tele.p99_tick_ms(), mbit, _kills, _shots, hit_rate, _tele.starvation, _rewind_clamped, _conquest.tickets_int(0), _conquest.tickets_int(1), pts, _cap_events, _store.count(), _builds, _removes, _shots_blocked, _pen, _dmg, _destroyed, _nades, _splash_kills, _smokes, _rockets_det, _rstruct, _downed, _bleedouts, _revives, _c4_det, _mine_trips, _heals, _ammo_gives, _bags_thrown, _bags_exhausted])
 	var pt := maxi(_phase_ticks, 1)
 	print("[perf] us/tick: poll=%d move=%d lag=%d interest=%d fire=%d respawn=%d conquest=%d match=%d snap=%d (ticks=%d)"
 		% [_phase_us["poll"] / pt, _phase_us["move"] / pt, _phase_us["lag"] / pt, _phase_us["interest"] / pt, _phase_us["fire"] / pt, _phase_us["respawn"] / pt, _phase_us["conquest"] / pt, _phase_us["match"] / pt, _phase_us["snap"] / pt, _phase_ticks])
@@ -786,5 +1100,5 @@ func _log_telemetry() -> void:
 	_phase_ticks = 0
 	_tele.reset_window()
 	_kills = 0; _shots = 0; _hits = 0; _rewind_clamped = 0; _cap_events = 0
-	_builds = 0; _removes = 0; _shots_blocked = 0
-	_dmg = 0; _destroyed = 0; _nades = 0; _splash_kills = 0; _smokes = 0; _downed = 0; _bleedouts = 0; _revives = 0
+	_builds = 0; _removes = 0; _shots_blocked = 0; _pen = 0
+	_dmg = 0; _destroyed = 0; _nades = 0; _splash_kills = 0; _smokes = 0; _rockets_det = 0; _rstruct = 0; _downed = 0; _bleedouts = 0; _revives = 0; _c4_det = 0; _mine_trips = 0; _heals = 0; _ammo_gives = 0; _bags_thrown = 0; _bags_exhausted = 0
