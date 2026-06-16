@@ -26,6 +26,35 @@ Render the existing headless stub into a real first-person client: real input �
 
 **P1 gate:** end-to-end **human playtest of a full Conquest match** vs bots on **placeholder art**, complete HUD, reaching a winner — judged playable + BattleBit-feeling by the owner. Recorded as evidence (owner sign-off + server log).
 
+#### Checkpoint 1 — Core infantry loop — status (2026-06-17)
+
+**Implementation complete; headless-validated; awaiting owner playtest.** Plan:
+[`docs/plans/2026-06-16-m7-p1-c1-infantry-client.md`](../plans/2026-06-16-m7-p1-c1-infantry-client.md)
+(Tasks 1–26). Runbook: [`docs/runbooks/running-client.md`](../runbooks/running-client.md).
+
+Landed on `m7-rendered-client`:
+- **Shared/server edge** — `DeploySpawn` (pure spawn-ref enumerate/validate/resolve); new wire
+  messages `DEPLOY_REQUEST` / `DAMAGE_EVENT` / `SELF_STATE` + `HELLO.auto_deploy`; server honors
+  `auto_deploy` (human held un-deployed → deploy screen), handles `DEPLOY_REQUEST`, emits
+  `DAMAGE_EVENT` (pure `DamageDir`), sends `SELF_STATE` for ammo reconcile.
+- **Client** — `WeaponPredictor` (predicted mag/reload mirroring server fire-gating, reconciles to
+  `SELF_STATE`); `Prediction` extended for full-command + pitch reconcile; `WorldView`
+  (snapshots + interpolation, self/remote split); `world_renderer` (placeholder primitives +
+  camera + viewmodel); `hud_model` (ammo, compass, tickets/capture, killfeed, damage arcs/vignette —
+  no health, no minimap) + `hud_view`; `input_map`/`input_controller`/`stance_pose`/`settings`;
+  `deploy_menu` + `settings_menu`; `client_main` composition root. Renderer config + input actions +
+  `client.tscn` ([ADR-0005](../adr/0005-client-renderer.md)).
+
+Headless evidence (all green): full unit suite **351 tests, 0 failed**; ≤48-bot smoke
+(`ci/m5_p1_test.sh`) **PASS** (winner valid, peak tick well under budget — server edge messages
+don't regress it); end-to-end headless server+client connect reaches WELCOME → deploy → snapshots
+with no errors. Two-stage review on the server-integration + composition-root tasks (read-only
+reviewers); review findings (deploy-menu repopulate on death; reload-remaining reconcile) fixed.
+
+**Remaining for C1 done:** owner playtests the full loop desktop→game2 and signs off as playable;
+record sign-off + session server log here. Feel issues (look/move sign, sensitivity, recoil, HUD
+layout) are follow-ups, not blockers.
+
 ### P2 — Art kit + LOD
 Swap placeholder primitives for the low-poly blocky kit (characters, weapons, vehicles, environment) behind the same node interfaces, LOD pipeline, and audio/visual feedback polish (richer hit markers, animated damage indicators, SFX). Pure presentation on top of a proven-playable P1.
 
