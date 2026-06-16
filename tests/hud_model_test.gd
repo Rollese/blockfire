@@ -46,3 +46,15 @@ func test_killfeed_entries_decay_out() -> void:
 	assert_true(out["killfeed"][0]["headshot"])
 	var out2 := m.build({"now": 10.0 + HudModel.KILLFEED_TTL + 0.1, "tick": 0})
 	assert_eq(out2["killfeed"].size(), 0, "expired entry dropped")
+
+func test_damage_arc_relative_and_fades() -> void:
+	var m := HudModel.new()
+	# damage from due-south in world (bearing PI); local facing +Z (yaw 0) -> arc at 180 deg.
+	m.push_damage(PI, 25, 10.0)
+	var out := m.build({"self_yaw": 0.0, "now": 10.0, "tick": 0})
+	assert_eq(out["damage_arcs"].size(), 1)
+	assert_almost_eq(absf(rad_to_deg(out["damage_arcs"][0]["rel_bearing"])), 180.0, 1.0)
+	assert_true(out["vignette"] > 0.0, "fresh damage raises vignette")
+	var faded := m.build({"self_yaw": 0.0, "now": 10.0 + HudModel.DAMAGE_TTL + 0.1, "tick": 0})
+	assert_eq(faded["damage_arcs"].size(), 0, "arc expired")
+	assert_almost_eq(faded["vignette"], 0.0, 0.01, "vignette decayed to ~0")

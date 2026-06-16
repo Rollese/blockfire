@@ -5,7 +5,9 @@ extends RefCounted
 
 const LOW_AMMO_FRAC := 0.34
 const KILLFEED_TTL := 6.0
+const DAMAGE_TTL := 1.5
 var _killfeed: Array = []   # [{killer,victim,headshot,weapon,t}]
+var _damages: Array = []   # [{bearing,amount,t}]
 
 func push_kill(ev: Dictionary, now: float) -> void:
 	_killfeed.append({"killer": int(ev["killer"]), "victim": int(ev["victim"]),
@@ -20,8 +22,29 @@ func _killfeed_current(ctx: Dictionary) -> Array:
 	_killfeed = kept
 	return kept
 
+func push_damage(world_bearing: float, amount: int, now: float) -> void:
+	_damages.append({"bearing": world_bearing, "amount": amount, "t": now})
+
+func _damage(ctx: Dictionary) -> Dictionary:
+	var now: float = float(ctx.get("now", 0.0))
+	var yaw: float = float(ctx.get("self_yaw", 0.0))
+	var arcs: Array = []
+	var vignette: float = 0.0
+	var kept: Array = []
+	for d in _damages:
+		var age: float = now - d["t"]
+		if age > DAMAGE_TTL:
+			continue
+		kept.append(d)
+		var fade: float = 1.0 - age / DAMAGE_TTL
+		arcs.append({"rel_bearing": wrapf(d["bearing"] - yaw, -PI, PI), "fade": fade})
+		vignette = maxf(vignette, fade * clampf(float(d["amount"]) / 50.0, 0.0, 1.0))
+	_damages = kept
+	return {"arcs": arcs, "vignette": vignette}
+
 func build(ctx: Dictionary) -> Dictionary:
-	return {"ammo": _ammo(ctx), "compass": _compass(ctx), "tickets": _tickets(ctx), "capture": _capture(ctx), "killfeed": _killfeed_current(ctx)}
+	var dmg := _damage(ctx)
+	return {"ammo": _ammo(ctx), "compass": _compass(ctx), "tickets": _tickets(ctx), "capture": _capture(ctx), "killfeed": _killfeed_current(ctx), "damage_arcs": dmg["arcs"], "vignette": dmg["vignette"]}
 
 func _compass(ctx: Dictionary) -> Dictionary:
 	var yaw := float(ctx.get("self_yaw", 0.0))
