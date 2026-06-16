@@ -1,5 +1,12 @@
 extends TestCase
 
+func _loop_with_pawn(pos: Vector3) -> SimLoop:
+	var sl := SimLoop.new()
+	var p := Pawn.new(1)
+	p.pos = pos
+	sl.world.pawns[1] = p
+	return sl
+
 func test_step_advances_pawns_from_inputs() -> void:
 	var sim := SimLoop.new()
 	sim.world.spawn(1)
@@ -25,3 +32,43 @@ func test_structures_block_movement() -> void:
 	# The pawn must NOT have entered the blocked cell.
 	assert_eq(BuildGrid.cell_of(Vector3(p.pos.x, 0.0, p.pos.z)) == Vector3i(1, 0, 0), false)
 	assert_true(p.pos.x < 2.0, "blocked before the wall cell, got x=%f" % p.pos.x)
+
+func test_records_stance_change_tick() -> void:
+	var sl := _loop_with_pawn(Vector3.ZERO)
+	sl.step({1: {}})                                   # tick 0 -> stance STAND, no change from default
+	sl.step({1: {"buttons": InputCommand.BTN_PRONE}})  # tick 1 -> STAND->PRONE
+	assert_eq(sl.world.pawns[1].last_stance_change_tick, 1)
+
+func test_engages_ladder_and_climbs() -> void:
+	var sl := _loop_with_pawn(Vector3(5, 0, 5))
+	sl.ladders = [{"bottom": Vector3(5, 0, 5), "top": Vector3(5, 4, 5), "radius": 0.6}]
+	# move_y forward (toward +z is up-intent on the ladder); push up several ticks
+	for i in 20:
+		sl.step({1: {"move_y": 1.0}})
+	var p: Pawn = sl.world.pawns[1]
+	assert_true(p.pos.y > 1.0, "pawn climbed the ladder")
+
+func test_platform_holds_pawn_above_ground() -> void:
+	var sl := _loop_with_pawn(Vector3(5, 4, 5))
+	sl.platforms = [{"min": Vector3(0, 0, 0), "max": Vector3(10, 4, 10)}]
+	for i in 10:
+		sl.step({1: {}})   # gravity would pull to 0 without platform support
+	assert_almost_eq(sl.world.pawns[1].pos.y, 4.0)
+
+func test_vaults_low_structure_blocker() -> void:
+	var cat_res := PieceCatalog.from_json_string('{"pieces":[{"id":"sb","height":"half","health":100,"material":"METAL_THIN"}]}')
+	var store := StructureStore.new(cat_res["catalog"])
+	# Place a half piece one cell ahead (+z) of the pawn.
+	# Cell (0,0,1) covers z in [2,4). Pawn starts at z=1.6 so it reaches the blocked
+	# cell boundary in 2 ticks (at 0.2 m/tick STAND speed), leaving 10+ ticks to complete
+	# the vault arc (VAULT_TICKS=8).
+	var ahead := Vector3(0, 0, 2.0)
+	store.place(1, 0, BuildGrid.cell_of(ahead), 0, 0)
+	var sl := _loop_with_pawn(Vector3(0, 0, 1.6))
+	sl.structures = store
+	# Drive forward into the half piece while standing -> should start a vault and end past it.
+	for i in Vault.VAULT_TICKS + 4:
+		sl.step({1: {"move_y": 1.0}})
+	var p: Pawn = sl.world.pawns[1]
+	assert_true(p.pos.z > 2.0, "vaulted past the half-height blocker")
+	assert_false(p.vaulting, "vault completed")
