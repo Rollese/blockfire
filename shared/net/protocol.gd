@@ -32,6 +32,7 @@ enum Msg {
 	VEHICLE_DESTROYED = 19, ## server -> clients: a vehicle was destroyed (vid)
 	DEPLOY_REQUEST = 20,    ## client -> server: deploy me at spawn_ref (see DeploySpawn)
 	DAMAGE_EVENT = 21,      ## server -> client: damage taken, world bearing toward source + amount
+	SELF_STATE = 22,        ## server -> owning client: authoritative weapon state for ammo reconcile
 }
 
 const OP_PLACE := 0
@@ -346,3 +347,17 @@ static func encode_damage_event(bearing: float, amount: int) -> PackedByteArray:
 static func decode_damage_event(bytes: PackedByteArray) -> Dictionary:
 	var r := body_reader(bytes)
 	return {"bearing": Quantize.dec_angle(r.get_u16()), "amount": r.get_u8()}
+
+
+static func encode_self_state(mag: int, reloading: bool, reload_remaining: int, weapon: int) -> PackedByteArray:
+	var buf := StreamPeerBuffer.new()
+	buf.put_u8(Msg.SELF_STATE)
+	buf.put_u8(clampi(mag, 0, 255))
+	buf.put_u8(1 if reloading else 0)
+	buf.put_u16(clampi(reload_remaining, 0, 65535))
+	buf.put_u8(weapon & 0xFF)
+	return buf.data_array
+
+static func decode_self_state(bytes: PackedByteArray) -> Dictionary:
+	var r := body_reader(bytes)
+	return {"mag": r.get_u8(), "reloading": r.get_u8() == 1, "reload_remaining": r.get_u16(), "weapon": r.get_u8()}

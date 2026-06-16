@@ -144,3 +144,12 @@ func test_damage_event_roundtrip() -> void:
 	var d := Protocol.decode_damage_event(b)
 	assert_almost_eq(d["bearing"], 1.2, 0.01, "world bearing preserved")
 	assert_eq(d["amount"], 25)
+
+func test_self_state_roundtrip() -> void:
+	var b := Protocol.encode_self_state(17, true, 40, Weapon.AR)
+	assert_eq(Protocol.msg_type(b), Protocol.Msg.SELF_STATE)
+	var d := Protocol.decode_self_state(b)
+	assert_eq(d["mag"], 17)
+	assert_true(d["reloading"])
+	assert_eq(d["reload_remaining"], 40)
+	assert_eq(d["weapon"], Weapon.AR)
