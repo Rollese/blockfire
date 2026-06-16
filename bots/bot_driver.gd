@@ -24,6 +24,7 @@ const MAX_VEHICLE_BOTS := 6   # crew bots per process; minority so the win-conve
 const VEHICLE_FULL_HP := 1000      # transport max (v1 single vehicle type); used to detect a damaged ridden vehicle
 const VEHICLE_RPG_RANGE := 120.0   # fire an RPG at an enemy vehicle within this many metres
 const RPG_FIRE_COOLDOWN := 120     # ticks between RPG fire attempts (matches server cooldown_ticks)
+const ROCKET_SPEED := 150.0  # keep in sync with data/gadgets.json rpg.rocket_speed (bot lead math)
 
 var _map: MapDef
 var _match_points: Array = []   # array of {owner, attacker, cap}, index == map point index
@@ -60,6 +61,7 @@ func _spawn_bot(index: int) -> void:
 		"class": 0, "rpg_last_tick": -100000, "c4_placed": false, "c4_detonated": false,
 		"mine_placed": false, "gave_until": 0,
 		"vview": {}, "in_vehicle": 0, "boarded_origin": Vector3.ZERO, "repairing": false,
+		"vveh_track": {},
 	}
 	net.peer_connected.connect(func(peer: ENetPacketPeer) -> void:
 		bot["peer"] = peer
@@ -378,20 +380,37 @@ func _maybe_smoke(bot: Dictionary, me: EntityState, obj: Vector3) -> void:
 	bot["last_grenade_tick"] = st
 	bot["smokes_thrown"] = int(bot["smokes_thrown"]) + 1
 
-## Engineer RPG is anti-vehicle only: fire at the nearest enemy vehicle in range, rate-limited so we
-## don't spam (the server enforces the real per-rocket cooldown + the 3-rocket reserve). Re-fires across
-## the life until the reserve is spent, then refills on respawn.
+## Engineer RPG is anti-vehicle only. Estimate the target's velocity from successive snapshots and
+## lead the aim by the rocket's flight time so a moving transport actually gets hit. Cooldown-gated
+## (the server also enforces the real per-rocket cooldown + the 3-rocket reserve).
 func _maybe_rpg(bot: Dictionary, me: EntityState) -> void:
 	if bot["class"] != Loadout.ENGINEER: return
-	if int(bot["server_tick"]) - int(bot["rpg_last_tick"]) < RPG_FIRE_COOLDOWN: return
 	var vveh := BotDriver.nearest_enemy_vehicle(bot["vview"], bot["view"], me.pos, int(me.team), VEHICLE_RPG_RANGE)
 	if vveh == 0: return
 	var vv: VehicleState = bot["vview"][vveh]
-	var dveh := vv.pos - me.pos
-	if dveh.length() < 0.001: return
+	var now := int(bot["server_tick"])
+	# Update the velocity estimate for this vehicle (only when its position actually advanced).
+	var track: Dictionary = bot["vveh_track"]
+	var prev = track.get(vveh)
+	var vel := Vector3.ZERO
+	if prev != null:
+		vel = prev["vel"]   # persist last good estimate between snapshots
+		var dt_ticks := now - int(prev["tick"])
+		var moved: Vector3 = vv.pos - (prev["pos"] as Vector3)
+		if dt_ticks > 0 and moved.length() > 0.01:
+			vel = moved / (float(dt_ticks) * SimLoop.DT)
+	if prev == null or (vv.pos - (prev["pos"] as Vector3)).length() > 0.01:
+		track[vveh] = {"pos": vv.pos, "tick": now, "vel": vel}
+	# Cooldown gate (do the aim/fire only when ready).
+	if now - int(bot["rpg_last_tick"]) < RPG_FIRE_COOLDOWN: return
+	var origin := me.pos
+	var flight: float = origin.distance_to(vv.pos) / ROCKET_SPEED
+	var aim_pt: Vector3 = vv.pos + vel * flight
+	var dir := aim_pt - origin
+	if dir.length() < 0.001: return
 	(bot["net"] as NetHost).send_to(bot["peer"], NetHost.CHANNEL_INPUT,
-		Protocol.encode_gadget_action(Protocol.GA_RPG_FIRE, Vector3.ZERO, dveh.normalized(), 0), 0)
-	bot["rpg_last_tick"] = int(bot["server_tick"])
+		Protocol.encode_gadget_action(Protocol.GA_RPG_FIRE, Vector3.ZERO, dir.normalized(), 0), 0)
+	bot["rpg_last_tick"] = now
 
 ## Engineer C4: place one near a structure between us and the enemy, then detonate it next pass.
 func _maybe_c4(bot: Dictionary, me: EntityState, target: EntityState) -> void:
