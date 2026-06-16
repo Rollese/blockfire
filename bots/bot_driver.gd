@@ -152,10 +152,19 @@ func _drive(bot: Dictionary, delta: float) -> void:
 		_maybe_mine(bot, me, target.pos)   # face the claymore at the enemy we're fighting
 	else:
 		# no enemy in view: march to the objective (capture/defend)
-		var flat := Vector2(obj.x - me.pos.x, obj.z - me.pos.z)
-		if flat.length() > 0.001: flat = flat.normalized()
-		move_x = flat.x; move_y = flat.y
-		bot["yaw"] = atan2(move_x, move_y)
+		var seek := climb_seek(me.pos, obj, _map.ladders if _map != null else [])
+		if seek["seek"]:
+			var lb: Vector3 = seek["target"]
+			var flat2 := Vector2(lb.x - me.pos.x, lb.z - me.pos.z)
+			if flat2.length() > 0.001: flat2 = flat2.normalized()
+			move_x = flat2.x
+			move_y = absf(flat2.y) + 1.0   # bias forward/up so climb engages and continues
+			bot["yaw"] = atan2(move_x, flat2.y)
+		else:
+			var flat := Vector2(obj.x - me.pos.x, obj.z - me.pos.z)
+			if flat.length() > 0.001: flat = flat.normalized()
+			move_x = flat.x; move_y = flat.y
+			bot["yaw"] = atan2(move_x, move_y)
 		_maybe_smoke(bot, me, obj)
 
 	# Build cover only while stationary (holding a point or firing) — so the bot drops a wall
@@ -358,6 +367,22 @@ static func choose_objective_index(points: Array, owners: Array, my_team: int, f
 			if fd < best_d:
 				best_d = fd; best = i
 	return best
+
+const CLIMB_SEEK_RANGE := 12.0   # m: consider a ladder only when this close to its base
+
+## Decide whether to steer onto a ladder. seek=true with a move target at the ladder base when the
+## bot is near a ladder and its objective is roughly across/beyond that ladder. Pure + unit-tested.
+static func climb_seek(my_pos: Vector3, objective: Vector3, ladders: Array) -> Dictionary:
+	for l in ladders:
+		var base: Vector3 = l["bottom"]
+		var to_base := Vector2(base.x - my_pos.x, base.z - my_pos.z)
+		if to_base.length() > CLIMB_SEEK_RANGE:
+			continue
+		var to_obj := Vector2(objective.x - my_pos.x, objective.z - my_pos.z)
+		# Objective is beyond the ladder (same general heading, farther away).
+		if to_obj.length() > to_base.length() and to_base.normalized().dot(to_obj.normalized()) > 0.3:
+			return {"seek": true, "target": base}
+	return {"seek": false, "target": my_pos}
 
 ## Combat button for an ammo-blind bot, paced in SERVER game-time (`st` = server tick).
 ## Returns [button, reload_until, burst_start]. Fires BURST_TICKS-long bursts then holds

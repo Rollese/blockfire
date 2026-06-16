@@ -70,3 +70,11 @@ func test_combat_button_idle_when_not_firing() -> void:
 	var r := Bot.combat_button(false, 100, 0, -1)
 	assert_eq(r[0], 0, "no button when not wanting to fire")
 	assert_eq(r[1], 0); assert_eq(r[2], -1)
+
+func test_climb_seek_steers_toward_ladder_when_objective_across() -> void:
+	# Bot near the ladder base at (21,0,1), objective beyond it: steer toward the ladder base.
+	var ladder := {"bottom": Vector3(21, 0, 1), "top": Vector3(21, 4, 1), "radius": 0.8}
+	var steer := Bot.climb_seek(Vector3(18, 0, 1), Vector3(40, 0, 1), [ladder])
+	assert_true(steer["seek"], "seeks the ladder when blocked between it and the objective")
+	var far := Bot.climb_seek(Vector3(-500, 0, 0), Vector3(0, 0, 0), [ladder])
+	assert_false(far["seek"], "ignores a distant ladder")
