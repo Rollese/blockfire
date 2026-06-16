@@ -500,6 +500,11 @@ func _apply_pawn_damage(vid: int, victim: Pawn, dmg: int, headshot: bool, source
 	if victim.is_downed:
 		return  # immune to damage while downed
 	victim.health -= dmg
+	if _clients.has(vid):
+		var src: Pawn = _sim.world.get_pawn(killer_id)
+		var bearing: float = DamageDir.bearing(victim.pos, src.pos) if src != null else 0.0
+		_net.send_to(_clients[vid]["peer"], NetHost.CHANNEL_CONTROL,
+			Protocol.encode_damage_event(bearing, dmg), 0)
 	if victim.health > 0:
 		return
 	victim.health = 0
