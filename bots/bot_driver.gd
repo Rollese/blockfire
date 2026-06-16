@@ -147,7 +147,7 @@ func _drive(bot: Dictionary, delta: float) -> void:
 				if me.pos.distance_to(push) < 12.0:
 					_send(bot, 0.0, 0.0, bot["yaw"], 0.0, 0)   # hold at the enemy spawn
 				else:
-					var cmd := BotDriver.drive_toward(0.0, me.pos, push)
+					var cmd := BotDriver.drive_toward(v.heading, me.pos, push)
 					_send(bot, float(cmd["move_x"]), float(cmd["move_y"]), float(cmd["yaw"]), 0.0, 0)
 				return
 		else:
@@ -626,12 +626,16 @@ static func nearest_free_vehicle(vview: Dictionary, my_pos: Vector3) -> int:
 			bestd = d; best = vid
 	return best
 
-## Drive command toward `objective` from `from` (heading unused in v1 — full throttle + steer by
-## bearing). Returns {move_x, move_y, yaw}. Forward throttle is positive when the target is ahead.
-static func drive_toward(_heading: float, from: Vector3, objective: Vector3) -> Dictionary:
+## Vehicle driver command toward `objective` from `from`, given the vehicle's current `heading`.
+## move_x = steering (proportional to the heading error, so the hull turns to face the target),
+## move_y = throttle. yaw = bearing (pawn look). Forward convention matches Vehicle.step:
+## forward = (sin(heading), 0, cos(heading)); a positive steer increases heading (+Z -> +X).
+static func drive_toward(heading: float, from: Vector3, objective: Vector3) -> Dictionary:
 	var to := objective - from
-	var yaw := atan2(to.x, to.z)
-	return {"move_x": 0.0, "move_y": 1.0, "yaw": yaw}
+	var bearing := atan2(to.x, to.z)
+	var err := wrapf(bearing - heading, -PI, PI)
+	var steer := clampf(err * 2.0, -1.0, 1.0)
+	return {"move_x": steer, "move_y": 1.0, "yaw": bearing}
 
 ## Index of the capture point nearest the map centre (origin) — the most contested objective, where
 ## combat (and thus the blast fire that can damage a vehicle) concentrates. -1 for an empty list.

@@ -22,6 +22,21 @@ func test_drive_dir_points_at_objective() -> void:
 	var cmd := BotDriver.drive_toward(0.0, Vector3.ZERO, Vector3(50, 0, 0))
 	assert_true(float(cmd["move_y"]) > 0.0)
 
+func test_drive_toward_steers_right_to_face_target() -> void:
+	# facing +Z (heading 0), target to the +X: needs positive steer to rotate the nose toward it
+	var c := BotDriver.drive_toward(0.0, Vector3.ZERO, Vector3(50, 0, 0))
+	assert_true(float(c["move_x"]) > 0.0)
+
+func test_drive_toward_no_steer_when_aligned() -> void:
+	# facing +Z (heading 0), target straight ahead on +Z: ~no steer
+	var c := BotDriver.drive_toward(0.0, Vector3.ZERO, Vector3(0, 0, 50))
+	assert_almost_eq(float(c["move_x"]), 0.0, 0.01)
+
+func test_drive_toward_steers_left_for_target_behind_left() -> void:
+	# facing +Z, target to -X: negative steer
+	var c := BotDriver.drive_toward(0.0, Vector3.ZERO, Vector3(-50, 0, 0))
+	assert_true(float(c["move_x"]) < 0.0)
+
 func test_vehicle_is_enemy_true_when_enemy_occupant() -> void:
 	var v := VehicleState.new(); v.seats = [42, 0, 0, 0, 0]
 	var enemy := EntityState.new(); enemy.team = 1
