@@ -115,6 +115,11 @@ var _grenades: Array = []     # [{owner, team, type, pos, vel, detonate_tick}] �
 var _rockets: Array = []      # [{owner, team, pos, vel}] — server-side, not replicated
 var _mines: Array = []        # [{owner, team, pos, facing, armed_after_tick}]
 var _giving: Dictionary = {}   # giver_id -> tick the give began (latched; cleared on STOP/invalid)
+var _repairing := {}        # engineer_id -> true (latched)
+var _repair_heat := {}      # engineer_id -> int
+var _repair_cd := {}        # engineer_id -> cooldown_until tick
+var _repairs := 0           # HP restored this window
+var _repair_overheats := 0
 var _bags: Array = []          # [{owner, team, kind, pos, pool}]
 var _c4: Dictionary = {}      # owner_id -> Array of {pos, cell:Vector3i}
 var _smoke_zones: Array = []  # [{pos, radius, expire_tick}] — server-side; M7 LOS culling consumes
@@ -200,6 +205,7 @@ func _physics_process(delta: float) -> void:
 	_step_rockets()
 	_step_mines()
 	_step_active_give()
+	_step_repairs()
 	_step_bags()
 	_expire_smoke_zones()
 	_step_revives()
@@ -521,6 +527,44 @@ func _step_active_give() -> void:
 	for gid in done:
 		_giving.erase(gid)
 
+## Latched repair (like active-give): each held engineer near a friendly damaged vehicle restores
+## REPAIR_RATE/tick. Unlimited but overheat-gated (no pool). See docs/specs/vehicles.md §6.
+func _step_repairs() -> void:
+	if _repairing.is_empty():
+		return
+	var rdef: Dictionary = _gadgets.def_of_kind(Gadget.KIND_REPAIR)
+	var rate := int(rdef["rate"]); var rng := float(rdef["range"])
+	var overheat := int(rdef["overheat_ticks"]); var cool := int(rdef["cooldown_ticks"])
+	var done: Array = []
+	for eid in _repairing:
+		var ep: Pawn = _sim.world.get_pawn(eid)
+		if ep == null or not ep.alive or ep.is_downed:
+			done.append(eid); continue
+		var v := _nearest_friendly_damaged_vehicle(ep, rng)
+		var want := v != null
+		var st := Gadget.repair_heat_step(int(_repair_heat.get(eid, 0)), int(_repair_cd.get(eid, 0)),
+			_sim.tick, want, overheat, cool)
+		_repair_heat[eid] = int(st["heat"]); _repair_cd[eid] = int(st["cooldown_until"])
+		if int(st["cooldown_until"]) > 0 and want:
+			_repair_overheats += 1
+		if bool(st["repairing"]) and v != null:
+			var before := v.hp
+			v.hp = mini(v.max_hp, v.hp + rate)
+			_repairs += v.hp - before
+	for eid in done:
+		_repairing.erase(eid)
+
+func _nearest_friendly_damaged_vehicle(ep: Pawn, rng: float) -> Vehicle:
+	var best: Vehicle = null
+	var bestd := rng
+	for vid in _sim.world.vehicles:
+		var v: Vehicle = _sim.world.vehicles[vid]
+		if not v.alive or v.team != ep.team or v.hp >= v.max_hp: continue
+		var d := ep.pos.distance_to(v.pos)
+		if d <= bestd:
+			bestd = d; best = v
+	return best
+
 ## Heals target by `rate` HP, capped at 100. No-op if dead or already full.
 func _give_heal(target_id: int, rate: int) -> void:
 	var t: Pawn = _sim.world.get_pawn(target_id)
@@ -826,6 +870,8 @@ func _handle_gadget_action(peer: ENetPacketPeer, bytes: PackedByteArray) -> void
 		Protocol.GA_GIVE_START: _giving[id] = _sim.tick
 		Protocol.GA_GIVE_STOP: _giving.erase(id)
 		Protocol.GA_BAG_THROW: _throw_bag(id, p, d["pos"])
+		Protocol.GA_REPAIR_START: _repairing[id] = true
+		Protocol.GA_REPAIR_STOP: _repairing.erase(id)
 		_: pass
 
 func _handle_vehicle_action(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:

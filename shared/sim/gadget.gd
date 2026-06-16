@@ -11,8 +11,9 @@ const KIND_MINE := 1
 const KIND_RPG := 2
 const KIND_HEAL := 3
 const KIND_AMMO := 4
+const KIND_REPAIR := 5
 
-const _KINDS := {"c4": KIND_C4, "mine": KIND_MINE, "rpg": KIND_RPG, "heal": KIND_HEAL, "ammo": KIND_AMMO}
+const _KINDS := {"c4": KIND_C4, "mine": KIND_MINE, "rpg": KIND_RPG, "heal": KIND_HEAL, "ammo": KIND_AMMO, "repair": KIND_REPAIR}
 
 var _by_kind: Dictionary = {}   # kind:int -> def Dictionary
 
@@ -40,6 +41,20 @@ static func give_hits(giver_eye: Vector3, aim_dir: Vector3, target_pos: Vector3,
 ## Pool after dispensing `amount`, floored at 0 (bag exhaustion check is `result == 0`).
 static func decrement_pool(pool: int, amount: int) -> int:
 	return maxi(0, pool - amount)
+
+## Repair heat step. Returns {heat:int, cooldown_until:int, repairing:bool}. `want` = engineer is
+## holding repair on a valid target this tick. Overheat at overheat_ticks -> cooldown_until lockout;
+## heat decays when not repairing. Pure; the server owns the dicts.
+static func repair_heat_step(heat: int, cooldown_until: int, tick: int, want: bool,
+		overheat_ticks: int, cooldown_ticks: int) -> Dictionary:
+	if tick < cooldown_until:
+		return {"heat": 0, "cooldown_until": cooldown_until, "repairing": false}
+	if not want:
+		return {"heat": maxi(0, heat - 1), "cooldown_until": 0, "repairing": false}
+	var h := heat + 1
+	if h >= overheat_ticks:
+		return {"heat": 0, "cooldown_until": tick + cooldown_ticks, "repairing": true}
+	return {"heat": h, "cooldown_until": 0, "repairing": true}
 
 # --- catalog loading (modeled on PieceCatalog) ---
 
