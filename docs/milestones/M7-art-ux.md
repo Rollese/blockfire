@@ -1,6 +1,6 @@
 # M7 — Art Pass + UX Polish
 
-**Status:** todo · **Blocked by:** M6 gate (and M4/M5 if scheduled before)
+**Status:** **todo — recommended NEXT** · **Blocked by:** M5 land gate (done ✅) · *(pulled before M6 on 2026-06-16: this is the first human-playable rendered client; M6 voice + M10 air both need it)*
 
 **Objective:** Replace placeholders with the low-poly blocky kit and finish player-facing UX.
 

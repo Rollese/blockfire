@@ -1,12 +1,12 @@
-# M5 — Vehicles (Land + Air)
+# M5 — Vehicles (Land)
 
-**Status:** **P1 (Land Vehicles + Substrate) CLOSED ✅ 2026-06-16** · P2 (Air) next · *(M4.5 precedes M5 so RPG and Engineer repair kit exist before vehicles ship)*
+**Status:** **Land Vehicles + Substrate CLOSED ✅ 2026-06-16** · **Air vehicles deferred → [M10](M10-air-vehicles.md) (last)** · *(M4.5 precedes M5 so RPG and Engineer repair kit exist before vehicles ship)*
 
-**Objective:** Networked land and air vehicles. **No boats** (per project scope).
+**Objective:** Networked **land** vehicles + the shared vehicle substrate. **Air vehicles (was P2) are deferred to [M10](M10-air-vehicles.md)** — the final content pass, after the rendered client (M7) exists, because heli/jet flight feel + balance can't be tuned blind off telemetry (owner-directed 2026-06-16; see AGENTS.md §10). **No boats** (per project scope).
 
 ## Scope
 - Vehicle entities with networked seats and roles (driver / passenger / gunner).
-- Vehicle physics (land + air) — server-authoritative with prediction where feasible.
+- Vehicle physics (land) — server-authoritative custom-kinematic, prediction-ready. *(Air physics → [M10](M10-air-vehicles.md).)*
 - Enter / exit flow; vehicle health/destruction.
 - Minimal bot vehicle behavior (occupy / transport); full vehicle combat AI is later.
 - **Engineer vehicle repair kit** (defined in M4.5, wired here): Engineer hold-action near a vehicle restores vehicle HP at `REPAIR_RATE` per tick; server-authoritative. **Unlimited but rate-limited (like medic active heal / support active ammo), with a BattleBit-style overheat → 5 s cooldown after continuous use — no per-spawn charge pool.** See [vehicles spec](../specs/vehicles.md) §6.
@@ -33,4 +33,4 @@ Spec: [`docs/specs/vehicles.md`](../specs/vehicles.md). Plan: [`docs/plans/m5-p1
 
 **Process note (AGENTS.md §10):** the fleet gate's vehicle-COMBAT counters (`veh_dead`/`rkt_veh`/`repairs`) are **reported, not gated** — they depend on emergent bot AI staging a fight, which is unreliable to tune blind. The chain is proven deterministically instead; the fleet hard-gates only perf/scale/winner/transport/boarding. **Bot vehicle tactical quality (convergence, AT aim, crew tactics) is deferred to the M7 visual-client pass**, where matches can be watched and tuned against BattleBit feel rather than blind off telemetry.
 
-**Deferred to later M5 phases / M7:** P2 **Air** vehicles (helicopter/jet — physics + air-specific replication); vehicle client visuals + occupant body rendering + prediction; richer bot vehicle combat AI.
+**Deferred:** **Air** vehicles (helicopter/jet — physics + air-specific replication) → **[M10](M10-air-vehicles.md), scheduled last** (needs the M7 rendered client to tune flight/balance by feel). Vehicle client visuals + occupant body rendering + prediction → M7. Richer bot vehicle combat AI → M7.5 + visual tuning.
