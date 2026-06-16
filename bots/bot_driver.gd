@@ -1,3 +1,4 @@
+class_name BotDriver
 extends Node
 ## Headless bot fleet. Each bot is a real client that decodes its interest view and
 ## fights the nearest enemy. Many bots per process (load + playtest). See M2 spec.
@@ -19,6 +20,7 @@ const MAX_BOT_BUILDS := 1           # walls each bot drops before stopping. Keep
 const GRENADE_COOLDOWN_TICKS := 300   # match server GRENADE_COOLDOWN_TICKS (10s, shared frag/smoke)
 const MAX_BOT_GRENADES := 1           # per-bot lifetime FRAG cap (convergence/over-destruction knob)
 const MAX_BOT_SMOKES := 1             # per-bot lifetime SMOKE cap (exercises the smoke path)
+const MAX_VEHICLE_BOTS := 6   # crew bots per process; minority so the win-convergence holds
 
 var _map: MapDef
 var _match_points: Array = []   # array of {owner, attacker, cap}, index == map point index
@@ -54,6 +56,7 @@ func _spawn_bot(index: int) -> void:
 		"last_grenade_tick": -100000, "nades_thrown": 0, "smokes_thrown": 0,
 		"class": 0, "rpg_fired": false, "c4_placed": false, "c4_detonated": false,
 		"mine_placed": false, "gave_until": 0,
+		"vview": {}, "in_vehicle": 0, "boarded_origin": Vector3.ZERO,
 	}
 	net.peer_connected.connect(func(peer: ENetPacketPeer) -> void:
 		bot["peer"] = peer
@@ -86,6 +89,7 @@ func _drive(bot: Dictionary, delta: float) -> void:
 		bot["c4_placed"] = false
 		bot["c4_detonated"] = false
 		bot["mine_placed"] = false
+		bot["in_vehicle"] = 0
 		_send(bot, 0.0, 0.0, bot["yaw"], 0.0, 0)
 		return
 
@@ -112,6 +116,42 @@ func _drive(bot: Dictionary, delta: float) -> void:
 			var myaw := atan2(to.x, to.z)
 			_send(bot, sin(myaw), cos(myaw), myaw, 0.0, 0)
 			return
+
+	var is_crew := int(bot["index"]) % 5 == 1 and int(bot["index"]) < MAX_VEHICLE_BOTS * 5
+	if is_crew:
+		var obj := _objective_pos(me)
+		if int(bot["in_vehicle"]) != 0:
+			var v: VehicleState = bot["vview"].get(bot["in_vehicle"])
+			if v == null:   # vehicle destroyed / out of view -> consider self ejected
+				bot["in_vehicle"] = 0
+			else:
+				var carried := (bot["boarded_origin"] as Vector3).distance_to(v.pos)
+				if me.pos.distance_to(obj) < 25.0 or carried > 120.0:
+					(bot["net"] as NetHost).send_to(bot["peer"], NetHost.CHANNEL_INPUT,
+						Protocol.encode_vehicle_action(Protocol.VA_EXIT, bot["in_vehicle"], 0), 0)
+					bot["in_vehicle"] = 0
+					_send(bot, 0.0, 0.0, bot["yaw"], 0.0, 0)
+					return
+				var cmd := BotDriver.drive_toward(0.0, me.pos, obj)
+				_send(bot, float(cmd["move_x"]), float(cmd["move_y"]), float(cmd["yaw"]), 0.0, 0)
+				return
+		else:
+			var vid := BotDriver.nearest_free_vehicle(bot["vview"], me.pos)
+			if vid != 0:
+				var v: VehicleState = bot["vview"][vid]
+				var d := me.pos.distance_to(v.pos)
+				if d <= 3.0:
+					(bot["net"] as NetHost).send_to(bot["peer"], NetHost.CHANNEL_INPUT,
+						Protocol.encode_vehicle_action(Protocol.VA_ENTER, vid, 0), 0)
+					bot["in_vehicle"] = vid
+					bot["boarded_origin"] = v.pos
+					_send(bot, 0.0, 0.0, bot["yaw"], 0.0, 0)
+					return
+				else:
+					var yaw := atan2(v.pos.x - me.pos.x, v.pos.z - me.pos.z)
+					_send(bot, sin(yaw), cos(yaw), yaw, 0.0, 0)
+					return
+			# no vehicle in view -> fall through to normal infantry behavior
 
 	var target: EntityState = null
 	var best := INF
@@ -523,6 +563,29 @@ static func apply_structure_delta(structs: Dictionary, d: Dictionary) -> void:
 	else:
 		structs.erase(d["id"])
 
+## Nearest own-vehicle (vehicles are team-locked so any replicated one is enterable) with a free
+## seat, within reason. Returns vid or 0. seats[*]==0 means empty.
+static func nearest_free_vehicle(vview: Dictionary, my_pos: Vector3) -> int:
+	var best := 0
+	var bestd := INF
+	for vid in vview:
+		var v: VehicleState = vview[vid]
+		var free := false
+		for occ in v.seats:
+			if int(occ) == 0: free = true; break
+		if not free: continue
+		var d := my_pos.distance_to(v.pos)
+		if d < bestd:
+			bestd = d; best = vid
+	return best
+
+## Drive command toward `objective` from `from` (heading unused in v1 — full throttle + steer by
+## bearing). Returns {move_x, move_y, yaw}. Forward throttle is positive when the target is ahead.
+static func drive_toward(_heading: float, from: Vector3, objective: Vector3) -> Dictionary:
+	var to := objective - from
+	var yaw := atan2(to.x, to.z)
+	return {"move_x": 0.0, "move_y": 1.0, "yaw": yaw}
+
 func _objective_pos(me: EntityState) -> Vector3:
 	if _map == null or _map.points.is_empty():
 		return me.pos
@@ -551,7 +614,7 @@ func _on_packet(bot: Dictionary, bytes: PackedByteArray) -> void:
 			bot["connected"] = true
 			print("[bots] bot %d connected (id %d class %d) — %d/%d" % [bot["index"], bot["id"], bot["class"], _connected_count(), _bot_count])
 		Protocol.Msg.SNAPSHOT:
-			var hdr := Snapshot.decode_apply(bytes, bot["view"])
+			var hdr := Snapshot.decode_apply(bytes, bot["view"], bot["vview"])
 			bot["last_seq"] = maxi(bot["last_seq"], int(hdr["seq"]))
 			bot["server_tick"] = int(hdr["server_tick"])
 		Protocol.Msg.MATCH_STATE:
