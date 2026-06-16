@@ -4,9 +4,24 @@ extends RefCounted
 ## drawing — headless-testable. ctx keys are filled in by client_main each frame.
 
 const LOW_AMMO_FRAC := 0.34
+const KILLFEED_TTL := 6.0
+var _killfeed: Array = []   # [{killer,victim,headshot,weapon,t}]
+
+func push_kill(ev: Dictionary, now: float) -> void:
+	_killfeed.append({"killer": int(ev["killer"]), "victim": int(ev["victim"]),
+		"headshot": bool(ev["headshot"]), "weapon": int(ev["weapon"]), "t": now})
+
+func _killfeed_current(ctx: Dictionary) -> Array:
+	var now := float(ctx.get("now", 0.0))
+	var kept: Array = []
+	for e in _killfeed:
+		if now - e["t"] <= KILLFEED_TTL:
+			kept.append(e)
+	_killfeed = kept
+	return kept
 
 func build(ctx: Dictionary) -> Dictionary:
-	return {"ammo": _ammo(ctx), "compass": _compass(ctx), "tickets": _tickets(ctx), "capture": _capture(ctx)}
+	return {"ammo": _ammo(ctx), "compass": _compass(ctx), "tickets": _tickets(ctx), "capture": _capture(ctx), "killfeed": _killfeed_current(ctx)}
 
 func _compass(ctx: Dictionary) -> Dictionary:
 	var yaw := float(ctx.get("self_yaw", 0.0))

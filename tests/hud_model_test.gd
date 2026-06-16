@@ -37,3 +37,12 @@ func test_no_capture_when_off_point() -> void:
 	var out := m.build({"match_state": ms, "self_pos": Vector3(500, 0, 500),
 		"point_positions": [Vector3(6, 0, 6)], "capture_radius": 8.0, "tick": 0})
 	assert_eq(out["capture"], null, "off point -> no capture readout")
+
+func test_killfeed_entries_decay_out() -> void:
+	var m := HudModel.new()
+	m.push_kill({"killer": 1, "victim": 2, "headshot": true, "weapon": Weapon.AR}, 10.0)
+	var out := m.build({"now": 10.5, "tick": 0})
+	assert_eq(out["killfeed"].size(), 1, "fresh entry present")
+	assert_true(out["killfeed"][0]["headshot"])
+	var out2 := m.build({"now": 10.0 + HudModel.KILLFEED_TTL + 0.1, "tick": 0})
+	assert_eq(out2["killfeed"].size(), 0, "expired entry dropped")
