@@ -620,6 +620,7 @@ func _track_and_broadcast_match_state() -> void:
 
 func _send_snapshots() -> void:
 	var state := _sim.world.state_map()
+	var vstate := _sim.world.vehicle_state_map()
 	for id in _clients:
 		# Stagger sends across ticks so the per-tick snapshot encode cost (the dominant tick
 		# cost at high player counts) is ~clients/SNAPSHOT_STRIDE rather than O(clients).
@@ -657,18 +658,29 @@ func _send_snapshots() -> void:
 			ids = kept.keys()
 		var current := {}
 		for vid in ids: current[vid] = state[vid]
+		var current_v := {}
+		for vid in vstate:
+			var vst: VehicleState = vstate[vid]
+			if self_pawn.pos.distance_to(vst.pos) <= INTEREST_RADIUS:
+				current_v[vid] = vst
 		var baseline_seq: int = c["last_acked_seq"]
 		var baseline = c["history"].get(baseline_seq)
 		if baseline == null:
 			baseline = {}; baseline_seq = 0
+		var baseline_v = c["history_v"].get(baseline_seq)
+		if baseline_v == null:
+			baseline_v = {}
 		var seq: int = c["next_seq"]
-		var bytes := Snapshot.encode(_sim.tick, seq, baseline_seq, c["last_input_tick"], current, baseline)
+		var bytes := Snapshot.encode(_sim.tick, seq, baseline_seq, c["last_input_tick"], current, baseline, current_v, baseline_v)
 		_net.send_to(c["peer"], NetHost.CHANNEL_SNAPSHOT, bytes, 0)
 		c["history"][seq] = current
+		c["history_v"][seq] = current_v
 		c["next_seq"] = seq + 1
 		var cutoff := seq - MAX_HISTORY
 		for s in c["history"].keys():
 			if s < cutoff: c["history"].erase(s)
+		for s in c["history_v"].keys():
+			if s < cutoff: c["history_v"].erase(s)
 		_tele.add_bytes(id, bytes.size())
 
 func _on_packet(peer: ENetPacketPeer, _channel: int, bytes: PackedByteArray) -> void:
@@ -711,7 +723,7 @@ func _handle_hello(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
 	_peer_to_id[peer] = id
 	_clients[id] = {
 		"peer": peer, "queued_input": null, "last_input": null, "last_input_tick": 0,
-		"last_acked_seq": 0, "next_seq": 1, "history": {},
+		"last_acked_seq": 0, "next_seq": 1, "history": {}, "history_v": {},
 		"team": team, "squad": squad, "class": cls, "weapon": wid, "weapon_def": weapon_def,
 		"rockets": start_rockets, "last_rocket_tick": -100000,
 		"ammo": Weapon.get_def(wid)["mag_size"],
@@ -739,6 +751,8 @@ func _handle_input(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
 		c["last_acked_seq"] = ack
 		for s in c["history"].keys():
 			if s < ack: c["history"].erase(s)
+		for s in c["history_v"].keys():
+			if s < ack: c["history_v"].erase(s)
 
 func _handle_build_request(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
 	var id = _peer_to_id.get(peer, 0)
