@@ -25,6 +25,7 @@ const VEHICLE_FULL_HP := 1000      # transport max (v1 single vehicle type); use
 const VEHICLE_RPG_RANGE := 120.0   # fire an RPG at an enemy vehicle within this many metres
 const RPG_FIRE_COOLDOWN := 120     # ticks between RPG fire attempts (matches server cooldown_ticks)
 const ROCKET_SPEED := 150.0  # keep in sync with data/gadgets.json rpg.rocket_speed (bot lead math)
+const ROCKET_GRAVITY := 20.0  # matches Grenade.GRAVITY; bots aim higher by 1/2 g t^2 to counter rocket drop
 
 var _map: MapDef
 var _match_points: Array = []   # array of {owner, attacker, cap}, index == map point index
@@ -405,7 +406,14 @@ func _maybe_rpg(bot: Dictionary, me: EntityState) -> void:
 	if now - int(bot["rpg_last_tick"]) < RPG_FIRE_COOLDOWN: return
 	var origin := me.pos
 	var flight: float = origin.distance_to(vv.pos) / ROCKET_SPEED
+	# Lead the target, then raise the aim by 1/2 g t^2 so the ballistic rocket's arc passes
+	# through it (rockets fall under ROCKET_GRAVITY; a flat aim lands short at range).
 	var aim_pt: Vector3 = vv.pos + vel * flight
+	aim_pt.y += 0.5 * ROCKET_GRAVITY * flight * flight
+	# One refinement pass: the raised aim is slightly farther, so recompute flight + drop.
+	flight = origin.distance_to(aim_pt) / ROCKET_SPEED
+	aim_pt = vv.pos + vel * flight
+	aim_pt.y += 0.5 * ROCKET_GRAVITY * flight * flight
 	var dir := aim_pt - origin
 	if dir.length() < 0.001: return
 	(bot["net"] as NetHost).send_to(bot["peer"], NetHost.CHANNEL_INPUT,
