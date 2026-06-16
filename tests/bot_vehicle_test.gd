@@ -21,3 +21,30 @@ func test_drive_dir_points_at_objective() -> void:
 	# steering toward an objective to the +x returns positive throttle-forward intent
 	var cmd := BotDriver.drive_toward(0.0, Vector3.ZERO, Vector3(50, 0, 0))
 	assert_true(float(cmd["move_y"]) > 0.0)
+
+func test_vehicle_is_enemy_true_when_enemy_occupant() -> void:
+	var v := VehicleState.new(); v.seats = [42, 0, 0, 0, 0]
+	var enemy := EntityState.new(); enemy.team = 1
+	var view := {42: enemy}
+	assert_true(BotDriver.vehicle_is_enemy(v, view, 0))   # my_team 0, occupant team 1 -> enemy
+
+func test_vehicle_is_enemy_false_when_friendly_or_empty() -> void:
+	var v := VehicleState.new(); v.seats = [42, 0, 0, 0, 0]
+	var friendly := EntityState.new(); friendly.team = 0
+	assert_false(BotDriver.vehicle_is_enemy(v, {42: friendly}, 0))   # same team
+	var empty := VehicleState.new(); empty.seats = [0, 0, 0, 0, 0]
+	assert_false(BotDriver.vehicle_is_enemy(empty, {}, 0))           # empty
+
+func test_nearest_enemy_vehicle_picks_closest_enemy_in_range() -> void:
+	var near := VehicleState.new(); near.pos = Vector3(10, 0, 0); near.seats = [7, 0, 0, 0, 0]
+	var far := VehicleState.new(); far.pos = Vector3(50, 0, 0); far.seats = [8, 0, 0, 0, 0]
+	var e7 := EntityState.new(); e7.team = 1
+	var e8 := EntityState.new(); e8.team = 1
+	var vview := {Vehicle.id_for(0): near, Vehicle.id_for(1): far}
+	var view := {7: e7, 8: e8}
+	assert_eq(BotDriver.nearest_enemy_vehicle(vview, view, Vector3.ZERO, 0, 60.0), Vehicle.id_for(0))
+
+func test_nearest_enemy_vehicle_zero_when_out_of_range() -> void:
+	var v := VehicleState.new(); v.pos = Vector3(200, 0, 0); v.seats = [7, 0, 0, 0, 0]
+	var e := EntityState.new(); e.team = 1
+	assert_eq(BotDriver.nearest_enemy_vehicle({Vehicle.id_for(0): v}, {7: e}, Vector3.ZERO, 0, 60.0), 0)

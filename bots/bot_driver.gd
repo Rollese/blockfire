@@ -21,6 +21,8 @@ const GRENADE_COOLDOWN_TICKS := 300   # match server GRENADE_COOLDOWN_TICKS (10s
 const MAX_BOT_GRENADES := 1           # per-bot lifetime FRAG cap (convergence/over-destruction knob)
 const MAX_BOT_SMOKES := 1             # per-bot lifetime SMOKE cap (exercises the smoke path)
 const MAX_VEHICLE_BOTS := 6   # crew bots per process; minority so the win-convergence holds
+const VEHICLE_FULL_HP := 1000      # transport max (v1 single vehicle type); used to detect a damaged ridden vehicle
+const VEHICLE_RPG_RANGE := 60.0    # fire an RPG at an enemy vehicle within this many metres
 
 var _map: MapDef
 var _match_points: Array = []   # array of {owner, attacker, cap}, index == map point index
@@ -56,7 +58,7 @@ func _spawn_bot(index: int) -> void:
 		"last_grenade_tick": -100000, "nades_thrown": 0, "smokes_thrown": 0,
 		"class": 0, "rpg_fired": false, "c4_placed": false, "c4_detonated": false,
 		"mine_placed": false, "gave_until": 0,
-		"vview": {}, "in_vehicle": 0, "boarded_origin": Vector3.ZERO,
+		"vview": {}, "in_vehicle": 0, "boarded_origin": Vector3.ZERO, "repairing": false,
 	}
 	net.peer_connected.connect(func(peer: ENetPacketPeer) -> void:
 		bot["peer"] = peer
@@ -86,6 +88,7 @@ func _drive(bot: Dictionary, delta: float) -> void:
 		# fleet gate counters need (esp. mines: a single early claymore rarely catches a point-blank
 		# enemy, but one placed fresh each life — facing the current enemy — reliably trips).
 		bot["rpg_fired"] = false
+		bot["repairing"] = false
 		bot["c4_placed"] = false
 		bot["c4_detonated"] = false
 		bot["mine_placed"] = false
@@ -123,15 +126,32 @@ func _drive(bot: Dictionary, delta: float) -> void:
 		if int(bot["in_vehicle"]) != 0:
 			var v: VehicleState = bot["vview"].get(bot["in_vehicle"])
 			if v == null:   # vehicle destroyed / out of view -> consider self ejected
+				if bool(bot["repairing"]):
+					(bot["net"] as NetHost).send_to(bot["peer"], NetHost.CHANNEL_INPUT,
+						Protocol.encode_gadget_action(Protocol.GA_REPAIR_STOP, Vector3.ZERO, Vector3.ZERO, 0), 0)
+					bot["repairing"] = false
 				bot["in_vehicle"] = 0
 			else:
 				var carried := (bot["boarded_origin"] as Vector3).distance_to(v.pos)
 				if me.pos.distance_to(obj) < 25.0 or carried > 120.0:
+					if bool(bot["repairing"]):
+						(bot["net"] as NetHost).send_to(bot["peer"], NetHost.CHANNEL_INPUT,
+							Protocol.encode_gadget_action(Protocol.GA_REPAIR_STOP, Vector3.ZERO, Vector3.ZERO, 0), 0)
+						bot["repairing"] = false
 					(bot["net"] as NetHost).send_to(bot["peer"], NetHost.CHANNEL_INPUT,
 						Protocol.encode_vehicle_action(Protocol.VA_EXIT, bot["in_vehicle"], 0), 0)
 					bot["in_vehicle"] = 0
 					_send(bot, 0.0, 0.0, bot["yaw"], 0.0, 0)
 					return
+				# Crew engineer keeps the ridden transport patched once it has taken fire.
+				if int(v.hp) < VEHICLE_FULL_HP and not bool(bot["repairing"]):
+					(bot["net"] as NetHost).send_to(bot["peer"], NetHost.CHANNEL_INPUT,
+						Protocol.encode_gadget_action(Protocol.GA_REPAIR_START, Vector3.ZERO, Vector3.ZERO, 0), 0)
+					bot["repairing"] = true
+				elif int(v.hp) >= VEHICLE_FULL_HP and bool(bot["repairing"]):
+					(bot["net"] as NetHost).send_to(bot["peer"], NetHost.CHANNEL_INPUT,
+						Protocol.encode_gadget_action(Protocol.GA_REPAIR_STOP, Vector3.ZERO, Vector3.ZERO, 0), 0)
+					bot["repairing"] = false
 				var cmd := BotDriver.drive_toward(0.0, me.pos, obj)
 				_send(bot, float(cmd["move_x"]), float(cmd["move_y"]), float(cmd["yaw"]), 0.0, 0)
 				return
@@ -368,8 +388,17 @@ func _maybe_smoke(bot: Dictionary, me: EntityState, obj: Vector3) -> void:
 
 ## Engineer RPG: fire once at an in-range enemy via GADGET_ACTION. The server rejects it unless the
 ## bot actually has the RPG equipped (it assigned ~1/3 of Engineers the RPG), so non-RPG bots no-op.
+## Prefers an enemy vehicle target if one is within VEHICLE_RPG_RANGE; falls back to infantry.
 func _maybe_rpg(bot: Dictionary, me: EntityState, target: EntityState) -> void:
 	if bot["class"] != Loadout.ENGINEER or bool(bot["rpg_fired"]): return
+	var vveh := BotDriver.nearest_enemy_vehicle(bot["vview"], bot["view"], me.pos, int(me.team), VEHICLE_RPG_RANGE)
+	if vveh != 0:
+		var vv: VehicleState = bot["vview"][vveh]
+		var dveh := (vv.pos - me.pos)
+		(bot["net"] as NetHost).send_to(bot["peer"], NetHost.CHANNEL_INPUT,
+			Protocol.encode_gadget_action(Protocol.GA_RPG_FIRE, Vector3.ZERO, dveh.normalized(), 0), 0)
+		bot["rpg_fired"] = true
+		return
 	var d := target.pos - me.pos
 	if d.length() < 0.001 or d.length() > 60.0: return
 	(bot["net"] as NetHost).send_to(bot["peer"], NetHost.CHANNEL_INPUT,
@@ -562,6 +591,29 @@ static func apply_structure_delta(structs: Dictionary, d: Dictionary) -> void:
 			structs[id]["bucket"] = d["bucket"]
 	else:
 		structs.erase(d["id"])
+
+## A vehicle is "enemy" if any seated occupant is a pawn on the other team (per the pawn view).
+## Empty / friendly-crewed vehicles return false. view: pawn_id -> EntityState (must expose .team).
+static func vehicle_is_enemy(v: VehicleState, view: Dictionary, my_team: int) -> bool:
+	for occ in v.seats:
+		var oid := int(occ)
+		if oid == 0: continue
+		var e = view.get(oid)
+		if e != null and int(e.team) != my_team:
+			return true
+	return false
+
+## Nearest enemy-crewed vehicle within max_dist of my_pos. Returns vid or 0.
+static func nearest_enemy_vehicle(vview: Dictionary, view: Dictionary, my_pos: Vector3, my_team: int, max_dist: float) -> int:
+	var best := 0
+	var bestd := max_dist
+	for vid in vview:
+		var v: VehicleState = vview[vid]
+		if not vehicle_is_enemy(v, view, my_team): continue
+		var d := my_pos.distance_to(v.pos)
+		if d <= bestd:
+			bestd = d; best = vid
+	return best
 
 ## Nearest own-vehicle (vehicles are team-locked so any replicated one is enterable) with a free
 ## seat, within reason. Returns vid or 0. seats[*]==0 means empty.
