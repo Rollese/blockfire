@@ -6,7 +6,7 @@ extends RefCounted
 const LOW_AMMO_FRAC := 0.34
 
 func build(ctx: Dictionary) -> Dictionary:
-	return {"ammo": _ammo(ctx), "compass": _compass(ctx)}
+	return {"ammo": _ammo(ctx), "compass": _compass(ctx), "tickets": _tickets(ctx), "capture": _capture(ctx)}
 
 func _compass(ctx: Dictionary) -> Dictionary:
 	var yaw := float(ctx.get("self_yaw", 0.0))
@@ -17,6 +17,22 @@ func _compass(ctx: Dictionary) -> Dictionary:
 		var world_bearing := atan2(d.x, d.z)
 		markers.append({"rel_bearing": wrapf(world_bearing - yaw, -PI, PI), "owner": int(o["owner"])})
 	return {"heading": wrapf(yaw, -PI, PI), "markers": markers}
+
+func _tickets(ctx: Dictionary) -> Array:
+	var ms: Dictionary = ctx.get("match_state", {})
+	return ms.get("tickets", [0, 0])
+
+func _capture(ctx: Dictionary):
+	var ms: Dictionary = ctx.get("match_state", {})
+	var pts: Array = ms.get("points", [])
+	var positions: Array = ctx.get("point_positions", [])
+	var sp: Vector3 = ctx.get("self_pos", Vector3.ZERO)
+	var radius := float(ctx.get("capture_radius", 8.0))
+	for i in mini(pts.size(), positions.size()):
+		if sp.distance_to(positions[i]) <= radius:
+			return {"index": i, "cap": float(pts[i]["cap"]), "owner": int(pts[i]["owner"]),
+				"attacker": int(pts[i]["attacker"])}
+	return null
 
 func _ammo(ctx: Dictionary) -> Dictionary:
 	var wp: WeaponPredictor = ctx.get("weapon_predictor") as WeaponPredictor
