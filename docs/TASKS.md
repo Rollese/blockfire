@@ -13,7 +13,7 @@ Canonical source of truth for what's being worked on. Claim a task (set owner + 
 | M2 | [Core FPS loop](milestones/M2-core-fps-loop.md) | **done ✅** | Bots move + shoot each other; kills register; 128 bots stable. Gate run 2026-06-14: 128 players, peak-window tick_mean=30.01ms (budget <33.3ms), total kills=19 — PASS. See evidence in milestone doc. |
 | M3 | [Conquest + respawn + squads](milestones/M3-conquest-squads.md) | **done ✅** | Bot-only Conquest match runs start→win at 128. Gate 2026-06-15 on separate-host fleet (unraid W-2275, server pinned, bots in Docker): `winner=0 elapsed=289s cap_events=7 peak tick=28.62ms<33.3` — PASS. Required a snapshot-cost fix (send staggering + enemy-prioritized relevance cap; `_send_snapshots` was 88% of the tick, O(N²)) — peak 95→28.6ms. 48-bot laptop gate also PASS (19.7ms). 88 unit tests green. See milestone doc. |
 | M4 | [Building & destruction](milestones/M4-building-destruction.md) | **done ✅** | Phase 1 (Building) + Phase 2 (Destruction) both gate PASS 2026-06-15. Phase-2 fleet-128 (2/2 reruns): `winner valid elapsed=233/272s destroyed=5/23 nades=88/55 smoke=128 peak tick=29.48ms<33.3` — PASS. Destruction per-tick cost ~0.1ms (respawn phase); snap remains the dominant pre-existing cost. 140 unit tests green. See milestone doc. |
-| M4.5 | [Combat depth & class identity](milestones/M4.5-combat-depth.md) | P1 done; P2/P3 todo | **P1 (Survivability: DBNO/revive/bandages) gated PASS 2026-06-15.** Remaining: body dragging, ladders, vaulting, drop-shoot prevention, class gadgets (C4/mines/ammo bags/RPG/medic bag), weapon attachments, bullet penetration. All features active in 128-bot match; tick + bw budget held; Conquest winner reached. |
+| M4.5 | [Combat depth & class identity](milestones/M4.5-combat-depth.md) | **done ✅** | **All three phases gated PASS on `game2`.** P1 (DBNO/revive/bandages) 2026-06-15; P2 (gadgets/RPG/penetration/attachments) 2026-06-16; P3 (ladders/vaulting/drop-shoot) 2026-06-16 (`winner=1 climbs=9 vaults=16 peak tick=23.46ms<33.3`). Body dragging deferred to M7 (per spec). 245 unit tests green. |
 | M5 | [Vehicles (land + air)](milestones/M5-vehicles.md) | todo | Vehicles usable under load; bots can occupy/transport. Requires RPG (M4.5) for anti-vehicle play; Engineer repair kit defined in M4.5, wired to vehicle HP here. |
 | M6 | [Voice (proximity + squad)](milestones/M6-voice.md) | todo | Voice works for human testers in a live match without breaking tick budget. |
 | M7 | [Art pass + UX polish](milestones/M7-art-ux.md) | todo | End-to-end human playtest of a full Conquest match. |
@@ -43,6 +43,16 @@ Spec: [`docs/specs/combat-depth.md`](specs/combat-depth.md) (P2 section). Plan: 
 | M4.5-P2 implementation plan | claude | done | `docs/plans/2026-06-15-m4.5-p2-combat-depth.md` (15 tasks) |
 | M4.5-P2 execute (15 tasks) | claude | **done** | subagent-driven; Tasks 9/10/13 two-stage reviewed; penetration + attachments + Gadget/RPG + C4/mines + medic/ammo tools + bot AI + gates. 214 unit tests green. |
 | M4.5-P2 fleet 128-bot gate | claude | **done** | PASS on `game2`: `winner=1 elapsed=229s peak tick=25.77ms (<33.3)`; `rockets=8 c4=8 mines=2 heals=211 ammo=13 bags=27` (all ≥1), agg 16.5 Mbit/s. `pen` reported (unit-tested, not gated — needs a shot crossing a penetrable half-height sandbag). Laptop-48 smoke also PASS. Evidence `docker/srvlog-20260616-003326.log`. |
+
+## M4.5 Phase 3 (Movement) — CLOSED ✅ (2026-06-16) → M4.5 COMPLETE
+
+Spec: [`docs/specs/combat-depth.md`](specs/combat-depth.md) (P3 section). Plan: [`docs/plans/2026-06-16-m4.5-p3-movement.md`](plans/2026-06-16-m4.5-p3-movement.md) — 12 TDD tasks (ladder climbing, auto-vaulting, drop-shoot prevention). Built on the `m4.5-p3-movement` branch via `subagent-driven-development` (Tasks 6 & 9 two-stage reviewed — authoritative movement/fire path; branch HEAD verified after each reviewer). Movement rules live in `shared/sim/` (`Ladder`/`Vault` pure helpers + `SimLoop` orchestration) so a future M7 client can predict them; `climbing` replicated in state-byte bit 7 (`vaulting` deferred to M7). Gate evidence: `docker/srvlog-20260616-115725.log`; milestone `docs/milestones/M4.5-combat-depth.md`.
+
+| Task | Owner | Status | Notes |
+|---|---|---|---|
+| M4.5-P3 implementation plan | claude | done | `docs/plans/2026-06-16-m4.5-p3-movement.md` (12 tasks) |
+| M4.5-P3 execute (12 tasks) | claude | **done** | subagent-driven; Tasks 6/9 two-stage reviewed; ladder/vault/platform helpers + SimLoop drive + drop-shoot gate + climbing replication + MapDef geometry + bot climb-seek & movement-drill exerciser + gate scripts. 245 unit tests green. |
+| M4.5-P3 fleet 128-bot gate | claude | **done** | PASS on `game2` (server pinned to P-cores 0-3): `winner=1 elapsed=317s peak tick=23.46ms (<33.3)`; `climbs=9 vaults=16` (both ≥1), agg 18.7 Mbit/s, `dropblk=5`. ≤48 smoke also PASS (`climbs=4 vaults=7`). Evidence `docker/srvlog-20260616-115725.log`. |
 
 ## Active tasks (M0) — complete ✅
 

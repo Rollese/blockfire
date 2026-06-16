@@ -211,8 +211,10 @@ The proving-grounds map gets **one ladder + ledge placed on the natural bot rout
 | Const | Value | Meaning |
 |---|---|---|
 | `LADDER_CLIMB_SPEED` | 3.0 m/s | vertical climb speed (driven by `move_y` sign) |
-| `LADDER_STRAFE_SPEED` | 1.0 m/s | limited horizontal speed while on a ladder |
-| `LADDER_CAPTURE_RADIUS` | 0.6 m | (x,z) capture distance from the ladder line |
+| `LADDER_CAPTURE_RADIUS` | 0.6 m | (x,z) capture distance from the ladder line (per-ladder `radius` overrides in map data) |
+| `ANCHOR_EPS` | 0.1 m | tolerance at the top/bottom dismount anchors |
+
+> **Implemented deviation:** v1 climbing **locks (x,z) to the ladder line — no strafe** (`Ladder.climb_step`). The originally-specced `LADDER_STRAFE_SPEED` was dropped (not needed for the headless fleet; the M7 rendered client can add lateral movement if play-testing wants it).
 | `VAULT_TICKS` | 8 | ticks to complete a vault arc (~0.27 s) |
 | `VAULT_MAX_HEIGHT` | 1.2 m | max blocker top height that is vaultable (half piece = 1.0 m qualifies) |
 | `PRONE_TRANSITION_TICKS` | 10 | fire block after entering prone (~0.33 s) |
@@ -242,9 +244,12 @@ server/server_main.gd  (mod) drop-shoot fire gate in _resolve_fires; build + pas
 maps/conquest_proving_grounds.json (mod) ladder + ledge (platform) + prebuilt climb wall and a
                                          prebuilt half-height vault sandbag, on the bot route to point C
 bots/bot_driver.gd     (mod) navigate onto the ladder when the objective lies across it
-                              (steer + drive move_y up); optional prone-fire exerciser (report-only)
-ci/m4.5_p3_test.sh     NEW   laptop-48 smoke + 128-bot fleet assertions (climbs≥1, vaults≥1,
-                              drop-shoot unit-tested, tick + bw budget, Conquest winner)
+                              (climb_seek); + a deterministic movement-drill exerciser (~1 in 8 bots
+                              cycle a behind-base ladder/sandbag station) so the gate reliably sees
+                              climbs≥1 / vaults≥1 regardless of match flow
+ci/m4.5_p3_test.sh     NEW   ≤48-bot smoke (on game2) + docker/run-m4.5-p3-gate.sh 128-bot fleet
+                              assertions (climbs≥1, vaults≥1, drop-shoot unit-tested, tick + bw
+                              budget, Conquest winner)
 tests/
   ladder_test.gd  NEW  capture test, climb-step (no gravity, move_y sign), platform floor, anchor snap
   vault_test.gd   NEW  height-generic detection (1.0 m vaults, 2.0 m blocks), crouch/prone block,
