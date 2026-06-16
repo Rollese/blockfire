@@ -59,3 +59,10 @@ func test_enemy_spawn_pos_returns_other_team_spawn() -> void:
 
 func test_enemy_spawn_pos_falls_back_when_none() -> void:
 	assert_eq(BotDriver.enemy_spawn_pos([], 0, Vector3(5, 0, 5)), Vector3(5, 0, 5))
+
+func test_central_point_index_picks_nearest_origin() -> void:
+	var pts := [Vector3(-600, 0, -400), Vector3(0, 0, 0), Vector3(600, 0, 400)]
+	assert_eq(BotDriver.central_point_index(pts), 1)
+
+func test_central_point_index_empty_is_negative() -> void:
+	assert_eq(BotDriver.central_point_index([]), -1)

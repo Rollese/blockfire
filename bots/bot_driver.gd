@@ -22,7 +22,7 @@ const MAX_BOT_GRENADES := 1           # per-bot lifetime FRAG cap (convergence/o
 const MAX_BOT_SMOKES := 1             # per-bot lifetime SMOKE cap (exercises the smoke path)
 const MAX_VEHICLE_BOTS := 6   # crew bots per process; minority so the win-convergence holds
 const VEHICLE_FULL_HP := 1000      # transport max (v1 single vehicle type); used to detect a damaged ridden vehicle
-const VEHICLE_RPG_RANGE := 60.0    # fire an RPG at an enemy vehicle within this many metres
+const VEHICLE_RPG_RANGE := 100.0   # fire an RPG at an enemy vehicle within this many metres
 
 var _map: MapDef
 var _match_points: Array = []   # array of {owner, attacker, cap}, index == map point index
@@ -140,10 +140,10 @@ func _drive(bot: Dictionary, delta: float) -> void:
 					(bot["net"] as NetHost).send_to(bot["peer"], NetHost.CHANNEL_INPUT,
 						Protocol.encode_gadget_action(Protocol.GA_REPAIR_STOP, Vector3.ZERO, Vector3.ZERO, 0), 0)
 					bot["repairing"] = false
-				# Drive the transport deep into enemy territory (their vehicle spawn) so it
-				# draws sustained enemy blast fire (-> repairs/rkt_veh/veh_dead gate counters).
-				# A fixed backfield point avoids the oscillation of chasing the nearest cap point.
-				var push := _enemy_push_pos(me)
+				# Drive the transport to the central objective — the most contested point, where
+				# enemy RPG engineers and grenade fire concentrate, so the vehicle takes blast damage
+				# (-> repairs/rkt_veh/veh_dead gate counters).
+				var push := _combat_pos(me)
 				if me.pos.distance_to(push) < 12.0:
 					_send(bot, 0.0, 0.0, bot["yaw"], 0.0, 0)   # hold at the enemy spawn
 				else:
@@ -633,6 +633,17 @@ static func drive_toward(_heading: float, from: Vector3, objective: Vector3) -> 
 	var yaw := atan2(to.x, to.z)
 	return {"move_x": 0.0, "move_y": 1.0, "yaw": yaw}
 
+## Index of the capture point nearest the map centre (origin) — the most contested objective, where
+## combat (and thus the blast fire that can damage a vehicle) concentrates. -1 for an empty list.
+static func central_point_index(positions: Array) -> int:
+	var best := -1
+	var bestd := INF
+	for i in positions.size():
+		var d: float = (positions[i] as Vector3).length()   # distance from origin
+		if d < bestd:
+			bestd = d; best = i
+	return best
+
 ## Position of the ENEMY team's vehicle spawn (a fixed deep-enemy-backfield point). Crewed transports
 ## drive here to loiter in enemy fire so the vehicle takes blast damage (the only thing that hurts it).
 ## spawns: Array of {team:int, pos:Vector3}. Returns `fallback` if no enemy spawn is listed.
@@ -657,12 +668,17 @@ func _objective_pos(me: EntityState) -> Vector3:
 	var idx := choose_objective_index(positions, owners, me.team, me.pos, me.pos)
 	return positions[idx] if idx >= 0 else me.pos
 
-## Crew transports push to the enemy team's vehicle spawn (a fixed point deep in enemy territory),
-## drawing the vehicle into sustained enemy blast fire. Falls back to the nearest objective.
-func _enemy_push_pos(me: EntityState) -> Vector3:
-	if _map == null:
-		return me.pos
-	return BotDriver.enemy_spawn_pos(_map.vehicle_spawns, int(me.team), _objective_pos(me))
+## Crew transports loiter on the central objective — the most contested point, where the enemy
+## RPG engineers and grenade fire are, so the vehicle actually takes blast damage. Falls back to
+## the nearest objective if the map has no points.
+func _combat_pos(me: EntityState) -> Vector3:
+	if _map == null or _map.points.is_empty():
+		return _objective_pos(me)
+	var positions: Array = []
+	for i in _map.points.size():
+		positions.append(_map.points[i]["pos"])
+	var idx := BotDriver.central_point_index(positions)
+	return positions[idx] if idx >= 0 else _objective_pos(me)
 
 func _send(bot: Dictionary, mx: float, my: float, yaw: float, pitch: float, buttons: int) -> void:
 	var bytes := InputCommand.encode(bot["tick"], bot["last_seq"], mx, my, yaw, pitch, buttons, bot["server_tick"])
