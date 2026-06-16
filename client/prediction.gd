@@ -19,3 +19,22 @@ func reconcile(auth_pos: Vector3, auth_yaw: float, last_input_tick: int) -> void
 	predicted.yaw = auth_yaw
 	for inp in pending:
 		predicted.step(SimLoop.DT, {"move_x": inp["move_x"], "move_y": inp["move_y"], "yaw": inp["yaw"]})
+
+func record_cmd(client_tick: int, cmd: Dictionary) -> void:
+	predicted.step(SimLoop.DT, cmd)
+	pending.append({"tick": client_tick, "cmd": cmd})
+
+func reconcile_full(auth_pos: Vector3, auth_yaw: float, auth_pitch: float, last_input_tick: int) -> void:
+	var kept: Array = []
+	for inp in pending:
+		if inp["tick"] > last_input_tick:
+			kept.append(inp)
+	pending = kept
+	predicted.pos = auth_pos
+	predicted.yaw = auth_yaw
+	predicted.pitch = auth_pitch
+	for inp in pending:
+		if inp.has("cmd"):
+			predicted.step(SimLoop.DT, inp["cmd"])
+		else:
+			predicted.step(SimLoop.DT, {"move_x": inp["move_x"], "move_y": inp["move_y"], "yaw": inp["yaw"]})
