@@ -43,6 +43,7 @@ const ENTER_RANGE := 3.0
 const RPG_VEHICLE_DMG := 500
 const C4_VEHICLE_DMG := 500
 const FRAG_VEHICLE_DMG := 80
+const MAX_VIEW_RATE := 0.6  # rad/tick; at 30Hz = 18 rad/s (~1031 deg/s) — generous cap for telemetry-only anomaly detection
 
 var _net: NetHost
 var _port := 27015
@@ -64,7 +65,7 @@ var _next_struct_id := 1
 var _next_id := 1
 var _tele_accum := 0.0
 # Per-phase tick profiling (mean usec/tick over the telemetry window).
-var _phase_us := {"poll": 0, "move": 0, "lag": 0, "interest": 0, "fire": 0, "respawn": 0, "conquest": 0, "match": 0, "snap": 0}
+var _phase_us := {"poll": 0, "move": 0, "veh": 0, "lag": 0, "interest": 0, "fire": 0, "respawn": 0, "conquest": 0, "match": 0, "snap": 0}
 var _phase_ticks := 0
 var _team_counts := {0: 0, 1: 0}
 var _positions := {}               # id -> Vector3, rebuilt each tick before fires
@@ -120,6 +121,7 @@ var _repair_heat := {}      # engineer_id -> int
 var _repair_cd := {}        # engineer_id -> cooldown_until tick
 var _repairs := 0           # HP restored this window
 var _repair_overheats := 0
+var _ac_viol := 0              # view-rate anomalies (telemetry-only, never rejects input)
 var _bags: Array = []          # [{owner, team, kind, pos, pool}]
 var _c4: Dictionary = {}      # owner_id -> Array of {pos, cell:Vector3i}
 var _smoke_zones: Array = []  # [{pos, radius, expire_tick}] — server-side; M7 LOS culling consumes
@@ -193,8 +195,10 @@ func _physics_process(delta: float) -> void:
 		if (cur & 2) != 0 and (prv & 2) == 0:
 			_vaults += 1
 		_prev_climb_vault[id] = cur
-	_sim.step_vehicles(_build_vehicle_inputs())
 	var t_move := Time.get_ticks_usec()
+	_sim.step_vehicles(_build_vehicle_inputs())
+	_track_transport_distance()
+	var t_veh := Time.get_ticks_usec()
 	_lag.record(_sim.tick, _sim.world)
 	var t_lag := Time.get_ticks_usec()
 	_build_interest()
@@ -223,7 +227,8 @@ func _physics_process(delta: float) -> void:
 	var t_snap := Time.get_ticks_usec()
 	_phase_us["poll"] += t_poll - t0
 	_phase_us["move"] += t_move - t_poll
-	_phase_us["lag"] += t_lag - t_move
+	_phase_us["veh"] += t_veh - t_move
+	_phase_us["lag"] += t_lag - t_veh
 	_phase_us["interest"] += t_int - t_lag
 	_phase_us["fire"] += t_fire - t_int
 	_phase_us["respawn"] += t_resp - t_fire
@@ -262,6 +267,10 @@ func _step_movement() -> void:
 			if inp != null: _tele.starvation += 1
 		if inp != null:
 			inputs[id] = inp
+			var prev_inp = c["last_input"]
+			if prev_inp != null and inp != prev_inp:
+				if not InputValidate.view_rate_ok(float(prev_inp["yaw"]), float(inp["yaw"]), float(prev_inp["pitch"]), float(inp["pitch"]), MAX_VIEW_RATE):
+					_ac_viol += 1
 			c["last_input"] = inp
 			c["last_input_tick"] = inp["client_tick"]
 		c["queued_input"] = null
@@ -954,6 +963,16 @@ func _vehicle_exit(id: int, p: Pawn) -> void:
 	p.in_vehicle = 0
 	p.seat = -1
 	_exits += 1
+	_transport_origin.erase(id)
+
+func _track_transport_distance() -> void:
+	for vid in _sim.world.vehicles:
+		var v: Vehicle = _sim.world.vehicles[vid]
+		if not v.alive: continue
+		for occ in v.occupant_ids():
+			if _transport_origin.has(occ):
+				var dist: float = (_transport_origin[occ] as Vector3).distance_to(v.pos)
+				_transport_max = maxf(_transport_max, dist)
 
 ## Launch an RPG rocket if the player has the RPG equipped, rockets remaining, and is off cooldown.
 func _fire_rocket(id: int, p: Pawn, dir: Vector3) -> void:
@@ -1350,14 +1369,16 @@ func _log_telemetry() -> void:
 	var pts := ""
 	for pt in _conquest.points:
 		pts += "." if pt["owner"] == -1 else str(pt["owner"])
-	print("[telemetry] players=%d alive=%d tick_mean=%.2fms tick_p99=%.2fms agg=%.1fMbit/s kills=%d shots=%d hit_rate=%.2f starv=%d rewind_clamped=%d t0=%d t1=%d pts=%s cap_events=%d struct=%d bld=%d rmv=%d blk=%d pen=%d dmg=%d destroyed=%d nades=%d splash=%d smoke=%d rockets=%d rstruct=%d downed=%d bleedouts=%d revives=%d c4=%d mines=%d heals=%d ammo=%d bags=%d bagx=%d climbs=%d vaults=%d dropblk=%d"
-		% [n, alive, _tele.mean_tick_ms(), _tele.p99_tick_ms(), mbit, _kills, _shots, hit_rate, _tele.starvation, _rewind_clamped, _conquest.tickets_int(0), _conquest.tickets_int(1), pts, _cap_events, _store.count(), _builds, _removes, _shots_blocked, _pen, _dmg, _destroyed, _nades, _splash_kills, _smokes, _rockets_det, _rstruct, _downed, _bleedouts, _revives, _c4_det, _mine_trips, _heals, _ammo_gives, _bags_thrown, _bags_exhausted, _climbs, _vaults, _drop_shoot_blocked])
+	print("[telemetry] players=%d alive=%d tick_mean=%.2fms tick_p99=%.2fms agg=%.1fMbit/s kills=%d shots=%d hit_rate=%.2f starv=%d rewind_clamped=%d t0=%d t1=%d pts=%s cap_events=%d struct=%d bld=%d rmv=%d blk=%d pen=%d dmg=%d destroyed=%d nades=%d splash=%d smoke=%d rockets=%d rstruct=%d downed=%d bleedouts=%d revives=%d c4=%d mines=%d heals=%d ammo=%d bags=%d bagx=%d climbs=%d vaults=%d dropblk=%d enters=%d exits=%d veh_dead=%d repairs=%d repair_oh=%d rkt_veh=%d transport_m=%.1f ac_viol=%d"
+		% [n, alive, _tele.mean_tick_ms(), _tele.p99_tick_ms(), mbit, _kills, _shots, hit_rate, _tele.starvation, _rewind_clamped, _conquest.tickets_int(0), _conquest.tickets_int(1), pts, _cap_events, _store.count(), _builds, _removes, _shots_blocked, _pen, _dmg, _destroyed, _nades, _splash_kills, _smokes, _rockets_det, _rstruct, _downed, _bleedouts, _revives, _c4_det, _mine_trips, _heals, _ammo_gives, _bags_thrown, _bags_exhausted, _climbs, _vaults, _drop_shoot_blocked, _enters, _exits, _veh_destroyed, _repairs, _repair_overheats, _rkt_vs_veh, _transport_max, _ac_viol])
 	var pt := maxi(_phase_ticks, 1)
-	print("[perf] us/tick: poll=%d move=%d lag=%d interest=%d fire=%d respawn=%d conquest=%d match=%d snap=%d (ticks=%d)"
-		% [_phase_us["poll"] / pt, _phase_us["move"] / pt, _phase_us["lag"] / pt, _phase_us["interest"] / pt, _phase_us["fire"] / pt, _phase_us["respawn"] / pt, _phase_us["conquest"] / pt, _phase_us["match"] / pt, _phase_us["snap"] / pt, _phase_ticks])
+	print("[perf] us/tick: poll=%d move=%d veh=%d lag=%d interest=%d fire=%d respawn=%d conquest=%d match=%d snap=%d (ticks=%d)"
+		% [_phase_us["poll"] / pt, _phase_us["move"] / pt, _phase_us["veh"] / pt, _phase_us["lag"] / pt, _phase_us["interest"] / pt, _phase_us["fire"] / pt, _phase_us["respawn"] / pt, _phase_us["conquest"] / pt, _phase_us["match"] / pt, _phase_us["snap"] / pt, _phase_ticks])
 	for k in _phase_us: _phase_us[k] = 0
 	_phase_ticks = 0
 	_tele.reset_window()
 	_kills = 0; _shots = 0; _hits = 0; _rewind_clamped = 0; _cap_events = 0
 	_builds = 0; _removes = 0; _shots_blocked = 0; _pen = 0
 	_dmg = 0; _destroyed = 0; _nades = 0; _splash_kills = 0; _smokes = 0; _rockets_det = 0; _rstruct = 0; _downed = 0; _bleedouts = 0; _revives = 0; _c4_det = 0; _mine_trips = 0; _heals = 0; _ammo_gives = 0; _bags_thrown = 0; _bags_exhausted = 0; _climbs = 0; _vaults = 0; _drop_shoot_blocked = 0
+	_enters = 0; _exits = 0; _veh_destroyed = 0; _repairs = 0; _repair_overheats = 0; _rkt_vs_veh = 0; _transport_max = 0.0
+	_ac_viol = 0
