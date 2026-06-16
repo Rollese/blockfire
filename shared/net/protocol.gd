@@ -30,6 +30,7 @@ enum Msg {
 	GADGET_ACTION = 17, ## client -> server: gadget intent (C4/mine/RPG/bag/active-give); action byte selects
 	VEHICLE_ACTION = 18,    ## client -> server: enter/exit a vehicle seat
 	VEHICLE_DESTROYED = 19, ## server -> clients: a vehicle was destroyed (vid)
+	DEPLOY_REQUEST = 20,    ## client -> server: deploy me at spawn_ref (see DeploySpawn)
 }
 
 const OP_PLACE := 0
@@ -322,3 +323,13 @@ static func encode_vehicle_destroyed(vehicle_id: int) -> PackedByteArray:
 
 static func decode_vehicle_destroyed(bytes: PackedByteArray) -> Dictionary:
 	return {"vehicle_id": body_reader(bytes).get_u32()}
+
+
+static func encode_deploy_request(spawn_ref: int) -> PackedByteArray:
+	var buf := StreamPeerBuffer.new()
+	buf.put_u8(Msg.DEPLOY_REQUEST)
+	buf.put_u8(spawn_ref & 0xFF)
+	return buf.data_array
+
+static func decode_deploy_request(bytes: PackedByteArray) -> Dictionary:
+	return {"spawn_ref": body_reader(bytes).get_u8()}

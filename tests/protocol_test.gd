@@ -132,3 +132,8 @@ func test_welcome_carries_class() -> void:
 	var d := Protocol.decode_welcome(Protocol.encode_welcome(5, 30, Loadout.ENGINEER))
 	assert_eq(d["id"], 5)
 	assert_eq(d["class"], Loadout.ENGINEER)
+
+func test_deploy_request_roundtrip() -> void:
+	var b := Protocol.encode_deploy_request(3)
+	assert_eq(Protocol.msg_type(b), Protocol.Msg.DEPLOY_REQUEST)
+	assert_eq(Protocol.decode_deploy_request(b)["spawn_ref"], 3)
