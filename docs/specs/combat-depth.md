@@ -196,7 +196,7 @@ The proving-grounds map gets **one ladder + ledge placed on the natural bot rout
 **Vaultable surfaces (both consulted by `vault.gd`):**
 
 - **Half-height structure pieces** — `is_half` pieces are 1.0 m tall (`0.5 × CELL_SIZE`, CELL_SIZE=2.0); sandbags qualify, full walls (2.0 m) do not. Bots already build sandbags in P2, so these occur in live matches.
-- **One static low obstacle** added to the map (a `vault_obstacles: [{min,max}]` AABB) **on the bot route**, guaranteeing deterministic vault events at the gate independent of where bots happen to build (carried lesson from P2's claymore).
+- **One static low obstacle** added to the map **on the bot route**, guaranteeing deterministic vault events at the gate independent of where bots happen to build (carried lesson from P2's claymore). **Implemented as a pre-placed half-height structure piece** (`MapDef.prebuilt` → a sandbag the server places into `StructureStore` at startup), not a parallel AABB system — this reuses the existing structure collision and the vault-via-structure detection path verbatim. Same observable behavior, less code.
 
 > **Explicit content non-scope (ratified 2026-06-16):** the vault *rule* is height-generic, but the *content* it can act on this phase is only half-height pieces + the static obstacle. Blockfire has **no window/door piece type** and destruction **removes a wall entirely** at 0 HP (no low stub). True "vault a half-destroyed wall / through a window" needs new content (a window/low-wall piece, or destruction leaving a low remnant) — deferred to a later content pass (M5/M7); it will vault for free when it lands.
 
@@ -221,7 +221,7 @@ The proving-grounds map gets **one ladder + ledge placed on the natural bot rout
 
 - **No new input message** — climb and vault auto-engage from existing `move_x/move_y`; `InputCommand` is unchanged.
 - **No new reliable CONTROL message** — climb/vault are derived server-side from input + position; drop-shoot is server-internal.
-- **Snapshot:** `EntityState` packs a `climbing` and a `vaulting` flag (≤1 byte/pawn total, for M7 client animation). No new per-tick streams. Bandwidth impact negligible.
+- **Snapshot:** `EntityState` packs a `climbing` flag into the **free bit 7** of the existing state byte (stance/lean/team/alive/downed use bits 0–6) — **zero extra bytes**. The `vaulting` flag is **not wired this phase** (the state byte is then full, and the gate counts vaults via server telemetry, not the snapshot); M7 adds a second flag byte when it needs vault animation. No new per-tick streams. Bandwidth impact negligible.
 
 ### P3 module layout (concrete)
 
@@ -235,12 +235,12 @@ shared/sim/
                       _step_climb / _step_vault branches (mirror _step_downed)
   sim_loop.gd   (mod) map_geom handle; climb entry/exit, vault arc, platform landing,
                       stance-change tick recording
-  map_def.gd    (mod) parse + validate ladders / platforms / vault_obstacles
-  entity_state.gd (mod) climbing + vaulting replication flags
+  map_def.gd    (mod) parse + validate ladders / platforms / prebuilt (pre-placed pieces)
+  entity_state.gd (mod) climbing replication flag (state-byte bit 7; vaulting flag deferred to M7)
 server/server_main.gd  (mod) drop-shoot fire gate in _resolve_fires; build + pass map_geom to
                               SimLoop; telemetry counters climbs / vaults
-maps/conquest_proving_grounds.json (mod) one ladder + ledge + one static low vault obstacle on
-                                         the bot route to point C
+maps/conquest_proving_grounds.json (mod) ladder + ledge (platform) + prebuilt climb wall and a
+                                         prebuilt half-height vault sandbag, on the bot route to point C
 bots/bot_driver.gd     (mod) navigate onto the ladder when the objective lies across it
                               (steer + drive move_y up); optional prone-fire exerciser (report-only)
 ci/m4.5_p3_test.sh     NEW   laptop-48 smoke + 128-bot fleet assertions (climbs≥1, vaults≥1,
