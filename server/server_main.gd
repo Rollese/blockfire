@@ -99,6 +99,10 @@ var _c4_det := 0              # C4 detonations (per detonate action) this window
 var _mine_trips := 0          # claymore/mine detonations this window
 var _heals := 0          # active+bag HP-dispensing events this window
 var _ammo_gives := 0     # active+bag ammo-resupply events this window
+var _enters := 0
+var _exits := 0
+var _transport_origin := {}   # id -> Vector3 boarding pos (transport-distance metric)
+var _transport_max := 0.0     # max carried distance observed this window
 var _bags_thrown := 0    # bags deployed this window
 var _bags_exhausted := 0 # bags that hit pool 0 and vanished this window
 var _rstruct := 0             # structures hit by rockets this window
@@ -182,6 +186,7 @@ func _physics_process(delta: float) -> void:
 		if (cur & 2) != 0 and (prv & 2) == 0:
 			_vaults += 1
 		_prev_climb_vault[id] = cur
+	_sim.step_vehicles(_build_vehicle_inputs())
 	var t_move := Time.get_ticks_usec()
 	_lag.record(_sim.tick, _sim.world)
 	var t_lag := Time.get_ticks_usec()
@@ -254,6 +259,20 @@ func _step_movement() -> void:
 			c["reloading"] = false
 			c["ammo"] = Weapon.get_def(c["weapon"])["mag_size"]
 	_sim.step(inputs)
+
+## Build vid -> driver command from each vehicle's seat-0 (driver) occupant's last input. Also
+## refreshes the gunner pawn's look so SimLoop.step_vehicles can mirror it to the turret.
+func _build_vehicle_inputs() -> Dictionary:
+	var vinputs := {}
+	for vid in _sim.world.vehicles:
+		var v: Vehicle = _sim.world.vehicles[vid]
+		if not v.alive: continue
+		var driver: int = int(v.seats[0])
+		if driver != 0 and _clients.has(driver) and _clients[driver]["last_input"] != null:
+			var inp = _clients[driver]["last_input"]
+			vinputs[vid] = {"move_x": InputValidate.clamp_axis(inp["move_x"]),
+				"move_y": InputValidate.clamp_axis(inp["move_y"])}
+	return vinputs
 
 func _piece_index(piece_id: String) -> int:
 	for i in _catalog.size():
@@ -662,6 +681,7 @@ func _on_packet(peer: ENetPacketPeer, _channel: int, bytes: PackedByteArray) -> 
 		Protocol.Msg.REVIVE_ACTION: _handle_revive_action(peer, bytes)
 		Protocol.Msg.SELF_BANDAGE: _handle_self_bandage(peer, bytes)
 		Protocol.Msg.GADGET_ACTION: _handle_gadget_action(peer, bytes)
+		Protocol.Msg.VEHICLE_ACTION: _handle_vehicle_action(peer, bytes)
 		_: pass
 
 func _handle_hello(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
@@ -790,6 +810,41 @@ func _handle_gadget_action(peer: ENetPacketPeer, bytes: PackedByteArray) -> void
 		Protocol.GA_GIVE_STOP: _giving.erase(id)
 		Protocol.GA_BAG_THROW: _throw_bag(id, p, d["pos"])
 		_: pass
+
+func _handle_vehicle_action(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
+	var id = _peer_to_id.get(peer, 0)
+	if id == 0 or not _clients.has(id): return
+	var p: Pawn = _sim.world.get_pawn(id)
+	if p == null: return
+	var d := Protocol.decode_vehicle_action(bytes)
+	match int(d["action"]):
+		Protocol.VA_ENTER: _vehicle_enter(id, p, int(d["vehicle_id"]), int(d["seat_hint"]))
+		Protocol.VA_EXIT: _vehicle_exit(id, p)
+		_: pass
+
+func _vehicle_enter(id: int, p: Pawn, vid: int, seat_hint: int) -> void:
+	var v: Vehicle = _sim.world.vehicles.get(vid)
+	if v == null: return
+	if not Vehicle.can_enter(v, p, p.pos.distance_to(v.pos), ENTER_RANGE): return
+	var seat := v.free_seat(seat_hint)
+	if seat < 0: return
+	v.seats[seat] = id
+	p.in_vehicle = vid
+	p.seat = seat
+	_enters += 1
+	_transport_origin[id] = v.pos   # for the transport-distance gate metric (Task 16)
+
+func _vehicle_exit(id: int, p: Pawn) -> void:
+	if p.in_vehicle == 0: return
+	var v: Vehicle = _sim.world.vehicles.get(p.in_vehicle)
+	if v != null:
+		if p.seat >= 0 and p.seat < v.seats.size(): v.seats[p.seat] = 0
+		var exit_pos := v.pos + Vehicle.rotate_yaw(v.exit_offset, v.heading)
+		exit_pos.y = maxf(0.0, exit_pos.y)
+		p.pos = exit_pos
+	p.in_vehicle = 0
+	p.seat = -1
+	_exits += 1
 
 ## Launch an RPG rocket if the player has the RPG equipped, rockets remaining, and is off cooldown.
 func _fire_rocket(id: int, p: Pawn, dir: Vector3) -> void:

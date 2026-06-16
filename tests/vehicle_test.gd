@@ -97,3 +97,12 @@ func test_clamps_to_world_bounds() -> void:
 	for _i in 60:
 		v.step(1.0 / 30.0, {"move_y": 1.0, "move_x": 0.0})
 	assert_true(v.pos.x <= Vehicle.WORLD_HALF + 0.0001)
+
+func test_exit_world_pos_is_beside_hull() -> void:
+	var v := _veh(); v.heading = 0.0; v.pos = Vector3(0, 0, 0)
+	# exit_offset [2.5,0,0] (right side) at heading 0 -> +x
+	var w := v.seat_world(0)   # sanity: seat geometry exists
+	assert_true(w != null)
+	var exit := v.pos + Vehicle.rotate_yaw(v.exit_offset, v.heading)
+	assert_almost_eq(exit.x, 2.5, 0.001)
+	assert_almost_eq(exit.z, 0.0, 0.001)
