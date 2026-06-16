@@ -170,27 +170,87 @@ Three slots per weapon — **Optic**, **Barrel**, **Underbarrel** — data-drive
 
 ## P3 — Movement
 
+P3 is the Movement phase: **ladder climbing**, **vaulting**, and **drop-shoot prevention**. All three are server-authoritative; the movement *rules* live in `shared/sim/` so a future (M7) rendered client can predict them, but the headless bot fleet validates the **server-authoritative** path only — no new client prediction is built this phase (consistent with M7 deferral elsewhere). This section is the build contract; it refines the milestone-doc P3 scope and the brainstorm decisions of 2026-06-16.
+
+### World-model context (why the geometry is new)
+
+The world is a **flat `y=0` plane**. Pawns only gain height via jump/gravity (`pawn.gd::step` floors `pos.y` at 0); they never stand on a structure roof, and movement collision (`StructureStore.resolve_movement`) is **coarse ground-cell** sliding that blocks *any* occupied ground cell regardless of the piece's height. So before P3 there is nothing to climb and nothing to vault. P3 introduces the minimum geometry for both: **static map ladders + a raised ledge** (ladder climbing), and **height-based vault** over half-height blockers plus one static low obstacle. No structure-system or destruction changes.
+
 ### Ladder climbing
 
-Detect `LADDER`-tagged geometry (special material on structure faces or map geometry). Special movement mode: constant `LADDER_CLIMB_SPEED` y-velocity while `CLIMB` held, no gravity, limited horizontal strafe. **Server-authoritative; client predicts.** Snap to top/bottom anchor on exit.
+**Geometry — `MapDef` (data-driven, static):** two new optional arrays in the map JSON, parsed + validated by `map_def.gd`:
+
+- `ladders: [{bottom:[x,y,z], top:[x,y,z], radius:float}]` — a vertical climb volume. The climb axis is the segment `bottom`→`top`; a pawn is *captured* when its (x,z) is within `radius` of the (x,z) ladder line and its y is within `[bottom.y, top.y]`.
+- `platforms: [{min:[x,y,z], max:[x,y,z]}]` — static walkable AABBs the ladders lead to (the ledge/elevated surface). This is the one **new movement capability**: a pawn lands on the highest platform top beneath its (x,z) footprint instead of falling to `y=0`. O(N × few platforms)/tick.
+
+The proving-grounds map gets **one ladder + ledge placed on the natural bot route** (between a base and point C) so traversal happens organically at fleet density — geometry on the traffic path, not positioning luck (carried lesson from P2's claymore).
+
+**Mechanic (server-authoritative):** entering a ladder's capture volume **auto-engages CLIMB mode** (no dedicated button — see below). While climbing: vertical velocity is driven by `move_y` (forward = up, back = down) at `LADDER_CLIMB_SPEED`, **gravity is off**, and horizontal position is clamped to the ladder line with limited strafe (`LADDER_STRAFE_SPEED`). The pawn exits CLIMB and **snaps to the top/bottom anchor** when it reaches an end of the segment, or when it steps off the volume at a valid dismount. `pawn.gd` gains a `climbing` flag and branches to a `_step_climb` path (mirrors `_step_downed`); `sim_loop.gd` decides entry/exit because it holds the map geometry (a new `map_geom` handle) and the tick.
+
+**No new input button (ratified deviation from the milestone text).** The milestone doc says "while `CLIMB` held," but the input `buttons` field is a **full `u8`** (JUMP=1 … RELOAD=128, all 8 bits used). Rather than widen the wire to `u16` for a key a headless fleet does not have, climb **auto-engages** on volume entry and `move_y` drives up/down. This matches the auto-trigger philosophy P3 already uses for vaulting; the M7 rendered client maps a key to forward-on-ladder. **No change to `InputCommand`.**
 
 ### Vaulting
 
-Detect a low obstacle (waist-height AABB) ahead while standing/moving. Short vault: continuous server-side position delta over `VAULT_TICKS`, **auto-triggered** (no button in v1). No vaulting while crouched/prone.
+**Auto-triggered, height-generic (BattleBit rule).** When a **standing, moving** pawn's intended move is blocked by a blocker whose **top is ≤ `VAULT_MAX_HEIGHT`** (~1.2 m) with clearance above and landing room on the far side, the pawn runs a scripted up-and-over arc over `VAULT_TICKS`; normal input movement is suspended for the duration. **No vault while crouched, prone, or downed.** `pawn.gd` gains a `vaulting` flag + arc-progress fields; `sim_loop.gd` advances the arc each tick. Detection keys off the **blocker's top y**, not a piece flag, so any future low piece (window sill, half-wall remnant, rubble) vaults for free with no vault-code change.
+
+**Vaultable surfaces (both consulted by `vault.gd`):**
+
+- **Half-height structure pieces** — `is_half` pieces are 1.0 m tall (`0.5 × CELL_SIZE`, CELL_SIZE=2.0); sandbags qualify, full walls (2.0 m) do not. Bots already build sandbags in P2, so these occur in live matches.
+- **One static low obstacle** added to the map (a `vault_obstacles: [{min,max}]` AABB) **on the bot route**, guaranteeing deterministic vault events at the gate independent of where bots happen to build (carried lesson from P2's claymore).
+
+> **Explicit content non-scope (ratified 2026-06-16):** the vault *rule* is height-generic, but the *content* it can act on this phase is only half-height pieces + the static obstacle. Blockfire has **no window/door piece type** and destruction **removes a wall entirely** at 0 HP (no low stub). True "vault a half-destroyed wall / through a window" needs new content (a window/low-wall piece, or destruction leaving a low remnant) — deferred to a later content pass (M5/M7); it will vault for free when it lands.
 
 ### Drop-shoot prevention
 
-Server tracks `last_stance_change_tick` per pawn. Fire is blocked for `PRONE_TRANSITION_TICKS` after a stand/crouch → prone transition (eliminates the drop-shoot exploit). Standing → crouch is **not** penalised (smaller advantage; revisit in a balance pass).
+`sim_loop.gd` records `pawn.last_stance_change_tick = tick` whenever a pawn's stance changes (compare stance across the step; it owns the tick). The server fire path (`_resolve_fires`) blocks the shot when `shooter.stance == PRONE and tick − last_stance_change_tick < PRONE_TRANSITION_TICKS`. This penalizes the first `PRONE_TRANSITION_TICKS` of **any** prone entry (stand→prone and crouch→prone), eliminating the drop-shoot exploit; **stand→crouch is naturally exempt** (current stance isn't PRONE), per the milestone's smaller-advantage/smaller-penalty call. **Gate criterion is the unit test** (a pawn that goes prone while firing has the in-transition shot rejected), not live fleet behavior; a bot may optionally exercise it live (report-only).
 
 **Non-scope:** no sliding, no parachutes, no swimming / water movement (all design decisions).
 
-### P3 constants
+### P3 constants (initial; gate-tuned)
 
 | Const | Value | Meaning |
 |---|---|---|
-| `LADDER_CLIMB_SPEED` | 3.0 m/s | vertical climb speed |
-| `VAULT_TICKS` | 8 | ticks to complete a vault |
-| `PRONE_TRANSITION_TICKS` | 10 | fire block after stand/crouch → prone |
+| `LADDER_CLIMB_SPEED` | 3.0 m/s | vertical climb speed (driven by `move_y` sign) |
+| `LADDER_STRAFE_SPEED` | 1.0 m/s | limited horizontal speed while on a ladder |
+| `LADDER_CAPTURE_RADIUS` | 0.6 m | (x,z) capture distance from the ladder line |
+| `VAULT_TICKS` | 8 | ticks to complete a vault arc (~0.27 s) |
+| `VAULT_MAX_HEIGHT` | 1.2 m | max blocker top height that is vaultable (half piece = 1.0 m qualifies) |
+| `PRONE_TRANSITION_TICKS` | 10 | fire block after entering prone (~0.33 s) |
+
+### P3 wire format
+
+- **No new input message** — climb and vault auto-engage from existing `move_x/move_y`; `InputCommand` is unchanged.
+- **No new reliable CONTROL message** — climb/vault are derived server-side from input + position; drop-shoot is server-internal.
+- **Snapshot:** `EntityState` packs a `climbing` and a `vaulting` flag (≤1 byte/pawn total, for M7 client animation). No new per-tick streams. Bandwidth impact negligible.
+
+### P3 module layout (concrete)
+
+```
+shared/sim/
+  ladder.gd     NEW   pure helpers: capture test, climb-step position, platform-floor lookup,
+                      dismount/anchor snap
+  vault.gd      NEW   pure helpers: height-generic vaultable detection (top ≤ VAULT_MAX_HEIGHT,
+                      clearance + landing room), vault arc position over VAULT_TICKS
+  pawn.gd       (mod) climbing/vaulting flags + arc progress; last_stance_change_tick;
+                      _step_climb / _step_vault branches (mirror _step_downed)
+  sim_loop.gd   (mod) map_geom handle; climb entry/exit, vault arc, platform landing,
+                      stance-change tick recording
+  map_def.gd    (mod) parse + validate ladders / platforms / vault_obstacles
+  entity_state.gd (mod) climbing + vaulting replication flags
+server/server_main.gd  (mod) drop-shoot fire gate in _resolve_fires; build + pass map_geom to
+                              SimLoop; telemetry counters climbs / vaults
+maps/conquest_proving_grounds.json (mod) one ladder + ledge + one static low vault obstacle on
+                                         the bot route to point C
+bots/bot_driver.gd     (mod) navigate onto the ladder when the objective lies across it
+                              (steer + drive move_y up); optional prone-fire exerciser (report-only)
+ci/m4.5_p3_test.sh     NEW   laptop-48 smoke + 128-bot fleet assertions (climbs≥1, vaults≥1,
+                              drop-shoot unit-tested, tick + bw budget, Conquest winner)
+tests/
+  ladder_test.gd  NEW  capture test, climb-step (no gravity, move_y sign), platform floor, anchor snap
+  vault_test.gd   NEW  height-generic detection (1.0 m vaults, 2.0 m blocks), crouch/prone block,
+                       arc completes in VAULT_TICKS
+  (extend pawn/server tests) last_stance_change_tick recording; drop-shoot fire-gate rejection
+```
 
 ---
 
