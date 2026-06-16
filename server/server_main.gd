@@ -106,6 +106,8 @@ var _transport_max := 0.0     # max carried distance observed this window
 var _bags_thrown := 0    # bags deployed this window
 var _bags_exhausted := 0 # bags that hit pool 0 and vanished this window
 var _rstruct := 0             # structures hit by rockets this window
+var _veh_destroyed := 0
+var _rkt_vs_veh := 0
 var _pending_removes: Array = []   # [{id, cell}] removes awaiting send (degradation queue)
 var _dmg_touched := {}             # id -> true: pieces damaged (alive) this tick, for bucket diff
 var _last_bucket := {}             # id -> last SENT bucket (missing => pristine bucket 3)
@@ -203,6 +205,7 @@ func _physics_process(delta: float) -> void:
 	_step_revives()
 	_step_downed()
 	_handle_respawns()
+	_step_vehicle_respawns()
 	var t_resp := Time.get_ticks_usec()
 	_conquest.step(SimLoop.DT, _sim.world)
 	var t_conq := Time.get_ticks_usec()
@@ -919,7 +922,7 @@ func _detonate_c4(id: int) -> void:
 	for c4 in owned:
 		_c4_det += 1
 		_blast_at(c4["pos"], id, team, int(cdef["pawn_damage"]), float(cdef["pawn_radius"]),
-			int(cdef["struct_damage"]), float(cdef["struct_radius"]))
+			int(cdef["struct_damage"]), float(cdef["struct_radius"]), C4_VEHICLE_DMG)
 	_c4.erase(id)
 
 ## Drop any placed C4 whose ground cell matches a just-destroyed structure cell (spec §"C4").
@@ -971,7 +974,7 @@ func _step_grenades() -> void:
 ## FF-off incl. owner). Shared by frag grenades, RPG, C4, and mines. `source` tags the kill
 ## (BLAST). Returns the number of pawns that took damage (for kill/trigger bookkeeping).
 func _blast_at(center: Vector3, owner: int, team: int, pawn_dmg: int, pawn_radius: float,
-		struct_dmg: int, struct_radius: float) -> int:
+		struct_dmg: int, struct_radius: float, veh_dmg: int = 0) -> int:
 	if struct_dmg > 0 and struct_radius > 0.0:
 		for sid in _store.ids_in_radius(center, struct_radius):
 			var rec: Dictionary = _store.get_record(sid)
@@ -989,7 +992,41 @@ func _blast_at(center: Vector3, owner: int, team: int, pawn_dmg: int, pawn_radiu
 		if pd <= 0: continue
 		_apply_pawn_damage(pid, victim, pd, false, Revive.Source.BLAST, owner, 0)
 		hits += 1
+	if veh_dmg > 0:
+		for vid in _sim.world.vehicles:
+			var v: Vehicle = _sim.world.vehicles[vid]
+			if not v.alive or v.team == team:
+				continue
+			var vd := Grenade.falloff_damage(center, v.pos, veh_dmg, pawn_radius)
+			if vd > 0:
+				_damage_vehicle(vid, v, vd, owner)
 	return hits
+
+func _damage_vehicle(vid: int, v: Vehicle, amount: int, killer_id: int) -> void:
+	v.hp -= amount
+	if v.hp <= 0:
+		v.hp = 0
+		_destroy_vehicle(vid, v, killer_id)
+
+func _destroy_vehicle(vid: int, v: Vehicle, killer_id: int) -> void:
+	_veh_destroyed += 1
+	for occ in v.occupant_ids():
+		var p: Pawn = _sim.world.get_pawn(occ)
+		if p != null:
+			p.in_vehicle = 0; p.seat = -1
+			if p.alive:
+				_apply_pawn_damage(occ, p, 99999, false, Revive.Source.BLAST, killer_id, 0)
+	v.mark_destroyed(_sim.tick)
+	var bytes := Protocol.encode_vehicle_destroyed(vid)
+	for cid in _clients:
+		_net.send_to(_clients[cid]["peer"], NetHost.CHANNEL_CONTROL, bytes, ENetPacketPeer.FLAG_RELIABLE)
+
+func _step_vehicle_respawns() -> void:
+	for vid in _sim.world.vehicles:
+		var v: Vehicle = _sim.world.vehicles[vid]
+		if v.alive: continue
+		if v.respawn_tick > 0 and _sim.tick >= v.respawn_tick:
+			v.respawn()
 
 ## Integrate live RPG rockets; detonate on structure march-hit or ground contact. Reuses the
 ## Grenade ballistic model (spec §"RPG"). Present-time blast via _blast_at; FF-off.
@@ -1013,9 +1050,13 @@ func _step_rockets() -> void:
 			if nxt.y < 0.0: nxt.y = 0.0
 			_rockets_det += 1
 			_rstruct += _store.ids_in_radius(nxt, float(rdef["struct_radius"])).size()
+			for vid in _sim.world.vehicles:
+				var vv: Vehicle = _sim.world.vehicles[vid]
+				if vv.alive and vv.team != int(r["team"]) and nxt.distance_to(vv.pos) <= float(rdef["pawn_radius"]):
+					_rkt_vs_veh += 1
 			_blast_at(nxt, int(r["owner"]), int(r["team"]),
 				int(rdef["pawn_damage"]), float(rdef["pawn_radius"]),
-				int(rdef["struct_damage"]), float(rdef["struct_radius"]))
+				int(rdef["struct_damage"]), float(rdef["struct_radius"]), RPG_VEHICLE_DMG)
 			continue
 		r["pos"] = nxt; r["vel"] = s["vel"]
 		still.append(r)
@@ -1055,7 +1096,7 @@ func _detonate(g: Dictionary) -> void:
 		_deploy_smoke(g)
 		return
 	_nades += 1
-	_blast_at(g["pos"], int(g["owner"]), int(g["team"]), GRENADE_DAMAGE_PAWN, BLAST_PAWN_RADIUS, GRENADE_DAMAGE_STRUCT, BLAST_STRUCT_RADIUS)
+	_blast_at(g["pos"], int(g["owner"]), int(g["team"]), GRENADE_DAMAGE_PAWN, BLAST_PAWN_RADIUS, GRENADE_DAMAGE_STRUCT, BLAST_STRUCT_RADIUS, FRAG_VEHICLE_DMG)
 
 ## Smoke detonation: no damage. Record a server-side zone and broadcast it (low-frequency, like
 ## KILL — bounded by the throw cooldown). M7 LOS culling will read _smoke_zones; here it just

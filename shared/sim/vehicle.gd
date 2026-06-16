@@ -130,6 +130,32 @@ func step(dt: float, cmd: Dictionary) -> void:
 	pos.x = clampf(pos.x, -WORLD_HALF, WORLD_HALF)
 	pos.z = clampf(pos.z, -WORLD_HALF, WORLD_HALF)
 
+## Occupant pawn ids currently seated (excludes empty seats). Order = seat order.
+func occupant_ids() -> Array:
+	var out: Array = []
+	for occ in seats:
+		if int(occ) != 0: out.append(int(occ))
+	return out
+
+## Mark the vehicle destroyed at `tick`: clears seats and schedules respawn. The server is
+## responsible for killing the (already captured) occupants and broadcasting the event.
+func mark_destroyed(tick: int) -> void:
+	alive = false
+	respawn_tick = tick + respawn_ticks
+	speed = 0.0
+	velocity = Vector3.ZERO
+	for i in seats.size():
+		seats[i] = 0
+
+## Respawn at the original spawn pos with full hull.
+func respawn() -> void:
+	pos = spawn_pos
+	hp = max_hp
+	alive = true
+	speed = 0.0
+	velocity = Vector3.ZERO
+	respawn_tick = 0
+
 func to_state() -> VehicleState:
 	var e := VehicleState.new()
 	e.pos = pos
