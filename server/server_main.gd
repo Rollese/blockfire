@@ -984,7 +984,7 @@ func _fire_rocket(id: int, p: Pawn, dir: Vector3) -> void:
 	if dir.length() < 0.001: return
 	c["last_rocket_tick"] = _sim.tick
 	c["rockets"] = int(c["rockets"]) - 1
-	_rockets.append({"owner": id, "team": p.team, "pos": p.eye_position(), "vel": Grenade.launch_velocity(dir)})
+	_rockets.append({"owner": id, "team": p.team, "pos": p.eye_position(), "vel": dir.normalized() * float(rdef["rocket_speed"])})
 
 func _place_c4(id: int, p: Pawn, pos: Vector3) -> void:
 	if Loadout.gadget_for(int(_clients[id]["class"])) != Loadout.GADGET_C4: return
