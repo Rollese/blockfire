@@ -13,14 +13,20 @@
     {"team": 1, "pos": [ 900, 0, 0], "radius": 40.0}
   ],
   "ladders": [
-    {"bottom": [25, 0, 1], "top": [25, 4, 1], "radius": 1.2}
+    {"bottom": [25, 0, 1], "top": [25, 4, 1], "radius": 1.2},
+    {"bottom": [840, 0, 0], "top": [840, 4, 0], "radius": 1.5},
+    {"bottom": [-840, 0, 0], "top": [-840, 4, 0], "radius": 1.5}
   ],
   "platforms": [
-    {"min": [18, 4, -2], "max": [26, 4.2, 4]}
+    {"min": [18, 4, -2], "max": [26, 4.2, 4]},
+    {"min": [836, 4, -4], "max": [844, 4.2, 4]},
+    {"min": [-844, 4, -4], "max": [-836, 4.2, 4]}
   ],
   "prebuilt": [
     {"type": "wall",    "cell": [11, 0, 0]},
     {"type": "wall",    "cell": [11, 1, 0]},
-    {"type": "sandbag", "cell": [-3, 0, 0]}
+    {"type": "sandbag", "cell": [-3, 0, 0]},
+    {"type": "sandbag", "cell": [410, 0, 0]},
+    {"type": "sandbag", "cell": [-411, 0, 0]}
   ]
 }

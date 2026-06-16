@@ -132,12 +132,23 @@ func _drive(bot: Dictionary, delta: float) -> void:
 	var _drill_ladder: Dictionary = {}
 	var _drill_sandbag := Vector3.ZERO
 	if is_driller and _map != null and not _map.ladders.is_empty():
-		_drill_ladder = _map.ladders[0]
+		# Pick the NEAREST ladder + nearest sandbag so a driller drills its own base-side station
+		# (short, survivable trek) rather than a far obstacle it would die before reaching.
+		var best_ld := INF
+		for l in _map.ladders:
+			var lb: Vector3 = l["bottom"]
+			var dl := Vector2(lb.x - me.pos.x, lb.z - me.pos.z).length()
+			if dl < best_ld:
+				best_ld = dl; _drill_ladder = l
+		var best_sb := INF
 		for pb in _map.prebuilt:
-			if String(pb["type"]) == "sandbag":
-				_drill_sandbag = BuildGrid.world_of(pb["cell"] as Vector3i)
-				drill_geom_valid = true
-				break
+			if String(pb["type"]) != "sandbag":
+				continue
+			var sbw := BuildGrid.world_of(pb["cell"] as Vector3i)
+			var ds := Vector2(sbw.x - me.pos.x, sbw.z - me.pos.z).length()
+			if ds < best_sb:
+				best_sb = ds; _drill_sandbag = sbw; drill_geom_valid = true
+		drill_geom_valid = drill_geom_valid and not _drill_ladder.is_empty()
 
 	if target != null:
 		var d := target.pos - me.pos
