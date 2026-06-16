@@ -140,4 +140,5 @@ func to_state() -> EntityState:
 	e.alive = alive
 	e.health = health
 	e.is_downed = is_downed
+	e.climbing = climbing
 	return e

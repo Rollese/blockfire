@@ -107,3 +107,9 @@ func test_not_downed_default_replicates_false() -> void:
 	var view := {}
 	Snapshot.decode_apply(Snapshot.encode(1, 1, 0, 0, cur, {}), view)
 	assert_false((view[8] as EntityState).is_downed)
+
+func test_climbing_survives_snapshot_roundtrip() -> void:
+	var e := EntityState.new()
+	e.climbing = true
+	var b := Snapshot._state_byte(e)
+	assert_eq((b >> 7) & 1, 1)   # bit 7 set

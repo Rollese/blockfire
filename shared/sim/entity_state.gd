@@ -11,6 +11,7 @@ var team: int = 0
 var alive: bool = true
 var health: int = 100
 var is_downed: bool = false
+var climbing: bool = false
 var squad: int = 0
 
 func clone() -> EntityState:
@@ -24,5 +25,6 @@ func clone() -> EntityState:
 	e.alive = alive
 	e.health = health
 	e.is_downed = is_downed
+	e.climbing = climbing
 	e.squad = squad
 	return e
