@@ -132,17 +132,6 @@ func _drive(bot: Dictionary, delta: float) -> void:
 					bot["repairing"] = false
 				bot["in_vehicle"] = 0
 			else:
-				var carried := (bot["boarded_origin"] as Vector3).distance_to(v.pos)
-				if me.pos.distance_to(obj) < 25.0 or carried > 120.0:
-					if bool(bot["repairing"]):
-						(bot["net"] as NetHost).send_to(bot["peer"], NetHost.CHANNEL_INPUT,
-							Protocol.encode_gadget_action(Protocol.GA_REPAIR_STOP, Vector3.ZERO, Vector3.ZERO, 0), 0)
-						bot["repairing"] = false
-					(bot["net"] as NetHost).send_to(bot["peer"], NetHost.CHANNEL_INPUT,
-						Protocol.encode_vehicle_action(Protocol.VA_EXIT, bot["in_vehicle"], 0), 0)
-					bot["in_vehicle"] = 0
-					_send(bot, 0.0, 0.0, bot["yaw"], 0.0, 0)
-					return
 				# Crew engineer keeps the ridden transport patched once it has taken fire.
 				if int(v.hp) < VEHICLE_FULL_HP and not bool(bot["repairing"]):
 					(bot["net"] as NetHost).send_to(bot["peer"], NetHost.CHANNEL_INPUT,
@@ -152,8 +141,15 @@ func _drive(bot: Dictionary, delta: float) -> void:
 					(bot["net"] as NetHost).send_to(bot["peer"], NetHost.CHANNEL_INPUT,
 						Protocol.encode_gadget_action(Protocol.GA_REPAIR_STOP, Vector3.ZERO, Vector3.ZERO, 0), 0)
 					bot["repairing"] = false
-				var cmd := BotDriver.drive_toward(0.0, me.pos, obj)
-				_send(bot, float(cmd["move_x"]), float(cmd["move_y"]), float(cmd["yaw"]), 0.0, 0)
+				# Drive the transport to the contested objective and LOITER there with the crew
+				# aboard: it soaks fire (-> repair) and stays a stationary target for enemy RPGs
+				# (-> rkt_veh/veh_dead). Crew never voluntarily dismounts; on destruction (the
+				# v == null branch above) they die, respawn, and re-board.
+				if me.pos.distance_to(obj) < 15.0:
+					_send(bot, 0.0, 0.0, bot["yaw"], 0.0, 0)   # hold at the objective
+				else:
+					var cmd := BotDriver.drive_toward(0.0, me.pos, obj)
+					_send(bot, float(cmd["move_x"]), float(cmd["move_y"]), float(cmd["yaw"]), 0.0, 0)
 				return
 		else:
 			var vid := BotDriver.nearest_free_vehicle(bot["vview"], me.pos)

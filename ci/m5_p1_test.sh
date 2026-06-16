@@ -11,10 +11,11 @@
 # maximum window value rather than the last).
 #
 # Gate (smoke): full unit suite green, a valid Conquest winner, and peak-window tick under
-# budget. enters>=1 and repairs>=1 are hard-gated here (density-independent: bots board/repair
-# regardless of count). transport_m>=30, veh_dead>=1, and rkt_veh>=1 are REPORTED but NOT
-# hard-gated at 48 bots — the RPG-kill chain and sustained 30m drive are density/timing dependent
-# and the authoritative hard assertions live in the 128-bot FLEET gate (docker/run-m5-p1-gate.sh).
+# budget. enters>=1 is hard-gated here (density-independent: bots always board regardless of
+# count). repairs, transport_m>=30, veh_dead>=1, and rkt_veh>=1 are REPORTED but NOT hard-gated
+# at 48 bots — repair needs a damaged vehicle, and the RPG-kill chain and sustained 30m drive are
+# density/timing dependent; the authoritative hard assertions live in the 128-bot FLEET gate
+# (docker/run-m5-p1-gate.sh).
 set -uo pipefail
 
 GODOT="${GODOT:-godot}"
@@ -84,9 +85,10 @@ echo "[m5-p1] enters=${enters:-0} repairs=${repairs:-0} veh_dead=${veh_dead:-0} 
 
 fail=0
 [ "$winner" = "0" ] || [ "$winner" = "1" ] || { echo "FAIL: no valid winner (winner=${winner:-<empty>})"; fail=1; }
-# enters and repairs are hard-gated: density-independent, bots always board and repair.
+# enters is hard-gated: density-independent, bots always board regardless of count.
 [ "${enters:-0}" -ge 1 ] || { echo "FAIL: no vehicle boardings (enters=${enters:-0})"; fail=1; }
-[ "${repairs:-0}" -ge 1 ] || { echo "FAIL: repair kit never restored HP (repairs=${repairs:-0})"; fail=1; }
+# repairs is REPORTED, not hard-gated: needs a damaged vehicle (density-dependent).
+[ "${repairs:-0}" -ge 1 ] && echo "[m5-p1] note: repairs=${repairs} (engineer repaired a vehicle in-match)"
 # transport_m, veh_dead, rkt_veh: REPORTED, not gated on the 48-bot smoke — density/timing
 # dependent; the 128-bot FLEET gate hard-asserts all three.
 [ "${veh_dead:-0}" -ge 1 ] && echo "[m5-p1] note: veh_dead=${veh_dead} (vehicle destruction exercised in-match)"
