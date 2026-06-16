@@ -122,7 +122,6 @@ func _drive(bot: Dictionary, delta: float) -> void:
 
 	var is_crew := int(bot["index"]) % 5 == 1 and int(bot["index"]) < MAX_VEHICLE_BOTS * 5
 	if is_crew:
-		var obj := _objective_pos(me)
 		if int(bot["in_vehicle"]) != 0:
 			var v: VehicleState = bot["vview"].get(bot["in_vehicle"])
 			if v == null:   # vehicle destroyed / out of view -> consider self ejected
@@ -141,14 +140,14 @@ func _drive(bot: Dictionary, delta: float) -> void:
 					(bot["net"] as NetHost).send_to(bot["peer"], NetHost.CHANNEL_INPUT,
 						Protocol.encode_gadget_action(Protocol.GA_REPAIR_STOP, Vector3.ZERO, Vector3.ZERO, 0), 0)
 					bot["repairing"] = false
-				# Drive the transport to the contested objective and LOITER there with the crew
-				# aboard: it soaks fire (-> repair) and stays a stationary target for enemy RPGs
-				# (-> rkt_veh/veh_dead). Crew never voluntarily dismounts; on destruction (the
-				# v == null branch above) they die, respawn, and re-board.
-				if me.pos.distance_to(obj) < 15.0:
-					_send(bot, 0.0, 0.0, bot["yaw"], 0.0, 0)   # hold at the objective
+				# Drive the transport deep into enemy territory (their vehicle spawn) so it
+				# draws sustained enemy blast fire (-> repairs/rkt_veh/veh_dead gate counters).
+				# A fixed backfield point avoids the oscillation of chasing the nearest cap point.
+				var push := _enemy_push_pos(me)
+				if me.pos.distance_to(push) < 12.0:
+					_send(bot, 0.0, 0.0, bot["yaw"], 0.0, 0)   # hold at the enemy spawn
 				else:
-					var cmd := BotDriver.drive_toward(0.0, me.pos, obj)
+					var cmd := BotDriver.drive_toward(0.0, me.pos, push)
 					_send(bot, float(cmd["move_x"]), float(cmd["move_y"]), float(cmd["yaw"]), 0.0, 0)
 				return
 		else:
@@ -634,6 +633,15 @@ static func drive_toward(_heading: float, from: Vector3, objective: Vector3) -> 
 	var yaw := atan2(to.x, to.z)
 	return {"move_x": 0.0, "move_y": 1.0, "yaw": yaw}
 
+## Position of the ENEMY team's vehicle spawn (a fixed deep-enemy-backfield point). Crewed transports
+## drive here to loiter in enemy fire so the vehicle takes blast damage (the only thing that hurts it).
+## spawns: Array of {team:int, pos:Vector3}. Returns `fallback` if no enemy spawn is listed.
+static func enemy_spawn_pos(spawns: Array, my_team: int, fallback: Vector3) -> Vector3:
+	for s in spawns:
+		if int(s["team"]) != my_team:
+			return s["pos"]
+	return fallback
+
 func _objective_pos(me: EntityState) -> Vector3:
 	if _map == null or _map.points.is_empty():
 		return me.pos
@@ -648,6 +656,13 @@ func _objective_pos(me: EntityState) -> Vector3:
 	# centre point, which stayed perpetually contested and never captured.
 	var idx := choose_objective_index(positions, owners, me.team, me.pos, me.pos)
 	return positions[idx] if idx >= 0 else me.pos
+
+## Crew transports push to the enemy team's vehicle spawn (a fixed point deep in enemy territory),
+## drawing the vehicle into sustained enemy blast fire. Falls back to the nearest objective.
+func _enemy_push_pos(me: EntityState) -> Vector3:
+	if _map == null:
+		return me.pos
+	return BotDriver.enemy_spawn_pos(_map.vehicle_spawns, int(me.team), _objective_pos(me))
 
 func _send(bot: Dictionary, mx: float, my: float, yaw: float, pitch: float, buttons: int) -> void:
 	var bytes := InputCommand.encode(bot["tick"], bot["last_seq"], mx, my, yaw, pitch, buttons, bot["server_tick"])

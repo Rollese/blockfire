@@ -48,3 +48,14 @@ func test_nearest_enemy_vehicle_zero_when_out_of_range() -> void:
 	var v := VehicleState.new(); v.pos = Vector3(200, 0, 0); v.seats = [7, 0, 0, 0, 0]
 	var e := EntityState.new(); e.team = 1
 	assert_eq(BotDriver.nearest_enemy_vehicle({Vehicle.id_for(0): v}, {7: e}, Vector3.ZERO, 0, 60.0), 0)
+
+func test_enemy_spawn_pos_returns_other_team_spawn() -> void:
+	var spawns := [
+		{"team": 0, "pos": Vector3(-900, 0, 0)},
+		{"team": 1, "pos": Vector3(900, 0, 0)},
+	]
+	assert_eq(BotDriver.enemy_spawn_pos(spawns, 0, Vector3.ZERO), Vector3(900, 0, 0))
+	assert_eq(BotDriver.enemy_spawn_pos(spawns, 1, Vector3.ZERO), Vector3(-900, 0, 0))
+
+func test_enemy_spawn_pos_falls_back_when_none() -> void:
+	assert_eq(BotDriver.enemy_spawn_pos([], 0, Vector3(5, 0, 5)), Vector3(5, 0, 5))
