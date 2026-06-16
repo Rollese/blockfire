@@ -15,6 +15,17 @@ const F_HEALTH := 64
 const F_SQUAD := 128
 const F_ALL := 255
 
+# vehicle field_mask bits
+const VF_POS_X := 1
+const VF_POS_Y := 2
+const VF_POS_Z := 4
+const VF_HEADING := 8
+const VF_TURRET := 16
+const VF_HP := 32
+const VF_SEATS := 64
+const VF_TYPE := 128
+const VF_ALL := 255
+
 # per-record flags
 const FLAG_ENTER := 1
 const FLAG_LEAVE := 2
@@ -26,7 +37,8 @@ static func _state_byte(e: EntityState) -> int:
 		| ((1 if e.climbing else 0) << 7)
 
 static func encode(server_tick: int, seq: int, baseline_seq: int, last_input_tick: int,
-		current: Dictionary, baseline: Dictionary) -> PackedByteArray:
+		current: Dictionary, baseline: Dictionary,
+		current_v: Dictionary = {}, baseline_v: Dictionary = {}) -> PackedByteArray:
 	var recs := StreamPeerBuffer.new()
 	var count := 0
 	for id in current:
@@ -45,15 +57,21 @@ static func encode(server_tick: int, seq: int, baseline_seq: int, last_input_tic
 			count += 1
 			recs.put_u32(id); recs.put_u8(FLAG_LEAVE)
 
+	var vrecs := StreamPeerBuffer.new()
+	var vcount := _encode_vehicle_recs(vrecs, current_v, baseline_v)
+
 	var buf := StreamPeerBuffer.new()
 	buf.put_u8(Protocol.Msg.SNAPSHOT)
 	buf.put_u32(server_tick); buf.put_u32(seq); buf.put_u32(baseline_seq); buf.put_u32(last_input_tick)
 	buf.put_u16(count)
 	if count > 0:
 		buf.put_data(recs.data_array)
+	buf.put_u16(vcount)
+	if vcount > 0:
+		buf.put_data(vrecs.data_array)
 	return buf.data_array
 
-static func decode_apply(bytes: PackedByteArray, view: Dictionary) -> Dictionary:
+static func decode_apply(bytes: PackedByteArray, view: Dictionary, view_v: Dictionary = {}) -> Dictionary:
 	var buf := StreamPeerBuffer.new()
 	buf.data_array = bytes
 	buf.seek(1)
@@ -64,6 +82,7 @@ static func decode_apply(bytes: PackedByteArray, view: Dictionary) -> Dictionary
 	var count := buf.get_u16()
 	if baseline_seq == 0:
 		view.clear()
+		view_v.clear()
 	for _i in count:
 		var id := buf.get_u32()
 		var flags := buf.get_u8()
@@ -90,6 +109,30 @@ static func decode_apply(bytes: PackedByteArray, view: Dictionary) -> Dictionary
 			e.climbing = ((sb >> 7) & 1) == 1
 		if mask & F_HEALTH: e.health = buf.get_u8()
 		if mask & F_SQUAD: e.squad = buf.get_u8()
+	var vcount := buf.get_u16()
+	for _j in vcount:
+		var vid := buf.get_u32()
+		var vflags := buf.get_u8()
+		if vflags & FLAG_LEAVE:
+			view_v.erase(vid); continue
+		var vmask := buf.get_u8()
+		var ve: VehicleState = view_v.get(vid)
+		if ve == null:
+			ve = VehicleState.new(); view_v[vid] = ve
+		if vmask & VF_POS_X: ve.pos.x = Quantize.dec_pos(buf.get_32())
+		if vmask & VF_POS_Y: ve.pos.y = Quantize.dec_pos(buf.get_32())
+		if vmask & VF_POS_Z: ve.pos.z = Quantize.dec_pos(buf.get_32())
+		if vmask & VF_HEADING: ve.heading = Quantize.dec_angle(buf.get_u16())
+		if vmask & VF_TURRET:
+			var tp := Quantize.dec_angle(buf.get_u16())
+			ve.turret_yaw = tp - TAU if tp > PI else tp
+		if vmask & VF_HP: ve.hp = buf.get_u16()
+		if vmask & VF_SEATS:
+			var n := buf.get_u8()
+			var arr: Array = []
+			for _k in n: arr.append(buf.get_u32())
+			ve.seats = arr
+		if vmask & VF_TYPE: ve.type = buf.get_u8()
 	return {"server_tick": server_tick, "seq": seq, "baseline_seq": baseline_seq, "last_input_tick": last_input_tick}
 
 static func _diff_mask(a: EntityState, b: EntityState) -> int:
@@ -114,3 +157,47 @@ static func _put_fields(buf: StreamPeerBuffer, e: EntityState, mask: int) -> voi
 	if mask & F_STATE: buf.put_u8(_state_byte(e))
 	if mask & F_HEALTH: buf.put_u8(clampi(e.health, 0, 255))
 	if mask & F_SQUAD: buf.put_u8(e.squad & 0xFF)
+
+static func _encode_vehicle_recs(recs: StreamPeerBuffer, current: Dictionary, baseline: Dictionary) -> int:
+	var count := 0
+	for vid in current:
+		var cur: VehicleState = current[vid]
+		if baseline.has(vid):
+			var mask := _veh_diff_mask(baseline[vid], cur)
+			if mask == 0:
+				continue
+			count += 1
+			recs.put_u32(vid); recs.put_u8(FLAG_CHANGED); _put_veh_fields(recs, cur, mask)
+		else:
+			count += 1
+			recs.put_u32(vid); recs.put_u8(FLAG_ENTER); _put_veh_fields(recs, cur, VF_ALL)
+	for vid in baseline:
+		if not current.has(vid):
+			count += 1
+			recs.put_u32(vid); recs.put_u8(FLAG_LEAVE)
+	return count
+
+static func _veh_diff_mask(a: VehicleState, b: VehicleState) -> int:
+	var m := 0
+	if Quantize.enc_pos(a.pos.x) != Quantize.enc_pos(b.pos.x): m |= VF_POS_X
+	if Quantize.enc_pos(a.pos.y) != Quantize.enc_pos(b.pos.y): m |= VF_POS_Y
+	if Quantize.enc_pos(a.pos.z) != Quantize.enc_pos(b.pos.z): m |= VF_POS_Z
+	if Quantize.enc_angle(a.heading) != Quantize.enc_angle(b.heading): m |= VF_HEADING
+	if Quantize.enc_angle(a.turret_yaw) != Quantize.enc_angle(b.turret_yaw): m |= VF_TURRET
+	if a.hp != b.hp: m |= VF_HP
+	if a.seats != b.seats: m |= VF_SEATS
+	if a.type != b.type: m |= VF_TYPE
+	return m
+
+static func _put_veh_fields(buf: StreamPeerBuffer, e: VehicleState, mask: int) -> void:
+	buf.put_u8(mask)
+	if mask & VF_POS_X: buf.put_32(Quantize.enc_pos(e.pos.x))
+	if mask & VF_POS_Y: buf.put_32(Quantize.enc_pos(e.pos.y))
+	if mask & VF_POS_Z: buf.put_32(Quantize.enc_pos(e.pos.z))
+	if mask & VF_HEADING: buf.put_u16(Quantize.enc_angle(e.heading))
+	if mask & VF_TURRET:  buf.put_u16(Quantize.enc_angle(e.turret_yaw))
+	if mask & VF_HP: buf.put_u16(clampi(e.hp, 0, 65535))
+	if mask & VF_SEATS:
+		buf.put_u8(e.seats.size())
+		for occ in e.seats: buf.put_u32(int(occ))
+	if mask & VF_TYPE: buf.put_u8(e.type & 0xFF)
