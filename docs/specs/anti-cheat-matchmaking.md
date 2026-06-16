@@ -1,6 +1,8 @@
 # Spec: Anti-Cheat & Skill-Tier Matchmaking
 
-**Status:** approved (design) · **Date:** 2026-06-15 · **Milestones:** [M5](../milestones/M5-vehicles.md)+ (input validation), [M7](../milestones/M7-art-ux.md) (Steam auth + VAC + LOS culling), [M9](../milestones/M9-online-services.md) (statistical detection + matchmaking backend)
+**Status:** approved (design) · **Date:** 2026-06-15 (rev. 2026-06-16) · **Milestones:** [M5](../milestones/M5-vehicles.md)+ (input validation), **online/anti-cheat track** (Steam auth + VAC + LOS culling — *deferred out of M7 on 2026-06-16; see note below*), [M9](../milestones/M9-online-services.md) (statistical detection + matchmaking backend)
+
+> **2026-06-16 re-scope:** Layer 3 (LOS culling) and Layer 5 (Steam auth + VAC), originally slated for M7, were **deferred out of M7** to a later online/anti-cheat track. Rationale: the project may stay a LAN game for family/friends, so Steam's cost isn't justified until a published-quality game exists, and anti-wallhack/ESP only matters for untrusted public play (and adds occlusion cost to a tick budget near the edge). The designs below are unchanged; only their landing milestone moved. References to "M7" in this spec should be read as "the deferred online/anti-cheat track."
 
 Defines how Blockfire stays cheat-resistant and matches players by skill for a **Steam release**. Decision record: [ADR-0004](../adr/0004-anti-cheat-and-skill-matchmaking.md).
 

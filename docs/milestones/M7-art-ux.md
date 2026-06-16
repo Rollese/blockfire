@@ -1,19 +1,50 @@
-# M7 — Art Pass + UX Polish
+# M7 — Rendered Client, Art Pass + UX Polish
 
-**Status:** **todo — recommended NEXT** · **Blocked by:** M5 land gate (done ✅) · *(pulled before M6 on 2026-06-16: this is the first human-playable rendered client; M6 voice + M10 air both need it)*
+**Status:** **in-progress** (brainstormed + speced 2026-06-16; on branch `m7-rendered-client`) · **Blocked by:** M5 land gate (done ✅) · *(pulled before M6 on 2026-06-16: this is the first human-playable rendered client; M6 voice + M10 air both need it)*
 
-**Objective:** Replace placeholders with the low-poly blocky kit and finish player-facing UX.
+**Objective:** Turn the headless/bot-only game into the **first human-playable rendered client** — a real first-person client that predicts/renders from the shared deterministic sim — then re-skin it with the low-poly blocky kit and finish player-facing UX.
 
-## Scope
-- Low-poly **blocky asset kit** (characters, weapons, vehicles, environment) echoing BattleBit's aesthetic; LOD pipeline.
-- Full HUD: health, ammo, minimap, capture status, killfeed, scoreboard.
-- Deploy / squad / settings menus.
-- Audio/visual feedback polish (hit markers, damage indicators).
-- **Steam integration (first rendered client)**: Steam auth via session tickets + **VAC** baseline (via GodotSteam; keep it client/server-edge, never in `shared/`). Steam Direct $100/app.
-- **Anti-cheat Layer 3 — line-of-sight replication culling**: don't replicate enemies a player has no sight line to (extends interest culling + the 32-entity relevance cap), using M4 occlusion data. Anti-wallhack/ESP. See [anti-cheat-matchmaking spec](../specs/anti-cheat-matchmaking.md) / [ADR-0004](../adr/0004-anti-cheat-and-skill-matchmaking.md).
+## Re-scope (2026-06-16, owner-directed)
 
-## Gate
-End-to-end **human playtest of a full Conquest match** with the real art and complete HUD.
+After brainstorming, M7 was re-scoped to two phases. **Steam auth + VAC and anti-cheat L3 (line-of-sight replication culling) were both deferred** out of M7 to a later **online / anti-cheat track**: the project may stay a LAN game for family/friends (or a base for something else), so Steam's $100 + integration + ops cost isn't justified until there's a published-quality game, and L3 anti-wallhack/ESP only matters for *untrusted public* play (LAN friends don't need it, and it adds occlusion cost to a tick budget already near the edge). Both still live in [anti-cheat-matchmaking](../specs/anti-cheat-matchmaking.md) (Layers 3 & 5) for when that track is scheduled.
 
-## Specs required
-- `docs/specs/art-pipeline.md`, `docs/specs/hud-ui.md`
+## Phases
+
+### P1 — Playable client + HUD (the "it's a game now" phase)
+Render the existing headless stub into a real first-person client: real input → camera → fill in prediction/reconciliation for movement/look, add client-side **ammo/fire/reload prediction** (the tracked M2/M7 gap), interpolate remote pawns + vehicles, render the world from `MapDef`/structures with **placeholder primitives** (capsules/boxes), and build the BattleBit-style HUD. Vehicles ride along (the substrate is already prediction-ready).
+
+**HUD (owner's rules):** **no health bar, no minimap;** show **ammo, compass (with objective markers), squad members, TAB scoreboard**; damage feedback via **vignette + directional arc** only. Plus crosshair, killfeed, tickets/capture status, hitmarker (server-confirmed), interaction prompts, DBNO UI.
+
+**Menus:** deploy (full spawn-select, drives a new `DEPLOY_REQUEST`), minimal squad join/switch, essentials settings (sensitivity/FOV/volume/invert + renderer fallback; full keybind-rebinding deferred to P2).
+
+**New netcode (client/server edge only):** `DEPLOY_REQUEST` (client→server, server holds humans un-deployed until they ask), `DAMAGE_EVENT` (server→victim, presentation-only), `SET_SQUAD` (minimal), `EntityState.ammo` (self-only, for ammo reconciliation). No gameplay rule logic enters `client/` (AGENTS.md §7).
+
+**Build order (each a reviewable playtest on the owner's desktop):**
+1. Core infantry loop — deploy → move (stances/lean/sprint/jump) → ADS/shoot/reload → kill/die/respawn → capture, core HUD.
+2. Vehicles — enter/drive/gun/exit, predicted + rendered.
+3. Combat-depth UI — squad list + scoreboard, DBNO/revive prompts, gadget/grenade use, build/destroy feedback, deploy-on-squadmate.
+
+**P1 gate:** end-to-end **human playtest of a full Conquest match** vs bots on **placeholder art**, complete HUD, reaching a winner — judged playable + BattleBit-feeling by the owner. Recorded as evidence (owner sign-off + server log).
+
+### P2 — Art kit + LOD
+Swap placeholder primitives for the low-poly blocky kit (characters, weapons, vehicles, environment) behind the same node interfaces, LOD pipeline, and audio/visual feedback polish (richer hit markers, animated damage indicators, SFX). Pure presentation on top of a proven-playable P1.
+
+**P2 gate (the full M7 gate):** end-to-end human playtest of a full Conquest match **with the real art and complete HUD.**
+
+## Rendering backend
+**Forward+ (Vulkan)** primary with **GL Compatibility** fallback for old hardware — [ADR-0005](../adr/0005-client-renderer.md). Client-only; server/bot stay headless.
+
+## Run topology (playtest)
+Client on the owner's **desktop** (display + GPU), dedicated server + bots **headless on game2**, connected over **LAN** (`--connect=<game2-ip>`) — the normal client/server split, sub-ms latency. The agent builds + runs the deterministic tests and the headless server on game2; the owner is the renderer at each checkpoint.
+
+## Testing discipline (AGENTS.md §10)
+Deterministic headless tests for everything testable — prediction/reconciliation, ammo prediction, vehicle prediction, HUD-model logic, the new netcode messages, interpolation/view logic. Human playtest for the rest — movement/gunplay feel, reconciliation smoothness, vehicle handling, HUD readability/layout, art. Don't tune feel blind.
+
+## Specs
+- [client-prediction.md](../specs/client-prediction.md) — P1 client architecture, prediction/reconciliation, new netcode, test plan. ✅
+- [hud-ui.md](../specs/hud-ui.md) — P1 HUD model+view, menus, keybind defaults, test plan. ✅
+- [ADR-0005](../adr/0005-client-renderer.md) — renderer choice. ✅
+- `art-pipeline.md` — **P2**, written when reached.
+
+## Deferred out of M7
+- **Steam auth + VAC** (Layer 5) and **anti-cheat L3 — LOS replication culling** (Layer 3) → later online/anti-cheat track; see [anti-cheat-matchmaking](../specs/anti-cheat-matchmaking.md).
