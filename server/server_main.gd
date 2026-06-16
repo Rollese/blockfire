@@ -481,7 +481,9 @@ func _down_pawn(victim: Pawn) -> void:
 func _kill_pawn(vid: int, victim: Pawn, killer_id: int, weapon_id: int, headshot: bool, source: int) -> void:
 	victim.alive = false
 	victim.is_downed = false
-	_clients[vid]["respawn_tick"] = _sim.tick + RESPAWN_DELAY_TICKS
+	if _clients[vid].get("auto_deploy", true):
+		_clients[vid]["respawn_tick"] = _sim.tick + RESPAWN_DELAY_TICKS
+	# auto_deploy=false (human): leave respawn_tick at 0 -> returns to deploy screen
 	_conquest.register_death(victim.team)
 	_kills += 1
 	if source == Revive.Source.BLAST:
@@ -796,12 +798,14 @@ func _on_packet(peer: ENetPacketPeer, _channel: int, bytes: PackedByteArray) -> 
 		Protocol.Msg.SELF_BANDAGE: _handle_self_bandage(peer, bytes)
 		Protocol.Msg.GADGET_ACTION: _handle_gadget_action(peer, bytes)
 		Protocol.Msg.VEHICLE_ACTION: _handle_vehicle_action(peer, bytes)
+		Protocol.Msg.DEPLOY_REQUEST: _handle_deploy_request(peer, bytes)
 		_: pass
 
 func _handle_hello(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
 	var r := Protocol.body_reader(bytes)
 	var ver := r.get_u16()
 	var pname := r.get_utf8_string()
+	var auto_deploy: bool = (r.get_u8() == 1) if r.get_available_bytes() > 0 else true
 	if ver != Protocol.VERSION:
 		_net.send_to(peer, NetHost.CHANNEL_CONTROL, Protocol.encode_reject("version mismatch"), ENetPacketPeer.FLAG_RELIABLE)
 		peer.peer_disconnect_later(); return
@@ -830,7 +834,7 @@ func _handle_hello(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
 		"rockets": start_rockets, "last_rocket_tick": -100000,
 		"ammo": Weapon.get_def(wid)["mag_size"],
 		"reloading": false, "reload_done_tick": 0, "last_fire_time": -999.0,
-		"shot_index": 0, "respawn_tick": 0,
+		"shot_index": 0, "respawn_tick": 0, "auto_deploy": auto_deploy,
 		"last_build_tick": -100000, "last_grenade_tick": -100000, "known_regions": {},
 	}
 	var p := _sim.world.spawn(id)
@@ -838,8 +842,30 @@ func _handle_hello(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
 	p.squad = squad
 	p.pos = _select_spawn(id)
 	p.bandage_count = Revive.bandage_count_for(cls == Loadout.MEDIC)
+	if not auto_deploy:
+		p.alive = false   # held un-deployed until DEPLOY_REQUEST (respawn_tick stays 0)
 	_net.send_to(peer, NetHost.CHANNEL_CONTROL, Protocol.encode_welcome(id, TICK_RATE, cls), ENetPacketPeer.FLAG_RELIABLE)
 	print("[server] welcomed peer %d ('%s') team=%d squad=%d class=%d — %d peers" % [id, pname, team, squad, cls, _clients.size()])
+
+func _handle_deploy_request(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
+	var id = _peer_to_id.get(peer, 0)
+	if id == 0 or not _clients.has(id): return
+	var c = _clients[id]
+	var p: Pawn = _sim.world.get_pawn(id)
+	if p == null or p.alive: return    # already deployed
+	var ref := int(Protocol.decode_deploy_request(bytes)["spawn_ref"])
+	if not DeploySpawn.is_valid(int(c["team"]), ref, _map, _conquest): return
+	p.pos = DeploySpawn.resolve(int(c["team"]), ref, _map, _conquest)
+	p.velocity = Vector3.ZERO
+	p.health = 100
+	p.alive = true
+	p.stamina = Pawn.STAMINA_MAX
+	p.is_downed = false
+	p.climbing = false
+	p.vaulting = false
+	c["ammo"] = Weapon.get_def(c["weapon"])["mag_size"]
+	c["reloading"] = false
+	c["respawn_tick"] = 0
 
 func _handle_input(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
 	var id = _peer_to_id.get(peer, 0)
