@@ -200,6 +200,7 @@ func _physics_process(delta: float) -> void:
 	_build_interest()
 	var t_int := Time.get_ticks_usec()
 	_resolve_fires()
+	_resolve_vehicle_fires()
 	var t_fire := Time.get_ticks_usec()
 	_step_grenades()
 	_step_rockets()
@@ -300,6 +301,51 @@ func _spawn_map_vehicles() -> void:
 		_sim.world.spawn_vehicle(v)
 		index += 1
 	print("[server] spawned %d vehicle(s)" % _sim.world.vehicles.size())
+
+## Gunner-seat mounted gun: hit-scan from the turret muzzle along the gunner's aim, reusing the
+## lag-comp frame + Hitbox path (FF-off, present rewind to the gunner's view tick). Rate-limited
+## by the weapon fire_interval. v1 = anti-infantry only.
+func _resolve_vehicle_fires() -> void:
+	for vid in _sim.world.vehicles:
+		var v: Vehicle = _sim.world.vehicles[vid]
+		if not v.alive or v.mounted.is_empty(): continue
+		var gunner := 0
+		for seat in v.seats.size():
+			if int(v.seat_roles[seat]) == Vehicle.ROLE_GUNNER and int(v.seats[seat]) != 0:
+				gunner = int(v.seats[seat]); break
+		if gunner == 0 or not _clients.has(gunner): continue
+		var inp = _clients[gunner]["last_input"]
+		if inp == null or (int(inp["buttons"]) & InputCommand.BTN_FIRE) == 0: continue
+		var interval := float(v.mounted["fire_interval"])
+		if (float(_sim.tick) - float(v.last_mounted_fire_tick)) * SimLoop.DT < interval: continue
+		v.last_mounted_fire_tick = _sim.tick
+		var gp: Pawn = _sim.world.get_pawn(gunner)
+		if gp == null: continue
+		var origin := v.turret_muzzle()
+		var dir := Combat._forward(v.turret_yaw, gp.pitch)
+		var max_range := float(v.mounted["range_m"])
+		var view_tick: int = int(inp["view_server_tick"])
+		var frame := _lag.rewind(view_tick)
+		var candidates: Array = _grid.query(origin, max_range + FIRE_RANGE_MARGIN, _positions)
+		var best_t := max_range + 1.0
+		var best_victim := 0
+		var best_head := false
+		for tid in candidates:
+			if tid == gunner: continue
+			if not frame.has(tid): continue
+			var stt = frame[tid]
+			if not stt["alive"] or stt["team"] == v.team: continue
+			var to_target: Vector3 = stt["pos"] - origin
+			if to_target.length() > max_range: continue
+			if to_target.normalized().dot(dir) < FIRE_CONE_DOT: continue
+			var hit := Hitbox.raycast_pawn(origin, dir, stt["pos"], stt["stance"], max_range)
+			if hit["hit"] and hit["t"] < best_t:
+				best_t = hit["t"]; best_victim = tid; best_head = hit["headshot"]
+		if best_victim == 0: continue
+		var victim: Pawn = _sim.world.get_pawn(best_victim)
+		if victim == null or not victim.alive: continue
+		_shots += 1; _hits += 1
+		_apply_pawn_damage(best_victim, victim, int(v.mounted["damage"]), best_head, Revive.Source.BULLET, gunner, 0)
 
 func _resolve_fires() -> void:
 	for id in _clients:
