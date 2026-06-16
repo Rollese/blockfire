@@ -1015,6 +1015,7 @@ func _destroy_vehicle(vid: int, v: Vehicle, killer_id: int) -> void:
 		if p != null:
 			p.in_vehicle = 0; p.seat = -1
 			if p.alive:
+				p.is_downed = false  # vehicle destruction kills downed occupants too (blast is instant-kill)
 				_apply_pawn_damage(occ, p, 99999, false, Revive.Source.BLAST, killer_id, 0)
 	v.mark_destroyed(_sim.tick)
 	var bytes := Protocol.encode_vehicle_destroyed(vid)
