@@ -153,3 +153,16 @@ func test_self_state_roundtrip() -> void:
 	assert_true(d["reloading"])
 	assert_eq(d["reload_remaining"], 40)
 	assert_eq(d["weapon"], Weapon.AR)
+
+func test_hello_carries_auto_deploy_default_true() -> void:
+	var b := Protocol.encode_hello("Bot")
+	var r := Protocol.body_reader(b)
+	assert_eq(r.get_u16(), Protocol.VERSION)
+	assert_eq(r.get_utf8_string(), "Bot")
+	assert_eq(r.get_u8(), 1, "auto_deploy defaults to 1 (true)")
+
+func test_hello_auto_deploy_false_for_rendered_client() -> void:
+	var b := Protocol.encode_hello("Player", false)
+	var r := Protocol.body_reader(b)
+	r.get_u16(); r.get_utf8_string()
+	assert_eq(r.get_u8(), 0, "rendered client requests manual deploy")

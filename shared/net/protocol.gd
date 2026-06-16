@@ -55,11 +55,12 @@ const VA_ENTER := 0
 const VA_EXIT := 1
 
 
-static func encode_hello(player_name: String) -> PackedByteArray:
+static func encode_hello(player_name: String, auto_deploy: bool = true) -> PackedByteArray:
 	var buf := StreamPeerBuffer.new()
 	buf.put_u8(Msg.HELLO)
 	buf.put_u16(VERSION)
 	buf.put_utf8_string(player_name)
+	buf.put_u8(1 if auto_deploy else 0)
 	return buf.data_array
 
 
