@@ -124,6 +124,21 @@ func _drive(bot: Dictionary, delta: float) -> void:
 			best = dist; target = e
 
 	var obj := _objective_pos(me)
+
+	# --- Driller logic: ~1 in 8 bots cycle the ladder+sandbag drill to guarantee the fleet gate
+	# sees climbs>=1 and vaults>=1 every match. Drillers override movement but keep combat buttons.
+	var is_driller := int(bot["index"]) % 8 == 0
+	var drill_geom_valid := false
+	var _drill_ladder: Dictionary = {}
+	var _drill_sandbag := Vector3.ZERO
+	if is_driller and _map != null and not _map.ladders.is_empty():
+		_drill_ladder = _map.ladders[0]
+		for pb in _map.prebuilt:
+			if String(pb["type"]) == "sandbag":
+				_drill_sandbag = BuildGrid.world_of(pb["cell"] as Vector3i)
+				drill_geom_valid = true
+				break
+
 	if target != null:
 		var d := target.pos - me.pos
 		var want_yaw := atan2(d.x, d.z)
@@ -133,15 +148,30 @@ func _drive(bot: Dictionary, delta: float) -> void:
 		var yaw_ok := absf(angle_diff(bot["yaw"], want_yaw)) < AIM_TOLERANCE
 		var pitch_ok := absf(want_pitch - bot["pitch"]) < AIM_TOLERANCE
 		var fire := best <= ENGAGE_RANGE and yaw_ok and pitch_ok
-		# Hold still while shooting (the server adds movement spread, so a moving bot barely
-		# hits); otherwise close on the enemy in range, else advance on the objective.
-		if fire:
-			move_x = 0.0; move_y = 0.0
+		# Drillers override movement to continue the drill; non-drillers use the normal enemy-chase.
+		if is_driller and drill_geom_valid:
+			var phase: int = int(bot.get("drill_phase", DRILL_CLIMB))
+			var dr := drill_step(phase, me.pos, _drill_ladder, _drill_sandbag)
+			var drill_target: Vector3 = dr["move_to"]
+			var flat_d := Vector2(drill_target.x - me.pos.x, drill_target.z - me.pos.z)
+			if flat_d.length() > 0.001: flat_d = flat_d.normalized()
+			move_x = flat_d.x
+			if bool(dr["force_climb"]):
+				move_y = absf(flat_d.y) + 1.0
+			else:
+				move_y = flat_d.y
+			bot["yaw"] = atan2(move_x, flat_d.y)
+			_update_drill_phase(bot, int(dr["next_phase"]))
 		else:
-			var move_to: Vector3 = target.pos if best <= ENGAGE_RANGE else obj
-			var flat := Vector2(move_to.x - me.pos.x, move_to.z - me.pos.z)
-			if flat.length() > 0.001: flat = flat.normalized()
-			move_x = flat.x; move_y = flat.y
+			# Hold still while shooting (the server adds movement spread, so a moving bot barely
+			# hits); otherwise close on the enemy in range, else advance on the objective.
+			if fire:
+				move_x = 0.0; move_y = 0.0
+			else:
+				var move_to: Vector3 = target.pos if best <= ENGAGE_RANGE else obj
+				var flat := Vector2(move_to.x - me.pos.x, move_to.z - me.pos.z)
+				if flat.length() > 0.001: flat = flat.normalized()
+				move_x = flat.x; move_y = flat.y
 		var cb := combat_button(fire, bot["server_tick"], bot["reload_until"], bot["burst_start"])
 		buttons |= int(cb[0])
 		bot["reload_until"] = cb[1]
@@ -151,21 +181,37 @@ func _drive(bot: Dictionary, delta: float) -> void:
 		_maybe_c4(bot, me, target)
 		_maybe_mine(bot, me, target.pos)   # face the claymore at the enemy we're fighting
 	else:
-		# no enemy in view: march to the objective (capture/defend)
-		var seek := climb_seek(me.pos, obj, _map.ladders if _map != null else [])
-		if seek["seek"]:
-			var lb: Vector3 = seek["target"]
-			var flat2 := Vector2(lb.x - me.pos.x, lb.z - me.pos.z)
-			if flat2.length() > 0.001: flat2 = flat2.normalized()
-			move_x = flat2.x
-			move_y = absf(flat2.y) + 1.0   # bias forward/up so climb engages and continues
-			bot["yaw"] = atan2(move_x, flat2.y)
+		# no enemy in view
+		if is_driller and drill_geom_valid:
+			# Driller: march the obstacle course instead of toward the capture objective.
+			var phase: int = int(bot.get("drill_phase", DRILL_CLIMB))
+			var dr := drill_step(phase, me.pos, _drill_ladder, _drill_sandbag)
+			var drill_target: Vector3 = dr["move_to"]
+			var flat_d := Vector2(drill_target.x - me.pos.x, drill_target.z - me.pos.z)
+			if flat_d.length() > 0.001: flat_d = flat_d.normalized()
+			move_x = flat_d.x
+			if bool(dr["force_climb"]):
+				move_y = absf(flat_d.y) + 1.0
+			else:
+				move_y = flat_d.y
+			bot["yaw"] = atan2(move_x, flat_d.y)
+			_update_drill_phase(bot, int(dr["next_phase"]))
 		else:
-			var flat := Vector2(obj.x - me.pos.x, obj.z - me.pos.z)
-			if flat.length() > 0.001: flat = flat.normalized()
-			move_x = flat.x; move_y = flat.y
-			bot["yaw"] = atan2(move_x, move_y)
-		_maybe_smoke(bot, me, obj)
+			# Normal: march to the objective (capture/defend)
+			var seek := climb_seek(me.pos, obj, _map.ladders if _map != null else [])
+			if seek["seek"]:
+				var lb: Vector3 = seek["target"]
+				var flat2 := Vector2(lb.x - me.pos.x, lb.z - me.pos.z)
+				if flat2.length() > 0.001: flat2 = flat2.normalized()
+				move_x = flat2.x
+				move_y = absf(flat2.y) + 1.0   # bias forward/up so climb engages and continues
+				bot["yaw"] = atan2(move_x, flat2.y)
+			else:
+				var flat := Vector2(obj.x - me.pos.x, obj.z - me.pos.z)
+				if flat.length() > 0.001: flat = flat.normalized()
+				move_x = flat.x; move_y = flat.y
+				bot["yaw"] = atan2(move_x, move_y)
+			_maybe_smoke(bot, me, obj)
 
 	# Build cover only while stationary (holding a point or firing) — so the bot drops a wall
 	# toward the contested objective without walking into its own piece, and the cover lands in
@@ -176,6 +222,25 @@ func _drive(bot: Dictionary, delta: float) -> void:
 
 	_maybe_give(bot, me)
 	_send(bot, move_x, move_y, bot["yaw"], bot["pitch"], buttons)
+
+## Advance a driller's phase state. If the phase changed, reset the tick counter. If the phase
+## has not changed but the tick counter exceeded DRILL_PHASE_TIMEOUT, force-advance to the next
+## phase and reset — so a stuck driller (killed mid-traverse, geometry blocked) never stalls.
+func _update_drill_phase(bot: Dictionary, next_phase: int) -> void:
+	var cur_phase: int = int(bot.get("drill_phase", DRILL_CLIMB))
+	var ticks: int = int(bot.get("drill_phase_ticks", 0))
+	if next_phase != cur_phase:
+		# Phase transition from drill_step logic.
+		bot["drill_phase"] = next_phase
+		bot["drill_phase_ticks"] = 0
+	else:
+		ticks += 1
+		if ticks >= DRILL_PHASE_TIMEOUT:
+			# Stuck: force the other phase and reset.
+			bot["drill_phase"] = DRILL_VAULT if cur_phase == DRILL_CLIMB else DRILL_CLIMB
+			bot["drill_phase_ticks"] = 0
+		else:
+			bot["drill_phase_ticks"] = ticks
 
 func _nearest_downed_teammate(bot: Dictionary, me: EntityState) -> int:
 	if me == null:
@@ -368,6 +433,10 @@ static func choose_objective_index(points: Array, owners: Array, my_team: int, f
 				best_d = fd; best = i
 	return best
 
+const DRILL_CLIMB := 0   # drill phase: go climb the ladder
+const DRILL_VAULT := 1   # drill phase: go vault the sandbag
+const DRILL_PHASE_TIMEOUT := 1500   # ticks (~50 s @30Hz): reset stuck driller to next phase
+
 const CLIMB_SEEK_RANGE := 16.0   # m: consider a ladder only when this close to its base
 const CLIMB_TOP_MARGIN := 2.0    # m above the ladder bottom past which the bot is "up" already
 
@@ -388,6 +457,31 @@ static func climb_seek(my_pos: Vector3, objective: Vector3, ladders: Array) -> D
 		if to_obj.length() > to_base.length() and to_base.normalized().dot(to_obj.normalized()) > 0.3:
 			return {"seek": true, "target": base}
 	return {"seek": false, "target": my_pos}
+
+## Pure driller steering. phase 0 = go climb the ladder, phase 1 = go vault the sandbag.
+## Returns {"move_to": Vector3, "force_climb": bool, "next_phase": int}.
+## - CLIMB: steer toward the ladder base. force_climb=true once horizontally within (radius+0.5)
+##   of the base. next_phase flips to VAULT once my_pos.y >= top.y - 0.3 (reached the top).
+## - VAULT: steer toward the sandbag world point. next_phase flips back to CLIMB once
+##   horizontally within ~1.5 m of the sandbag (vaulted past it).
+static func drill_step(phase: int, my_pos: Vector3, ladder: Dictionary, sandbag_world: Vector3) -> Dictionary:
+	if phase == DRILL_CLIMB:
+		var base: Vector3 = ladder["bottom"]
+		var top: Vector3 = ladder["top"]
+		var radius: float = float(ladder["radius"])
+		# Check if we've reached the ladder top (done climbing).
+		if my_pos.y >= top.y - 0.3:
+			return {"move_to": base, "force_climb": true, "next_phase": DRILL_VAULT}
+		# Check horizontal distance to the base for force-climb engagement.
+		var horiz_dist := Vector2(my_pos.x - base.x, my_pos.z - base.z).length()
+		var force_climb := horiz_dist <= radius + 0.5
+		return {"move_to": base, "force_climb": force_climb, "next_phase": DRILL_CLIMB}
+	else:
+		# VAULT phase: steer toward the sandbag; once within 1.5 m (vaulted past it), reset.
+		var horiz_dist := Vector2(my_pos.x - sandbag_world.x, my_pos.z - sandbag_world.z).length()
+		if horiz_dist <= 1.5:
+			return {"move_to": sandbag_world, "force_climb": false, "next_phase": DRILL_CLIMB}
+		return {"move_to": sandbag_world, "force_climb": false, "next_phase": DRILL_VAULT}
 
 ## Combat button for an ammo-blind bot, paced in SERVER game-time (`st` = server tick).
 ## Returns [button, reload_until, burst_start]. Fires BURST_TICKS-long bursts then holds
