@@ -104,6 +104,32 @@ func seat_world(seat: int) -> Vector3:
 func turret_muzzle() -> Vector3:
 	return pos + Vector3(0.0, turret_offset.y, 0.0)
 
+## One authoritative integration step. cmd: {move_y=throttle [-1,1], move_x=steer [-1,1]}.
+## Pure kinematic + deterministic; ground floor + world bounds here, platform-floor + structure
+## collision applied by SimLoop.step_vehicles (it owns the geometry arrays).
+func step(dt: float, cmd: Dictionary) -> void:
+	if not alive:
+		return
+	var throttle := clampf(float(cmd.get("move_y", 0.0)), -1.0, 1.0)
+	var steer := clampf(float(cmd.get("move_x", 0.0)), -1.0, 1.0)
+
+	speed += throttle * accel * dt
+	speed = clampf(speed, -reverse_speed, max_speed)
+	if absf(throttle) < 0.01:
+		var d := drag * dt
+		if speed > 0.0: speed = maxf(0.0, speed - d)
+		else: speed = minf(0.0, speed + d)
+
+	heading += steer * turn_rate * dt * turn_factor(speed, max_speed)
+
+	var fwd := Vector3(sin(heading), 0.0, cos(heading))
+	velocity = Vector3(fwd.x * speed, velocity.y - GRAVITY * dt, fwd.z * speed)
+	pos += velocity * dt
+	if pos.y <= 0.0:
+		pos.y = 0.0; velocity.y = 0.0
+	pos.x = clampf(pos.x, -WORLD_HALF, WORLD_HALF)
+	pos.z = clampf(pos.z, -WORLD_HALF, WORLD_HALF)
+
 func to_state() -> VehicleState:
 	var e := VehicleState.new()
 	e.pos = pos

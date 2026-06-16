@@ -60,3 +60,40 @@ func test_to_state_mirrors_fields() -> void:
 	assert_eq(s.type, 0)
 	assert_almost_eq(s.turret_yaw, -0.2, 0.0001)
 	assert_eq(int(s.seats[0]), 7)
+
+func test_accelerates_forward_and_clamps_to_max_speed() -> void:
+	var v := _veh(); v.heading = 0.0
+	for _i in 600:
+		v.step(1.0 / 30.0, {"move_y": 1.0, "move_x": 0.0})
+	assert_almost_eq(v.speed, v.max_speed, 0.01)   # clamped, not exceeded
+
+func test_no_pivot_at_standstill() -> void:
+	var v := _veh(); v.heading = 0.0; v.speed = 0.0
+	v.step(1.0 / 30.0, {"move_y": 0.0, "move_x": 1.0})
+	assert_almost_eq(v.heading, 0.0, 0.0001)   # turn_factor(0) == 0
+
+func test_turns_while_moving() -> void:
+	var v := _veh(); v.heading = 0.0; v.speed = v.max_speed
+	v.step(1.0 / 30.0, {"move_y": 1.0, "move_x": 1.0})
+	assert_true(v.heading > 0.0)
+
+func test_drag_decelerates_when_coasting() -> void:
+	var v := _veh(); v.speed = 10.0; v.heading = 0.0
+	v.step(1.0 / 30.0, {"move_y": 0.0, "move_x": 0.0})
+	assert_true(v.speed < 10.0)
+
+func test_physics_is_deterministic() -> void:
+	var a := _veh(); var b := _veh()
+	var cmds := [{"move_y": 1.0, "move_x": 0.3}, {"move_y": 1.0, "move_x": -0.2}, {"move_y": 0.5, "move_x": 0.0}]
+	for _r in 50:
+		for cmd in cmds:
+			a.step(1.0 / 30.0, cmd); b.step(1.0 / 30.0, cmd)
+	assert_almost_eq(a.pos.x, b.pos.x, 0.0001)
+	assert_almost_eq(a.pos.z, b.pos.z, 0.0001)
+	assert_almost_eq(a.heading, b.heading, 0.0001)
+
+func test_clamps_to_world_bounds() -> void:
+	var v := _veh(); v.pos = Vector3(Vehicle.WORLD_HALF - 0.1, 0, 0); v.heading = PI / 2.0
+	for _i in 60:
+		v.step(1.0 / 30.0, {"move_y": 1.0, "move_x": 0.0})
+	assert_true(v.pos.x <= Vehicle.WORLD_HALF + 0.0001)
