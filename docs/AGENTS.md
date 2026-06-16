@@ -60,6 +60,12 @@ As of 2026-06-16 all dev + gate work runs on **game2** (Intel 14900KS, 32 thread
 
 **Unraid (SENET, `ssh root@192.168.1.10`) is now PRODUCTION — do NOT run gates there.** If you ever must touch it, the old confinement rule still holds: stay strictly under **`/mnt/app/blockfire`** (treat as a chroot; it hosts live array/data shares) and pass that rule to any subagent.
 
+## 9. Balance toward BattleBit; don't let conservative values block the gate
+
+When choosing gameplay/balance values — weapon ammo/reserves, damage, fire rates, gadget counts, ranges, cooldowns, vehicle stats — **default to BattleBit's proven numbers** rather than inventing cautious placeholders. The project owner played BattleBit extensively and considers its balance well-tuned; it is our reference design. Match it as closely as the mechanic allows, and call out deliberate departures.
+
+**Why this matters for gates:** overly conservative values can make a fleet gate fail to *exercise* a mechanic at all, which reads as a feature bug and burns expensive 128-bot iterations to diagnose. The canonical example (M5-P1): engineers were given a **single** RPG rocket per life, so the bot fleet could never land the concentrated anti-vehicle fire the vehicle-combat gate needed — several ~10-minute gate runs were spent before the real fix (BattleBit-style **3 rockets**, RPG used anti-vehicle-first) made it pass. Pick realistic values **up front**; when unsure, match BattleBit and note it in the spec. The silver lining is that gate failures surface real balance gaps — but it's cheaper to start from known-good numbers.
+
 ## Quick map
 
 - Plan of record: `~/.claude/plans/sorted-plotting-pebble.md`
