@@ -19,3 +19,8 @@ func test_clone_copies_squad() -> void:
 	assert_eq(b.squad, 6)
 	b.squad = 1
 	assert_eq(a.squad, 6, "clone independent")
+
+func test_climbing_field_clones() -> void:
+	var e := EntityState.new()
+	e.climbing = true
+	assert_true(e.clone().climbing)

@@ -62,10 +62,14 @@ var _phase_us := {"poll": 0, "move": 0, "lag": 0, "interest": 0, "fire": 0, "res
 var _phase_ticks := 0
 var _team_counts := {0: 0, 1: 0}
 var _positions := {}               # id -> Vector3, rebuilt each tick before fires
+var _prev_climb_vault: Dictionary = {}   # id -> int bitmask: bit0=climbing, bit1=vaulting (edge counting)
 
 var _reviving := {}            # reviver_id -> target_id, set per tick by REVIVE_ACTION(active)
 var _revive_ticks := {}        # target_id -> accumulated revive ticks
 var _revives := 0              # completed revives this window
+var _climbs := 0              # climb-mode entries this window
+var _vaults := 0              # vault completions this window
+var _drop_shoot_blocked := 0  # shots rejected by the prone-transition gate this window
 
 var _kills := 0
 var _shots := 0
@@ -129,6 +133,15 @@ func _ready() -> void:
 		push_error("[server] failed to load pieces %s" % PIECES_PATH); get_tree().quit(1); return
 	_store = StructureStore.new(_catalog)
 	_sim.structures = _store
+	_sim.ladders = _map.ladders
+	_sim.platforms = _map.platforms
+	for pb in _map.prebuilt:
+		var ti := _piece_index(String(pb["type"]))
+		if ti < 0:
+			push_error("[map] prebuilt unknown piece '%s'" % pb["type"]); continue
+		var sid := _next_struct_id
+		_next_struct_id += 1
+		_store.place(sid, ti, pb["cell"], 0, 0)   # owner 0 = world-placed
 	_gadgets = Gadget.load_file(GADGETS_PATH)
 	if _gadgets == null:
 		push_error("[server] failed to load gadgets %s" % GADGETS_PATH); get_tree().quit(1); return
@@ -150,6 +163,15 @@ func _physics_process(delta: float) -> void:
 	_net.poll()
 	var t_poll := Time.get_ticks_usec()
 	_step_movement()
+	for id in _sim.world.pawns:
+		var p: Pawn = _sim.world.pawns[id]
+		var cur: int = (1 if p.climbing else 0) | (2 if p.vaulting else 0)
+		var prv: int = _prev_climb_vault.get(id, 0)
+		if (cur & 1) != 0 and (prv & 1) == 0:
+			_climbs += 1
+		if (cur & 2) != 0 and (prv & 2) == 0:
+			_vaults += 1
+		_prev_climb_vault[id] = cur
 	var t_move := Time.get_ticks_usec()
 	_lag.record(_sim.tick, _sim.world)
 	var t_lag := Time.get_ticks_usec()
@@ -223,6 +245,12 @@ func _step_movement() -> void:
 			c["ammo"] = Weapon.get_def(c["weapon"])["mag_size"]
 	_sim.step(inputs)
 
+func _piece_index(piece_id: String) -> int:
+	for i in _catalog.size():
+		if _catalog.name_of(i) == piece_id:
+			return i
+	return -1
+
 func _resolve_fires() -> void:
 	for id in _clients:
 		var c = _clients[id]
@@ -243,7 +271,10 @@ func _resolve_fires() -> void:
 		var now := float(_sim.tick) * SimLoop.DT
 		var ready: bool = now - c["last_fire_time"] >= Weapon.fire_interval(c["weapon"])
 		var sprinting: bool = (inp["buttons"] & InputCommand.BTN_SPRINT) and shooter.stance == Stance.STAND
-		if c["reloading"] or c["ammo"] <= 0 or not ready or sprinting:
+		var drop_shoot: bool = Combat.drop_shoot_blocked(shooter.stance, _sim.tick, shooter.last_stance_change_tick)
+		if c["reloading"] or c["ammo"] <= 0 or not ready or sprinting or drop_shoot:
+			if drop_shoot:
+				_drop_shoot_blocked += 1
 			continue
 		c["last_fire_time"] = now
 		c["ammo"] -= 1
@@ -493,6 +524,8 @@ func _handle_respawns() -> void:
 			p.alive = true
 			p.stamina = Pawn.STAMINA_MAX
 			p.is_downed = false
+			p.climbing = false   # clear special-movement state so a pawn that died mid-climb/vault
+			p.vaulting = false   # doesn't resume the arc/ladder at its fresh spawn (ghost-vault fix)
 			p.bleed_halted = false
 			p.bandage_count = Revive.bandage_count_for(_is_medic(id))
 			c["respawn_tick"] = 0
@@ -1079,6 +1112,7 @@ func _on_peer_disconnected(peer: ENetPacketPeer) -> void:
 		_squads.remove(id, team)
 		_clients.erase(id)
 		_sim.world.despawn(id)
+		_prev_climb_vault.erase(id)
 		print("[server] peer %d disconnected — %d peers" % [id, _clients.size()])
 
 func _log_telemetry() -> void:
@@ -1091,8 +1125,8 @@ func _log_telemetry() -> void:
 	var pts := ""
 	for pt in _conquest.points:
 		pts += "." if pt["owner"] == -1 else str(pt["owner"])
-	print("[telemetry] players=%d alive=%d tick_mean=%.2fms tick_p99=%.2fms agg=%.1fMbit/s kills=%d shots=%d hit_rate=%.2f starv=%d rewind_clamped=%d t0=%d t1=%d pts=%s cap_events=%d struct=%d bld=%d rmv=%d blk=%d pen=%d dmg=%d destroyed=%d nades=%d splash=%d smoke=%d rockets=%d rstruct=%d downed=%d bleedouts=%d revives=%d c4=%d mines=%d heals=%d ammo=%d bags=%d bagx=%d"
-		% [n, alive, _tele.mean_tick_ms(), _tele.p99_tick_ms(), mbit, _kills, _shots, hit_rate, _tele.starvation, _rewind_clamped, _conquest.tickets_int(0), _conquest.tickets_int(1), pts, _cap_events, _store.count(), _builds, _removes, _shots_blocked, _pen, _dmg, _destroyed, _nades, _splash_kills, _smokes, _rockets_det, _rstruct, _downed, _bleedouts, _revives, _c4_det, _mine_trips, _heals, _ammo_gives, _bags_thrown, _bags_exhausted])
+	print("[telemetry] players=%d alive=%d tick_mean=%.2fms tick_p99=%.2fms agg=%.1fMbit/s kills=%d shots=%d hit_rate=%.2f starv=%d rewind_clamped=%d t0=%d t1=%d pts=%s cap_events=%d struct=%d bld=%d rmv=%d blk=%d pen=%d dmg=%d destroyed=%d nades=%d splash=%d smoke=%d rockets=%d rstruct=%d downed=%d bleedouts=%d revives=%d c4=%d mines=%d heals=%d ammo=%d bags=%d bagx=%d climbs=%d vaults=%d dropblk=%d"
+		% [n, alive, _tele.mean_tick_ms(), _tele.p99_tick_ms(), mbit, _kills, _shots, hit_rate, _tele.starvation, _rewind_clamped, _conquest.tickets_int(0), _conquest.tickets_int(1), pts, _cap_events, _store.count(), _builds, _removes, _shots_blocked, _pen, _dmg, _destroyed, _nades, _splash_kills, _smokes, _rockets_det, _rstruct, _downed, _bleedouts, _revives, _c4_det, _mine_trips, _heals, _ammo_gives, _bags_thrown, _bags_exhausted, _climbs, _vaults, _drop_shoot_blocked])
 	var pt := maxi(_phase_ticks, 1)
 	print("[perf] us/tick: poll=%d move=%d lag=%d interest=%d fire=%d respawn=%d conquest=%d match=%d snap=%d (ticks=%d)"
 		% [_phase_us["poll"] / pt, _phase_us["move"] / pt, _phase_us["lag"] / pt, _phase_us["interest"] / pt, _phase_us["fire"] / pt, _phase_us["respawn"] / pt, _phase_us["conquest"] / pt, _phase_us["match"] / pt, _phase_us["snap"] / pt, _phase_ticks])
@@ -1101,4 +1135,4 @@ func _log_telemetry() -> void:
 	_tele.reset_window()
 	_kills = 0; _shots = 0; _hits = 0; _rewind_clamped = 0; _cap_events = 0
 	_builds = 0; _removes = 0; _shots_blocked = 0; _pen = 0
-	_dmg = 0; _destroyed = 0; _nades = 0; _splash_kills = 0; _smokes = 0; _rockets_det = 0; _rstruct = 0; _downed = 0; _bleedouts = 0; _revives = 0; _c4_det = 0; _mine_trips = 0; _heals = 0; _ammo_gives = 0; _bags_thrown = 0; _bags_exhausted = 0
+	_dmg = 0; _destroyed = 0; _nades = 0; _splash_kills = 0; _smokes = 0; _rockets_det = 0; _rstruct = 0; _downed = 0; _bleedouts = 0; _revives = 0; _c4_det = 0; _mine_trips = 0; _heals = 0; _ammo_gives = 0; _bags_thrown = 0; _bags_exhausted = 0; _climbs = 0; _vaults = 0; _drop_shoot_blocked = 0

@@ -68,3 +68,24 @@ func test_to_state_copies_downed() -> void:
 	var p := Pawn.new(1)
 	p.is_downed = true
 	assert_true(p.to_state().is_downed)
+
+func test_step_skips_normal_movement_while_climbing() -> void:
+	var p := Pawn.new(1)
+	p.pos = Vector3(5, 2, 5)
+	p.climbing = true
+	p.step(1.0 / 30.0, {"move_x": 1.0, "move_y": 1.0, "yaw": 0.7})
+	assert_eq(p.pos, Vector3(5, 2, 5), "climbing: SimLoop owns position, step() must not move the pawn")
+	assert_almost_eq(p.yaw, 0.7, 0.001, "look still applies while climbing")
+
+func test_step_skips_normal_movement_while_vaulting() -> void:
+	var p := Pawn.new(1)
+	p.pos = Vector3(0, 0, 0)
+	p.vaulting = true
+	p.step(1.0 / 30.0, {"move_x": 1.0, "move_y": 1.0})
+	assert_eq(p.pos, Vector3(0, 0, 0), "vaulting: SimLoop owns position")
+
+func test_climb_vault_fields_default() -> void:
+	var p := Pawn.new(1)
+	assert_false(p.climbing)
+	assert_false(p.vaulting)
+	assert_eq(p.last_stance_change_tick, -1000)

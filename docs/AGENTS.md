@@ -52,9 +52,13 @@ A milestone closes only when its **gate** passes with **recorded evidence** (bot
 - The **server is authoritative**. Never trust client-reported state for anything that affects others; clients send *intent* (input), the server decides outcomes.
 - Gameplay rules that run on both sides live in `shared/` so client prediction and server authority can't diverge. Don't fork rule logic into `client/` or `server/`.
 
-## 8. Unraid fleet host — stay confined
+## 8. Fleet gate host — game2 (local, full-time)
 
-The 128-bot fleet gate runs on the unraid box **SENET** via `ssh root@192.168.1.10` (Docker + Compose installed). **HARD RULE for every agent:** when operating on unraid the working directory is **`/mnt/app/blockfire`** and you must **NEVER read or write any files outside it** — treat it as a chroot. unraid hosts live array/data shares; stray access risks unrelated data. Keep the repo, logs, and temp files all under `/mnt/app/blockfire`. Pass this rule explicitly to any subagent you dispatch to touch the fleet.
+As of 2026-06-16 all dev + gate work runs on **game2** (Intel 14900KS, 32 threads, headless CachyOS), the full-time host. The user works here directly; a laptop only attaches to a **tmux session on game2** — the laptop runs nothing itself. Both the ≤48-bot smoke (`ci/`) and the 128-bot Docker fleet gate (`docker/`) run **locally on game2** — **no cross-host ssh**. The canonical working tree is **`/home/roland/projects/blockfire`** (a stale laptop-era copy at `/home/roland/blockfire` should be ignored).
+
+**P-core / E-core pinning (HARD RULE):** the 14900KS is hybrid — **P-cores = logical CPUs 0–15** (fast, 5.9–6.2 GHz), **E-cores = 16–31** (4.5 GHz). `cpuset`/`taskset` pinning overrides the kernel's hybrid scheduler, so the single-threaded, clock-sensitive **server tick MUST be pinned to P-cores** (`SERVER_CPUS` ⊆ 0–15); pinning it onto an E-core gives a ~30% slower clock that reads as a phantom tick regression. Bots take the rest. Fleet example: `SERVER_CPUS=0,1,2,3 BOTS_CPUS=4-31 BOT_REPLICAS=16 BOT_COUNT=8 ./run-...-gate.sh`.
+
+**Unraid (SENET, `ssh root@192.168.1.10`) is now PRODUCTION — do NOT run gates there.** If you ever must touch it, the old confinement rule still holds: stay strictly under **`/mnt/app/blockfire`** (treat as a chroot; it hosts live array/data shares) and pass that rule to any subagent.
 
 ## Quick map
 

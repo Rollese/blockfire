@@ -14,6 +14,7 @@ const STAMINA_REGEN_DELAY := 1.0
 const STAMINA_MAX := 100.0
 const WORLD_HALF := 1000.0
 const MAX_PITCH := 1.4835  # ~85 degrees
+const PRONE_TRANSITION_TICKS := 10  # fire blocked for this many ticks after entering prone (drop-shoot fix)
 
 var id: int
 var pos: Vector3 = Vector3.ZERO
@@ -33,6 +34,12 @@ var is_downed: bool = false
 var bleed_health: int = 0          # 0 at down, drains to Revive.BLEEDOUT_FLOOR
 var bleed_halted: bool = false     # set by self-bandage; stops the drain
 var bandage_count: int = Revive.BANDAGE_COUNT
+var last_stance_change_tick: int = -1000   # set by SimLoop when stance changes; drop-shoot gate
+var climbing: bool = false
+var vaulting: bool = false
+var vault_tick: int = 0
+var vault_from: Vector3 = Vector3.ZERO
+var vault_to: Vector3 = Vector3.ZERO
 
 func _init(p_id: int = 0) -> void:
 	id = p_id
@@ -43,6 +50,8 @@ func step(dt: float, cmd: Dictionary) -> void:
 	if is_downed:
 		_step_downed(dt, cmd)
 		return
+	if climbing or vaulting:
+		return   # position is driven by SimLoop (ladder line / vault arc); look already applied above
 	var buttons: int = cmd.get("buttons", 0)
 
 	# stance
@@ -131,4 +140,5 @@ func to_state() -> EntityState:
 	e.alive = alive
 	e.health = health
 	e.is_downed = is_downed
+	e.climbing = climbing
 	return e

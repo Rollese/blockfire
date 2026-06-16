@@ -237,3 +237,12 @@ func resolve_movement(from: Vector3, to: Vector3) -> Vector3:
 
 func _blocks_ground(p: Vector3) -> bool:
 	return _occupancy.has(BuildGrid.cell_of(Vector3(p.x, 0.0, p.z)))
+
+## Top height (m) of the piece occupying the ground cell at world point `p`, or 0.0 if none.
+## Half pieces are 0.5*CELL_SIZE, full pieces CELL_SIZE. Used by the height-generic vault rule.
+func ground_blocker_top(p: Vector3) -> float:
+	var cell := BuildGrid.cell_of(Vector3(p.x, 0.0, p.z))
+	if not _occupancy.has(cell):
+		return 0.0
+	var rec: Dictionary = _by_id[_occupancy[cell]]
+	return BuildGrid.CELL_SIZE * (0.5 if _catalog.is_half(int(rec["type"])) else 1.0)

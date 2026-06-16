@@ -107,3 +107,26 @@ func test_not_downed_default_replicates_false() -> void:
 	var view := {}
 	Snapshot.decode_apply(Snapshot.encode(1, 1, 0, 0, cur, {}), view)
 	assert_false((view[8] as EntityState).is_downed)
+
+func test_climbing_packs_into_state_byte_bit7() -> void:
+	var e := EntityState.new()
+	e.climbing = true
+	var b := Snapshot._state_byte(e)
+	assert_eq((b >> 7) & 1, 1)   # bit 7 set
+
+func test_climbing_survives_snapshot_roundtrip() -> void:
+	# Full encode -> decode_apply: the climbing flag must survive the wire, not just pack.
+	var cur := {}
+	var climber := EntityState.new()
+	climber.climbing = true
+	cur[9] = climber
+	var view := {}
+	Snapshot.decode_apply(Snapshot.encode(1, 1, 0, 0, cur, {}), view)
+	assert_true(view.has(9))
+	assert_true((view[9] as EntityState).climbing, "climbing survives encode/decode")
+	# And a default (non-climbing) entity decodes false.
+	var cur2 := {}
+	cur2[10] = EntityState.new()
+	var view2 := {}
+	Snapshot.decode_apply(Snapshot.encode(1, 1, 0, 0, cur2, {}), view2)
+	assert_false((view2[10] as EntityState).climbing, "default climbing=false survives")

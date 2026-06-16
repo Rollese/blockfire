@@ -28,3 +28,6 @@ export_presets.cfg.local
 
 # graphify derived knowledge graph (rebuild with /graphify --update)
 /graphify-out/
+
+# Local Claude Code settings (per-developer)
+/.claude/settings.local.json

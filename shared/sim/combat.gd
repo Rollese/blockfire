@@ -56,3 +56,8 @@ static func apply_penetration(piece_body: int, enemy_damage: int, absorption: fl
 		"piece_damage": int(round(float(piece_body) * absorption)),
 		"exit_damage": int(round(float(enemy_damage) * transmit)),
 	}
+
+## True if a shot must be rejected because the shooter only just entered prone (drop-shoot fix).
+## Pure: blocks the first PRONE_TRANSITION_TICKS of any prone entry; stand/crouch never block.
+static func drop_shoot_blocked(stance: int, tick: int, last_stance_change_tick: int) -> bool:
+	return stance == Stance.PRONE and (tick - last_stance_change_tick) < Pawn.PRONE_TRANSITION_TICKS

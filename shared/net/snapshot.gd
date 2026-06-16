@@ -22,7 +22,8 @@ const FLAG_CHANGED := 4
 
 static func _state_byte(e: EntityState) -> int:
 	return (e.stance & 3) | ((e.lean & 3) << 2) | ((1 if e.team != 0 else 0) << 4) \
-		| ((1 if e.alive else 0) << 5) | ((1 if e.is_downed else 0) << 6)
+		| ((1 if e.alive else 0) << 5) | ((1 if e.is_downed else 0) << 6) \
+		| ((1 if e.climbing else 0) << 7)
 
 static func encode(server_tick: int, seq: int, baseline_seq: int, last_input_tick: int,
 		current: Dictionary, baseline: Dictionary) -> PackedByteArray:
@@ -86,6 +87,7 @@ static func decode_apply(bytes: PackedByteArray, view: Dictionary) -> Dictionary
 			e.team = (sb >> 4) & 1
 			e.alive = ((sb >> 5) & 1) == 1
 			e.is_downed = ((sb >> 6) & 1) == 1
+			e.climbing = ((sb >> 7) & 1) == 1
 		if mask & F_HEALTH: e.health = buf.get_u8()
 		if mask & F_SQUAD: e.squad = buf.get_u8()
 	return {"server_tick": server_tick, "seq": seq, "baseline_seq": baseline_seq, "last_input_tick": last_input_tick}

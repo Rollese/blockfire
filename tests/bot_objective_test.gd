@@ -70,3 +70,41 @@ func test_combat_button_idle_when_not_firing() -> void:
 	var r := Bot.combat_button(false, 100, 0, -1)
 	assert_eq(r[0], 0, "no button when not wanting to fire")
 	assert_eq(r[1], 0); assert_eq(r[2], -1)
+
+func test_climb_seek_steers_toward_ladder_when_objective_across() -> void:
+	# Bot near the ladder base at (21,0,1), objective beyond it: steer toward the ladder base.
+	var ladder := {"bottom": Vector3(21, 0, 1), "top": Vector3(21, 4, 1), "radius": 0.8}
+	var steer := Bot.climb_seek(Vector3(18, 0, 1), Vector3(40, 0, 1), [ladder])
+	assert_true(steer["seek"], "seeks the ladder when blocked between it and the objective")
+	var far := Bot.climb_seek(Vector3(-500, 0, 0), Vector3(0, 0, 0), [ladder])
+	assert_false(far["seek"], "ignores a distant ladder")
+
+func test_climb_seek_skips_ladder_when_already_elevated() -> void:
+	# A bot already up on the ledge (y well above the ladder bottom) must NOT re-seek the same
+	# ladder — otherwise it gets stuck pushing "up" at the top instead of marching to the objective.
+	var ladder := {"bottom": Vector3(21, 0, 1), "top": Vector3(21, 4, 1), "radius": 0.8}
+	var on_ledge := Bot.climb_seek(Vector3(21, 4, 1), Vector3(40, 0, 1), [ladder])
+	assert_false(on_ledge["seek"], "does not re-seek the ladder once on the ledge")
+
+func test_drill_step_climb_then_vault() -> void:
+	var ladder := {"bottom": Vector3(25, 0, 1), "top": Vector3(25, 4, 1), "radius": 1.2}
+	var sandbag := Vector3(-5, 0, 1)
+	# CLIMB phase, far from ladder: steer toward the base, not yet force-climbing.
+	var far := Bot.drill_step(0, Vector3(200, 0, 1), ladder, sandbag)
+	assert_eq(far["move_to"], ladder["bottom"])
+	assert_false(far["force_climb"], "not force-climbing when far from the base")
+	assert_eq(far["next_phase"], 0, "still climbing")
+	# CLIMB phase, at the base on the ground: force-climb engaged, still climb phase.
+	var atbase := Bot.drill_step(0, Vector3(25, 0, 1), ladder, sandbag)
+	assert_true(atbase["force_climb"], "force-climb when within radius of the base")
+	assert_eq(atbase["next_phase"], 0)
+	# CLIMB phase, reached the top: advance to VAULT.
+	var top := Bot.drill_step(0, Vector3(25, 4, 1), ladder, sandbag)
+	assert_eq(top["next_phase"], 1, "advance to vault once at the ladder top")
+	# VAULT phase, far from sandbag: steer toward it, stay in vault phase.
+	var vfar := Bot.drill_step(1, Vector3(200, 0, 1), ladder, sandbag)
+	assert_eq(vfar["move_to"], sandbag)
+	assert_eq(vfar["next_phase"], 1)
+	# VAULT phase, reached the sandbag: flip back to climb.
+	var vnear := Bot.drill_step(1, Vector3(-5, 0, 1), ladder, sandbag)
+	assert_eq(vnear["next_phase"], 0, "cycle back to climb after vaulting")
