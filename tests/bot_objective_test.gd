@@ -78,3 +78,10 @@ func test_climb_seek_steers_toward_ladder_when_objective_across() -> void:
 	assert_true(steer["seek"], "seeks the ladder when blocked between it and the objective")
 	var far := Bot.climb_seek(Vector3(-500, 0, 0), Vector3(0, 0, 0), [ladder])
 	assert_false(far["seek"], "ignores a distant ladder")
+
+func test_climb_seek_skips_ladder_when_already_elevated() -> void:
+	# A bot already up on the ledge (y well above the ladder bottom) must NOT re-seek the same
+	# ladder — otherwise it gets stuck pushing "up" at the top instead of marching to the objective.
+	var ladder := {"bottom": Vector3(21, 0, 1), "top": Vector3(21, 4, 1), "radius": 0.8}
+	var on_ledge := Bot.climb_seek(Vector3(21, 4, 1), Vector3(40, 0, 1), [ladder])
+	assert_false(on_ledge["seek"], "does not re-seek the ladder once on the ledge")

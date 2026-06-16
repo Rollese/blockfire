@@ -368,13 +368,18 @@ static func choose_objective_index(points: Array, owners: Array, my_team: int, f
 				best_d = fd; best = i
 	return best
 
-const CLIMB_SEEK_RANGE := 12.0   # m: consider a ladder only when this close to its base
+const CLIMB_SEEK_RANGE := 16.0   # m: consider a ladder only when this close to its base
+const CLIMB_TOP_MARGIN := 2.0    # m above the ladder bottom past which the bot is "up" already
 
 ## Decide whether to steer onto a ladder. seek=true with a move target at the ladder base when the
-## bot is near a ladder and its objective is roughly across/beyond that ladder. Pure + unit-tested.
+## bot is near a ladder (and still below it) and its objective is roughly across/beyond that ladder.
+## Pure + unit-tested. The height guard stops a bot that has reached the ledge from re-seeking the
+## same ladder and getting stuck pushing "up" at the top.
 static func climb_seek(my_pos: Vector3, objective: Vector3, ladders: Array) -> Dictionary:
 	for l in ladders:
 		var base: Vector3 = l["bottom"]
+		if my_pos.y > base.y + CLIMB_TOP_MARGIN:
+			continue   # already elevated (on/above the ledge) — don't re-seek this ladder
 		var to_base := Vector2(base.x - my_pos.x, base.z - my_pos.z)
 		if to_base.length() > CLIMB_SEEK_RANGE:
 			continue
