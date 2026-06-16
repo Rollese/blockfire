@@ -14,6 +14,7 @@ const STAMINA_REGEN_DELAY := 1.0
 const STAMINA_MAX := 100.0
 const WORLD_HALF := 1000.0
 const MAX_PITCH := 1.4835  # ~85 degrees
+const PRONE_TRANSITION_TICKS := 10  # fire blocked for this many ticks after entering prone (drop-shoot fix)
 
 var id: int
 var pos: Vector3 = Vector3.ZERO
@@ -33,6 +34,7 @@ var is_downed: bool = false
 var bleed_health: int = 0          # 0 at down, drains to Revive.BLEEDOUT_FLOOR
 var bleed_halted: bool = false     # set by self-bandage; stops the drain
 var bandage_count: int = Revive.BANDAGE_COUNT
+var last_stance_change_tick: int = -1000   # set by SimLoop when stance changes; drop-shoot gate
 
 func _init(p_id: int = 0) -> void:
 	id = p_id

@@ -54,3 +54,16 @@ func test_damage_for_uses_override_range() -> void:
 	var eff := Weapon.effective_def(Weapon.AR, {"spread_mult": 1.0, "recoil_mult": 1.0, "range_mult": 10.0 / float(Weapon.get_def(Weapon.AR)["range_m"]), "move_spread_mult": 1.0, "prone_spread_zero": false})
 	assert_eq(Combat.damage_for(Weapon.AR, false, 50.0, eff), 0)
 	assert_true(Combat.damage_for(Weapon.AR, false, 5.0, eff) > 0)
+
+func test_drop_shoot_blocked_during_prone_transition() -> void:
+	# Just went prone at tick 100; firing at tick 105 is within the 10-tick window -> blocked.
+	assert_true(Combat.drop_shoot_blocked(Stance.PRONE, 105, 100))
+
+func test_drop_shoot_allowed_after_window() -> void:
+	# Prone since tick 100; firing at tick 120 is past the window -> allowed.
+	assert_false(Combat.drop_shoot_blocked(Stance.PRONE, 120, 100))
+
+func test_drop_shoot_not_blocked_when_standing() -> void:
+	# Standing (or crouched) is never drop-shoot-blocked, even right after a stance change.
+	assert_false(Combat.drop_shoot_blocked(Stance.STAND, 105, 100))
+	assert_false(Combat.drop_shoot_blocked(Stance.CROUCH, 105, 100))
