@@ -11,5 +11,16 @@
   "bases": [
     {"team": 0, "pos": [-900, 0, 0], "radius": 40.0},
     {"team": 1, "pos": [ 900, 0, 0], "radius": 40.0}
+  ],
+  "ladders": [
+    {"bottom": [21, 0, 1], "top": [21, 4, 1], "radius": 0.8}
+  ],
+  "platforms": [
+    {"min": [18, 4, -2], "max": [26, 4.2, 4]}
+  ],
+  "prebuilt": [
+    {"type": "wall",    "cell": [11, 0, 0]},
+    {"type": "wall",    "cell": [11, 1, 0]},
+    {"type": "sandbag", "cell": [-3, 0, 0]}
   ]
 }

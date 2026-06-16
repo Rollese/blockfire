@@ -48,3 +48,10 @@ func test_geometry_arrays_default_empty() -> void:
 	assert_eq(r["map"].ladders.size(), 0)
 	assert_eq(r["map"].platforms.size(), 0)
 	assert_eq(r["map"].prebuilt.size(), 0)
+
+func test_proving_grounds_loads_with_geometry() -> void:
+	var m := MapDef.load_file("res://maps/conquest_proving_grounds.json")
+	assert_true(m != null, "proving grounds map loads")
+	assert_true(m.ladders.size() >= 1, "has a ladder")
+	assert_true(m.platforms.size() >= 1, "has a platform")
+	assert_true(m.prebuilt.size() >= 1, "has prebuilt geometry")
