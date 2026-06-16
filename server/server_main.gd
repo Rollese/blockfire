@@ -38,6 +38,11 @@ const SMOKE_RADIUS := 6.0             # m — smoke zone radius (matches blast r
 const PIECES_PATH := "res://pieces/fortifications.json"
 const GADGETS_PATH := "res://data/gadgets.json"
 const ATTACHMENTS_PATH := "res://data/attachments.json"
+const VEHICLES_PATH := "res://data/vehicles.json"
+const ENTER_RANGE := 3.0
+const RPG_VEHICLE_DMG := 500
+const C4_VEHICLE_DMG := 500
+const FRAG_VEHICLE_DMG := 80
 
 var _net: NetHost
 var _port := 27015
@@ -54,6 +59,7 @@ var _catalog: PieceCatalog
 var _store: StructureStore
 var _gadgets: Gadget
 var _attachments: Attachment
+var _vehicles_cat: VehicleCatalog
 var _next_struct_id := 1
 var _next_id := 1
 var _tele_accum := 0.0
@@ -148,6 +154,10 @@ func _ready() -> void:
 	_attachments = Attachment.load_file(ATTACHMENTS_PATH)
 	if _attachments == null:
 		push_error("[server] failed to load attachments %s" % ATTACHMENTS_PATH); get_tree().quit(1); return
+	_vehicles_cat = VehicleCatalog.load_file(VEHICLES_PATH)
+	if _vehicles_cat == null:
+		push_error("[server] failed to load vehicles %s" % VEHICLES_PATH); get_tree().quit(1); return
+	_spawn_map_vehicles()
 	_net = NetHost.new()
 	add_child(_net)
 	_net.peer_connected.connect(func(_p): pass)
@@ -250,6 +260,18 @@ func _piece_index(piece_id: String) -> int:
 		if _catalog.name_of(i) == piece_id:
 			return i
 	return -1
+
+func _spawn_map_vehicles() -> void:
+	var index := 0
+	for vs in _map.vehicle_spawns:
+		var type := _vehicles_cat.index_of(String(vs["type"]))
+		if type < 0:
+			push_error("[server] vehicle_spawn unknown type '%s'" % vs["type"]); continue
+		var v := Vehicle.make(Vehicle.id_for(index), type, _vehicles_cat.def_of(type), int(vs["team"]), vs["pos"])
+		v.heading = float(vs["heading"])
+		_sim.world.spawn_vehicle(v)
+		index += 1
+	print("[server] spawned %d vehicle(s)" % _sim.world.vehicles.size())
 
 func _resolve_fires() -> void:
 	for id in _clients:

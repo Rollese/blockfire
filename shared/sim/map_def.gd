@@ -11,6 +11,7 @@ var bases: Array = []    # [{team:int, pos:Vector3, radius:float}]
 var ladders: Array = []   # [{bottom:Vector3, top:Vector3, radius:float}]
 var platforms: Array = [] # [{min:Vector3, max:Vector3}]
 var prebuilt: Array = []  # [{type:String (piece id), cell:Vector3i}] pre-placed at server start
+var vehicle_spawns: Array = []  # [{team:int, type:String, pos:Vector3, heading:float}]
 
 func base_for(team: int) -> Dictionary:
 	for b in bases:
@@ -67,6 +68,15 @@ static func from_dict(data: Dictionary) -> Dictionary:
 			return {"ok": false, "map": null, "error": "each prebuilt needs type + 3-int cell"}
 		var c = pb["cell"]
 		m.prebuilt.append({"type": String(pb["type"]), "cell": Vector3i(int(c[0]), int(c[1]), int(c[2]))})
+	for vs in data.get("vehicle_spawns", []):
+		if not (vs is Dictionary) or not vs.has("pos") or not (vs["pos"] is Array) or vs["pos"].size() != 3:
+			return {"ok": false, "map": null, "error": "each vehicle_spawn needs a 3-number pos"}
+		m.vehicle_spawns.append({
+			"team": int(vs.get("team", 0)),
+			"type": String(vs.get("type", "transport")),
+			"pos": _vec3(vs["pos"]),
+			"heading": float(vs.get("heading", 0.0)),
+		})
 	return {"ok": true, "map": m, "error": ""}
 
 static func load_file(path: String) -> MapDef:

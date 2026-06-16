@@ -28,5 +28,9 @@
     {"type": "sandbag", "cell": [-3, 0, 0]},
     {"type": "sandbag", "cell": [472, 0, 0]},
     {"type": "sandbag", "cell": [-473, 0, 0]}
+  ],
+  "vehicle_spawns": [
+    {"team": 0, "type": "transport", "pos": [-920, 0, 0], "heading": 1.5708},
+    {"team": 1, "type": "transport", "pos": [ 920, 0, 0], "heading": -1.5708}
   ]
 }
