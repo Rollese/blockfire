@@ -38,6 +38,12 @@ const SMOKE_RADIUS := 6.0             # m — smoke zone radius (matches blast r
 const PIECES_PATH := "res://pieces/fortifications.json"
 const GADGETS_PATH := "res://data/gadgets.json"
 const ATTACHMENTS_PATH := "res://data/attachments.json"
+const VEHICLES_PATH := "res://data/vehicles.json"
+const ENTER_RANGE := 3.0
+const RPG_VEHICLE_DMG := 800
+const C4_VEHICLE_DMG := 500
+const FRAG_VEHICLE_DMG := 80
+const MAX_VIEW_RATE := 0.6  # rad/tick; at 30Hz = 18 rad/s (~1031 deg/s) — generous cap for telemetry-only anomaly detection
 
 var _net: NetHost
 var _port := 27015
@@ -54,11 +60,12 @@ var _catalog: PieceCatalog
 var _store: StructureStore
 var _gadgets: Gadget
 var _attachments: Attachment
+var _vehicles_cat: VehicleCatalog
 var _next_struct_id := 1
 var _next_id := 1
 var _tele_accum := 0.0
 # Per-phase tick profiling (mean usec/tick over the telemetry window).
-var _phase_us := {"poll": 0, "move": 0, "lag": 0, "interest": 0, "fire": 0, "respawn": 0, "conquest": 0, "match": 0, "snap": 0}
+var _phase_us := {"poll": 0, "move": 0, "veh": 0, "lag": 0, "interest": 0, "fire": 0, "respawn": 0, "conquest": 0, "match": 0, "snap": 0}
 var _phase_ticks := 0
 var _team_counts := {0: 0, 1: 0}
 var _positions := {}               # id -> Vector3, rebuilt each tick before fires
@@ -93,9 +100,15 @@ var _c4_det := 0              # C4 detonations (per detonate action) this window
 var _mine_trips := 0          # claymore/mine detonations this window
 var _heals := 0          # active+bag HP-dispensing events this window
 var _ammo_gives := 0     # active+bag ammo-resupply events this window
+var _enters := 0
+var _exits := 0
+var _transport_origin := {}   # id -> Vector3 boarding pos (transport-distance metric)
+var _transport_max := 0.0     # max carried distance observed this window
 var _bags_thrown := 0    # bags deployed this window
 var _bags_exhausted := 0 # bags that hit pool 0 and vanished this window
 var _rstruct := 0             # structures hit by rockets this window
+var _veh_destroyed := 0
+var _rkt_vs_veh := 0
 var _pending_removes: Array = []   # [{id, cell}] removes awaiting send (degradation queue)
 var _dmg_touched := {}             # id -> true: pieces damaged (alive) this tick, for bucket diff
 var _last_bucket := {}             # id -> last SENT bucket (missing => pristine bucket 3)
@@ -103,6 +116,12 @@ var _grenades: Array = []     # [{owner, team, type, pos, vel, detonate_tick}] �
 var _rockets: Array = []      # [{owner, team, pos, vel}] — server-side, not replicated
 var _mines: Array = []        # [{owner, team, pos, facing, armed_after_tick}]
 var _giving: Dictionary = {}   # giver_id -> tick the give began (latched; cleared on STOP/invalid)
+var _repairing := {}        # engineer_id -> true (latched)
+var _repair_heat := {}      # engineer_id -> int
+var _repair_cd := {}        # engineer_id -> cooldown_until tick
+var _repairs := 0           # HP restored this window
+var _repair_overheats := 0
+var _ac_viol := 0              # view-rate anomalies (telemetry-only, never rejects input)
 var _bags: Array = []          # [{owner, team, kind, pos, pool}]
 var _c4: Dictionary = {}      # owner_id -> Array of {pos, cell:Vector3i}
 var _smoke_zones: Array = []  # [{pos, radius, expire_tick}] — server-side; M7 LOS culling consumes
@@ -148,6 +167,10 @@ func _ready() -> void:
 	_attachments = Attachment.load_file(ATTACHMENTS_PATH)
 	if _attachments == null:
 		push_error("[server] failed to load attachments %s" % ATTACHMENTS_PATH); get_tree().quit(1); return
+	_vehicles_cat = VehicleCatalog.load_file(VEHICLES_PATH)
+	if _vehicles_cat == null:
+		push_error("[server] failed to load vehicles %s" % VEHICLES_PATH); get_tree().quit(1); return
+	_spawn_map_vehicles()
 	_net = NetHost.new()
 	add_child(_net)
 	_net.peer_connected.connect(func(_p): pass)
@@ -173,21 +196,27 @@ func _physics_process(delta: float) -> void:
 			_vaults += 1
 		_prev_climb_vault[id] = cur
 	var t_move := Time.get_ticks_usec()
+	_sim.step_vehicles(_build_vehicle_inputs())
+	_track_transport_distance()
+	var t_veh := Time.get_ticks_usec()
 	_lag.record(_sim.tick, _sim.world)
 	var t_lag := Time.get_ticks_usec()
 	_build_interest()
 	var t_int := Time.get_ticks_usec()
 	_resolve_fires()
+	_resolve_vehicle_fires()
 	var t_fire := Time.get_ticks_usec()
 	_step_grenades()
 	_step_rockets()
 	_step_mines()
 	_step_active_give()
+	_step_repairs()
 	_step_bags()
 	_expire_smoke_zones()
 	_step_revives()
 	_step_downed()
 	_handle_respawns()
+	_step_vehicle_respawns()
 	var t_resp := Time.get_ticks_usec()
 	_conquest.step(SimLoop.DT, _sim.world)
 	var t_conq := Time.get_ticks_usec()
@@ -198,7 +227,8 @@ func _physics_process(delta: float) -> void:
 	var t_snap := Time.get_ticks_usec()
 	_phase_us["poll"] += t_poll - t0
 	_phase_us["move"] += t_move - t_poll
-	_phase_us["lag"] += t_lag - t_move
+	_phase_us["veh"] += t_veh - t_move
+	_phase_us["lag"] += t_lag - t_veh
 	_phase_us["interest"] += t_int - t_lag
 	_phase_us["fire"] += t_fire - t_int
 	_phase_us["respawn"] += t_resp - t_fire
@@ -237,6 +267,10 @@ func _step_movement() -> void:
 			if inp != null: _tele.starvation += 1
 		if inp != null:
 			inputs[id] = inp
+			var prev_inp = c["last_input"]
+			if prev_inp != null and inp != prev_inp:
+				if not InputValidate.view_rate_ok(float(prev_inp["yaw"]), float(inp["yaw"]), float(prev_inp["pitch"]), float(inp["pitch"]), MAX_VIEW_RATE):
+					_ac_viol += 1
 			c["last_input"] = inp
 			c["last_input_tick"] = inp["client_tick"]
 		c["queued_input"] = null
@@ -245,11 +279,82 @@ func _step_movement() -> void:
 			c["ammo"] = Weapon.get_def(c["weapon"])["mag_size"]
 	_sim.step(inputs)
 
+## Build vid -> driver command from each vehicle's seat-0 (driver) occupant's last input. Also
+## refreshes the gunner pawn's look so SimLoop.step_vehicles can mirror it to the turret.
+func _build_vehicle_inputs() -> Dictionary:
+	var vinputs := {}
+	for vid in _sim.world.vehicles:
+		var v: Vehicle = _sim.world.vehicles[vid]
+		if not v.alive: continue
+		var driver: int = int(v.seats[0])
+		if driver != 0 and _clients.has(driver) and _clients[driver]["last_input"] != null:
+			var inp = _clients[driver]["last_input"]
+			vinputs[vid] = {"move_x": InputValidate.clamp_axis(inp["move_x"]),
+				"move_y": InputValidate.clamp_axis(inp["move_y"])}
+	return vinputs
+
 func _piece_index(piece_id: String) -> int:
 	for i in _catalog.size():
 		if _catalog.name_of(i) == piece_id:
 			return i
 	return -1
+
+func _spawn_map_vehicles() -> void:
+	var index := 0
+	for vs in _map.vehicle_spawns:
+		var type := _vehicles_cat.index_of(String(vs["type"]))
+		if type < 0:
+			push_error("[server] vehicle_spawn unknown type '%s'" % vs["type"]); continue
+		var v := Vehicle.make(Vehicle.id_for(index), type, _vehicles_cat.def_of(type), int(vs["team"]), vs["pos"])
+		v.heading = float(vs["heading"])
+		_sim.world.spawn_vehicle(v)
+		index += 1
+	print("[server] spawned %d vehicle(s)" % _sim.world.vehicles.size())
+
+## Gunner-seat mounted gun: hit-scan from the turret muzzle along the gunner's aim, reusing the
+## lag-comp frame + Hitbox path (FF-off, present rewind to the gunner's view tick). Rate-limited
+## by the weapon fire_interval. v1 = anti-infantry only.
+func _resolve_vehicle_fires() -> void:
+	for vid in _sim.world.vehicles:
+		var v: Vehicle = _sim.world.vehicles[vid]
+		if not v.alive or v.mounted.is_empty(): continue
+		var gunner := 0
+		for seat in v.seats.size():
+			if int(v.seat_roles[seat]) == Vehicle.ROLE_GUNNER and int(v.seats[seat]) != 0:
+				gunner = int(v.seats[seat]); break
+		if gunner == 0 or not _clients.has(gunner): continue
+		var inp = _clients[gunner]["last_input"]
+		if inp == null or (int(inp["buttons"]) & InputCommand.BTN_FIRE) == 0: continue
+		var interval := float(v.mounted["fire_interval"])
+		if (float(_sim.tick) - float(v.last_mounted_fire_tick)) * SimLoop.DT < interval: continue
+		v.last_mounted_fire_tick = _sim.tick
+		var gp: Pawn = _sim.world.get_pawn(gunner)
+		if gp == null: continue
+		var origin := v.turret_muzzle()
+		var dir := Combat._forward(v.turret_yaw, gp.pitch)
+		var max_range := float(v.mounted["range_m"])
+		var view_tick: int = int(inp["view_server_tick"])
+		var frame := _lag.rewind(view_tick)
+		var candidates: Array = _grid.query(origin, max_range + FIRE_RANGE_MARGIN, _positions)
+		var best_t := max_range + 1.0
+		var best_victim := 0
+		var best_head := false
+		for tid in candidates:
+			if tid == gunner: continue
+			if not frame.has(tid): continue
+			var stt = frame[tid]
+			if not stt["alive"] or stt["team"] == v.team: continue
+			var to_target: Vector3 = stt["pos"] - origin
+			if to_target.length() > max_range: continue
+			if to_target.normalized().dot(dir) < FIRE_CONE_DOT: continue
+			var hit := Hitbox.raycast_pawn(origin, dir, stt["pos"], stt["stance"], max_range)
+			if hit["hit"] and hit["t"] < best_t:
+				best_t = hit["t"]; best_victim = tid; best_head = hit["headshot"]
+		if best_victim == 0: continue
+		var victim: Pawn = _sim.world.get_pawn(best_victim)
+		if victim == null or not victim.alive: continue
+		_shots += 1; _hits += 1
+		_apply_pawn_damage(best_victim, victim, int(v.mounted["damage"]), best_head, Revive.Source.BULLET, gunner, 0)
 
 func _resolve_fires() -> void:
 	for id in _clients:
@@ -477,6 +582,44 @@ func _step_active_give() -> void:
 	for gid in done:
 		_giving.erase(gid)
 
+## Latched repair (like active-give): each held engineer near a friendly damaged vehicle restores
+## REPAIR_RATE/tick. Unlimited but overheat-gated (no pool). See docs/specs/vehicles.md §6.
+func _step_repairs() -> void:
+	if _repairing.is_empty():
+		return
+	var rdef: Dictionary = _gadgets.def_of_kind(Gadget.KIND_REPAIR)
+	var rate := int(rdef["rate"]); var rng := float(rdef["range"])
+	var overheat := int(rdef["overheat_ticks"]); var cool := int(rdef["cooldown_ticks"])
+	var done: Array = []
+	for eid in _repairing:
+		var ep: Pawn = _sim.world.get_pawn(eid)
+		if ep == null or not ep.alive or ep.is_downed:
+			done.append(eid); continue
+		var v := _nearest_friendly_damaged_vehicle(ep, rng)
+		var want := v != null
+		var st := Gadget.repair_heat_step(int(_repair_heat.get(eid, 0)), int(_repair_cd.get(eid, 0)),
+			_sim.tick, want, overheat, cool)
+		_repair_heat[eid] = int(st["heat"]); _repair_cd[eid] = int(st["cooldown_until"])
+		if int(st["cooldown_until"]) > 0 and want:
+			_repair_overheats += 1
+		if bool(st["repairing"]) and v != null:
+			var before := v.hp
+			v.hp = mini(v.max_hp, v.hp + rate)
+			_repairs += v.hp - before
+	for eid in done:
+		_repairing.erase(eid)
+
+func _nearest_friendly_damaged_vehicle(ep: Pawn, rng: float) -> Vehicle:
+	var best: Vehicle = null
+	var bestd := rng
+	for vid in _sim.world.vehicles:
+		var v: Vehicle = _sim.world.vehicles[vid]
+		if not v.alive or v.team != ep.team or v.hp >= v.max_hp: continue
+		var d := ep.pos.distance_to(v.pos)
+		if d <= bestd:
+			bestd = d; best = v
+	return best
+
 ## Heals target by `rate` HP, capped at 100. No-op if dead or already full.
 func _give_heal(target_id: int, rate: int) -> void:
 	var t: Pawn = _sim.world.get_pawn(target_id)
@@ -531,7 +674,7 @@ func _handle_respawns() -> void:
 			c["respawn_tick"] = 0
 			c["ammo"] = Weapon.get_def(c["weapon"])["mag_size"]
 			c["reloading"] = false
-			c["rockets"] = int(_gadgets.def_of_kind(Gadget.KIND_RPG)["max_active"]) if int(c["weapon"]) == Weapon.RPG else 0
+			c["rockets"] = int(_gadgets.def_of_kind(Gadget.KIND_RPG)["ammo"]) if int(c["weapon"]) == Weapon.RPG else 0
 
 func _select_spawn(id: int) -> Vector3:
 	var c = _clients[id]
@@ -579,6 +722,7 @@ func _track_and_broadcast_match_state() -> void:
 
 func _send_snapshots() -> void:
 	var state := _sim.world.state_map()
+	var vstate := _sim.world.vehicle_state_map()
 	for id in _clients:
 		# Stagger sends across ticks so the per-tick snapshot encode cost (the dominant tick
 		# cost at high player counts) is ~clients/SNAPSHOT_STRIDE rather than O(clients).
@@ -616,18 +760,29 @@ func _send_snapshots() -> void:
 			ids = kept.keys()
 		var current := {}
 		for vid in ids: current[vid] = state[vid]
+		var current_v := {}
+		for vid in vstate:
+			var vst: VehicleState = vstate[vid]
+			if self_pawn.pos.distance_to(vst.pos) <= INTEREST_RADIUS:
+				current_v[vid] = vst
 		var baseline_seq: int = c["last_acked_seq"]
 		var baseline = c["history"].get(baseline_seq)
 		if baseline == null:
 			baseline = {}; baseline_seq = 0
+		var baseline_v = c["history_v"].get(baseline_seq)
+		if baseline_v == null:
+			baseline_v = {}
 		var seq: int = c["next_seq"]
-		var bytes := Snapshot.encode(_sim.tick, seq, baseline_seq, c["last_input_tick"], current, baseline)
+		var bytes := Snapshot.encode(_sim.tick, seq, baseline_seq, c["last_input_tick"], current, baseline, current_v, baseline_v)
 		_net.send_to(c["peer"], NetHost.CHANNEL_SNAPSHOT, bytes, 0)
 		c["history"][seq] = current
+		c["history_v"][seq] = current_v
 		c["next_seq"] = seq + 1
 		var cutoff := seq - MAX_HISTORY
 		for s in c["history"].keys():
 			if s < cutoff: c["history"].erase(s)
+		for s in c["history_v"].keys():
+			if s < cutoff: c["history_v"].erase(s)
 		_tele.add_bytes(id, bytes.size())
 
 func _on_packet(peer: ENetPacketPeer, _channel: int, bytes: PackedByteArray) -> void:
@@ -640,6 +795,7 @@ func _on_packet(peer: ENetPacketPeer, _channel: int, bytes: PackedByteArray) -> 
 		Protocol.Msg.REVIVE_ACTION: _handle_revive_action(peer, bytes)
 		Protocol.Msg.SELF_BANDAGE: _handle_self_bandage(peer, bytes)
 		Protocol.Msg.GADGET_ACTION: _handle_gadget_action(peer, bytes)
+		Protocol.Msg.VEHICLE_ACTION: _handle_vehicle_action(peer, bytes)
 		_: pass
 
 func _handle_hello(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
@@ -664,12 +820,12 @@ func _handle_hello(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
 		wid = Loadout.weapon_for(cls)
 	var attachments := Loadout.default_attachments()
 	var weapon_def := Weapon.effective_def(wid, _attachments.multipliers(attachments))
-	var start_rockets := int(_gadgets.def_of_kind(Gadget.KIND_RPG)["max_active"]) if wid == Weapon.RPG else 0
+	var start_rockets := int(_gadgets.def_of_kind(Gadget.KIND_RPG)["ammo"]) if wid == Weapon.RPG else 0
 	var squad := _squads.assign(id, team)
 	_peer_to_id[peer] = id
 	_clients[id] = {
 		"peer": peer, "queued_input": null, "last_input": null, "last_input_tick": 0,
-		"last_acked_seq": 0, "next_seq": 1, "history": {},
+		"last_acked_seq": 0, "next_seq": 1, "history": {}, "history_v": {},
 		"team": team, "squad": squad, "class": cls, "weapon": wid, "weapon_def": weapon_def,
 		"rockets": start_rockets, "last_rocket_tick": -100000,
 		"ammo": Weapon.get_def(wid)["mag_size"],
@@ -697,6 +853,8 @@ func _handle_input(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
 		c["last_acked_seq"] = ack
 		for s in c["history"].keys():
 			if s < ack: c["history"].erase(s)
+		for s in c["history_v"].keys():
+			if s < ack: c["history_v"].erase(s)
 
 func _handle_build_request(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
 	var id = _peer_to_id.get(peer, 0)
@@ -767,7 +925,54 @@ func _handle_gadget_action(peer: ENetPacketPeer, bytes: PackedByteArray) -> void
 		Protocol.GA_GIVE_START: _giving[id] = _sim.tick
 		Protocol.GA_GIVE_STOP: _giving.erase(id)
 		Protocol.GA_BAG_THROW: _throw_bag(id, p, d["pos"])
+		Protocol.GA_REPAIR_START: _repairing[id] = true
+		Protocol.GA_REPAIR_STOP: _repairing.erase(id)
 		_: pass
+
+func _handle_vehicle_action(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
+	var id = _peer_to_id.get(peer, 0)
+	if id == 0 or not _clients.has(id): return
+	var p: Pawn = _sim.world.get_pawn(id)
+	if p == null: return
+	var d := Protocol.decode_vehicle_action(bytes)
+	match int(d["action"]):
+		Protocol.VA_ENTER: _vehicle_enter(id, p, int(d["vehicle_id"]), int(d["seat_hint"]))
+		Protocol.VA_EXIT: _vehicle_exit(id, p)
+		_: pass
+
+func _vehicle_enter(id: int, p: Pawn, vid: int, seat_hint: int) -> void:
+	var v: Vehicle = _sim.world.vehicles.get(vid)
+	if v == null: return
+	if not Vehicle.can_enter(v, p, p.pos.distance_to(v.pos), ENTER_RANGE): return
+	var seat := v.free_seat(seat_hint)
+	if seat < 0: return
+	v.seats[seat] = id
+	p.in_vehicle = vid
+	p.seat = seat
+	_enters += 1
+	_transport_origin[id] = v.pos   # for the transport-distance gate metric (Task 16)
+
+func _vehicle_exit(id: int, p: Pawn) -> void:
+	if p.in_vehicle == 0: return
+	var v: Vehicle = _sim.world.vehicles.get(p.in_vehicle)
+	if v != null:
+		if p.seat >= 0 and p.seat < v.seats.size(): v.seats[p.seat] = 0
+		var exit_pos := v.pos + Vehicle.rotate_yaw(v.exit_offset, v.heading)
+		exit_pos.y = maxf(0.0, exit_pos.y)
+		p.pos = exit_pos
+	p.in_vehicle = 0
+	p.seat = -1
+	_exits += 1
+	_transport_origin.erase(id)
+
+func _track_transport_distance() -> void:
+	for vid in _sim.world.vehicles:
+		var v: Vehicle = _sim.world.vehicles[vid]
+		if not v.alive: continue
+		for occ in v.occupant_ids():
+			if _transport_origin.has(occ):
+				var dist: float = (_transport_origin[occ] as Vector3).distance_to(v.pos)
+				_transport_max = maxf(_transport_max, dist)
 
 ## Launch an RPG rocket if the player has the RPG equipped, rockets remaining, and is off cooldown.
 func _fire_rocket(id: int, p: Pawn, dir: Vector3) -> void:
@@ -779,7 +984,7 @@ func _fire_rocket(id: int, p: Pawn, dir: Vector3) -> void:
 	if dir.length() < 0.001: return
 	c["last_rocket_tick"] = _sim.tick
 	c["rockets"] = int(c["rockets"]) - 1
-	_rockets.append({"owner": id, "team": p.team, "pos": p.eye_position(), "vel": Grenade.launch_velocity(dir)})
+	_rockets.append({"owner": id, "team": p.team, "pos": p.eye_position(), "vel": dir.normalized() * float(rdef["rocket_speed"])})
 
 func _place_c4(id: int, p: Pawn, pos: Vector3) -> void:
 	if Loadout.gadget_for(int(_clients[id]["class"])) != Loadout.GADGET_C4: return
@@ -828,7 +1033,7 @@ func _detonate_c4(id: int) -> void:
 	for c4 in owned:
 		_c4_det += 1
 		_blast_at(c4["pos"], id, team, int(cdef["pawn_damage"]), float(cdef["pawn_radius"]),
-			int(cdef["struct_damage"]), float(cdef["struct_radius"]))
+			int(cdef["struct_damage"]), float(cdef["struct_radius"]), C4_VEHICLE_DMG)
 	_c4.erase(id)
 
 ## Drop any placed C4 whose ground cell matches a just-destroyed structure cell (spec §"C4").
@@ -880,7 +1085,7 @@ func _step_grenades() -> void:
 ## FF-off incl. owner). Shared by frag grenades, RPG, C4, and mines. `source` tags the kill
 ## (BLAST). Returns the number of pawns that took damage (for kill/trigger bookkeeping).
 func _blast_at(center: Vector3, owner: int, team: int, pawn_dmg: int, pawn_radius: float,
-		struct_dmg: int, struct_radius: float) -> int:
+		struct_dmg: int, struct_radius: float, veh_dmg: int = 0) -> int:
 	if struct_dmg > 0 and struct_radius > 0.0:
 		for sid in _store.ids_in_radius(center, struct_radius):
 			var rec: Dictionary = _store.get_record(sid)
@@ -898,7 +1103,42 @@ func _blast_at(center: Vector3, owner: int, team: int, pawn_dmg: int, pawn_radiu
 		if pd <= 0: continue
 		_apply_pawn_damage(pid, victim, pd, false, Revive.Source.BLAST, owner, 0)
 		hits += 1
+	if veh_dmg > 0:
+		for vid in _sim.world.vehicles:
+			var v: Vehicle = _sim.world.vehicles[vid]
+			if not v.alive or v.team == team:
+				continue
+			var vd := Grenade.falloff_damage(center, v.pos, veh_dmg, pawn_radius)
+			if vd > 0:
+				_damage_vehicle(vid, v, vd, owner)
 	return hits
+
+func _damage_vehicle(vid: int, v: Vehicle, amount: int, killer_id: int) -> void:
+	v.hp -= amount
+	if v.hp <= 0:
+		v.hp = 0
+		_destroy_vehicle(vid, v, killer_id)
+
+func _destroy_vehicle(vid: int, v: Vehicle, killer_id: int) -> void:
+	_veh_destroyed += 1
+	for occ in v.occupant_ids():
+		var p: Pawn = _sim.world.get_pawn(occ)
+		if p != null:
+			p.in_vehicle = 0; p.seat = -1
+			if p.alive:
+				p.is_downed = false  # vehicle destruction kills downed occupants too (blast is instant-kill)
+				_apply_pawn_damage(occ, p, 99999, false, Revive.Source.BLAST, killer_id, 0)
+	v.mark_destroyed(_sim.tick)
+	var bytes := Protocol.encode_vehicle_destroyed(vid)
+	for cid in _clients:
+		_net.send_to(_clients[cid]["peer"], NetHost.CHANNEL_CONTROL, bytes, ENetPacketPeer.FLAG_RELIABLE)
+
+func _step_vehicle_respawns() -> void:
+	for vid in _sim.world.vehicles:
+		var v: Vehicle = _sim.world.vehicles[vid]
+		if v.alive: continue
+		if v.respawn_tick > 0 and _sim.tick >= v.respawn_tick:
+			v.respawn()
 
 ## Integrate live RPG rockets; detonate on structure march-hit or ground contact. Reuses the
 ## Grenade ballistic model (spec §"RPG"). Present-time blast via _blast_at; FF-off.
@@ -922,9 +1162,13 @@ func _step_rockets() -> void:
 			if nxt.y < 0.0: nxt.y = 0.0
 			_rockets_det += 1
 			_rstruct += _store.ids_in_radius(nxt, float(rdef["struct_radius"])).size()
+			for vid in _sim.world.vehicles:
+				var vv: Vehicle = _sim.world.vehicles[vid]
+				if vv.alive and vv.team != int(r["team"]) and nxt.distance_to(vv.pos) <= float(rdef["pawn_radius"]):
+					_rkt_vs_veh += 1
 			_blast_at(nxt, int(r["owner"]), int(r["team"]),
 				int(rdef["pawn_damage"]), float(rdef["pawn_radius"]),
-				int(rdef["struct_damage"]), float(rdef["struct_radius"]))
+				int(rdef["struct_damage"]), float(rdef["struct_radius"]), RPG_VEHICLE_DMG)
 			continue
 		r["pos"] = nxt; r["vel"] = s["vel"]
 		still.append(r)
@@ -964,7 +1208,7 @@ func _detonate(g: Dictionary) -> void:
 		_deploy_smoke(g)
 		return
 	_nades += 1
-	_blast_at(g["pos"], int(g["owner"]), int(g["team"]), GRENADE_DAMAGE_PAWN, BLAST_PAWN_RADIUS, GRENADE_DAMAGE_STRUCT, BLAST_STRUCT_RADIUS)
+	_blast_at(g["pos"], int(g["owner"]), int(g["team"]), GRENADE_DAMAGE_PAWN, BLAST_PAWN_RADIUS, GRENADE_DAMAGE_STRUCT, BLAST_STRUCT_RADIUS, FRAG_VEHICLE_DMG)
 
 ## Smoke detonation: no damage. Record a server-side zone and broadcast it (low-frequency, like
 ## KILL — bounded by the throw cooldown). M7 LOS culling will read _smoke_zones; here it just
@@ -1125,14 +1369,16 @@ func _log_telemetry() -> void:
 	var pts := ""
 	for pt in _conquest.points:
 		pts += "." if pt["owner"] == -1 else str(pt["owner"])
-	print("[telemetry] players=%d alive=%d tick_mean=%.2fms tick_p99=%.2fms agg=%.1fMbit/s kills=%d shots=%d hit_rate=%.2f starv=%d rewind_clamped=%d t0=%d t1=%d pts=%s cap_events=%d struct=%d bld=%d rmv=%d blk=%d pen=%d dmg=%d destroyed=%d nades=%d splash=%d smoke=%d rockets=%d rstruct=%d downed=%d bleedouts=%d revives=%d c4=%d mines=%d heals=%d ammo=%d bags=%d bagx=%d climbs=%d vaults=%d dropblk=%d"
-		% [n, alive, _tele.mean_tick_ms(), _tele.p99_tick_ms(), mbit, _kills, _shots, hit_rate, _tele.starvation, _rewind_clamped, _conquest.tickets_int(0), _conquest.tickets_int(1), pts, _cap_events, _store.count(), _builds, _removes, _shots_blocked, _pen, _dmg, _destroyed, _nades, _splash_kills, _smokes, _rockets_det, _rstruct, _downed, _bleedouts, _revives, _c4_det, _mine_trips, _heals, _ammo_gives, _bags_thrown, _bags_exhausted, _climbs, _vaults, _drop_shoot_blocked])
+	print("[telemetry] players=%d alive=%d tick_mean=%.2fms tick_p99=%.2fms agg=%.1fMbit/s kills=%d shots=%d hit_rate=%.2f starv=%d rewind_clamped=%d t0=%d t1=%d pts=%s cap_events=%d struct=%d bld=%d rmv=%d blk=%d pen=%d dmg=%d destroyed=%d nades=%d splash=%d smoke=%d rockets=%d rstruct=%d downed=%d bleedouts=%d revives=%d c4=%d mines=%d heals=%d ammo=%d bags=%d bagx=%d climbs=%d vaults=%d dropblk=%d enters=%d exits=%d veh_dead=%d repairs=%d repair_oh=%d rkt_veh=%d transport_m=%.1f ac_viol=%d"
+		% [n, alive, _tele.mean_tick_ms(), _tele.p99_tick_ms(), mbit, _kills, _shots, hit_rate, _tele.starvation, _rewind_clamped, _conquest.tickets_int(0), _conquest.tickets_int(1), pts, _cap_events, _store.count(), _builds, _removes, _shots_blocked, _pen, _dmg, _destroyed, _nades, _splash_kills, _smokes, _rockets_det, _rstruct, _downed, _bleedouts, _revives, _c4_det, _mine_trips, _heals, _ammo_gives, _bags_thrown, _bags_exhausted, _climbs, _vaults, _drop_shoot_blocked, _enters, _exits, _veh_destroyed, _repairs, _repair_overheats, _rkt_vs_veh, _transport_max, _ac_viol])
 	var pt := maxi(_phase_ticks, 1)
-	print("[perf] us/tick: poll=%d move=%d lag=%d interest=%d fire=%d respawn=%d conquest=%d match=%d snap=%d (ticks=%d)"
-		% [_phase_us["poll"] / pt, _phase_us["move"] / pt, _phase_us["lag"] / pt, _phase_us["interest"] / pt, _phase_us["fire"] / pt, _phase_us["respawn"] / pt, _phase_us["conquest"] / pt, _phase_us["match"] / pt, _phase_us["snap"] / pt, _phase_ticks])
+	print("[perf] us/tick: poll=%d move=%d veh=%d lag=%d interest=%d fire=%d respawn=%d conquest=%d match=%d snap=%d (ticks=%d)"
+		% [_phase_us["poll"] / pt, _phase_us["move"] / pt, _phase_us["veh"] / pt, _phase_us["lag"] / pt, _phase_us["interest"] / pt, _phase_us["fire"] / pt, _phase_us["respawn"] / pt, _phase_us["conquest"] / pt, _phase_us["match"] / pt, _phase_us["snap"] / pt, _phase_ticks])
 	for k in _phase_us: _phase_us[k] = 0
 	_phase_ticks = 0
 	_tele.reset_window()
 	_kills = 0; _shots = 0; _hits = 0; _rewind_clamped = 0; _cap_events = 0
 	_builds = 0; _removes = 0; _shots_blocked = 0; _pen = 0
 	_dmg = 0; _destroyed = 0; _nades = 0; _splash_kills = 0; _smokes = 0; _rockets_det = 0; _rstruct = 0; _downed = 0; _bleedouts = 0; _revives = 0; _c4_det = 0; _mine_trips = 0; _heals = 0; _ammo_gives = 0; _bags_thrown = 0; _bags_exhausted = 0; _climbs = 0; _vaults = 0; _drop_shoot_blocked = 0
+	_enters = 0; _exits = 0; _veh_destroyed = 0; _repairs = 0; _repair_overheats = 0; _rkt_vs_veh = 0; _transport_max = 0.0
+	_ac_viol = 0

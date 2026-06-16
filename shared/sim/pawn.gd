@@ -40,6 +40,8 @@ var vaulting: bool = false
 var vault_tick: int = 0
 var vault_from: Vector3 = Vector3.ZERO
 var vault_to: Vector3 = Vector3.ZERO
+var in_vehicle: int = 0    # vehicle id the pawn is seated in (0 = on foot)
+var seat: int = -1         # seat index when in_vehicle != 0
 
 func _init(p_id: int = 0) -> void:
 	id = p_id
@@ -47,6 +49,8 @@ func _init(p_id: int = 0) -> void:
 func step(dt: float, cmd: Dictionary) -> void:
 	yaw = cmd.get("yaw", yaw)
 	pitch = clampf(cmd.get("pitch", pitch), -MAX_PITCH, MAX_PITCH)
+	if in_vehicle != 0:
+		return   # position driven by SimLoop seat slaving; look already applied above
 	if is_downed:
 		_step_downed(dt, cmd)
 		return

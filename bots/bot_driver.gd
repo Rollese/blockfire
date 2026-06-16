@@ -1,3 +1,4 @@
+class_name BotDriver
 extends Node
 ## Headless bot fleet. Each bot is a real client that decodes its interest view and
 ## fights the nearest enemy. Many bots per process (load + playtest). See M2 spec.
@@ -19,6 +20,12 @@ const MAX_BOT_BUILDS := 1           # walls each bot drops before stopping. Keep
 const GRENADE_COOLDOWN_TICKS := 300   # match server GRENADE_COOLDOWN_TICKS (10s, shared frag/smoke)
 const MAX_BOT_GRENADES := 1           # per-bot lifetime FRAG cap (convergence/over-destruction knob)
 const MAX_BOT_SMOKES := 1             # per-bot lifetime SMOKE cap (exercises the smoke path)
+const MAX_VEHICLE_BOTS := 6   # crew bots per process; minority so the win-convergence holds
+const VEHICLE_FULL_HP := 600       # transport max (v1 single vehicle type); used to detect a damaged ridden vehicle
+const VEHICLE_RPG_RANGE := 120.0   # fire an RPG at an enemy vehicle within this many metres
+const RPG_FIRE_COOLDOWN := 120     # ticks between RPG fire attempts (matches server cooldown_ticks)
+const ROCKET_SPEED := 150.0  # keep in sync with data/gadgets.json rpg.rocket_speed (bot lead math)
+const ROCKET_GRAVITY := 20.0  # matches Grenade.GRAVITY; bots aim higher by 1/2 g t^2 to counter rocket drop
 
 var _map: MapDef
 var _match_points: Array = []   # array of {owner, attacker, cap}, index == map point index
@@ -52,8 +59,10 @@ func _spawn_bot(index: int) -> void:
 		"reload_until": 0, "burst_start": -1,
 		"last_build_tick": -100000, "structs": {}, "builds_made": 0,
 		"last_grenade_tick": -100000, "nades_thrown": 0, "smokes_thrown": 0,
-		"class": 0, "rpg_fired": false, "c4_placed": false, "c4_detonated": false,
+		"class": 0, "rpg_last_tick": -100000, "c4_placed": false, "c4_detonated": false,
 		"mine_placed": false, "gave_until": 0,
+		"vview": {}, "in_vehicle": 0, "boarded_origin": Vector3.ZERO, "repairing": false,
+		"vveh_track": {},
 	}
 	net.peer_connected.connect(func(peer: ENetPacketPeer) -> void:
 		bot["peer"] = peer
@@ -82,10 +91,11 @@ func _drive(bot: Dictionary, delta: float) -> void:
 		# yields many claymore/C4/RPG uses per bot instead of one-per-process-life, which is what the
 		# fleet gate counters need (esp. mines: a single early claymore rarely catches a point-blank
 		# enemy, but one placed fresh each life — facing the current enemy — reliably trips).
-		bot["rpg_fired"] = false
+		bot["repairing"] = false
 		bot["c4_placed"] = false
 		bot["c4_detonated"] = false
 		bot["mine_placed"] = false
+		bot["in_vehicle"] = 0
 		_send(bot, 0.0, 0.0, bot["yaw"], 0.0, 0)
 		return
 
@@ -112,6 +122,51 @@ func _drive(bot: Dictionary, delta: float) -> void:
 			var myaw := atan2(to.x, to.z)
 			_send(bot, sin(myaw), cos(myaw), myaw, 0.0, 0)
 			return
+
+	var is_crew := int(bot["index"]) % 5 == 1 and int(bot["index"]) < MAX_VEHICLE_BOTS * 5
+	if is_crew:
+		if int(bot["in_vehicle"]) != 0:
+			var v: VehicleState = bot["vview"].get(bot["in_vehicle"])
+			if v == null:   # vehicle destroyed / out of view -> consider self ejected
+				if bool(bot["repairing"]):
+					(bot["net"] as NetHost).send_to(bot["peer"], NetHost.CHANNEL_INPUT,
+						Protocol.encode_gadget_action(Protocol.GA_REPAIR_STOP, Vector3.ZERO, Vector3.ZERO, 0), 0)
+					bot["repairing"] = false
+				bot["in_vehicle"] = 0
+			else:
+				# Crew engineer keeps the ridden transport patched once it has taken fire.
+				if int(v.hp) < VEHICLE_FULL_HP and not bool(bot["repairing"]):
+					(bot["net"] as NetHost).send_to(bot["peer"], NetHost.CHANNEL_INPUT,
+						Protocol.encode_gadget_action(Protocol.GA_REPAIR_START, Vector3.ZERO, Vector3.ZERO, 0), 0)
+					bot["repairing"] = true
+				elif int(v.hp) >= VEHICLE_FULL_HP and bool(bot["repairing"]):
+					(bot["net"] as NetHost).send_to(bot["peer"], NetHost.CHANNEL_INPUT,
+						Protocol.encode_gadget_action(Protocol.GA_REPAIR_STOP, Vector3.ZERO, Vector3.ZERO, 0), 0)
+					bot["repairing"] = false
+				# Drive the transport toward the nearest visible enemy (into the firefight),
+				# falling back to the enemy spawn until contact. Staying mobile in combat is fine —
+				# no loiter hold, so the vehicle keeps pressing into the action where blast fire is.
+				var push := _hunt_pos(me, view)
+				var cmd := BotDriver.drive_toward(v.heading, me.pos, push)
+				_send(bot, float(cmd["move_x"]), float(cmd["move_y"]), float(cmd["yaw"]), 0.0, 0)
+				return
+		else:
+			var vid := BotDriver.nearest_free_vehicle(bot["vview"], me.pos)
+			if vid != 0:
+				var v: VehicleState = bot["vview"][vid]
+				var d := me.pos.distance_to(v.pos)
+				if d <= 3.0:
+					(bot["net"] as NetHost).send_to(bot["peer"], NetHost.CHANNEL_INPUT,
+						Protocol.encode_vehicle_action(Protocol.VA_ENTER, vid, 0), 0)
+					bot["in_vehicle"] = vid
+					bot["boarded_origin"] = v.pos
+					_send(bot, 0.0, 0.0, bot["yaw"], 0.0, 0)
+					return
+				else:
+					var yaw := atan2(v.pos.x - me.pos.x, v.pos.z - me.pos.z)
+					_send(bot, sin(yaw), cos(yaw), yaw, 0.0, 0)
+					return
+			# no vehicle in view -> fall through to normal infantry behavior
 
 	var target: EntityState = null
 	var best := INF
@@ -188,7 +243,6 @@ func _drive(bot: Dictionary, delta: float) -> void:
 		bot["reload_until"] = cb[1]
 		bot["burst_start"] = cb[2]
 		_maybe_grenade(bot, me, target)
-		_maybe_rpg(bot, me, target)
 		_maybe_c4(bot, me, target)
 		_maybe_mine(bot, me, target.pos)   # face the claymore at the enemy we're fighting
 	else:
@@ -231,6 +285,7 @@ func _drive(bot: Dictionary, delta: float) -> void:
 		_maybe_build(bot, me)
 		_maybe_mine(bot, me, obj)
 
+	_maybe_rpg(bot, me)
 	_maybe_give(bot, me)
 	_send(bot, move_x, move_y, bot["yaw"], bot["pitch"], buttons)
 
@@ -326,15 +381,44 @@ func _maybe_smoke(bot: Dictionary, me: EntityState, obj: Vector3) -> void:
 	bot["last_grenade_tick"] = st
 	bot["smokes_thrown"] = int(bot["smokes_thrown"]) + 1
 
-## Engineer RPG: fire once at an in-range enemy via GADGET_ACTION. The server rejects it unless the
-## bot actually has the RPG equipped (it assigned ~1/3 of Engineers the RPG), so non-RPG bots no-op.
-func _maybe_rpg(bot: Dictionary, me: EntityState, target: EntityState) -> void:
-	if bot["class"] != Loadout.ENGINEER or bool(bot["rpg_fired"]): return
-	var d := target.pos - me.pos
-	if d.length() < 0.001 or d.length() > 60.0: return
+## Engineer RPG is anti-vehicle only. Estimate the target's velocity from successive snapshots and
+## lead the aim by the rocket's flight time so a moving transport actually gets hit. Cooldown-gated
+## (the server also enforces the real per-rocket cooldown + the 3-rocket reserve).
+func _maybe_rpg(bot: Dictionary, me: EntityState) -> void:
+	if bot["class"] != Loadout.ENGINEER: return
+	var vveh := BotDriver.nearest_enemy_vehicle(bot["vview"], bot["view"], me.pos, int(me.team), VEHICLE_RPG_RANGE)
+	if vveh == 0: return
+	var vv: VehicleState = bot["vview"][vveh]
+	var now := int(bot["server_tick"])
+	# Update the velocity estimate for this vehicle (only when its position actually advanced).
+	var track: Dictionary = bot["vveh_track"]
+	var prev = track.get(vveh)
+	var vel := Vector3.ZERO
+	if prev != null:
+		vel = prev["vel"]   # persist last good estimate between snapshots
+		var dt_ticks := now - int(prev["tick"])
+		var moved: Vector3 = vv.pos - (prev["pos"] as Vector3)
+		if dt_ticks > 0 and moved.length() > 0.01:
+			vel = moved / (float(dt_ticks) * SimLoop.DT)
+	if prev == null or (vv.pos - (prev["pos"] as Vector3)).length() > 0.01:
+		track[vveh] = {"pos": vv.pos, "tick": now, "vel": vel}
+	# Cooldown gate (do the aim/fire only when ready).
+	if now - int(bot["rpg_last_tick"]) < RPG_FIRE_COOLDOWN: return
+	var origin := me.pos
+	var flight: float = origin.distance_to(vv.pos) / ROCKET_SPEED
+	# Lead the target, then raise the aim by 1/2 g t^2 so the ballistic rocket's arc passes
+	# through it (rockets fall under ROCKET_GRAVITY; a flat aim lands short at range).
+	var aim_pt: Vector3 = vv.pos + vel * flight
+	aim_pt.y += 0.5 * ROCKET_GRAVITY * flight * flight
+	# One refinement pass: the raised aim is slightly farther, so recompute flight + drop.
+	flight = origin.distance_to(aim_pt) / ROCKET_SPEED
+	aim_pt = vv.pos + vel * flight
+	aim_pt.y += 0.5 * ROCKET_GRAVITY * flight * flight
+	var dir := aim_pt - origin
+	if dir.length() < 0.001: return
 	(bot["net"] as NetHost).send_to(bot["peer"], NetHost.CHANNEL_INPUT,
-		Protocol.encode_gadget_action(Protocol.GA_RPG_FIRE, Vector3.ZERO, d.normalized(), 0), 0)
-	bot["rpg_fired"] = true
+		Protocol.encode_gadget_action(Protocol.GA_RPG_FIRE, Vector3.ZERO, dir.normalized(), 0), 0)
+	bot["rpg_last_tick"] = now
 
 ## Engineer C4: place one near a structure between us and the enemy, then detonate it next pass.
 func _maybe_c4(bot: Dictionary, me: EntityState, target: EntityState) -> void:
@@ -523,6 +607,92 @@ static func apply_structure_delta(structs: Dictionary, d: Dictionary) -> void:
 	else:
 		structs.erase(d["id"])
 
+## A vehicle is "enemy" if any seated occupant is a pawn on the other team (per the pawn view).
+## Empty / friendly-crewed vehicles return false. view: pawn_id -> EntityState (must expose .team).
+static func vehicle_is_enemy(v: VehicleState, view: Dictionary, my_team: int) -> bool:
+	for occ in v.seats:
+		var oid := int(occ)
+		if oid == 0: continue
+		var e = view.get(oid)
+		if e != null and int(e.team) != my_team:
+			return true
+	return false
+
+## Nearest enemy-crewed vehicle within max_dist of my_pos. Returns vid or 0.
+static func nearest_enemy_vehicle(vview: Dictionary, view: Dictionary, my_pos: Vector3, my_team: int, max_dist: float) -> int:
+	var best := 0
+	var bestd := max_dist
+	for vid in vview:
+		var v: VehicleState = vview[vid]
+		if not vehicle_is_enemy(v, view, my_team): continue
+		var d := my_pos.distance_to(v.pos)
+		if d <= bestd:
+			bestd = d; best = vid
+	return best
+
+## Nearest own-vehicle (vehicles are team-locked so any replicated one is enterable) with a free
+## seat, within reason. Returns vid or 0. seats[*]==0 means empty.
+static func nearest_free_vehicle(vview: Dictionary, my_pos: Vector3) -> int:
+	var best := 0
+	var bestd := INF
+	for vid in vview:
+		var v: VehicleState = vview[vid]
+		var free := false
+		for occ in v.seats:
+			if int(occ) == 0: free = true; break
+		if not free: continue
+		var d := my_pos.distance_to(v.pos)
+		if d < bestd:
+			bestd = d; best = vid
+	return best
+
+## Vehicle driver command toward `objective` from `from`, given the vehicle's current `heading`.
+## move_x = steering (proportional to the heading error, so the hull turns to face the target),
+## move_y = throttle. yaw = bearing (pawn look). Forward convention matches Vehicle.step:
+## forward = (sin(heading), 0, cos(heading)); a positive steer increases heading (+Z -> +X).
+static func drive_toward(heading: float, from: Vector3, objective: Vector3) -> Dictionary:
+	var to := objective - from
+	var bearing := atan2(to.x, to.z)
+	var err := wrapf(bearing - heading, -PI, PI)
+	var steer := clampf(err * 2.0, -1.0, 1.0)
+	return {"move_x": steer, "move_y": 1.0, "yaw": bearing}
+
+## Index of the capture point nearest the map centre (origin) — the most contested objective, where
+## combat (and thus the blast fire that can damage a vehicle) concentrates. -1 for an empty list.
+static func central_point_index(positions: Array) -> int:
+	var best := -1
+	var bestd := INF
+	for i in positions.size():
+		var d: float = (positions[i] as Vector3).length()   # distance from origin
+		if d < bestd:
+			bestd = d; best = i
+	return best
+
+## Position of the nearest alive enemy pawn in `view` (pawn_id -> EntityState with .alive/.team/.pos),
+## excluding my own id. Returns {"found": bool, "pos": Vector3}. Used to drive a crewed transport into
+## the firefight so the vehicle draws blast fire.
+static func nearest_enemy_pos(view: Dictionary, my_id: int, my_team: int, my_pos: Vector3) -> Dictionary:
+	var best := INF
+	var bp := Vector3.ZERO
+	var found := false
+	for id in view:
+		if int(id) == my_id: continue
+		var e: EntityState = view[id]
+		if not e.alive or int(e.team) == my_team: continue
+		var d: float = my_pos.distance_to(e.pos)
+		if d < best:
+			best = d; bp = e.pos; found = true
+	return {"found": found, "pos": bp}
+
+## Position of the ENEMY team's vehicle spawn (a fixed deep-enemy-backfield point). Crewed transports
+## drive here to loiter in enemy fire so the vehicle takes blast damage (the only thing that hurts it).
+## spawns: Array of {team:int, pos:Vector3}. Returns `fallback` if no enemy spawn is listed.
+static func enemy_spawn_pos(spawns: Array, my_team: int, fallback: Vector3) -> Vector3:
+	for s in spawns:
+		if int(s["team"]) != my_team:
+			return s["pos"]
+	return fallback
+
 func _objective_pos(me: EntityState) -> Vector3:
 	if _map == null or _map.points.is_empty():
 		return me.pos
@@ -538,6 +708,16 @@ func _objective_pos(me: EntityState) -> Vector3:
 	var idx := choose_objective_index(positions, owners, me.team, me.pos, me.pos)
 	return positions[idx] if idx >= 0 else me.pos
 
+## Where a crewed transport should drive: toward the nearest visible enemy (into the firefight),
+## else advance on the enemy spawn until contact. Falls back to current pos if nothing is known.
+func _hunt_pos(me: EntityState, view: Dictionary) -> Vector3:
+	var r := BotDriver.nearest_enemy_pos(view, int(me.id), int(me.team), me.pos)
+	if bool(r["found"]):
+		return r["pos"]
+	if _map != null:
+		return BotDriver.enemy_spawn_pos(_map.vehicle_spawns, int(me.team), me.pos)
+	return me.pos
+
 func _send(bot: Dictionary, mx: float, my: float, yaw: float, pitch: float, buttons: int) -> void:
 	var bytes := InputCommand.encode(bot["tick"], bot["last_seq"], mx, my, yaw, pitch, buttons, bot["server_tick"])
 	(bot["net"] as NetHost).send_to(bot["peer"], NetHost.CHANNEL_INPUT, bytes, 0)
@@ -551,7 +731,7 @@ func _on_packet(bot: Dictionary, bytes: PackedByteArray) -> void:
 			bot["connected"] = true
 			print("[bots] bot %d connected (id %d class %d) — %d/%d" % [bot["index"], bot["id"], bot["class"], _connected_count(), _bot_count])
 		Protocol.Msg.SNAPSHOT:
-			var hdr := Snapshot.decode_apply(bytes, bot["view"])
+			var hdr := Snapshot.decode_apply(bytes, bot["view"], bot["vview"])
 			bot["last_seq"] = maxi(bot["last_seq"], int(hdr["seq"]))
 			bot["server_tick"] = int(hdr["server_tick"])
 		Protocol.Msg.MATCH_STATE:

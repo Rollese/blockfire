@@ -55,3 +55,12 @@ func test_proving_grounds_loads_with_geometry() -> void:
 	assert_true(m.ladders.size() >= 1, "has a ladder")
 	assert_true(m.platforms.size() >= 1, "has a platform")
 	assert_true(m.prebuilt.size() >= 1, "has prebuilt geometry")
+
+func test_parses_vehicle_spawns() -> void:
+	var m := MapDef.load_file("res://maps/conquest_proving_grounds.json")
+	assert_true(m != null)
+	assert_true(m.vehicle_spawns.size() >= 2)   # at least one per team
+	var s: Dictionary = m.vehicle_spawns[0]
+	assert_true(s.has("team"))
+	assert_true(s.has("pos"))
+	assert_true(s.has("type"))

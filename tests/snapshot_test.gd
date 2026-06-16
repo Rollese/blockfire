@@ -36,8 +36,8 @@ func test_unchanged_entity_emits_no_record() -> void:
 	var same := {1: _state(1, 1, 1.0)}
 	var baseline := {1: _state(1, 1, 1.0)}
 	var bytes := Snapshot.encode(9, 3, 2, 101, same, baseline)
-	# header is 1+4*4 = 17 bytes, entity_count u16 = 0 -> total 19 bytes, no records.
-	assert_eq(bytes.size(), 19, "no per-entity bytes when nothing changed")
+	# header is 1+4*4 = 17 bytes, entity_count u16 = 2, vcount u16 = 2 -> total 21 bytes, no records.
+	assert_eq(bytes.size(), 21, "no per-entity bytes when nothing changed")
 
 func test_keyframe_resets_view_dropping_stale_entities() -> void:
 	# Client holds entities 1 and 2. A keyframe (baseline_seq=0) containing only

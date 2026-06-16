@@ -126,3 +126,22 @@ func test_revive_blocked_when_out_of_range() -> void:
 	downed.pos = Vector3(0.0, 0.0, Revive.REVIVE_RANGE + 1.0)  # out of range
 	_drive_revive(medic, downed, false, Revive.REVIVE_TICKS * 2)
 	assert_true(downed.is_downed, "out-of-range reviver makes no progress")
+
+# Mirrors server _destroy_vehicle occupant-kill logic (isolated to Pawn + Revive).
+# Vehicle destruction must kill ALL alive occupants regardless of downed state.
+func _destroy_occupant(p: Pawn) -> void:
+	if p.alive:
+		p.is_downed = false  # blast kills downed occupants too (same fix as _destroy_vehicle)
+		_apply(p, 99999, false, Revive.Source.BLAST)
+
+func test_destroy_vehicle_kills_standing_occupant() -> void:
+	var p := Pawn.new(1); p.health = 100; p.alive = true; p.is_downed = false
+	_destroy_occupant(p)
+	assert_false(p.alive, "standing occupant is killed on vehicle destruction")
+	assert_false(p.is_downed)
+
+func test_destroy_vehicle_kills_downed_occupant() -> void:
+	var p := Pawn.new(1); p.health = 0; p.alive = true; p.is_downed = true; p.bleed_health = -10
+	_destroy_occupant(p)
+	assert_false(p.alive, "downed occupant is killed on vehicle destruction — not left revivable")
+	assert_false(p.is_downed)
