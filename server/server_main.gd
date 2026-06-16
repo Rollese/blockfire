@@ -524,6 +524,8 @@ func _handle_respawns() -> void:
 			p.alive = true
 			p.stamina = Pawn.STAMINA_MAX
 			p.is_downed = false
+			p.climbing = false   # clear special-movement state so a pawn that died mid-climb/vault
+			p.vaulting = false   # doesn't resume the arc/ladder at its fresh spawn (ghost-vault fix)
 			p.bleed_halted = false
 			p.bandage_count = Revive.bandage_count_for(_is_medic(id))
 			c["respawn_tick"] = 0
