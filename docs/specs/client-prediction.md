@@ -10,7 +10,7 @@ Turns the headless client **stub** (`client/client_main.gd` — connects, sends 
 
 ## Scope (P1)
 
-In: rendered first-person client; real keyboard/mouse input; local-pawn prediction/reconciliation (full movement state); client ammo/fire/reload prediction; local-vehicle prediction; remote pawn + vehicle interpolation; placeholder-primitive rendering of world + entities; two new netcode messages (`DEPLOY_REQUEST`, `DAMAGE_EVENT`); an `ammo` field on `EntityState`.
+In: rendered first-person client; real keyboard/mouse input; local-pawn prediction/reconciliation (full movement state); client ammo/fire/reload prediction; local-vehicle prediction; remote pawn + vehicle interpolation; placeholder-primitive rendering of world + entities; new netcode messages (`DEPLOY_REQUEST`, `DAMAGE_EVENT`, `SELF_STATE`) + a `HELLO.auto_deploy` flag.
 
 Out (later phases): the low-poly art kit + LOD (P2); audio/visual *polish* beyond essential cues (P2); full rebindable keybindings (P2 polish); Steam auth/VAC and L3 LOS culling (deferred online/anti-cheat track).
 
@@ -65,14 +65,18 @@ The **local** pawn/vehicle always render from *prediction* (zero added latency o
 
 ## New netcode (client/server edge only — no rule logic in `client/`)
 
-### `EntityState.ammo`
-Add an `ammo` field (packed mag + reserve, e.g. two small ints / quantized) to `EntityState` so the client can reconcile predicted ammo. Replicated for **self** always (needed for reconciliation); for remotes it is not required by gameplay and may be omitted from their state to save bytes (decided in the `Snapshot` codec; default: send only for self).
+### `SELF_STATE` (server → owning client) — ammo/reload reconciliation
+The client reconciles predicted ammo against the **server-authoritative** weapon state. The server already tracks this per client (`c["ammo"]`, `c["reloading"]`, `c["reload_done_tick"]`, `c["weapon"]` in `_resolve_fires`). It is transported as a dedicated lightweight `SELF_STATE{mag, reloading, reload_remaining, weapon}` message sent to each owning client (at the snapshot stride), **not** as a field on the shared `EntityState`.
+
+*Why not `EntityState.ammo`:* the entity delta `field_mask` is a full 8-bit byte (bits 0–7 all used: pos×3, yaw, pitch, state, health, squad), so a 9th field would force widening the hot delta codec to `u16` — and ammo is self-only anyway. A separate self-message is **self-only by construction** and leaves the per-entity codec untouched.
+
+*Reserve ammo:* the current sim has **no reserve pool** — reload refills the full mag (`c["ammo"] = mag_size`), so reserve is effectively infinite. `SELF_STATE` carries the authoritative `mag` honestly; the HUD shows a nominal reserve. Finite reserve is a later combat-depth item, not invented in P1.
 
 ### `DEPLOY_REQUEST` (client → server)
-Today the server **auto-respawns** human-less bots after a fixed delay (`_handle_respawns` → `SpawnSelect`). For a human deploy screen:
-- The server **holds a human client un-deployed** (a spectator/await state, not placed in the world) until it receives a `DEPLOY_REQUEST{spawn_ref}`. Bots keep auto-deploy unchanged.
-- `spawn_ref` identifies a spawn the client offered (HQ / owned capture point / squadmate / friendly vehicle). The server **re-validates** it against the existing `SpawnSelect`/spawn rules and **places the pawn** — or rejects (e.g. point lost / mate dead) and the client re-prompts. **No spawn-placement logic moves to the client**; it only sends intent over choices the server already considers valid.
-- Initial join and every death return the client to the deploy screen.
+Today the server **auto-spawns** every client alive at `HELLO` and auto-respawns after a fixed delay (`_handle_respawns` → `SpawnSelect`). Bots and humans connect identically, so the server distinguishes them with a new **`auto_deploy` flag on `HELLO`** (default `true` = today's behavior, so bots and the 128-bot fleet path are untouched; the rendered client sends `false`). For a human deploy screen:
+- An `auto_deploy=false` client is **held un-deployed** (pawn spawned but `alive=false`, `respawn_tick=0` so `_handle_respawns` leaves it down) until it sends `DEPLOY_REQUEST{spawn_ref}`. On death it returns to the deploy screen instead of auto-respawning.
+- A new pure `DeploySpawn` helper (`shared/sim/`) **enumerates** valid refs (HQ + owned capture points; squadmate/vehicle refs are Checkpoint 3) and **resolves/validates** a ref → position. The client lists `DeploySpawn.enumerate(...)`; the server **re-validates** the requested ref via `DeploySpawn.is_valid(...)` and places the pawn, or ignores it (point lost) and the client re-prompts. **No spawn-placement logic moves to the client** — it only sends intent over choices the server re-validates.
+- Initial join and every death return an `auto_deploy=false` client to the deploy screen.
 
 ### `SET_SQUAD` (client → server) — minimal
 Lets a human join/switch squad, backed by the existing server `SquadManager`. Validated server-side. Minimal in P1 (enough to see + pick a squad, since squad-spawn depends on it).
@@ -80,7 +84,7 @@ Lets a human join/switch squad, backed by the existing server `SquadManager`. Va
 ### `DAMAGE_EVENT` (server → client)
 On dealing damage to a pawn, the server sends that **victim** a lightweight `DAMAGE_EVENT{amount, source_dir_or_pos}` to drive the HUD vignette + directional arc. **Presentation only** — it does not change the authoritative `health` already carried in the snapshot, and grants no gameplay effect. Sent only on hits (event-driven, off the per-tick hot path).
 
-All four additions are encoded in `shared/net/protocol.gd` (wire format) but **consumed at the client/server edge**; no gameplay decision is made from them inside `client/`.
+All additions are encoded in `shared/net/protocol.gd` (wire format) but **consumed at the client/server edge**; no gameplay decision is made from them inside `client/`.
 
 ## Rendering data-feed (logic only; visuals in playtest — see ADR-0005)
 The renderer is fed by, and only by, `world_view` (interpolated remotes) + `predictor` (local). Tested logic (not pixels):
@@ -94,17 +98,17 @@ Placeholder primitives sit **behind a swappable node interface** so P2 swaps mes
 - **Reconciliation convergence:** a recorded input sequence stepped through `predictor` vs the same sequence through the server's `SimLoop` reach the same final state (pos/yaw/stance/stamina); within float epsilon.
 - **Correction absorption:** inject an authoritative state mid-stream that differs from prediction; assert the unacked-tail replay produces the correct corrected state and that the buffer is trimmed at `last_input_tick`.
 - **Movement-extension coverage:** reconciliation holds across a jump, a stance change, a ladder climb, and a vault (states that live in shared `Pawn`/`SimLoop`).
-- **Ammo prediction:** a fire-burst + reload sequence yields predicted mag/reserve equal to the server-authoritative ammo; an injected ammo mismatch reconciles (snaps) to authoritative.
+- **Ammo prediction:** a fire-burst + reload sequence stepped through the client `WeaponPredictor` (mirroring server fire-gating) yields predicted `mag` equal to the server-authoritative ammo; an injected mismatch reconciles (snaps) to the `SELF_STATE` value.
 - **Vehicle prediction:** driver throttle/steer stepped via `predictor` converges with the server `Vehicle` step; a passenger view interpolates (does not predict).
 - **`DEPLOY_REQUEST`:** server places the pawn only at a server-valid spawn; an invalid/lost spawn is rejected and no pawn is placed; a human client is not in the world before requesting; bots still auto-deploy.
 - **`DAMAGE_EVENT`:** emitted to the victim on damage with a correct direction toward the attacker; carries no health change beyond the snapshot's.
 - **Interpolation/view:** sampling at `now-DELAY` lerps between bracketing snapshots; entity enter/leave handled; stance→pose mapping correct.
-- **`EntityState.ammo` codec:** round-trips through `Snapshot.encode`/`decode_apply`; self-only replication honored.
+- **`SELF_STATE`/`DEPLOY_REQUEST`/`HELLO.auto_deploy` codecs:** round-trip through `Protocol` encode/decode; `auto_deploy` defaults true for a pre-flag HELLO.
 
 Rendering, gunplay/movement *feel*, reconciliation smoothness, vehicle handling, and HUD readability are validated by **human playtest** (M7 is collaborative — AGENTS.md §10), not headless gates.
 
 ## Budget & determinism notes
-- Server-side additions are **off the per-tick hot path**: `DEPLOY_REQUEST`/`SET_SQUAD` are rare/event-driven; `DAMAGE_EVENT` fires only on hits; the `ammo` field is a few bytes in states the snapshot already sends (self-only). No new per-tick O(N) work; re-check `[perf]` after they land (handover watch-item — `snap`≈16 ms is the dominant cost and is untouched).
+- Server-side additions are **off / cheap on the per-tick hot path**: `DEPLOY_REQUEST`/`SET_SQUAD` are rare/event-driven; `DAMAGE_EVENT` fires only on hits; `SELF_STATE` is one tiny fixed-size packet per client per snapshot stride (no per-entity codec change). No new per-tick O(N) work; re-check `[perf]` after they land (handover watch-item — `snap`≈16 ms is the dominant cost and is untouched).
 - The heavy **rendering** cost is entirely client-side (the player's desktop GPU), not on the server tick.
 - All prediction re-runs the **shared** sim; no rule forks (AGENTS.md §7).
 
