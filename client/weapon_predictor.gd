@@ -37,6 +37,8 @@ func begin_reload(tick: int) -> void:
 func reload_remaining(tick: int) -> int:
 	return maxi(0, _reload_done_tick - tick) if reloading else 0
 
-func reconcile(auth_mag: int, auth_reloading: bool, auth_reload_remaining: int) -> void:
+func reconcile(auth_mag: int, auth_reloading: bool, auth_reload_remaining: int, now_tick: int = 0) -> void:
 	mag = auth_mag
 	reloading = auth_reloading
+	if auth_reloading:
+		_reload_done_tick = now_tick + auth_reload_remaining

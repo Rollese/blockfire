@@ -41,6 +41,7 @@ var _settings_menu: SettingsMenu
 # ---- state flags ------------------------------------------------------------
 var _scene_built := false
 var _deploy_menu_populated := false
+var _was_alive: bool = false
 var _match_state: Dictionary = {}
 var _auto_deploy_ref: int = -1    # --deploy=N arg; -1 = not set
 var _auto_deploy_sent := false    # only send once
@@ -224,23 +225,27 @@ func _handle_snapshot(bytes: PackedByteArray) -> void:
 	_last_server_tick = int(hdr["server_tick"])
 
 	var ss: EntityState = _wv.self_state()
-	if ss != null and ss.alive:
+	var alive: bool = ss != null and ss.alive
+	# On the alive->dead transition, force the deploy menu to re-populate with CURRENT
+	# point ownership (it may have changed since the last deploy).
+	if _was_alive and not alive:
+		_deploy_menu_populated = false
+	_was_alive = alive
+	if alive:
 		# Reconcile movement prediction from authoritative position + pitch
 		_pred.reconcile_full(ss.pos, ss.yaw, ss.pitch, int(hdr["last_input_tick"]))
-
-		# First time we see ourselves: populate deploy menu and hide it
-		if not _deploy_menu_populated and _scene_built and _deploy_menu != null:
-			_deploy_menu.populate(ss.team, _map, _conquest)
-			_deploy_menu.visible = false
-			_deploy_menu_populated = true
-	else:
-		# Dead / not yet deployed — show deploy menu if scene is up
 		if _scene_built and _deploy_menu != null:
-			if not _deploy_menu.visible:
-				if not _deploy_menu_populated and ss != null:
-					_deploy_menu.populate(ss.team, _map, _conquest)
-					_deploy_menu_populated = true
-				_deploy_menu.visible = true
+			if not _deploy_menu_populated:
+				_deploy_menu.populate(ss.team, _map, _conquest)
+				_deploy_menu_populated = true
+			_deploy_menu.visible = false
+	else:
+		# Dead / not yet deployed — show deploy menu (re-populated from current conquest)
+		if _scene_built and _deploy_menu != null:
+			if not _deploy_menu_populated and ss != null:
+				_deploy_menu.populate(ss.team, _map, _conquest)
+				_deploy_menu_populated = true
+			_deploy_menu.visible = true
 
 # ---- SELF_STATE -------------------------------------------------------------
 func _handle_self_state(bytes: PackedByteArray) -> void:
@@ -249,7 +254,7 @@ func _handle_self_state(bytes: PackedByteArray) -> void:
 	if int(d["weapon"]) != _wpred.weapon:
 		_wpred.set_weapon(int(d["weapon"]))
 	# Reconcile ammo from authority — no client rule logic, just snap
-	_wpred.reconcile(int(d["mag"]), bool(d["reloading"]), int(d["reload_remaining"]))
+	_wpred.reconcile(int(d["mag"]), bool(d["reloading"]), int(d["reload_remaining"]), _client_tick)
 
 # ---- MATCH_STATE ------------------------------------------------------------
 func _handle_match_state(bytes: PackedByteArray) -> void:

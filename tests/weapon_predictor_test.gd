@@ -32,3 +32,16 @@ func test_reconcile_snaps_to_authoritative() -> void:
 	var wp := _wp(); wp.mag = 29
 	wp.reconcile(20, false, 0)
 	assert_eq(wp.mag, 20, "predicted mag snaps to SELF_STATE mag")
+
+func test_reconcile_to_reloading_sets_remaining() -> void:
+	var wp := WeaponPredictor.new(); wp.set_weapon(Weapon.AR)
+	# server says: reloading, 30 ticks remaining, as of tick 100. mag irrelevant here.
+	wp.reconcile(0, true, 30, 100)
+	assert_true(wp.reloading)
+	assert_eq(wp.reload_remaining(100), 30, "remaining reflects authoritative reload time")
+	# a step BEFORE completion must NOT finish the reload (no instant-fill flash)
+	wp.step(110, false, false, false)
+	assert_true(wp.reloading, "still reloading at tick 110 (< done at 130)")
+	# at/after completion it finishes
+	wp.step(130, false, false, false)
+	assert_false(wp.reloading, "reload completes at its authoritative done tick")
