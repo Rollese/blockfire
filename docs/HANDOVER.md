@@ -60,6 +60,9 @@ The working agreement is `docs/AGENTS.md`. In short:
 - A symmetric bot match is decided by **combat attrition (death-tickets), not flag bleed** — mirror bots hold backfield 1–1 so no flag deficit forms. Flag capture/bleed is implemented and exercised but doesn't swing a symmetric match. For real bleed-driven matches, add **flank/spread bot objective AI** (avoid piling all bots onto the contested centre; attack under-defended enemy points). Tracked, not blocking the gameplay gate.
 - Single bot-driver process can't feed 48+ bots at 30 Hz from one host → high `starv` and slowed bot reactions at scale; another reason the 128-bot validation wants the multi-host fleet.
 
+## Future game modes (backlog)
+- **Battle Royale** — review and add a Battle Royale game mode in a later stage, once the graphical client exists (M7+). Captured 2026-06-16 at the owner's request; not scheduled yet — revisit when planning post-M7 content.
+
 ## Next
 - **M4.5 Combat Depth & class identity** ✅ — **all three phases CLOSED (P1 2026-06-15, P2 + P3 2026-06-16); M4.5 COMPLETE.** P3 (Movement: ladder climbing, auto-vaulting, drop-shoot prevention) gated PASS on game2 (`winner=1 climbs=9 vaults=16 peak tick=23.46ms<33.3`, evidence `docker/srvlog-20260616-115725.log`). Movement rules live in `shared/sim/` (`Ladder`/`Vault` + `SimLoop`); `climbing` replicated in state-byte bit 7 (`vaulting` + body-drag deferred to M7). 245 unit tests green. See `docs/milestones/M4.5-combat-depth.md`.
 - **Next milestone: M5 — Vehicles (land + air).** Needs the RPG (built in M4.5-P2) for anti-vehicle play and wires the Engineer repair kit (defined in M4.5) to a new vehicle HP system. **Watch the tick budget:** the 128-bot fleet peak rides the edge (~23–29 ms across milestones) and `snap` (~16 ms) is the dominant pre-existing cost — profile `[perf]` on the fleet early and lean on the degradation knobs (`MAX_STRUCTURE_DELTAS_PER_TICK`, gadget caps) before adding per-tick work.
