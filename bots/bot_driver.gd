@@ -140,15 +140,12 @@ func _drive(bot: Dictionary, delta: float) -> void:
 					(bot["net"] as NetHost).send_to(bot["peer"], NetHost.CHANNEL_INPUT,
 						Protocol.encode_gadget_action(Protocol.GA_REPAIR_STOP, Vector3.ZERO, Vector3.ZERO, 0), 0)
 					bot["repairing"] = false
-				# Drive the transport to the central objective — the most contested point, where
-				# enemy RPG engineers and grenade fire concentrate, so the vehicle takes blast damage
-				# (-> repairs/rkt_veh/veh_dead gate counters).
-				var push := _combat_pos(me)
-				if me.pos.distance_to(push) < 12.0:
-					_send(bot, 0.0, 0.0, bot["yaw"], 0.0, 0)   # hold at the enemy spawn
-				else:
-					var cmd := BotDriver.drive_toward(v.heading, me.pos, push)
-					_send(bot, float(cmd["move_x"]), float(cmd["move_y"]), float(cmd["yaw"]), 0.0, 0)
+				# Drive the transport toward the nearest visible enemy (into the firefight),
+				# falling back to the enemy spawn until contact. Staying mobile in combat is fine —
+				# no loiter hold, so the vehicle keeps pressing into the action where blast fire is.
+				var push := _hunt_pos(me, view)
+				var cmd := BotDriver.drive_toward(v.heading, me.pos, push)
+				_send(bot, float(cmd["move_x"]), float(cmd["move_y"]), float(cmd["yaw"]), 0.0, 0)
 				return
 		else:
 			var vid := BotDriver.nearest_free_vehicle(bot["vview"], me.pos)
@@ -648,6 +645,22 @@ static func central_point_index(positions: Array) -> int:
 			bestd = d; best = i
 	return best
 
+## Position of the nearest alive enemy pawn in `view` (pawn_id -> EntityState with .alive/.team/.pos),
+## excluding my own id. Returns {"found": bool, "pos": Vector3}. Used to drive a crewed transport into
+## the firefight so the vehicle draws blast fire.
+static func nearest_enemy_pos(view: Dictionary, my_id: int, my_team: int, my_pos: Vector3) -> Dictionary:
+	var best := INF
+	var bp := Vector3.ZERO
+	var found := false
+	for id in view:
+		if int(id) == my_id: continue
+		var e: EntityState = view[id]
+		if not e.alive or int(e.team) == my_team: continue
+		var d: float = my_pos.distance_to(e.pos)
+		if d < best:
+			best = d; bp = e.pos; found = true
+	return {"found": found, "pos": bp}
+
 ## Position of the ENEMY team's vehicle spawn (a fixed deep-enemy-backfield point). Crewed transports
 ## drive here to loiter in enemy fire so the vehicle takes blast damage (the only thing that hurts it).
 ## spawns: Array of {team:int, pos:Vector3}. Returns `fallback` if no enemy spawn is listed.
@@ -672,17 +685,15 @@ func _objective_pos(me: EntityState) -> Vector3:
 	var idx := choose_objective_index(positions, owners, me.team, me.pos, me.pos)
 	return positions[idx] if idx >= 0 else me.pos
 
-## Crew transports loiter on the central objective — the most contested point, where the enemy
-## RPG engineers and grenade fire are, so the vehicle actually takes blast damage. Falls back to
-## the nearest objective if the map has no points.
-func _combat_pos(me: EntityState) -> Vector3:
-	if _map == null or _map.points.is_empty():
-		return _objective_pos(me)
-	var positions: Array = []
-	for i in _map.points.size():
-		positions.append(_map.points[i]["pos"])
-	var idx := BotDriver.central_point_index(positions)
-	return positions[idx] if idx >= 0 else _objective_pos(me)
+## Where a crewed transport should drive: toward the nearest visible enemy (into the firefight),
+## else advance on the enemy spawn until contact. Falls back to current pos if nothing is known.
+func _hunt_pos(me: EntityState, view: Dictionary) -> Vector3:
+	var r := BotDriver.nearest_enemy_pos(view, int(me.id), int(me.team), me.pos)
+	if bool(r["found"]):
+		return r["pos"]
+	if _map != null:
+		return BotDriver.enemy_spawn_pos(_map.vehicle_spawns, int(me.team), me.pos)
+	return me.pos
 
 func _send(bot: Dictionary, mx: float, my: float, yaw: float, pitch: float, buttons: int) -> void:
 	var bytes := InputCommand.encode(bot["tick"], bot["last_seq"], mx, my, yaw, pitch, buttons, bot["server_tick"])

@@ -81,3 +81,17 @@ func test_central_point_index_picks_nearest_origin() -> void:
 
 func test_central_point_index_empty_is_negative() -> void:
 	assert_eq(BotDriver.central_point_index([]), -1)
+
+func test_nearest_enemy_pos_picks_closest_enemy() -> void:
+	var near := EntityState.new(); near.team = 1; near.alive = true; near.pos = Vector3(5, 0, 0)
+	var far := EntityState.new(); far.team = 1; far.alive = true; far.pos = Vector3(80, 0, 0)
+	var mate := EntityState.new(); mate.team = 0; mate.alive = true; mate.pos = Vector3(2, 0, 0)
+	var view := {10: near, 11: far, 12: mate}
+	var r := BotDriver.nearest_enemy_pos(view, 99, 0, Vector3.ZERO)
+	assert_true(bool(r["found"]))
+	assert_almost_eq((r["pos"] as Vector3).x, 5.0, 0.001)
+
+func test_nearest_enemy_pos_none_when_only_friendlies_or_dead() -> void:
+	var mate := EntityState.new(); mate.team = 0; mate.alive = true; mate.pos = Vector3(2, 0, 0)
+	var deadfoe := EntityState.new(); deadfoe.team = 1; deadfoe.alive = false; deadfoe.pos = Vector3(5, 0, 0)
+	assert_false(bool(BotDriver.nearest_enemy_pos({1: mate, 2: deadfoe}, 99, 0, Vector3.ZERO)["found"]))
