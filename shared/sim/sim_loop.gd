@@ -86,3 +86,34 @@ func _apply_platform_floor(p: Pawn) -> void:
 		p.grounded = true
 	elif p.pos.y <= floor_y + Ladder.ANCHOR_EPS and floor_y > 0.0:
 		p.grounded = true
+
+## Integrate vehicles (server authority). vinputs: vid -> driver command dict. Applies
+## structure-stop + platform-floor (SimLoop owns the geometry arrays), then slaves seated
+## occupants to their seat transform and feeds the gunner's look into the turret. See vehicles spec.
+func step_vehicles(vinputs: Dictionary) -> void:
+	for vid in world.vehicles:
+		var v: Vehicle = world.vehicles[vid]
+		if not v.alive:
+			continue
+		var prev := v.pos
+		v.step(DT, vinputs.get(vid, {}))
+		if structures != null:
+			var seg := v.pos - prev
+			var seg_len := seg.length()
+			if seg_len > 0.0001:
+				var m: Dictionary = structures.march(prev, seg / seg_len, seg_len)
+				if bool(m["hit"]):
+					v.pos = prev; v.speed = 0.0; v.velocity = Vector3.ZERO
+		var floor_y := Ladder.platform_floor(platforms, v.pos.x, v.pos.z, v.pos.y)
+		if v.pos.y < floor_y:
+			v.pos.y = floor_y; v.velocity.y = 0.0
+		for seat in v.seats.size():
+			var occ: int = int(v.seats[seat])
+			if occ == 0:
+				continue
+			var p: Pawn = world.get_pawn(occ)
+			if p == null:
+				continue
+			p.pos = v.seat_world(seat)
+			if int(v.seat_roles[seat]) == Vehicle.ROLE_GUNNER:
+				v.turret_yaw = p.yaw
