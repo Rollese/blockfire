@@ -1,0 +1,21 @@
+[gd_scene load_steps=3 format=3 uid="uid://bkit_preview_1"]
+
+[ext_resource type="Script" uid="uid://c3vpka8pyf4a5" path="res://client/art/preview/preview_driver.gd" id="1"]
+
+[sub_resource type="Environment" id="Environment_1"]
+background_mode = 1
+ambient_light_source = 2
+ambient_light_color = Color(0.7, 0.72, 0.78, 1)
+
+[node name="KitPreview" type="Node3D"]
+script = ExtResource("1")
+
+[node name="Camera3D" type="Camera3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 0.86, 0.5, 0, -0.5, 0.86, 8, 7, 16)
+
+[node name="DirectionalLight3D" type="DirectionalLight3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 0.5, 0.866, 0, -0.866, 0.5, 0, 20, 0)
+shadow_enabled = true
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+environment = SubResource("Environment_1")
