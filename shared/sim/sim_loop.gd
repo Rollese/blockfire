@@ -14,7 +14,7 @@ var structures: StructureStore = null     # optional StructureStore; resolves mo
 var ladders: Array = []   # [{bottom:Vector3, top:Vector3, radius:float}]
 var platforms: Array = [] # [{min:Vector3, max:Vector3}] walkable surfaces
 
-func step(inputs: Dictionary) -> void:
+func step(inputs: Dictionary, world_half: float = Pawn.WORLD_HALF) -> void:
 	for id in world.pawns:
 		var p: Pawn = world.pawns[id]
 		if not p.alive:
@@ -22,7 +22,7 @@ func step(inputs: Dictionary) -> void:
 		var prev := p.pos
 		var prev_stance: int = p.stance
 		var cmd: Dictionary = inputs.get(id, {})
-		p.step(DT, cmd)
+		p.step(DT, cmd, world_half)
 		if p.climbing:
 			_step_climb(p, cmd)
 		elif p.vaulting:
@@ -90,13 +90,13 @@ func _apply_platform_floor(p: Pawn) -> void:
 ## Integrate vehicles (server authority). vinputs: vid -> driver command dict. Applies
 ## structure-stop + platform-floor (SimLoop owns the geometry arrays), then slaves seated
 ## occupants to their seat transform and feeds the gunner's look into the turret. See vehicles spec.
-func step_vehicles(vinputs: Dictionary) -> void:
+func step_vehicles(vinputs: Dictionary, world_half: float = Vehicle.WORLD_HALF) -> void:
 	for vid in world.vehicles:
 		var v: Vehicle = world.vehicles[vid]
 		if not v.alive:
 			continue
 		var prev := v.pos
-		v.step(DT, vinputs.get(vid, {}))
+		v.step(DT, vinputs.get(vid, {}), world_half)
 		if structures != null:
 			var seg := v.pos - prev
 			var seg_len := seg.length()

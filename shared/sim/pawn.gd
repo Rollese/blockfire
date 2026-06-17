@@ -46,13 +46,13 @@ var seat: int = -1         # seat index when in_vehicle != 0
 func _init(p_id: int = 0) -> void:
 	id = p_id
 
-func step(dt: float, cmd: Dictionary) -> void:
+func step(dt: float, cmd: Dictionary, world_half: float = WORLD_HALF) -> void:
 	yaw = cmd.get("yaw", yaw)
 	pitch = clampf(cmd.get("pitch", pitch), -MAX_PITCH, MAX_PITCH)
 	if in_vehicle != 0:
 		return   # position driven by SimLoop seat slaving; look already applied above
 	if is_downed:
-		_step_downed(dt, cmd)
+		_step_downed(dt, cmd, world_half)
 		return
 	if climbing or vaulting:
 		return   # position is driven by SimLoop (ladder line / vault arc); look already applied above
@@ -108,10 +108,10 @@ func step(dt: float, cmd: Dictionary) -> void:
 			stamina += STAMINA_REGEN * dt
 	stamina = clampf(stamina, 0.0, STAMINA_MAX)
 
-	pos.x = clampf(pos.x, -WORLD_HALF, WORLD_HALF)
-	pos.z = clampf(pos.z, -WORLD_HALF, WORLD_HALF)
+	pos.x = clampf(pos.x, -world_half, world_half)
+	pos.z = clampf(pos.z, -world_half, world_half)
 
-func _step_downed(dt: float, cmd: Dictionary) -> void:
+func _step_downed(dt: float, cmd: Dictionary, world_half: float = WORLD_HALF) -> void:
 	# Crawl-only: forced prone, no lean, no sprint/jump, gravity still applies.
 	stance = Stance.PRONE
 	lean = Stance.LEAN_NONE
@@ -126,8 +126,8 @@ func _step_downed(dt: float, cmd: Dictionary) -> void:
 		pos.y = 0.0
 		velocity.y = 0.0
 		grounded = true
-	pos.x = clampf(pos.x, -WORLD_HALF, WORLD_HALF)
-	pos.z = clampf(pos.z, -WORLD_HALF, WORLD_HALF)
+	pos.x = clampf(pos.x, -world_half, world_half)
+	pos.z = clampf(pos.z, -world_half, world_half)
 
 func eye_position() -> Vector3:
 	return pos + Vector3(0.0, Stance.eye_height(stance), 0.0)

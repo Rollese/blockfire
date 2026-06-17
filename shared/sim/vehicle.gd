@@ -107,7 +107,7 @@ func turret_muzzle() -> Vector3:
 ## One authoritative integration step. cmd: {move_y=throttle [-1,1], move_x=steer [-1,1]}.
 ## Pure kinematic + deterministic; ground floor + world bounds here, platform-floor + structure
 ## collision applied by SimLoop.step_vehicles (it owns the geometry arrays).
-func step(dt: float, cmd: Dictionary) -> void:
+func step(dt: float, cmd: Dictionary, world_half: float = WORLD_HALF) -> void:
 	if not alive:
 		return
 	var throttle := clampf(float(cmd.get("move_y", 0.0)), -1.0, 1.0)
@@ -127,8 +127,8 @@ func step(dt: float, cmd: Dictionary) -> void:
 	pos += velocity * dt
 	if pos.y <= 0.0:
 		pos.y = 0.0; velocity.y = 0.0
-	pos.x = clampf(pos.x, -WORLD_HALF, WORLD_HALF)
-	pos.z = clampf(pos.z, -WORLD_HALF, WORLD_HALF)
+	pos.x = clampf(pos.x, -world_half, world_half)
+	pos.z = clampf(pos.z, -world_half, world_half)
 
 ## Occupant pawn ids currently seated (excludes empty seats). Order = seat order.
 func occupant_ids() -> Array:

@@ -30,6 +30,14 @@ enum Msg {
 	GADGET_ACTION = 17, ## client -> server: gadget intent (C4/mine/RPG/bag/active-give); action byte selects
 	VEHICLE_ACTION = 18,    ## client -> server: enter/exit a vehicle seat
 	VEHICLE_DESTROYED = 19, ## server -> clients: a vehicle was destroyed (vid)
+	DEPLOY_REQUEST = 20,    ## client -> server: deploy me at spawn_ref (see DeploySpawn)
+	DAMAGE_EVENT = 21,      ## server -> client: damage taken, world bearing toward source + amount
+	SELF_STATE = 22,        ## server -> owning client: authoritative weapon state for ammo reconcile
+	HITMARKER = 23,         ## server -> shooter: your shot hit an enemy (headshot/lethal flags)
+	GIVE_UP = 24,           ## client -> server: while DOWNED, skip the bleed-out and die now
+	ROSTER = 25,            ## server -> clients: per-client name/team/squad/kills/deaths/score
+	SET_SQUAD = 26,         ## client -> server: join/switch to squad id
+	DEATH_INFO = 27,        ## server -> victim: death-recap (killer/weapon/distance/hp + per-attacker damage)
 }
 
 const OP_PLACE := 0
@@ -52,11 +60,12 @@ const VA_ENTER := 0
 const VA_EXIT := 1
 
 
-static func encode_hello(player_name: String) -> PackedByteArray:
+static func encode_hello(player_name: String, auto_deploy: bool = true) -> PackedByteArray:
 	var buf := StreamPeerBuffer.new()
 	buf.put_u8(Msg.HELLO)
 	buf.put_u16(VERSION)
 	buf.put_utf8_string(player_name)
+	buf.put_u8(1 if auto_deploy else 0)
 	return buf.data_array
 
 
@@ -107,6 +116,24 @@ static func encode_kill(victim_id: int, killer_id: int, weapon_id: int, headshot
 static func decode_kill(bytes: PackedByteArray) -> Dictionary:
 	var r := body_reader(bytes)
 	return {"victim": r.get_u32(), "killer": r.get_u32(), "weapon": r.get_u8(), "headshot": r.get_u8() == 1}
+
+
+static func encode_hitmarker(headshot: bool, lethal: bool) -> PackedByteArray:
+	var buf := StreamPeerBuffer.new()
+	buf.put_u8(Msg.HITMARKER)
+	buf.put_u8((1 if headshot else 0) | (2 if lethal else 0))
+	return buf.data_array
+
+
+static func decode_hitmarker(bytes: PackedByteArray) -> Dictionary:
+	var f := body_reader(bytes).get_u8()
+	return {"headshot": (f & 1) != 0, "lethal": (f & 2) != 0}
+
+
+static func encode_give_up() -> PackedByteArray:
+	var buf := StreamPeerBuffer.new()
+	buf.put_u8(Msg.GIVE_UP)
+	return buf.data_array
 
 
 static func encode_match_state(points: Array, tickets: Array, match_over: bool, winner: int, elapsed: int) -> PackedByteArray:
@@ -322,3 +349,121 @@ static func encode_vehicle_destroyed(vehicle_id: int) -> PackedByteArray:
 
 static func decode_vehicle_destroyed(bytes: PackedByteArray) -> Dictionary:
 	return {"vehicle_id": body_reader(bytes).get_u32()}
+
+
+static func encode_deploy_request(spawn_ref: int) -> PackedByteArray:
+	var buf := StreamPeerBuffer.new()
+	buf.put_u8(Msg.DEPLOY_REQUEST)
+	buf.put_u16(spawn_ref & 0xFFFF)   # u16: squadmate(200+pawn_id)/vehicle(400+slot) refs exceed 255
+	return buf.data_array
+
+static func decode_deploy_request(bytes: PackedByteArray) -> Dictionary:
+	return {"spawn_ref": body_reader(bytes).get_u16()}
+
+
+static func encode_damage_event(bearing: float, amount: int) -> PackedByteArray:
+	var buf := StreamPeerBuffer.new()
+	buf.put_u8(Msg.DAMAGE_EVENT)
+	buf.put_u16(Quantize.enc_angle(bearing))
+	buf.put_u8(clampi(amount, 0, 255))
+	return buf.data_array
+
+static func decode_damage_event(bytes: PackedByteArray) -> Dictionary:
+	var r := body_reader(bytes)
+	return {"bearing": Quantize.dec_angle(r.get_u16()), "amount": r.get_u8()}
+
+
+static func encode_self_state(mag: int, reloading: bool, reload_remaining: int, weapon: int, throwables: Array = [], being_revived: bool = false) -> PackedByteArray:
+	var buf := StreamPeerBuffer.new()
+	buf.put_u8(Msg.SELF_STATE)
+	buf.put_u8(clampi(mag, 0, 255))
+	buf.put_u8(1 if reloading else 0)
+	buf.put_u16(clampi(reload_remaining, 0, 65535))
+	buf.put_u8(weapon & 0xFF)
+	buf.put_u8(1 if being_revived else 0)   # downed-screen "a teammate is reviving you" indicator
+	buf.put_u8(mini(throwables.size(), 255))
+	for i in mini(throwables.size(), 255):
+		var t: Dictionary = throwables[i]
+		buf.put_u8(int(t["kind"]) & 0xFF)
+		buf.put_u8(clampi(int(t["count"]), 0, 255))
+	return buf.data_array
+
+static func decode_self_state(bytes: PackedByteArray) -> Dictionary:
+	var r := body_reader(bytes)
+	var mag := r.get_u8()
+	var reloading := r.get_u8() == 1
+	var reload_remaining := r.get_u16()
+	var weapon := r.get_u8()
+	var being_revived := false
+	var throwables: Array = []
+	if r.get_available_bytes() > 0:
+		being_revived = r.get_u8() == 1
+	if r.get_available_bytes() > 0:
+		var n := r.get_u8()
+		for _i in n:
+			throwables.append({"kind": r.get_u8(), "count": r.get_u8()})
+	return {"mag": mag, "reloading": reloading, "reload_remaining": reload_remaining, "weapon": weapon, "throwables": throwables, "being_revived": being_revived}
+
+
+static func encode_roster(rows: Array) -> PackedByteArray:
+	var buf := StreamPeerBuffer.new()
+	buf.put_u8(Msg.ROSTER)
+	buf.put_u8(mini(rows.size(), 255))
+	for i in mini(rows.size(), 255):
+		var rw: Dictionary = rows[i]
+		buf.put_u32(int(rw["id"]))
+		buf.put_utf8_string(String(rw["name"]))
+		buf.put_u8(int(rw["team"]) & 0xFF)
+		buf.put_u8(int(rw["squad"]) & 0xFF)
+		buf.put_u16(clampi(int(rw["kills"]), 0, 65535))
+		buf.put_u16(clampi(int(rw["deaths"]), 0, 65535))
+		buf.put_u16(clampi(int(rw["score"]), 0, 65535))
+	return buf.data_array
+
+static func decode_roster(bytes: PackedByteArray) -> Dictionary:
+	var r := body_reader(bytes)
+	var n := r.get_u8()
+	var rows: Array = []
+	for _i in n:
+		var id := r.get_u32()
+		var nm := r.get_utf8_string()
+		rows.append({"id": id, "name": nm, "team": r.get_u8(), "squad": r.get_u8(),
+			"kills": r.get_u16(), "deaths": r.get_u16(), "score": r.get_u16()})
+	return {"rows": rows}
+
+
+static func encode_set_squad(squad_id: int) -> PackedByteArray:
+	var buf := StreamPeerBuffer.new()
+	buf.put_u8(Msg.SET_SQUAD)
+	buf.put_u8(squad_id & 0xFF)
+	return buf.data_array
+
+static func decode_set_squad(bytes: PackedByteArray) -> Dictionary:
+	return {"squad": body_reader(bytes).get_u8()}
+
+
+static func encode_death_info(killer_id: int, weapon: int, distance: float, killer_hp: int, attackers: Array) -> PackedByteArray:
+	var buf := StreamPeerBuffer.new()
+	buf.put_u8(Msg.DEATH_INFO)
+	buf.put_u32(killer_id)
+	buf.put_u8(weapon & 0xFF)
+	buf.put_u16(clampi(roundi(distance * 10.0), 0, 65535))
+	buf.put_u8(clampi(killer_hp, 0, 255))
+	buf.put_u8(mini(attackers.size(), 255))
+	for i in mini(attackers.size(), 255):
+		var a: Dictionary = attackers[i]
+		buf.put_u32(int(a["id"]))
+		buf.put_u16(clampi(int(a["dmg"]), 0, 65535))
+	return buf.data_array
+
+static func decode_death_info(bytes: PackedByteArray) -> Dictionary:
+	var r := body_reader(bytes)
+	var killer := r.get_u32()
+	var weapon := r.get_u8()
+	var distance := float(r.get_u16()) / 10.0
+	var killer_hp := r.get_u8()
+	var n := r.get_u8()
+	var attackers: Array = []
+	for _i in n:
+		attackers.append({"id": r.get_u32(), "dmg": r.get_u16()})
+	return {"killer": killer, "weapon": weapon, "distance": distance, "killer_hp": killer_hp, "attackers": attackers}

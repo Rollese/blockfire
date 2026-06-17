@@ -9,6 +9,18 @@ func test_kill_event_round_trip() -> void:
 	assert_eq(d["weapon"], Weapon.DMR)
 	assert_eq(d["headshot"], true)
 
+func test_hitmarker_round_trip() -> void:
+	for hs in [false, true]:
+		for lethal in [false, true]:
+			var bytes := Protocol.encode_hitmarker(hs, lethal)
+			assert_eq(Protocol.msg_type(bytes), Protocol.Msg.HITMARKER)
+			var d := Protocol.decode_hitmarker(bytes)
+			assert_eq(d["headshot"], hs, "headshot flag round-trips")
+			assert_eq(d["lethal"], lethal, "lethal flag round-trips")
+
+func test_give_up_message() -> void:
+	assert_eq(Protocol.msg_type(Protocol.encode_give_up()), Protocol.Msg.GIVE_UP)
+
 
 func test_match_state_round_trip() -> void:
 	var points := [{"owner": -1, "attacker": 0, "cap": 0.5}, {"owner": 1, "attacker": -1, "cap": 1.0}]
@@ -132,3 +144,98 @@ func test_welcome_carries_class() -> void:
 	var d := Protocol.decode_welcome(Protocol.encode_welcome(5, 30, Loadout.ENGINEER))
 	assert_eq(d["id"], 5)
 	assert_eq(d["class"], Loadout.ENGINEER)
+
+func test_deploy_request_roundtrip() -> void:
+	var b := Protocol.encode_deploy_request(3)
+	assert_eq(Protocol.msg_type(b), Protocol.Msg.DEPLOY_REQUEST)
+	assert_eq(Protocol.decode_deploy_request(b)["spawn_ref"], 3)
+
+func test_deploy_request_carries_large_refs() -> void:
+	# squadmate refs (200+pawn_id) and vehicle refs (400+slot) exceed a u8 — must survive the wire.
+	for ref in [DeploySpawn.SQUADMATE_BASE + 128, DeploySpawn.VEHICLE_BASE + 3]:
+		var b := Protocol.encode_deploy_request(ref)
+		assert_eq(Protocol.decode_deploy_request(b)["spawn_ref"], ref, "ref %d round-trips" % ref)
+
+func test_damage_event_roundtrip() -> void:
+	var b := Protocol.encode_damage_event(1.2, 25)
+	assert_eq(Protocol.msg_type(b), Protocol.Msg.DAMAGE_EVENT)
+	var d := Protocol.decode_damage_event(b)
+	assert_almost_eq(d["bearing"], 1.2, 0.01, "world bearing preserved")
+	assert_eq(d["amount"], 25)
+
+func test_self_state_roundtrip() -> void:
+	var b := Protocol.encode_self_state(17, true, 40, Weapon.AR)
+	assert_eq(Protocol.msg_type(b), Protocol.Msg.SELF_STATE)
+	var d := Protocol.decode_self_state(b)
+	assert_eq(d["mag"], 17)
+	assert_true(d["reloading"])
+	assert_eq(d["reload_remaining"], 40)
+	assert_eq(d["weapon"], Weapon.AR)
+
+func test_hello_carries_auto_deploy_default_true() -> void:
+	var b := Protocol.encode_hello("Bot")
+	var r := Protocol.body_reader(b)
+	assert_eq(r.get_u16(), Protocol.VERSION)
+	assert_eq(r.get_utf8_string(), "Bot")
+	assert_eq(r.get_u8(), 1, "auto_deploy defaults to 1 (true)")
+
+func test_hello_auto_deploy_false_for_rendered_client() -> void:
+	var b := Protocol.encode_hello("Player", false)
+	var r := Protocol.body_reader(b)
+	r.get_u16(); r.get_utf8_string()
+	assert_eq(r.get_u8(), 0, "rendered client requests manual deploy")
+
+func test_roster_roundtrip() -> void:
+	var rows := [
+		{"id": 7, "name": "Ada", "team": 0, "squad": 1, "kills": 3, "deaths": 1, "score": 300},
+		{"id": 9, "name": "Bo", "team": 1, "squad": 0, "kills": 0, "deaths": 2, "score": 0},
+	]
+	var b := Protocol.encode_roster(rows)
+	assert_eq(Protocol.msg_type(b), Protocol.Msg.ROSTER)
+	var d := Protocol.decode_roster(b)
+	var out: Array = d["rows"]
+	assert_eq(out.size(), 2)
+	assert_eq(out[0]["name"], "Ada")
+	assert_eq(out[0]["kills"], 3)
+	assert_eq(out[1]["id"], 9)
+	assert_eq(out[1]["deaths"], 2)
+
+func test_set_squad_roundtrip() -> void:
+	var b := Protocol.encode_set_squad(4)
+	assert_eq(Protocol.msg_type(b), Protocol.Msg.SET_SQUAD)
+	assert_eq(Protocol.decode_set_squad(b)["squad"], 4)
+
+func test_death_info_roundtrip() -> void:
+	var atk := [{"id": 7, "dmg": 80}, {"id": 9, "dmg": 20}]
+	var b := Protocol.encode_death_info(7, Weapon.AR, 42.5, 35, atk)
+	assert_eq(Protocol.msg_type(b), Protocol.Msg.DEATH_INFO)
+	var d := Protocol.decode_death_info(b)
+	assert_eq(d["killer"], 7)
+	assert_eq(d["weapon"], Weapon.AR)
+	assert_almost_eq(d["distance"], 42.5, 0.1, "distance preserved to 0.1m")
+	assert_eq(d["killer_hp"], 35)
+	assert_eq(d["attackers"].size(), 2)
+	assert_eq(d["attackers"][0]["id"], 7)
+	assert_eq(d["attackers"][0]["dmg"], 80)
+
+func test_self_state_carries_throwables() -> void:
+	var thr := [{"kind": 0, "count": 1}, {"kind": 1, "count": 2}]   # frag ready, 2 gadget charges
+	var b := Protocol.encode_self_state(17, false, 0, Weapon.AR, thr)
+	var d := Protocol.decode_self_state(b)
+	assert_eq(d["mag"], 17)
+	assert_eq(d["throwables"].size(), 2)
+	assert_eq(d["throwables"][1]["kind"], 1)
+	assert_eq(d["throwables"][1]["count"], 2)
+
+func test_self_state_without_throwables_defaults_empty() -> void:
+	var b := Protocol.encode_self_state(30, false, 0, Weapon.AR)   # 4-arg (pre-C3 senders)
+	var d := Protocol.decode_self_state(b)
+	assert_eq(d["throwables"], [], "absent block decodes as empty list")
+	assert_eq(d["being_revived"], false, "being_revived defaults false")
+
+func test_self_state_carries_being_revived() -> void:
+	var thr := [{"kind": 0, "count": 1}]
+	var b := Protocol.encode_self_state(20, false, 0, Weapon.AR, thr, true)
+	var d := Protocol.decode_self_state(b)
+	assert_eq(d["being_revived"], true, "being_revived round-trips")
+	assert_eq(d["throwables"].size(), 1, "throwables still decode after being_revived byte")

@@ -1,0 +1,161 @@
+extends TestCase
+
+func test_ammo_from_weapon_predictor() -> void:
+	var wp := WeaponPredictor.new(); wp.set_weapon(Weapon.AR); wp.mag = 7
+	var m := HudModel.new()
+	var out := m.build({"weapon_predictor": wp, "tick": 0})
+	assert_eq(out["ammo"]["mag"], 7)
+	assert_false(out["ammo"]["reloading"])
+	assert_true(out["ammo"]["low"], "7 of 30 is low ammo")
+
+func test_compass_relative_bearing_to_objective() -> void:
+	var m := HudModel.new()
+	# yaw 0 -> the camera looks -Z (sim-yaw + PI); objective due +X is to the camera's right -> +90.
+	var out := m.build({"self_pos": Vector3.ZERO, "self_yaw": 0.0,
+		"objectives": [{"pos": Vector3(10, 0, 0), "owner": -1}], "tick": 0})
+	assert_almost_eq(absf(rad_to_deg(out["compass"]["heading"])), 180.0, 0.5)  # camera points -Z
+	assert_almost_eq(rad_to_deg(out["compass"]["markers"][0]["rel_bearing"]), 90.0, 1.0)
+
+func test_compass_bearing_wraps_behind() -> void:
+	var m := HudModel.new()
+	# yaw 0 -> camera looks -Z, so an objective at +Z is directly behind -> +/-180 deg.
+	var out := m.build({"self_pos": Vector3.ZERO, "self_yaw": 0.0,
+		"objectives": [{"pos": Vector3(0, 0, 10), "owner": -1}], "tick": 0})
+	assert_almost_eq(absf(rad_to_deg(out["compass"]["markers"][0]["rel_bearing"])), 180.0, 1.0)
+
+func test_tickets_passthrough_and_capture_when_on_point() -> void:
+	var m := HudModel.new()
+	var ms := {"points": [{"owner": -1, "attacker": 0, "cap": 0.4}], "tickets": [120, 95]}
+	var out := m.build({"match_state": ms, "self_pos": Vector3(5, 0, 5),
+		"point_positions": [Vector3(6, 0, 6)], "capture_radius": 8.0, "tick": 0})
+	assert_eq(out["tickets"], [120, 95])
+	assert_almost_eq(out["capture"]["cap"], 0.4, 0.001, "on the point -> progress shown")
+
+func test_no_capture_when_off_point() -> void:
+	var m := HudModel.new()
+	var ms := {"points": [{"owner": -1, "attacker": 0, "cap": 0.4}], "tickets": [120, 95]}
+	var out := m.build({"match_state": ms, "self_pos": Vector3(500, 0, 500),
+		"point_positions": [Vector3(6, 0, 6)], "capture_radius": 8.0, "tick": 0})
+	assert_eq(out["capture"], null, "off point -> no capture readout")
+
+func test_killfeed_entries_decay_out() -> void:
+	var m := HudModel.new()
+	m.push_kill({"killer": 1, "victim": 2, "headshot": true, "weapon": Weapon.AR}, 10.0)
+	var out := m.build({"now": 10.5, "tick": 0})
+	assert_eq(out["killfeed"].size(), 1, "fresh entry present")
+	assert_true(out["killfeed"][0]["headshot"])
+	var out2 := m.build({"now": 10.0 + HudModel.KILLFEED_TTL + 0.1, "tick": 0})
+	assert_eq(out2["killfeed"].size(), 0, "expired entry dropped")
+
+func test_scoreboard_groups_by_team_and_sorts_by_score_then_name() -> void:
+	var m := HudModel.new()
+	var roster := [
+		{"id": 1, "name": "Zoe", "team": 0, "squad": 0, "kills": 5, "deaths": 1, "score": 500},
+		{"id": 2, "name": "Al",  "team": 0, "squad": 0, "kills": 5, "deaths": 1, "score": 500},
+		{"id": 3, "name": "Ed",  "team": 1, "squad": 0, "kills": 2, "deaths": 4, "score": 200},
+	]
+	var out := m.build({"roster": roster, "match_state": {"tickets": [120, 95]}, "tick": 0})
+	var sb: Dictionary = out["scoreboard"]
+	assert_eq(sb["teams"][0]["rows"].size(), 2)
+	assert_eq(sb["teams"][0]["rows"][0]["name"], "Al", "score tie -> name asc")
+	assert_eq(sb["teams"][0]["tickets"], 120)
+	assert_eq(sb["teams"][1]["rows"][0]["name"], "Ed")
+	assert_eq(sb["teams"][1]["tickets"], 95)
+
+func test_squad_roster_lists_squadmates_with_status() -> void:
+	var m := HudModel.new()
+	var roster := [
+		{"id": 1, "name": "Me",  "team": 0, "squad": 2, "kills": 0, "deaths": 0, "score": 0},
+		{"id": 2, "name": "Mate","team": 0, "squad": 2, "kills": 0, "deaths": 0, "score": 0},
+		{"id": 3, "name": "Other","team": 0, "squad": 5, "kills": 0, "deaths": 0, "score": 0},
+	]
+	var ents := {2: {"alive": true, "is_downed": true, "pos": Vector3(10, 0, 0)}}
+	var out := m.build({"roster": roster, "self_id": 1, "entities": ents, "tick": 0})
+	var sq: Array = out["squad_roster"]
+	assert_eq(sq.size(), 1, "only same-squad, excluding self")
+	assert_eq(sq[0]["name"], "Mate")
+	assert_eq(sq[0]["status"], "downed", "downed status from entities")
+
+func test_squad_roster_marks_dead_when_absent_or_not_alive() -> void:
+	var m := HudModel.new()
+	var roster := [
+		{"id": 1, "name": "Me", "team": 0, "squad": 2, "kills": 0, "deaths": 0, "score": 0},
+		{"id": 2, "name": "Gone","team": 0, "squad": 2, "kills": 0, "deaths": 0, "score": 0},
+	]
+	var out := m.build({"roster": roster, "self_id": 1, "entities": {}, "tick": 0})
+	var sq: Array = out["squad_roster"]
+	assert_eq(sq[0]["status"], "dead", "no entity -> dead/out of view")
+
+func test_prompt_prefers_revive_over_vehicle() -> void:
+	var m := HudModel.new()
+	var out := m.build({
+		"downed_mates": [{"id": 5, "dist": 2.0}],
+		"vehicles_near": [{"vid": 9, "seat": 1, "dist": 1.0}],
+		"tick": 0})
+	var p: Dictionary = out["interaction_prompt"]
+	assert_eq(p["action"], "revive")
+	assert_eq(p["target"], 5)
+
+func test_prompt_enter_vehicle_when_no_downed_mate() -> void:
+	var m := HudModel.new()
+	var out := m.build({"downed_mates": [], "vehicles_near": [{"vid": 9, "seat": 1, "dist": 1.0}], "tick": 0})
+	var p: Dictionary = out["interaction_prompt"]
+	assert_eq(p["action"], "enter_vehicle")
+	assert_eq(p["target"], 9)
+
+func test_prompt_none_when_nothing_in_range() -> void:
+	var m := HudModel.new()
+	var out := m.build({"downed_mates": [], "vehicles_near": [], "tick": 0})
+	assert_eq(out["interaction_prompt"], null)
+
+func test_throwables_passthrough_and_active_cycle() -> void:
+	var m := HudModel.new()
+	var thr := [{"kind": 0, "count": 1}, {"kind": 1, "count": 2}, {"kind": 2, "count": 0}]
+	var out := m.build({"throwables": thr, "tick": 0})
+	var t: Dictionary = out["throwables"]
+	assert_eq(t["list"].size(), 3)
+	assert_eq(t["active"], 0, "defaults to first slot")
+	m.cycle_throwable(thr.size())
+	var out2 := m.build({"throwables": thr, "tick": 0})
+	var t2: Dictionary = out2["throwables"]
+	assert_eq(t2["active"], 1, "cycle advances active slot")
+	m.cycle_throwable(thr.size()); m.cycle_throwable(thr.size())
+	var out3 := m.build({"throwables": thr, "tick": 0})
+	var t3: Dictionary = out3["throwables"]
+	assert_eq(t3["active"], 0, "wraps around")
+
+func test_death_recap_resolves_names_from_roster() -> void:
+	var m := HudModel.new()
+	var roster := [
+		{"id": 7, "name": "Killer", "team": 1, "squad": 0, "kills": 1, "deaths": 0, "score": 100},
+		{"id": 9, "name": "Helper", "team": 1, "squad": 0, "kills": 0, "deaths": 0, "score": 0},
+	]
+	m.set_death_info({"killer": 7, "weapon": Weapon.AR, "distance": 42.5, "killer_hp": 35,
+		"attackers": [{"id": 7, "dmg": 80}, {"id": 9, "dmg": 20}]})
+	var out := m.build({"roster": roster, "tick": 0})
+	var dr: Dictionary = out["death_recap"]
+	assert_eq(dr["killer_name"], "Killer")
+	assert_almost_eq(dr["distance"], 42.5, 0.1)
+	assert_eq(dr["killer_hp"], 35)
+	assert_eq(dr["attackers"][0]["name"], "Killer")
+	assert_eq(dr["attackers"][0]["dmg"], 80)
+	assert_eq(dr["attackers"][1]["name"], "Helper")
+
+func test_death_recap_null_until_set_and_after_clear() -> void:
+	var m := HudModel.new()
+	assert_eq(m.build({"tick": 0})["death_recap"], null)
+	m.set_death_info({"killer": 7, "weapon": 0, "distance": 1.0, "killer_hp": 100, "attackers": []})
+	m.clear_death_info()
+	assert_eq(m.build({"tick": 0})["death_recap"], null)
+
+func test_damage_arc_relative_and_fades() -> void:
+	var m := HudModel.new()
+	# yaw 0 -> camera looks -Z; damage from world bearing 0 (+Z) comes from directly behind -> 180 deg.
+	m.push_damage(0.0, 25, 10.0)
+	var out := m.build({"self_yaw": 0.0, "now": 10.0, "tick": 0})
+	assert_eq(out["damage_arcs"].size(), 1)
+	assert_almost_eq(absf(rad_to_deg(out["damage_arcs"][0]["rel_bearing"])), 180.0, 1.0)
+	assert_true(out["vignette"] > 0.0, "fresh damage raises vignette")
+	var faded := m.build({"self_yaw": 0.0, "now": 10.0 + HudModel.DAMAGE_TTL + 0.1, "tick": 0})
+	assert_eq(faded["damage_arcs"].size(), 0, "arc expired")
+	assert_almost_eq(faded["vignette"], 0.0, 0.01, "vignette decayed to ~0")

@@ -6,7 +6,7 @@ extends Node
 const Protocol := preload("res://shared/net/protocol.gd")
 const AIM_TOLERANCE := 0.05   # radians; fire when aim within this of target
 const ENGAGE_RANGE := 50.0   # only fire once within this range (else keep closing)
-const MAP_PATH := "res://maps/conquest_proving_grounds.json"
+const MAP_PATH := "res://maps/conquest_proving_grounds.json"   # default; override with --map=<name>
 const BURST_TICKS := 60   # server ticks (~2.0s @30Hz) of firing before reloading; shorter
                           # than the fastest mag-empty time so no weapon runs dry mid-burst
 const RELOAD_TICKS := 84  # server ticks (~2.8s) to hold BTN_RELOAD; > the slowest weapon
@@ -28,6 +28,7 @@ const ROCKET_SPEED := 150.0  # keep in sync with data/gadgets.json rpg.rocket_sp
 const ROCKET_GRAVITY := 20.0  # matches Grenade.GRAVITY; bots aim higher by 1/2 g t^2 to counter rocket drop
 
 var _map: MapDef
+var _map_path: String = MAP_PATH   # --map=<name> overrides (must match server + client)
 var _match_points: Array = []   # array of {owner, attacker, cap}, index == map point index
 var _synced_logged := false   # logs once when any bot first sees a structure (gate signal)
 
@@ -40,11 +41,13 @@ func configure(args: Dictionary) -> void:
 	_server_ip = String(args.get("connect", _server_ip))
 	_port = int(args.get("port", _port))
 	_bot_count = maxi(1, int(args.get("bot-count", _bot_count)))
+	if args.has("map"):
+		_map_path = "res://maps/%s.json" % String(args["map"])
 
 func _ready() -> void:
-	_map = MapDef.load_file(MAP_PATH)
+	_map = MapDef.load_file(_map_path)
 	if _map == null:
-		push_error("[bots] failed to load map %s" % MAP_PATH)
+		push_error("[bots] failed to load map %s" % _map_path)
 	print("[bots] spawning %d bot(s) -> %s:%d" % [_bot_count, _server_ip, _port])
 	for i in _bot_count:
 		_spawn_bot(i)
@@ -106,9 +109,10 @@ func _drive(bot: Dictionary, delta: float) -> void:
 		_send(bot, 0.0, 0.0, bot["yaw"], 0.0, 0)
 		return
 
-	# Revive a downed teammate if one is close enough.
+	# Revive a downed teammate if one is close enough — but ONLY the single nearest alive teammate
+	# goes for the revive; everyone else keeps fighting (no whole-squad swarm that stalls combat).
 	var rid := _nearest_downed_teammate(bot, me)
-	if rid != 0:
+	if rid != 0 and _is_closest_reviver(bot, me, rid):
 		var tpos: Vector3 = (bot["view"][rid] as EntityState).pos
 		var to := tpos - me.pos
 		if to.length() <= Revive.REVIVE_RANGE:
@@ -146,7 +150,7 @@ func _drive(bot: Dictionary, delta: float) -> void:
 				# Drive the transport toward the nearest visible enemy (into the firefight),
 				# falling back to the enemy spawn until contact. Staying mobile in combat is fine —
 				# no loiter hold, so the vehicle keeps pressing into the action where blast fire is.
-				var push := _hunt_pos(me, view)
+				var push := _hunt_pos(me, int(bot["id"]), view)
 				var cmd := BotDriver.drive_toward(v.heading, me.pos, push)
 				_send(bot, float(cmd["move_x"]), float(cmd["move_y"]), float(cmd["yaw"]), 0.0, 0)
 				return
@@ -206,13 +210,22 @@ func _drive(bot: Dictionary, delta: float) -> void:
 		drill_geom_valid = drill_geom_valid and not _drill_ladder.is_empty()
 
 	if target != null:
-		var d := target.pos - me.pos
+		# Aim from our EYE at the target's CENTRE-MASS (capsule middle), not feet→feet — otherwise the
+		# eye-height ray sails over a standing target's head, and the tight capsule-sized fire cone
+		# (below) would be centred on the wrong point.
+		var d := (target.pos + Vector3(0.0, Stance.body_height(target.stance) * 0.5, 0.0)) \
+			- (me.pos + Vector3(0.0, Stance.eye_height(me.stance), 0.0))
 		var want_yaw := atan2(d.x, d.z)
 		var want_pitch := clampf(asin(clampf(d.y / maxf(d.length(), 0.001), -1.0, 1.0)), -Pawn.MAX_PITCH, Pawn.MAX_PITCH)
-		bot["yaw"] = lerp_angle(bot["yaw"], want_yaw, 0.5) + randf_range(-0.003, 0.003)
-		bot["pitch"] = lerpf(bot["pitch"], want_pitch, 0.5)
-		var yaw_ok := absf(angle_diff(bot["yaw"], want_yaw)) < AIM_TOLERANCE
-		var pitch_ok := absf(want_pitch - bot["pitch"]) < AIM_TOLERANCE
+		# Track fast enough to follow a close strafing target (0.5/tick lagged too far behind to ever
+		# align — bots tracked point-blank movers without shooting). Fire tolerance is the target's
+		# angular HALF-SIZE (~capsule radius), so the bot fires only when the shot would actually land
+		# — not the over-wide cone that made it spray and miss.
+		bot["yaw"] = lerp_angle(bot["yaw"], want_yaw, 0.85) + randf_range(-0.003, 0.003)
+		bot["pitch"] = lerpf(bot["pitch"], want_pitch, 0.85)
+		var aim_tol := maxf(AIM_TOLERANCE, atan2(Stance.BODY_RADIUS, maxf(best, 1.0)))
+		var yaw_ok := absf(angle_diff(bot["yaw"], want_yaw)) < aim_tol
+		var pitch_ok := absf(want_pitch - bot["pitch"]) < aim_tol
 		var fire := best <= ENGAGE_RANGE and yaw_ok and pitch_ok
 		# Drillers override movement to continue the drill; non-drillers use the normal enemy-chase.
 		if is_driller and drill_geom_valid:
@@ -307,6 +320,28 @@ func _update_drill_phase(bot: Dictionary, next_phase: int) -> void:
 			bot["drill_phase_ticks"] = 0
 		else:
 			bot["drill_phase_ticks"] = ticks
+
+## True if THIS bot is the nearest alive teammate (in its view) to the downed mate `rid` — so only
+## one reviver commits while the rest keep fighting. Ties broken by id for a stable single winner.
+func _is_closest_reviver(bot: Dictionary, me: EntityState, rid: int) -> bool:
+	var view: Dictionary = bot["view"]
+	if not view.has(rid):
+		return false
+	var dpos: Vector3 = (view[rid] as EntityState).pos
+	var my_d: float = me.pos.distance_to(dpos)
+	if my_d <= Revive.REVIVE_RANGE:
+		return true   # already in revive range -> always commit, never strand a downed mate
+	var my_id: int = int(bot["id"])
+	for id in view:
+		if int(id) == my_id or int(id) == rid:
+			continue
+		var e: EntityState = view[id]
+		if not e.alive or e.is_downed or e.team != me.team:
+			continue
+		var d: float = e.pos.distance_to(dpos)
+		if d < my_d - 0.01 or (absf(d - my_d) <= 0.01 and int(id) < my_id):
+			return false   # a closer (or tie-broken) teammate will take this revive
+	return true
 
 func _nearest_downed_teammate(bot: Dictionary, me: EntityState) -> int:
 	if me == null:
@@ -710,8 +745,9 @@ func _objective_pos(me: EntityState) -> Vector3:
 
 ## Where a crewed transport should drive: toward the nearest visible enemy (into the firefight),
 ## else advance on the enemy spawn until contact. Falls back to current pos if nothing is known.
-func _hunt_pos(me: EntityState, view: Dictionary) -> Vector3:
-	var r := BotDriver.nearest_enemy_pos(view, int(me.id), int(me.team), me.pos)
+func _hunt_pos(me: EntityState, self_id: int, view: Dictionary) -> Vector3:
+	# EntityState carries no id (the id is the view dict key), so the caller passes bot["id"].
+	var r := BotDriver.nearest_enemy_pos(view, self_id, int(me.team), me.pos)
 	if bool(r["found"]):
 		return r["pos"]
 	if _map != null:

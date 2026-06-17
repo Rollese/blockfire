@@ -23,8 +23,10 @@ const MAX_ENEMY_SNAPSHOT := 24      # max enemies per snapshot (nearest-first) o
 const RESPAWN_DELAY_TICKS := 150   # 5s @30Hz
 const FIRE_CONE_DOT := 0.985       # broad-phase: target within ~10deg of ray
 const FIRE_RANGE_MARGIN := 20.0    # grid broad-phase slack for lag-comp movement
-const MAP_PATH := "res://maps/conquest_proving_grounds.json"
+const MAP_PATH := "res://maps/conquest_proving_grounds.json"   # default; override with --map=<name>
 const MATCH_STATE_INTERVAL := 15   # ticks between match-state broadcasts (2 Hz)
+const KILL_SCORE := 100             # score points awarded to killer per kill
+const ROSTER_STRIDE_TICKS := 30    # broadcast roster every N ticks (~1 Hz @30Hz)
 const MATCH_END_DRAIN_TICKS := 60  # keep running ~2s after a win, then exit
 const MAX_STRUCTURE_DELTAS_PER_TICK := 64   # graceful degradation: cap delta SENDS/tick
 const GRENADE_FUSE_TICKS := 45        # 1.5s @30Hz
@@ -54,6 +56,7 @@ var _grid := InterestGrid.new(CELL_SIZE)
 var _lag := LagComp.new()
 var _tele := Telemetry.new()
 var _map: MapDef
+var _map_path: String = MAP_PATH   # --map=<name> overrides (must match client + bots)
 var _conquest: ConquestState
 var _squads := SquadManager.new()
 var _catalog: PieceCatalog
@@ -73,11 +76,13 @@ var _prev_climb_vault: Dictionary = {}   # id -> int bitmask: bit0=climbing, bit
 
 var _reviving := {}            # reviver_id -> target_id, set per tick by REVIVE_ACTION(active)
 var _revive_ticks := {}        # target_id -> accumulated revive ticks
+var _being_revived := {}       # target_id -> reviver_id, this tick (drives the downed "being revived" UI)
 var _revives := 0              # completed revives this window
 var _climbs := 0              # climb-mode entries this window
 var _vaults := 0              # vault completions this window
 var _drop_shoot_blocked := 0  # shots rejected by the prone-transition gate this window
 
+var _roster_tick := 0
 var _kills := 0
 var _shots := 0
 var _hits := 0
@@ -136,11 +141,13 @@ func configure(args: Dictionary) -> void:
 	_port = int(args.get("port", _port))
 	_start_tickets = int(args.get("tickets", -1))
 	_time_limit = float(args.get("time-limit", -1.0))
+	if args.has("map"):
+		_map_path = "res://maps/%s.json" % String(args["map"])
 
 func _ready() -> void:
-	_map = MapDef.load_file(MAP_PATH)
+	_map = MapDef.load_file(_map_path)
 	if _map == null:
-		push_error("[server] failed to load map %s" % MAP_PATH); get_tree().quit(1); return
+		push_error("[server] failed to load map %s" % _map_path); get_tree().quit(1); return
 	_conquest = ConquestState.new(_map)
 	if _start_tickets > 0:
 		_conquest.tickets = [float(_start_tickets), float(_start_tickets)]
@@ -196,7 +203,7 @@ func _physics_process(delta: float) -> void:
 			_vaults += 1
 		_prev_climb_vault[id] = cur
 	var t_move := Time.get_ticks_usec()
-	_sim.step_vehicles(_build_vehicle_inputs())
+	_sim.step_vehicles(_build_vehicle_inputs(), _map.world_half)
 	_track_transport_distance()
 	var t_veh := Time.get_ticks_usec()
 	_lag.record(_sim.tick, _sim.world)
@@ -224,6 +231,9 @@ func _physics_process(delta: float) -> void:
 	var t_match := Time.get_ticks_usec()
 	_emit_structure_deltas()
 	_send_snapshots()
+	_roster_tick += 1
+	if _roster_tick % ROSTER_STRIDE_TICKS == 0:
+		_broadcast_roster()
 	var t_snap := Time.get_ticks_usec()
 	_phase_us["poll"] += t_poll - t0
 	_phase_us["move"] += t_move - t_poll
@@ -261,7 +271,10 @@ func _step_movement() -> void:
 	var inputs := {}
 	for id in _clients:
 		var c = _clients[id]
-		var inp = c["queued_input"]
+		# Drain one buffered input frame (FIFO, oldest-first). The redundancy bundle (input_command.gd)
+		# means a dropped packet's frame is recovered from the next packet's copy, so this rarely
+		# starves; when it does (nothing buffered), reuse the last frame and count it.
+		var inp = c["input_buf"].pop()
 		if inp == null:
 			inp = c["last_input"]
 			if inp != null: _tele.starvation += 1
@@ -273,11 +286,10 @@ func _step_movement() -> void:
 					_ac_viol += 1
 			c["last_input"] = inp
 			c["last_input_tick"] = inp["client_tick"]
-		c["queued_input"] = null
 		if c["reloading"] and _sim.tick >= c["reload_done_tick"]:
 			c["reloading"] = false
 			c["ammo"] = Weapon.get_def(c["weapon"])["mag_size"]
-	_sim.step(inputs)
+	_sim.step(inputs, _map.world_half)
 
 ## Build vid -> driver command from each vehicle's seat-0 (driver) occupant's last input. Also
 ## refreshes the gunner pawn's look so SimLoop.step_vehicles can mirror it to the turret.
@@ -362,7 +374,7 @@ func _resolve_fires() -> void:
 		var inp = c["last_input"]
 		if inp == null: continue
 		var shooter: Pawn = _sim.world.get_pawn(id)
-		if shooter == null or not shooter.alive: continue
+		if shooter == null or not shooter.alive or shooter.is_downed: continue   # downed = incapacitated, can't fire
 		if c["weapon"] == Weapon.RPG:
 			c["shot_index"] = 0
 			continue   # RPG fires via GADGET_ACTION(GA_RPG_FIRE), not the hit-scan path
@@ -417,6 +429,10 @@ func _fire_shot(shooter_id: int, shooter: Pawn, inp: Dictionary, shot_index: int
 		if not frame.has(tid): continue
 		var st = frame[tid]
 		if not st["alive"] or st["team"] == shooter.team: continue
+		# Downed pawns are immune (BattleBit-style no finishing): they aren't hittable targets,
+		# so the bullet passes through to anyone behind and no (false) hitmarker is sent.
+		var live_target: Pawn = _sim.world.get_pawn(tid)
+		if live_target != null and live_target.is_downed: continue
 		var to_target: Vector3 = st["pos"] - ray["origin"]
 		if to_target.length() > max_range: continue
 		if to_target.normalized().dot(ray["dir"]) < FIRE_CONE_DOT: continue
@@ -467,6 +483,11 @@ func _fire_shot(shooter_id: int, shooter: Pawn, inp: Dictionary, shot_index: int
 	var victim: Pawn = _sim.world.get_pawn(best_victim)
 	if victim == null or not victim.alive: return
 	_apply_pawn_damage(best_victim, victim, enemy_dmg, best_head, Revive.Source.BULLET, shooter_id, wid)
+	# Hitmarker to the (human) shooter — confirm the hit; lethal = killed or downed by this shot.
+	var sc: Dictionary = _clients.get(shooter_id, {})
+	if not sc.is_empty() and not sc.get("auto_deploy", true):
+		var lethal: bool = (not victim.alive) or victim.is_downed
+		_net.send_to(sc["peer"], NetHost.CHANNEL_CONTROL, Protocol.encode_hitmarker(best_head, lethal), 0)
 
 func _is_medic(id: int) -> bool:
 	return _clients.has(id) and int(_clients[id]["class"]) == Loadout.MEDIC
@@ -479,13 +500,51 @@ func _down_pawn(victim: Pawn) -> void:
 	# No ticket cost and no KILL event at down — only true death spends a ticket.
 
 func _kill_pawn(vid: int, victim: Pawn, killer_id: int, weapon_id: int, headshot: bool, source: int) -> void:
+	var was_downed := victim.is_downed   # true => bleed-out/give-up; recap uses the down-time snapshot
 	victim.alive = false
 	victim.is_downed = false
-	_clients[vid]["respawn_tick"] = _sim.tick + RESPAWN_DELAY_TICKS
+	# Vacate any vehicle seat on death, else the per-tick seat-follow drags the pawn back to
+	# the seat after it respawns elsewhere (HQ/teammate) — trapping the player in the vehicle.
+	if victim.in_vehicle != 0:
+		var seated_veh: Vehicle = _sim.world.vehicles.get(victim.in_vehicle)
+		if seated_veh != null and victim.seat >= 0 and victim.seat < seated_veh.seats.size():
+			seated_veh.seats[victim.seat] = 0
+		victim.in_vehicle = 0
+		victim.seat = -1
+	if _clients[vid].get("auto_deploy", true):
+		_clients[vid]["respawn_tick"] = _sim.tick + RESPAWN_DELAY_TICKS
+	else:
+		# auto_deploy=false (human): returns to deploy screen, but not before a respawn cooldown
+		# (death has weight; the body stays put until they can redeploy).
+		_clients[vid]["deploy_ready_tick"] = _sim.tick + RESPAWN_DELAY_TICKS
 	_conquest.register_death(victim.team)
 	_kills += 1
+	if _clients.has(vid):
+		_clients[vid]["deaths"] = int(_clients[vid]["deaths"]) + 1
+	if _clients.has(killer_id) and killer_id != vid:
+		_clients[killer_id]["kills"] = int(_clients[killer_id]["kills"]) + 1
+		_clients[killer_id]["score"] = int(_clients[killer_id]["score"]) + KILL_SCORE
 	if source == Revive.Source.BLAST:
 		_splash_kills += 1
+	if _clients.has(vid):
+		var c2: Dictionary = _clients[vid]
+		var dist: float
+		var khp: int
+		if was_downed and c2.has("downed_by_hp"):
+			# Death after a down (bleed-out/give-up): use the attacker's HP + range captured the
+			# moment they downed you — the live attacker may since have died or respawned.
+			dist = float(c2.get("downed_by_dist", 0.0))
+			khp = int(c2["downed_by_hp"])
+		else:
+			var killer: Pawn = _sim.world.get_pawn(killer_id)
+			dist = victim.pos.distance_to(killer.pos) if killer != null else 0.0
+			khp = int(killer.health) if killer != null else 0
+		var attackers := DeathRecap.attackers_sorted(c2["dmg_ledger"])
+		_net.send_to(c2["peer"], NetHost.CHANNEL_CONTROL,
+			Protocol.encode_death_info(killer_id, weapon_id, dist, khp, attackers), ENetPacketPeer.FLAG_RELIABLE)
+		c2["dmg_ledger"] = {}
+		for k in ["downed_by", "downed_by_weapon", "downed_by_hp", "downed_by_dist"]:
+			c2.erase(k)   # consumed by this death
 	var ev := Protocol.encode_kill(vid, killer_id, weapon_id, headshot)
 	for cid in _clients:
 		_net.send_to(_clients[cid]["peer"], NetHost.CHANNEL_CONTROL, ev, ENetPacketPeer.FLAG_RELIABLE)
@@ -498,12 +557,30 @@ func _apply_pawn_damage(vid: int, victim: Pawn, dmg: int, headshot: bool, source
 	if victim.is_downed:
 		return  # immune to damage while downed
 	victim.health -= dmg
+	if _clients.has(vid):
+		var src: Pawn = _sim.world.get_pawn(killer_id)
+		var bearing: float = DamageDir.bearing(victim.pos, src.pos) if src != null else 0.0
+		_net.send_to(_clients[vid]["peer"], NetHost.CHANNEL_CONTROL,
+			Protocol.encode_damage_event(bearing, dmg), 0)
+		if killer_id != 0:
+			var led: Dictionary = _clients[vid]["dmg_ledger"]
+			led[killer_id] = int(led.get(killer_id, 0)) + dmg
 	if victim.health > 0:
 		return
 	victim.health = 0
 	if Revive.is_instant_kill(headshot, source):
 		_kill_pawn(vid, victim, killer_id, weapon_id, headshot, source)
 	else:
+		# Remember who downed the pawn (+ their weapon) so a later bleed-out / give-up death
+		# credits the attacker, not the victim. (killer_id 0 = no attacker, e.g. fall.)
+		if _clients.has(vid) and killer_id != 0:
+			var dk: Pawn = _sim.world.get_pawn(killer_id)
+			_clients[vid]["downed_by"] = killer_id
+			_clients[vid]["downed_by_weapon"] = weapon_id
+			# Snapshot the attacker's HP + range AT DOWN TIME — by the time the victim bleeds out
+			# the attacker may be dead/respawned, so the live value would read wrong (0 HP).
+			_clients[vid]["downed_by_hp"] = int(dk.health) if dk != null else 0
+			_clients[vid]["downed_by_dist"] = victim.pos.distance_to(dk.pos) if dk != null else 0.0
 		_down_pawn(victim)
 
 func _complete_revive(target_id: int) -> void:
@@ -513,6 +590,12 @@ func _complete_revive(target_id: int) -> void:
 	p.health = Revive.REVIVE_HP
 	p.bleed_health = 0
 	p.bleed_halted = false
+	# Fresh start after a revive: clear the damage ledger so a later death's recap reflects the
+	# lethal sequence (~one health bar), not damage accumulated across the whole life.
+	if _clients.has(target_id):
+		_clients[target_id]["dmg_ledger"] = {}
+		for k in ["downed_by", "downed_by_weapon", "downed_by_hp", "downed_by_dist"]:
+			_clients[target_id].erase(k)
 	_revives += 1
 	# No ticket refund needed — DOWNED never spent one.
 
@@ -533,6 +616,7 @@ func _step_revives() -> void:
 		if tp.team != rp.team: done.append(reviver_id); continue                       # enemy can't revive
 		if rp.pos.distance_to(tp.pos) > Revive.REVIVE_RANGE: continue                  # transient: hold latch, no progress
 		active_targets[target_id] = reviver_id
+	_being_revived = active_targets   # expose to the SELF_STATE send so the downed player sees it
 	# Drop accumulated progress for downed targets with no in-range reviver this tick.
 	for t in _revive_ticks.keys():
 		if not active_targets.has(t):
@@ -652,7 +736,9 @@ func _step_downed() -> void:
 			continue
 		p.bleed_health = Revive.bleed_step(p.bleed_health, p.bleed_halted)
 		if Revive.is_bled_out(p.bleed_health):
-			_kill_pawn(id, p, id, 0, false, Revive.Source.BULLET)  # killer = self (bleed-out)
+			# Credit the attacker who downed the pawn (falls back to self if unknown).
+			var c = _clients[id]
+			_kill_pawn(id, p, int(c.get("downed_by", id)), int(c.get("downed_by_weapon", 0)), false, Revive.Source.BULLET)
 			_bleedouts += 1
 
 func _handle_respawns() -> void:
@@ -675,6 +761,7 @@ func _handle_respawns() -> void:
 			c["ammo"] = Weapon.get_def(c["weapon"])["mag_size"]
 			c["reloading"] = false
 			c["rockets"] = int(_gadgets.def_of_kind(Gadget.KIND_RPG)["ammo"]) if int(c["weapon"]) == Weapon.RPG else 0
+			c["dmg_ledger"] = {}
 
 func _select_spawn(id: int) -> Vector3:
 	var c = _clients[id]
@@ -775,6 +862,12 @@ func _send_snapshots() -> void:
 		var seq: int = c["next_seq"]
 		var bytes := Snapshot.encode(_sim.tick, seq, baseline_seq, c["last_input_tick"], current, baseline, current_v, baseline_v)
 		_net.send_to(c["peer"], NetHost.CHANNEL_SNAPSHOT, bytes, 0)
+		var reload_remaining: int = maxi(0, int(c["reload_done_tick"]) - _sim.tick) if c["reloading"] else 0
+		# Reliable so the authoritative ammo/reload always reaches the owner — otherwise dropped
+		# SELF_STATE packets (lossy links) leave the client predicting phantom ammo it doesn't have.
+		_net.send_to(c["peer"], NetHost.CHANNEL_CONTROL,
+			Protocol.encode_self_state(int(c["ammo"]), bool(c["reloading"]), reload_remaining, int(c["weapon"]), _throwables_for(c), _being_revived.has(id)),
+			ENetPacketPeer.FLAG_RELIABLE)
 		c["history"][seq] = current
 		c["history_v"][seq] = current_v
 		c["next_seq"] = seq + 1
@@ -785,6 +878,16 @@ func _send_snapshots() -> void:
 			if s < cutoff: c["history_v"].erase(s)
 		_tele.add_bytes(id, bytes.size())
 
+func _broadcast_roster() -> void:
+	var rows: Array = []
+	for id in _clients:
+		var c = _clients[id]
+		rows.append({"id": id, "name": String(c.get("name", "P%d" % id)), "team": int(c["team"]),
+			"squad": int(c["squad"]), "kills": int(c["kills"]), "deaths": int(c["deaths"]), "score": int(c["score"])})
+	var pkt := Protocol.encode_roster(rows)
+	for id in _clients:
+		_net.send_to(_clients[id]["peer"], NetHost.CHANNEL_CONTROL, pkt, ENetPacketPeer.FLAG_RELIABLE)
+
 func _on_packet(peer: ENetPacketPeer, _channel: int, bytes: PackedByteArray) -> void:
 	match Protocol.msg_type(bytes):
 		Protocol.Msg.HELLO: _handle_hello(peer, bytes)
@@ -794,14 +897,18 @@ func _on_packet(peer: ENetPacketPeer, _channel: int, bytes: PackedByteArray) -> 
 		Protocol.Msg.GRENADE_THROW: _handle_grenade_throw(peer, bytes)
 		Protocol.Msg.REVIVE_ACTION: _handle_revive_action(peer, bytes)
 		Protocol.Msg.SELF_BANDAGE: _handle_self_bandage(peer, bytes)
+		Protocol.Msg.GIVE_UP: _handle_give_up(peer)
 		Protocol.Msg.GADGET_ACTION: _handle_gadget_action(peer, bytes)
 		Protocol.Msg.VEHICLE_ACTION: _handle_vehicle_action(peer, bytes)
+		Protocol.Msg.DEPLOY_REQUEST: _handle_deploy_request(peer, bytes)
+		Protocol.Msg.SET_SQUAD: _handle_set_squad(peer, bytes)
 		_: pass
 
 func _handle_hello(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
 	var r := Protocol.body_reader(bytes)
 	var ver := r.get_u16()
 	var pname := r.get_utf8_string()
+	var auto_deploy: bool = (r.get_u8() == 1) if r.get_available_bytes() > 0 else true
 	if ver != Protocol.VERSION:
 		_net.send_to(peer, NetHost.CHANNEL_CONTROL, Protocol.encode_reject("version mismatch"), ENetPacketPeer.FLAG_RELIABLE)
 		peer.peer_disconnect_later(); return
@@ -812,9 +919,13 @@ func _handle_hello(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
 	_next_id += 1
 	var team: int = 0 if _team_counts[0] <= _team_counts[1] else 1
 	_team_counts[team] += 1
-	var cls := Loadout.random_class()
+	# Humans never roll ENGINEER (its RPG-primary loadout has no click-fire gun); bots still do.
+	var cls := Loadout.random_class() if auto_deploy else Loadout.random_class_no_engineer()
 	var wid: int = Loadout.weapon_for(cls)
-	if cls == Loadout.ENGINEER and id % 3 == 0:
+	# RPG-primary is a bot-fleet thing (1/3 of engineers carry it so the fleet exercises
+	# anti-vehicle fire). A human handed an RPG-only loadout has no click-fire gun, which reads
+	# as "my weapon is broken" — so humans always keep their class's hit-scan primary.
+	if cls == Loadout.ENGINEER and id % 3 == 0 and auto_deploy:
 		wid = Weapon.RPG
 	if not Loadout.can_equip(cls, wid):   # authoritative guard (RPG -> Engineer only)
 		wid = Loadout.weapon_for(cls)
@@ -824,30 +935,97 @@ func _handle_hello(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
 	var squad := _squads.assign(id, team)
 	_peer_to_id[peer] = id
 	_clients[id] = {
-		"peer": peer, "queued_input": null, "last_input": null, "last_input_tick": 0,
+		"peer": peer, "input_buf": InputBuffer.new(), "last_input": null, "last_input_tick": 0,
 		"last_acked_seq": 0, "next_seq": 1, "history": {}, "history_v": {},
 		"team": team, "squad": squad, "class": cls, "weapon": wid, "weapon_def": weapon_def,
 		"rockets": start_rockets, "last_rocket_tick": -100000,
 		"ammo": Weapon.get_def(wid)["mag_size"],
 		"reloading": false, "reload_done_tick": 0, "last_fire_time": -999.0,
-		"shot_index": 0, "respawn_tick": 0,
+		"shot_index": 0, "respawn_tick": 0, "auto_deploy": auto_deploy,
 		"last_build_tick": -100000, "last_grenade_tick": -100000, "known_regions": {},
+		"name": pname, "kills": 0, "deaths": 0, "score": 0, "dmg_ledger": {},
 	}
 	var p := _sim.world.spawn(id)
 	p.team = team
 	p.squad = squad
 	p.pos = _select_spawn(id)
 	p.bandage_count = Revive.bandage_count_for(cls == Loadout.MEDIC)
+	if not auto_deploy:
+		p.alive = false   # held un-deployed until DEPLOY_REQUEST (respawn_tick stays 0)
 	_net.send_to(peer, NetHost.CHANNEL_CONTROL, Protocol.encode_welcome(id, TICK_RATE, cls), ENetPacketPeer.FLAG_RELIABLE)
 	print("[server] welcomed peer %d ('%s') team=%d squad=%d class=%d — %d peers" % [id, pname, team, squad, cls, _clients.size()])
+
+func _squad_candidates(req_id: int, team: int, squad_id: int) -> Array:
+	var out: Array = []
+	for mid in _squads.members(team, squad_id):
+		if mid == req_id: continue
+		var mp: Pawn = _sim.world.get_pawn(mid)
+		if mp == null: continue
+		out.append({"id": mid, "pos": mp.pos, "team": mp.team, "alive": mp.alive, "downed": mp.is_downed})
+	return out
+
+func _vehicle_candidates(team: int) -> Array:
+	var out: Array = []
+	for vid in _sim.world.vehicles:
+		var v: Vehicle = _sim.world.vehicles[vid]
+		if v == null or v.team != team or not v.alive: continue
+		out.append({"slot": vid - Vehicle.ID_BASE, "pos": v.pos, "team": v.team, "free_seats": v.seat_count() - v.occupant_ids().size()})
+	return out
+
+func _throwables_for(c: Dictionary) -> Array:
+	var ready := 1 if _sim.tick - int(c["last_grenade_tick"]) >= GRENADE_COOLDOWN_TICKS else 0
+	var list: Array = [{"kind": Grenade.FRAG, "count": ready}, {"kind": Grenade.SMOKE, "count": ready}]
+	if int(c["weapon"]) == Weapon.RPG:
+		list.append({"kind": 100, "count": int(c["rockets"])})   # kind 100 = RPG (UI-only tag; M5.5 formalizes)
+	return list
+
+func _handle_deploy_request(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
+	var id = _peer_to_id.get(peer, 0)
+	if id == 0 or not _clients.has(id): return
+	var c = _clients[id]
+	var p: Pawn = _sim.world.get_pawn(id)
+	if p == null or p.alive: return    # already deployed
+	if _sim.tick < int(c.get("deploy_ready_tick", 0)): return   # respawn cooldown not elapsed
+	var ref := int(Protocol.decode_deploy_request(bytes)["spawn_ref"])
+	var mates := _squad_candidates(id, int(c["team"]), int(c["squad"]))
+	var vehs := _vehicle_candidates(int(c["team"]))
+	if not DeploySpawn.is_valid(int(c["team"]), ref, _map, _conquest, mates, vehs): return
+	p.pos = DeploySpawn.resolve(int(c["team"]), ref, _map, _conquest, mates, vehs)
+	p.velocity = Vector3.ZERO
+	p.health = 100
+	p.alive = true
+	p.stamina = Pawn.STAMINA_MAX
+	p.is_downed = false
+	p.climbing = false
+	p.vaulting = false
+	p.in_vehicle = 0   # defensive: never deploy still bound to a seat
+	p.seat = -1
+	c["ammo"] = Weapon.get_def(c["weapon"])["mag_size"]
+	c["reloading"] = false
+	c["respawn_tick"] = 0
+	c["dmg_ledger"] = {}
+
+func _handle_set_squad(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
+	var id = _peer_to_id.get(peer, 0)
+	if id == 0 or not _clients.has(id): return
+	var c = _clients[id]
+	var team: int = int(c["team"])
+	var target: int = int(Protocol.decode_set_squad(bytes)["squad"])
+	if not _squads.join(id, team, target): return   # full -> ignore
+	c["squad"] = target
+	var p: Pawn = _sim.world.get_pawn(id)
+	if p != null:
+		p.squad = target   # replicated via EntityState.squad -> roster/squad-list update next ROSTER
 
 func _handle_input(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
 	var id = _peer_to_id.get(peer, 0)
 	if id == 0 or not _clients.has(id): return
 	var d := InputCommand.decode(bytes)
 	var c = _clients[id]
-	if c["queued_input"] != null and d["client_tick"] <= c["queued_input"]["client_tick"]: return
-	c["queued_input"] = d
+	# Enqueue the bundle's frames (dedup of already-seen copies happens in the buffer); they drain
+	# one-per-tick in _step_movement. Redundant frames from earlier packets are how a dropped packet
+	# is recovered without staling the server's view of the player.
+	c["input_buf"].ingest(d["frames"])
 	var ack: int = d["ack_seq"]
 	if ack > c["last_acked_seq"]:
 		c["last_acked_seq"] = ack
@@ -1044,6 +1222,17 @@ func _remove_c4_on_cell(cell: Vector3i) -> void:
 			if c4["cell"] != cell:
 				kept.append(c4)
 		_c4[owner] = kept
+
+## A DOWNED player chooses to skip the bleed-out and die now (BattleBit give-up) -> true death,
+## spends a ticket, returns them to the deploy screen.
+func _handle_give_up(peer: ENetPacketPeer) -> void:
+	var id = _peer_to_id.get(peer, 0)
+	if id == 0 or not _clients.has(id): return
+	var p: Pawn = _sim.world.get_pawn(id)
+	if p == null or not p.alive or not p.is_downed: return
+	var c = _clients[id]
+	_kill_pawn(id, p, int(c.get("downed_by", id)), int(c.get("downed_by_weapon", 0)), false, Revive.Source.BULLET)
+	_bleedouts += 1
 
 func _handle_self_bandage(peer: ENetPacketPeer, _bytes: PackedByteArray) -> void:
 	var id = _peer_to_id.get(peer, 0)

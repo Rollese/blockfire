@@ -37,3 +37,15 @@ func leader_of(team: int, squad_id: int) -> int:
 
 func members(team: int, squad_id: int) -> Array:
 	return _squads[team].get(squad_id, [])
+
+## Move client_id into squad_id on `team`. Returns false (no-op) if the target squad is full.
+## Removes the client from their current squad first; creates the target bucket if absent.
+func join(client_id: int, team: int, squad_id: int) -> bool:
+	if members(team, squad_id).size() >= SQUAD_SIZE:
+		return false
+	remove(client_id, team)
+	if not _squads[team].has(squad_id):
+		_squads[team][squad_id] = []
+	_squads[team][squad_id].append(client_id)
+	squad_of[client_id] = squad_id
+	return true
