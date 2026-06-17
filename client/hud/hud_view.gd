@@ -66,6 +66,10 @@ const _THROWABLE_POOL := 8        # max displayed throwable slots
 var _recap_root: Control
 var _recap_title: Label
 var _recap_attacker_labels: Array[Label] = []
+
+signal squad_picked(squad_id: int)   # emitted by the U squad-select overlay
+var _squad_menu_root: Control
+const SQUAD_MENU_COUNT := 6
 const _RECAP_ATTACKER_MAX := 8
 
 # ---- constants for owner tint -----------------------------------------
@@ -141,6 +145,7 @@ func _build_tree() -> void:
 	_build_throwable_selector()
 	_build_interaction_prompt()
 	_build_death_recap()
+	_build_squad_menu()
 	_build_scoreboard()   # last: highest z-order so it overlays everything
 	_build_perf()
 
@@ -557,6 +562,54 @@ func _make_score_row(name_s: String, k_s: String, d_s: String, score_s: String,
 		lbl.mouse_filter = MOUSE_FILTER_IGNORE
 		row.add_child(lbl)
 	return row
+
+
+## Standalone squad-select overlay toggled by U while alive. Buttons emit squad_picked(id);
+## client_main sends SET_SQUAD and folds this into its menu-open (mouse-release) handling.
+func _build_squad_menu() -> void:
+	_squad_menu_root = Control.new()
+	_squad_menu_root.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_squad_menu_root.visible = false
+	_squad_menu_root.z_index = 90
+	add_child(_squad_menu_root)
+	var bg := ColorRect.new()
+	bg.color = Color(0.0, 0.0, 0.0, 0.6)
+	bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	bg.mouse_filter = MOUSE_FILTER_STOP   # swallow clicks so they don't fall through to the world
+	_squad_menu_root.add_child(bg)
+	var center := CenterContainer.new()
+	center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_squad_menu_root.add_child(center)
+	var vb := VBoxContainer.new()
+	vb.add_theme_constant_override("separation", 12)
+	center.add_child(vb)
+	var title := Label.new()
+	title.text = "Select Squad"
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	title.add_theme_font_size_override("font_size", 22)
+	vb.add_child(title)
+	var hb := HBoxContainer.new()
+	hb.add_theme_constant_override("separation", 8)
+	hb.alignment = BoxContainer.ALIGNMENT_CENTER
+	vb.add_child(hb)
+	for i in SQUAD_MENU_COUNT:
+		var b := Button.new()
+		b.text = "Squad %d" % i
+		b.custom_minimum_size = Vector2(96, 44)
+		b.pressed.connect(squad_picked.emit.bind(i))
+		hb.add_child(b)
+	var hint := Label.new()
+	hint.text = "Press U to close"
+	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	hint.modulate = Color(0.8, 0.8, 0.8)
+	vb.add_child(hint)
+
+func set_squad_menu_open(open: bool) -> void:
+	if _squad_menu_root != null:
+		_squad_menu_root.visible = open
+
+func is_squad_menu_open() -> bool:
+	return _squad_menu_root != null and _squad_menu_root.visible
 
 
 func _build_squad_roster() -> void:

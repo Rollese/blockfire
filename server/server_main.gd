@@ -500,6 +500,7 @@ func _down_pawn(victim: Pawn) -> void:
 	# No ticket cost and no KILL event at down — only true death spends a ticket.
 
 func _kill_pawn(vid: int, victim: Pawn, killer_id: int, weapon_id: int, headshot: bool, source: int) -> void:
+	var was_downed := victim.is_downed   # true => bleed-out/give-up; recap uses the down-time snapshot
 	victim.alive = false
 	victim.is_downed = false
 	# Vacate any vehicle seat on death, else the per-tick seat-follow drags the pawn back to
@@ -526,13 +527,24 @@ func _kill_pawn(vid: int, victim: Pawn, killer_id: int, weapon_id: int, headshot
 	if source == Revive.Source.BLAST:
 		_splash_kills += 1
 	if _clients.has(vid):
-		var killer: Pawn = _sim.world.get_pawn(killer_id)
-		var dist: float = victim.pos.distance_to(killer.pos) if killer != null else 0.0
-		var khp: int = int(killer.health) if killer != null else 0
-		var attackers := DeathRecap.attackers_sorted(_clients[vid]["dmg_ledger"])
-		_net.send_to(_clients[vid]["peer"], NetHost.CHANNEL_CONTROL,
+		var c2: Dictionary = _clients[vid]
+		var dist: float
+		var khp: int
+		if was_downed and c2.has("downed_by_hp"):
+			# Death after a down (bleed-out/give-up): use the attacker's HP + range captured the
+			# moment they downed you — the live attacker may since have died or respawned.
+			dist = float(c2.get("downed_by_dist", 0.0))
+			khp = int(c2["downed_by_hp"])
+		else:
+			var killer: Pawn = _sim.world.get_pawn(killer_id)
+			dist = victim.pos.distance_to(killer.pos) if killer != null else 0.0
+			khp = int(killer.health) if killer != null else 0
+		var attackers := DeathRecap.attackers_sorted(c2["dmg_ledger"])
+		_net.send_to(c2["peer"], NetHost.CHANNEL_CONTROL,
 			Protocol.encode_death_info(killer_id, weapon_id, dist, khp, attackers), ENetPacketPeer.FLAG_RELIABLE)
-		_clients[vid]["dmg_ledger"] = {}
+		c2["dmg_ledger"] = {}
+		for k in ["downed_by", "downed_by_weapon", "downed_by_hp", "downed_by_dist"]:
+			c2.erase(k)   # consumed by this death
 	var ev := Protocol.encode_kill(vid, killer_id, weapon_id, headshot)
 	for cid in _clients:
 		_net.send_to(_clients[cid]["peer"], NetHost.CHANNEL_CONTROL, ev, ENetPacketPeer.FLAG_RELIABLE)
@@ -562,8 +574,13 @@ func _apply_pawn_damage(vid: int, victim: Pawn, dmg: int, headshot: bool, source
 		# Remember who downed the pawn (+ their weapon) so a later bleed-out / give-up death
 		# credits the attacker, not the victim. (killer_id 0 = no attacker, e.g. fall.)
 		if _clients.has(vid) and killer_id != 0:
+			var dk: Pawn = _sim.world.get_pawn(killer_id)
 			_clients[vid]["downed_by"] = killer_id
 			_clients[vid]["downed_by_weapon"] = weapon_id
+			# Snapshot the attacker's HP + range AT DOWN TIME — by the time the victim bleeds out
+			# the attacker may be dead/respawned, so the live value would read wrong (0 HP).
+			_clients[vid]["downed_by_hp"] = int(dk.health) if dk != null else 0
+			_clients[vid]["downed_by_dist"] = victim.pos.distance_to(dk.pos) if dk != null else 0.0
 		_down_pawn(victim)
 
 func _complete_revive(target_id: int) -> void:
@@ -577,7 +594,8 @@ func _complete_revive(target_id: int) -> void:
 	# lethal sequence (~one health bar), not damage accumulated across the whole life.
 	if _clients.has(target_id):
 		_clients[target_id]["dmg_ledger"] = {}
-		_clients[target_id].erase("downed_by")
+		for k in ["downed_by", "downed_by_weapon", "downed_by_hp", "downed_by_dist"]:
+			_clients[target_id].erase(k)
 	_revives += 1
 	# No ticket refund needed — DOWNED never spent one.
 

@@ -142,7 +142,8 @@ func _physics_process(delta: float) -> void:
 	# Alive but with the settings menu open: free the cursor and pause input so the player can
 	# click the menu without walking/looking. (Without this, the per-tick capture_mouse() below
 	# re-grabs the cursor every frame and the centered menu is unclickable.)
-	var menu_open: bool = _settings_menu != null and _settings_menu.visible
+	var menu_open: bool = (_settings_menu != null and _settings_menu.visible) \
+		or (_hud_view != null and _hud_view.is_squad_menu_open())
 
 	if deployed and menu_open:
 		if _scene_built:
@@ -235,7 +236,8 @@ func _process(_dt: float) -> void:
 	# Render-rate look + camera-position interpolation, so a 30 Hz sim renders smoothly at 60 Hz.
 	var ss0: EntityState = _wv.self_state()
 	var deployed0: bool = ss0 != null and ss0.alive
-	var menu_open0: bool = _settings_menu != null and _settings_menu.visible
+	var menu_open0: bool = (_settings_menu != null and _settings_menu.visible) \
+		or (_hud_view != null and _hud_view.is_squad_menu_open())
 	if deployed0 and not menu_open0:
 		_input_ctrl.update_look(_settings)   # apply accumulated mouse delta at render rate
 	else:
@@ -379,13 +381,9 @@ func _process(_dt: float) -> void:
 					_pred.predicted.pos, Vector3.ZERO, 0), ENetPacketPeer.FLAG_RELIABLE)
 			# OWNER VERIFY: GA_C4_DETONATE is the default; adapt to class loadout (repair/bag/etc.)
 
-		# Squad menu: open the deploy menu to the squad-selection view when one exists.
-		# Task 20 (deploy menu C3 extension) should add a squad_selected signal; wire it here.
-		# For now, opening the deploy menu is the minimum deliverable hook.
-		if Input.is_action_just_pressed("squad_menu") and _deploy_menu != null:
-			if sss != null and sss.alive and _deploy_menu.has_signal("squad_selected"):
-				# Task 20 hook: _deploy_menu.squad_selected is connected below in _build_scene
-				pass   # signal wired in _build_scene; nothing extra needed per-frame
+		# Squad menu (U): toggle the standalone squad-select overlay while alive.
+		if Input.is_action_just_pressed("squad_menu") and _hud_view != null and sss != null and sss.alive:
+			_hud_view.set_squad_menu_open(not _hud_view.is_squad_menu_open())
 
 	# Settings menu toggle
 	if Input.is_action_just_pressed("menu"):
@@ -485,6 +483,8 @@ func _handle_snapshot(bytes: PackedByteArray) -> void:
 		_pos_err = Vector3.ZERO   # drop any residual reconcile offset so respawn doesn't inherit it
 		_reconciled = false
 		_died_at = _elapsed   # start the respawn-cooldown clock
+		if _hud_view != null:
+			_hud_view.set_squad_menu_open(false)   # don't leave the squad overlay up over the deploy screen
 	_was_alive = alive
 	if alive:
 		# Mirror downed state BEFORE reconcile so the replayed inputs crawl (1 m/s) on the very tick
@@ -579,6 +579,7 @@ func _build_scene() -> void:
 	# HudView
 	_hud_view = HudView.new()
 	hud_layer.add_child(_hud_view)
+	_hud_view.squad_picked.connect(_on_squad_menu_pick)
 
 	# DeployMenu
 	_deploy_menu = DeployMenu.new()
@@ -795,6 +796,12 @@ func _on_squad_selected(squad_id: int) -> void:
 	if _peer != null:
 		_net.send_to(_peer, NetHost.CHANNEL_CONTROL,
 			Protocol.encode_set_squad(squad_id), ENetPacketPeer.FLAG_RELIABLE)
+
+## U squad-overlay pick: send SET_SQUAD then close the overlay (cursor re-captures next frame).
+func _on_squad_menu_pick(squad_id: int) -> void:
+	_on_squad_selected(squad_id)
+	if _hud_view != null:
+		_hud_view.set_squad_menu_open(false)
 
 ## Distance to the nearest alive, standing teammate in view (for the downed screen). -1 if none.
 func _nearest_friendly_dist(sds: EntityState) -> float:
