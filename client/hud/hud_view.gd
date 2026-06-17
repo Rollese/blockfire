@@ -11,6 +11,13 @@ const KILLFEED_MAX := 6
 const ARC_POOL_SIZE := 8        # max concurrent directional-damage arcs
 const ARC_RADIUS := 180.0       # distance from screen centre where arcs appear
 
+# ---- throwable kind -> display label (data-driven; extend as new kinds are added) ----
+const _THROWABLE_LABELS: Dictionary = {
+	0: "Frag",
+	1: "Smoke",
+	100: "RPG",
+}
+
 # ---- node references --------------------------------------------------
 var _ammo_label: Label
 var _reload_label: Label
@@ -37,6 +44,28 @@ var perf_render_us: int = 0       # WorldRenderer.update (world/entities/camera/
 var perf_build_us: int = 0        # HudModel.build
 var perf_hud_us: int = 0          # HudView.render (this object)
 var _perf_compass_us: int = 0     # _render_compass slice of render()
+# ---- new C3 elements --------------------------------------------------------
+# Scoreboard overlay (TAB)
+var _scoreboard_root: Control
+var _scoreboard_held := false     # toggled by set_scoreboard_held(); gates visibility
+# Squad roster (bottom-left)
+var _squad_root: Control
+var _squad_labels: Array[Label] = []
+const _SQUAD_MAX := 6             # pool size; extra members silently truncated
+# Interaction prompt (center-low) + revive-hold progress ring
+var _interact_label: Label
+var _revive_bar_bg: ColorRect
+var _revive_bar_fill: ColorRect
+var _revive_progress: float = 0.0  # [0,1]; set by set_revive_progress()
+# Throwable selector (bottom-right, above ammo)
+var _throwable_root: Control
+var _throwable_labels: Array[Label] = []
+const _THROWABLE_POOL := 8        # max displayed throwable slots
+# Death-recap card (center, shown while deploy menu up)
+var _recap_root: Control
+var _recap_title: Label
+var _recap_attacker_labels: Array[Label] = []
+const _RECAP_ATTACKER_MAX := 8
 
 # ---- constants for owner tint -----------------------------------------
 const _OWNER_COLORS: Array[Color] = [
@@ -71,6 +100,11 @@ func render(model: Dictionary) -> void:
 	_render_tickets(model.get("tickets", [0, 0]), model.get("capture"))
 	_render_killfeed(model.get("killfeed", []))
 	_render_damage(model.get("damage_arcs", []), float(model.get("vignette", 0.0)))
+	_render_scoreboard(model.get("scoreboard", {}))
+	_render_squad_roster(model.get("squad_roster", []))
+	_render_interaction_prompt(model.get("interaction_prompt"))
+	_render_throwables(model.get("throwables", {}))
+	_render_death_recap(model.get("death_recap"))
 
 
 # -----------------------------------------------------------------------
@@ -102,6 +136,11 @@ func _build_tree() -> void:
 	_build_damage_arcs()
 	_build_prompt()
 	_build_downed()
+	_build_squad_roster()
+	_build_throwable_selector()
+	_build_interaction_prompt()
+	_build_death_recap()
+	_build_scoreboard()   # last: highest z-order so it overlays everything
 	_build_perf()
 
 
@@ -372,6 +411,373 @@ func _build_perf() -> void:
 	_perf_label.text = "fps —"
 	_perf_label.mouse_filter = MOUSE_FILTER_IGNORE
 	add_child(_perf_label)
+
+
+## Toggle TAB scoreboard visibility. Call from client_main when the tab key is held/released.
+func set_scoreboard_held(held: bool) -> void:
+	_scoreboard_held = held
+	if _scoreboard_root != null:
+		_scoreboard_root.visible = held
+
+
+## Update revive-hold progress ring/bar [0,1]. Call from client_main each frame while reviving.
+## When progress is 0 (or revive stops), call with 0 to hide the bar.
+func set_revive_progress(progress: float) -> void:
+	_revive_progress = clampf(progress, 0.0, 1.0)
+
+
+func _build_scoreboard() -> void:
+	# Full-screen semi-opaque overlay. Hidden by default; shown only while TAB is held.
+	_scoreboard_root = Control.new()
+	_scoreboard_root.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_scoreboard_root.mouse_filter = MOUSE_FILTER_IGNORE
+	_scoreboard_root.visible = false
+	add_child(_scoreboard_root)
+
+	# Dark backdrop so the scoreboard is readable over the scene.
+	var bg := ColorRect.new()
+	bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	bg.color = Color(0.0, 0.0, 0.0, 0.6)
+	bg.mouse_filter = MOUSE_FILTER_IGNORE
+	_scoreboard_root.add_child(bg)
+
+	# Center container so the two-column layout is always screen-centred.
+	var center := CenterContainer.new()
+	center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	center.mouse_filter = MOUSE_FILTER_IGNORE
+	_scoreboard_root.add_child(center)
+
+	var hbox := HBoxContainer.new()
+	hbox.add_theme_constant_override("separation", 40)
+	hbox.mouse_filter = MOUSE_FILTER_IGNORE
+	center.add_child(hbox)
+
+	# Two VBoxes — one per team. We store references so _render_scoreboard can rebuild rows.
+	for _t in 2:
+		var vbox := VBoxContainer.new()
+		vbox.add_theme_constant_override("separation", 4)
+		vbox.mouse_filter = MOUSE_FILTER_IGNORE
+		hbox.add_child(vbox)
+	# (Row Labels are created dynamically in _render_scoreboard each update — scoreboard is only
+	# shown on key-hold, not every frame, so dynamic creation here is fine.)
+
+
+func _render_scoreboard(sb: Dictionary) -> void:
+	if _scoreboard_root == null:
+		return
+	_scoreboard_root.visible = _scoreboard_held
+	if not _scoreboard_held:
+		return
+
+	# The two VBoxes are children [1] of hbox (index 0 is the backdrop, skipped; actual layout
+	# node is the CenterContainer > HBoxContainer).
+	var center: CenterContainer = _scoreboard_root.get_child(1) as CenterContainer
+	if center == null:
+		return
+	var hbox: HBoxContainer = center.get_child(0) as HBoxContainer
+	if hbox == null:
+		return
+
+	var teams: Array = sb.get("teams", [])
+	for t_idx in mini(teams.size(), hbox.get_child_count()):
+		var team_data: Dictionary = teams[t_idx]
+		var vbox: VBoxContainer = hbox.get_child(t_idx) as VBoxContainer
+		if vbox == null:
+			continue
+
+		# Clear previous rows.
+		for ch in vbox.get_children():
+			ch.queue_free()
+
+		# Header: "Team 0  |  120 tickets"
+		var header := Label.new()
+		var team_color := _owner_color(int(team_data.get("team", t_idx)))
+		header.text = "Team %d  |  %d tickets" % [int(team_data.get("team", t_idx)), int(team_data.get("tickets", 0))]
+		header.add_theme_font_size_override("font_size", 16)
+		header.modulate = team_color
+		header.mouse_filter = MOUSE_FILTER_IGNORE
+		vbox.add_child(header)
+
+		# Column labels.
+		var col_lbl := Label.new()
+		col_lbl.text = "%-16s  K   D  Score" % "Name"
+		col_lbl.add_theme_font_size_override("font_size", 12)
+		col_lbl.modulate = Color(0.8, 0.8, 0.8)
+		col_lbl.mouse_filter = MOUSE_FILTER_IGNORE
+		vbox.add_child(col_lbl)
+
+		# Player rows.
+		var rows: Array = team_data.get("rows", [])
+		for rw in rows:
+			var row_lbl := Label.new()
+			var name_str := String(rw.get("name", "?"))
+			if name_str.length() > 16:
+				name_str = name_str.substr(0, 15) + "…"
+			row_lbl.text = "%-16s  %d   %d  %d" % [name_str, int(rw.get("kills", 0)), int(rw.get("deaths", 0)), int(rw.get("score", 0))]
+			row_lbl.add_theme_font_size_override("font_size", 13)
+			row_lbl.modulate = Color(1, 1, 1)
+			row_lbl.mouse_filter = MOUSE_FILTER_IGNORE
+			vbox.add_child(row_lbl)
+
+
+func _build_squad_roster() -> void:
+	# Bottom-left cluster, above the ammo panel area.
+	_squad_root = Control.new()
+	_squad_root.anchor_left = 0.0
+	_squad_root.anchor_right = 0.0
+	_squad_root.anchor_top = 1.0
+	_squad_root.anchor_bottom = 1.0
+	_squad_root.offset_left = 12.0
+	_squad_root.offset_right = 220.0
+	_squad_root.offset_top = -(_SQUAD_MAX * 22.0 + 90.0)
+	_squad_root.offset_bottom = -90.0
+	_squad_root.mouse_filter = MOUSE_FILTER_IGNORE
+	add_child(_squad_root)
+
+	for i in _SQUAD_MAX:
+		var lbl := Label.new()
+		lbl.add_theme_font_size_override("font_size", 14)
+		lbl.position = Vector2(0, i * 22.0)
+		lbl.text = ""
+		lbl.visible = false
+		lbl.mouse_filter = MOUSE_FILTER_IGNORE
+		_squad_root.add_child(lbl)
+		_squad_labels.append(lbl)
+
+
+func _render_squad_roster(roster: Array) -> void:
+	if _squad_root == null:
+		return
+	var n: int = mini(roster.size(), _SQUAD_MAX)
+	for i in _SQUAD_MAX:
+		var lbl: Label = _squad_labels[i]
+		if i >= n:
+			lbl.visible = false
+			continue
+		var entry: Dictionary = roster[i]
+		var status: String = String(entry.get("status", "dead"))
+		var col: Color
+		match status:
+			"alive":   col = Color(0.4, 1.0, 0.4)
+			"downed":  col = Color(1.0, 0.7, 0.1)
+			_:         col = Color(0.5, 0.5, 0.5)   # dead
+		lbl.text = "[%s] %s" % [status.left(1).to_upper(), String(entry.get("name", "?"))]
+		lbl.modulate = col
+		lbl.visible = true
+
+
+func _build_interaction_prompt() -> void:
+	# Center-low label; replaces the old placeholder _prompt_label for action prompts.
+	# The existing _prompt_label is kept (it was built earlier) but we add a richer version here.
+	_interact_label = Label.new()
+	_interact_label.anchor_left = 0.5
+	_interact_label.anchor_top = 0.78
+	_interact_label.anchor_right = 0.5
+	_interact_label.offset_left = -180.0
+	_interact_label.offset_right = 180.0
+	_interact_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_interact_label.add_theme_font_size_override("font_size", 18)
+	_interact_label.add_theme_color_override("font_color", Color(1, 1, 1))
+	_interact_label.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.9))
+	_interact_label.add_theme_constant_override("outline_size", 4)
+	_interact_label.text = ""
+	_interact_label.visible = false
+	_interact_label.mouse_filter = MOUSE_FILTER_IGNORE
+	add_child(_interact_label)
+
+	# Revive hold-progress bar — shown under the prompt when reviving.
+	# NOTE: progress value must be provided by client_main via set_revive_progress().
+	_revive_bar_bg = ColorRect.new()
+	_revive_bar_bg.anchor_left = 0.5
+	_revive_bar_bg.anchor_top = 0.78
+	_revive_bar_bg.anchor_right = 0.5
+	_revive_bar_bg.offset_left = -80.0
+	_revive_bar_bg.offset_right = 80.0
+	_revive_bar_bg.offset_top = 26.0
+	_revive_bar_bg.offset_bottom = 40.0
+	_revive_bar_bg.color = Color(0.15, 0.15, 0.15, 0.85)
+	_revive_bar_bg.visible = false
+	_revive_bar_bg.mouse_filter = MOUSE_FILTER_IGNORE
+	add_child(_revive_bar_bg)
+
+	_revive_bar_fill = ColorRect.new()
+	_revive_bar_fill.position = Vector2.ZERO
+	_revive_bar_fill.size = Vector2(0, 14)
+	_revive_bar_fill.color = Color(0.3, 0.85, 0.4, 0.9)
+	_revive_bar_fill.mouse_filter = MOUSE_FILTER_IGNORE
+	_revive_bar_bg.add_child(_revive_bar_fill)
+
+
+func _render_interaction_prompt(prompt) -> void:
+	if _interact_label == null:
+		return
+	if prompt == null:
+		_interact_label.visible = false
+		if _revive_bar_bg != null:
+			_revive_bar_bg.visible = false
+		return
+
+	var action: String = String(prompt.get("action", ""))
+	match action:
+		"revive":
+			# The model gives a target id; the roster name resolution was done in HudModel.
+			# We do NOT have the name here (model["squad_roster"] has names but not all mates are
+			# in-squad). Show a generic prompt; Task 19 (client_main) can pass name via a separate
+			# setter if desired.
+			_interact_label.text = "Hold F to revive squadmate"
+			_interact_label.visible = true
+			# Revive hold-progress ring (bar) — driven by set_revive_progress() from client_main.
+			if _revive_bar_bg != null:
+				_revive_bar_bg.visible = _revive_progress > 0.0
+				if _revive_bar_fill != null:
+					var bar_w: float = _revive_bar_bg.size.x if _revive_bar_bg.size.x > 0 else 160.0
+					_revive_bar_fill.size = Vector2(bar_w * _revive_progress, _revive_bar_fill.size.y if _revive_bar_fill.size.y > 0 else 14.0)
+		"enter_vehicle":
+			_interact_label.text = "F to enter vehicle"
+			_interact_label.visible = true
+			if _revive_bar_bg != null:
+				_revive_bar_bg.visible = false
+		_:
+			_interact_label.visible = false
+			if _revive_bar_bg != null:
+				_revive_bar_bg.visible = false
+
+
+func _build_throwable_selector() -> void:
+	# Small cluster bottom-right, sitting just above the ammo panel.
+	_throwable_root = Control.new()
+	_throwable_root.anchor_left = 1.0
+	_throwable_root.anchor_right = 1.0
+	_throwable_root.anchor_top = 1.0
+	_throwable_root.anchor_bottom = 1.0
+	_throwable_root.offset_left = -160.0
+	_throwable_root.offset_right = 0.0
+	_throwable_root.offset_top = -(_THROWABLE_POOL * 22.0 + 90.0)
+	_throwable_root.offset_bottom = -90.0
+	_throwable_root.mouse_filter = MOUSE_FILTER_IGNORE
+	add_child(_throwable_root)
+
+	for i in _THROWABLE_POOL:
+		var lbl := Label.new()
+		lbl.add_theme_font_size_override("font_size", 14)
+		lbl.position = Vector2(0, i * 22.0)
+		lbl.text = ""
+		lbl.visible = false
+		lbl.mouse_filter = MOUSE_FILTER_IGNORE
+		_throwable_root.add_child(lbl)
+		_throwable_labels.append(lbl)
+
+
+func _render_throwables(throwables: Dictionary) -> void:
+	if _throwable_root == null:
+		return
+	var list: Array = throwables.get("list", [])
+	var active_idx: int = int(throwables.get("active", 0))
+	var n: int = mini(list.size(), _THROWABLE_POOL)
+	for i in _THROWABLE_POOL:
+		var lbl: Label = _throwable_labels[i]
+		if i >= n:
+			lbl.visible = false
+			continue
+		var slot: Dictionary = list[i]
+		var kind: int = int(slot.get("kind", -1))
+		var count: int = int(slot.get("count", 0))
+		var kind_str: String = _THROWABLE_LABELS.get(kind, "#%d" % kind)
+		lbl.text = "%s x%d" % [kind_str, count]
+		if i == active_idx:
+			lbl.modulate = Color(1.0, 0.9, 0.3)   # highlighted: yellow-white
+			lbl.add_theme_font_size_override("font_size", 16)
+		else:
+			lbl.modulate = Color(0.7, 0.7, 0.7)
+			lbl.add_theme_font_size_override("font_size", 14)
+		lbl.visible = true
+
+
+func _build_death_recap() -> void:
+	# Center of screen; shown during the deploy/death state when death_recap != null.
+	_recap_root = Control.new()
+	_recap_root.anchor_left = 0.5
+	_recap_root.anchor_top = 0.5
+	_recap_root.anchor_right = 0.5
+	_recap_root.anchor_bottom = 0.5
+	_recap_root.offset_left = -220.0
+	_recap_root.offset_right = 220.0
+	_recap_root.offset_top = -100.0
+	_recap_root.offset_bottom = _RECAP_ATTACKER_MAX * 20.0 + 20.0
+	_recap_root.mouse_filter = MOUSE_FILTER_IGNORE
+	_recap_root.visible = false
+	add_child(_recap_root)
+
+	# Semi-transparent panel background.
+	var panel_bg := ColorRect.new()
+	panel_bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	panel_bg.color = Color(0.05, 0.05, 0.05, 0.75)
+	panel_bg.mouse_filter = MOUSE_FILTER_IGNORE
+	_recap_root.add_child(panel_bg)
+
+	# Title label: "Killed by X · weapon · Y m · Z HP"
+	_recap_title = Label.new()
+	_recap_title.anchor_left = 0.0
+	_recap_title.anchor_top = 0.0
+	_recap_title.anchor_right = 1.0
+	_recap_title.offset_top = 8.0
+	_recap_title.offset_bottom = 36.0
+	_recap_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_recap_title.add_theme_font_size_override("font_size", 14)
+	_recap_title.add_theme_color_override("font_color", Color(1.0, 0.5, 0.4))
+	_recap_title.mouse_filter = MOUSE_FILTER_IGNORE
+	_recap_root.add_child(_recap_title)
+
+	# Per-attacker rows.
+	for i in _RECAP_ATTACKER_MAX:
+		var lbl := Label.new()
+		lbl.anchor_left = 0.0
+		lbl.anchor_right = 1.0
+		lbl.offset_top = 44.0 + i * 20.0
+		lbl.offset_bottom = 62.0 + i * 20.0
+		lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		lbl.add_theme_font_size_override("font_size", 13)
+		lbl.modulate = Color(0.85, 0.85, 0.85)
+		lbl.mouse_filter = MOUSE_FILTER_IGNORE
+		lbl.visible = false
+		_recap_root.add_child(lbl)
+		_recap_attacker_labels.append(lbl)
+
+
+static func _weapon_label(weapon_id: int) -> String:
+	match weapon_id:
+		0: return "AR"
+		1: return "SMG"
+		2: return "DMR"
+		3: return "RPG"
+		_: return "#%d" % weapon_id
+
+
+func _render_death_recap(recap) -> void:
+	if _recap_root == null:
+		return
+	if recap == null:
+		_recap_root.visible = false
+		return
+
+	_recap_root.visible = true
+	var weapon_str := _weapon_label(int(recap.get("weapon", -1)))
+	_recap_title.text = "Killed by %s  ·  %s  ·  %d m  ·  they had %d HP" % [
+		String(recap.get("killer_name", "?")),
+		weapon_str,
+		int(round(float(recap.get("distance", 0)))),
+		int(recap.get("killer_hp", 0))]
+
+	var attackers: Array = recap.get("attackers", [])
+	var n: int = mini(attackers.size(), _RECAP_ATTACKER_MAX)
+	for i in _RECAP_ATTACKER_MAX:
+		var lbl: Label = _recap_attacker_labels[i]
+		if i >= n:
+			lbl.visible = false
+			continue
+		var a: Dictionary = attackers[i]
+		lbl.text = "%s — %d dmg" % [String(a.get("name", "?")), int(a.get("dmg", 0))]
+		lbl.visible = true
 
 
 func _process(delta: float) -> void:
