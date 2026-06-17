@@ -1,0 +1,18 @@
+{
+  "buses": ["SFX", "UI", "Listener"],
+  "sounds": [
+    {"type": "gunfire",      "bus": "SFX", "priority": 2, "gain_db": 0.0,  "unit_size": 8.0,  "max_distance": 400.0, "cutoff_hz": 20000.0, "stream": "gunfire_ar"},
+    {"type": "gunfire_supp", "bus": "SFX", "priority": 2, "gain_db": -9.0, "unit_size": 4.0,  "max_distance": 120.0, "cutoff_hz": 9000.0,  "stream": "gunfire_supp"},
+    {"type": "bullet_crack", "bus": "SFX", "priority": 2, "gain_db": -2.0, "unit_size": 3.0,  "max_distance": 40.0,  "cutoff_hz": 20000.0, "stream": "crack"},
+    {"type": "bullet_whiz",  "bus": "SFX", "priority": 1, "gain_db": -6.0, "unit_size": 3.0,  "max_distance": 40.0,  "cutoff_hz": 12000.0, "stream": "whiz"},
+    {"type": "impact",       "bus": "SFX", "priority": 1, "gain_db": -4.0, "unit_size": 4.0,  "max_distance": 60.0,  "cutoff_hz": 20000.0, "stream": "impact_concrete"},
+    {"type": "footstep",     "bus": "SFX", "priority": 0, "gain_db": -6.0, "unit_size": 2.0,  "max_distance": 25.0,  "cutoff_hz": 12000.0, "stream": "footstep_dirt"},
+    {"type": "reload",       "bus": "SFX", "priority": 0, "gain_db": -3.0, "unit_size": 2.0,  "max_distance": 20.0,  "cutoff_hz": 20000.0, "stream": "reload"},
+    {"type": "melee",        "bus": "SFX", "priority": 1, "gain_db": -2.0, "unit_size": 3.0,  "max_distance": 25.0,  "cutoff_hz": 20000.0, "stream": "melee"},
+    {"type": "explosion",    "bus": "SFX", "priority": 3, "gain_db": 3.0,  "unit_size": 15.0, "max_distance": 600.0, "cutoff_hz": 20000.0, "stream": "explosion"},
+    {"type": "engine",       "bus": "SFX", "priority": 1, "gain_db": -4.0, "unit_size": 6.0,  "max_distance": 200.0, "cutoff_hz": 20000.0, "stream": "engine_loop"},
+    {"type": "flashbang",    "bus": "SFX", "priority": 3, "gain_db": 4.0,  "unit_size": 10.0, "max_distance": 300.0, "cutoff_hz": 20000.0, "stream": "flash"},
+    {"type": "hitmarker",    "bus": "UI",  "priority": 2, "gain_db": 0.0,  "unit_size": 1.0,  "max_distance": 0.0,   "cutoff_hz": 20000.0, "stream": "hitmarker"},
+    {"type": "ui_click",     "bus": "UI",  "priority": 0, "gain_db": 0.0,  "unit_size": 1.0,  "max_distance": 0.0,   "cutoff_hz": 20000.0, "stream": "ui_click"}
+  ]
+}
