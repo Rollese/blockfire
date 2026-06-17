@@ -24,12 +24,6 @@ var _elapsed := 0.0
 var _prev_eye := Vector3.ZERO
 var _curr_eye := Vector3.ZERO
 var _eye_init := false
-# Reconcile smoothing: residual server-correction offset, eased to zero in render so corrections
-# don't snap the camera. += the correction on reconcile; decays each frame.
-var _pos_err := Vector3.ZERO
-var _reconciled := false
-const RECON_SNAP := 2.5      # corrections larger than this (m) snap instead of smoothing
-const RECON_SMOOTH := 14.0   # per-second decay of _pos_err (~150 ms to fade a correction)
 
 # ---- components (all non-scene, headless-safe) ------------------------------
 var _settings: ClientSettings
@@ -181,12 +175,9 @@ func _physics_process(delta: float) -> void:
 	# jumps — spawn/teleport/large reconcile — so a correction isn't dragged across a 33 ms tick.
 	if _scene_built:
 		var eye_now: Vector3 = _pred.predicted.eye_position()
-		# On a reconcile (or init/teleport) snap the interp base to the corrected eye — the correction
-		# is carried in _pos_err and eased out there, so the per-tick lerp doesn't also smear it.
-		if not _eye_init or _reconciled or eye_now.distance_to(_curr_eye) > 5.0:
+		if not _eye_init or eye_now.distance_to(_curr_eye) > 5.0:
 			_prev_eye = eye_now
 			_eye_init = true
-			_reconciled = false
 		else:
 			_prev_eye = _curr_eye
 		_curr_eye = eye_now
@@ -204,8 +195,7 @@ func _process(_dt: float) -> void:
 		_input_ctrl.update_look(_settings)   # apply accumulated mouse delta at render rate
 	else:
 		_input_ctrl.drain_look()
-	_pos_err = _pos_err.lerp(Vector3.ZERO, clampf(_dt * RECON_SMOOTH, 0.0, 1.0))
-	var eye: Vector3 = _prev_eye.lerp(_curr_eye, Engine.get_physics_interpolation_fraction()) + _pos_err
+	var eye: Vector3 = _prev_eye.lerp(_curr_eye, Engine.get_physics_interpolation_fraction())
 
 	var _t0 := Time.get_ticks_usec()
 	_renderer.update(_wv, _pred, _elapsed, _settings.fov, _input_ctrl.yaw, _input_ctrl.pitch, eye)
@@ -318,18 +308,8 @@ func _handle_snapshot(bytes: PackedByteArray) -> void:
 		_deploy_menu_populated = false
 	_was_alive = alive
 	if alive:
-		# Reconcile movement prediction from authoritative position + pitch. Capture the resulting
-		# position correction and feed it into _pos_err so the camera EASES into it (reconcile
-		# smoothing) instead of snapping — small corrections (the WireGuard rubber-band) decay away
-		# smoothly; big ones (respawn/teleport) snap via the threshold in the eye-snapshot.
-		var pre_pos: Vector3 = _pred.predicted.pos
+		# Reconcile movement prediction from authoritative position + pitch
 		_pred.reconcile_full(ss.pos, ss.yaw, ss.pitch, int(hdr["last_input_tick"]))
-		var corr: Vector3 = pre_pos - _pred.predicted.pos
-		if corr.length() <= RECON_SNAP:
-			_pos_err += corr
-			_reconciled = true
-		else:
-			_pos_err = Vector3.ZERO   # too large to smear (spawn/teleport) — snap
 		if _scene_built and _deploy_menu != null:
 			if not _deploy_menu_populated:
 				_deploy_menu.populate(ss.team, _map, _conquest)
