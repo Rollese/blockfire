@@ -13,7 +13,9 @@ After brainstorming, M7 was re-scoped to two phases. **Steam auth + VAC and anti
 ### P1 — Playable client + HUD (the "it's a game now" phase)
 Render the existing headless stub into a real first-person client: real input → camera → fill in prediction/reconciliation for movement/look, add client-side **ammo/fire/reload prediction** (the tracked M2/M7 gap), interpolate remote pawns + vehicles, render the world from `MapDef`/structures with **placeholder primitives** (capsules/boxes), and build the BattleBit-style HUD. Vehicles ride along (the substrate is already prediction-ready).
 
-**HUD (owner's rules):** **no health bar, no minimap;** show **ammo, compass (with objective markers), squad members, TAB scoreboard**; damage feedback via **vignette + directional arc** only. Plus crosshair, killfeed, tickets/capture status, hitmarker (server-confirmed), interaction prompts, DBNO UI.
+> **⚡ Inbound from M5.5 (owner-directed 2026-06-17):** bullets become **stepped projectiles** (drop + travel), so client fire prediction must be **projectile-aware** from Checkpoint 2 onward — the client spawns a **cosmetic local tracer** at fire (shared `shared/sim` integrator) but stays **non-authoritative** for hits (server-confirmed `KILL`/hitmarker, unchanged). Building this on hit-scan now would force a prediction refactor later. See [combat-depth-2](../specs/combat-depth-2.md) §1 / "Cross-milestone dependency".
+
+**HUD (owner's rules):** **no health bar, no minimap;** show **ammo, compass (with objective markers), squad members, TAB scoreboard**; damage feedback via **vignette + directional arc** only. Plus crosshair, killfeed, tickets/capture status, hitmarker (server-confirmed), interaction prompts, DBNO UI, and the **death-recap card** (killer name / weapon / distance / killer HP / damage-taken breakdown — no replay killcam, no position reveal; from the 2026-06-17 gap review, needs a small `DEATH_INFO` server→victim message). See [combat-depth-2](../specs/combat-depth-2.md) §4.
 
 **Menus:** deploy (full spawn-select, drives a new `DEPLOY_REQUEST`), minimal squad join/switch, essentials settings (sensitivity/FOV/volume/invert + renderer fallback; full keybind-rebinding deferred to P2).
 
@@ -57,6 +59,8 @@ layout) are follow-ups, not blockers.
 
 ### P2 — Art kit + LOD
 Swap placeholder primitives for the low-poly blocky kit (characters, weapons, vehicles, environment) behind the same node interfaces, LOD pipeline, and audio/visual feedback polish (richer hit markers, animated damage indicators, SFX). Pure presentation on top of a proven-playable P1.
+
+Also lands the **M5.5 presentation/feel deferrals** (the VFX/audio pieces of Combat Depth II — [combat-depth-2](../specs/combat-depth-2.md)): projectile **tracers** + muzzle flash, **suppression** screen blur/shake/muffle, **flashbang** white-out + deafen, melee/sledge/weapon-swap animations, fire-mode HUD indicator, armor visual diffs. **Audio gets its own spec** (`docs/specs/audio.md` — reserved; brainstormed when P2 starts): distance-attenuated + occluded gunfire, footsteps, **bullet crack/whiz** (from M5.5 projectiles), suppressor signature, suppression muffle, explosion/vehicle, directional.
 
 **P2 gate (the full M7 gate):** end-to-end human playtest of a full Conquest match **with the real art and complete HUD.**
 

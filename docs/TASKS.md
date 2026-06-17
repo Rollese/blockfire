@@ -15,6 +15,7 @@ Canonical source of truth for what's being worked on. Claim a task (set owner + 
 | M4 | [Building & destruction](milestones/M4-building-destruction.md) | **done ✅** | Phase 1 (Building) + Phase 2 (Destruction) both gate PASS 2026-06-15. Phase-2 fleet-128 (2/2 reruns): `winner valid elapsed=233/272s destroyed=5/23 nades=88/55 smoke=128 peak tick=29.48ms<33.3` — PASS. Destruction per-tick cost ~0.1ms (respawn phase); snap remains the dominant pre-existing cost. 140 unit tests green. See milestone doc. |
 | M4.5 | [Combat depth & class identity](milestones/M4.5-combat-depth.md) | **done ✅** | **All three phases gated PASS on `game2`.** P1 (DBNO/revive/bandages) 2026-06-15; P2 (gadgets/RPG/penetration/attachments) 2026-06-16; P3 (ladders/vaulting/drop-shoot) 2026-06-16 (`winner=1 climbs=9 vaults=16 peak tick=23.46ms<33.3`). Body dragging deferred to M7 (per spec). 245 unit tests green. |
 | M5 | [Vehicles — Land](milestones/M5-vehicles.md) | **done ✅ (Land)** | **Land Vehicles + Substrate CLOSED 2026-06-16** — fleet gate PASS on `game2` (`peak tick=23.67ms<33.3`, transport_m=930.8, enters=6; combat chain proven deterministically in `tests/vehicle_gate_test.gd`), `docker/srvlog-20260616-210141.log`. 309 unit tests green. **Air vehicles deferred → M10** (last; need the rendered client to tune flight/balance — owner-directed 2026-06-16). |
+| M5.5 | [Combat Depth II (ballistics/loadout/suppression/melee/throwables)](milestones/M5.5-combat-depth-2.md) | todo | Per-phase 128-bot gates: P1 projectiles hold tick+bw budget under full-auto; P2 armor TTK + suppression delta; P3 melee/back-stab/sledge/flash/impact. Mechanics proven deterministically; Conquest still reaches a winner. **Ballistics (P1) feeds M7-C2 prediction now** (owner-directed 2026-06-17). |
 | M7 | [Art pass + UX polish — rendered client](milestones/M7-art-ux.md) | **in-progress** | First human-playable rendered client. **Re-scoped 2026-06-16:** P1 playable client + HUD (prediction/render + BattleBit HUD, placeholder art) → P2 art kit + LOD. **Steam/VAC + anti-cheat L3 deferred** to a later online/anti-cheat track (may stay a LAN game). Gate: end-to-end human playtest of a full Conquest match. Branch `m7-rendered-client`. **Pulled before M6** — M6 voice needs human testers in a live match (i.e. this client), and the deferred air vehicles (M10) need it to tune by feel. |
 | M6 | [Voice (proximity + squad)](milestones/M6-voice.md) | todo | **Blocked by M7 client** (gate is human-validated in a live match). Voice works for human testers without breaking tick budget. |
 | M7.5 | [Bot intelligence (tactical AI)](milestones/M7.5-bot-intelligence.md) | todo | Tactical, human-like, fair-play infantry bots (cover/stance, revive/resupply, attack/defend roles, grenades-vs-cover) usable as 128-player match-fillers; admin free-fly spectator + bot-AI debug overlay; bot-driver CPU scales to 128; Conquest reaches a winner; operator visual sign-off. |
@@ -24,6 +25,20 @@ Canonical source of truth for what's being worked on. Claim a task (set owner + 
 | M10 | [Air vehicles (final content pass)](milestones/M10-air-vehicles.md) | **deferred (last)** | Was M5-P2. Helicopter/jet on the M5 vehicle substrate. **Blocked until the M7 rendered client** — flight feel + heli/jet balance must be tuned visually by playtest, not blind off telemetry (owner-directed 2026-06-16; see AGENTS.md §10). |
 
 > Milestones are **sequenced and gated**. Do not start a milestone before the previous gate passes. M4–M6 may be reordered but each remains independently gated. **As of 2026-06-16: the rendered client (M7) is pulled before M6** (voice's gate needs human testers in a live match → needs the client), and **air vehicles are deferred to M10 (last)** — they need the client to balance by feel.
+>
+> **As of 2026-06-17: M5.5 (Combat Depth II) added** from the BattleBit feature-gap review. It is sim-layer and bot-gated like M4.5, but its **ballistics model is an input to the in-flight M7-C2** (bullet drop changes client prediction — decided now so M7 builds projectile-aware, not hit-scan). The remaining M5.5 phases follow the M4.5→M7 pattern (prove mechanics + budget headlessly; tune feel on the visual client). Two accepted gap-review items are presentation and live in **M7** instead: the **death-recap card (M7-P1)** and **audio (M7-P2)**.
+
+## M5.5 — Combat Depth II — todo (planned 2026-06-17)
+
+Spec: [`docs/specs/combat-depth-2.md`](specs/combat-depth-2.md). Milestone: [`M5.5-combat-depth-2.md`](milestones/M5.5-combat-depth-2.md). From the 2026-06-17 BattleBit feature-gap review (owner-approved). Three independently-gated phases; per-phase plans via `writing-plans` → `subagent-driven-development`.
+
+| Task | Owner | Status | Notes |
+|---|---|---|---|
+| M5.5 brainstorm + spec | claude | done | `docs/specs/combat-depth-2.md` (this brainstorm-of-record) |
+| Hand ballistics model to M7-C2 | — | todo | M7 client must predict projectiles (cosmetic tracer; server-confirmed hits), not hit-scan |
+| M5.5-P1 plan + execute (ballistics, fire-mode, secondary) | — | todo | `writing-plans` next; gate = tick+bw budget under full-auto at 128p |
+| M5.5-P2 plan + execute (armor class, suppression) | — | todo | depends on P1 projectiles (near-miss → suppression) |
+| M5.5-P3 plan + execute (melee/sledge, flashbang/impact) | — | todo | reuses M4 grenade + structure-damage paths |
 
 ## M4.5 Phase 1 (Survivability) — CLOSED ✅
 
