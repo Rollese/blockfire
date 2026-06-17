@@ -213,10 +213,15 @@ func _drive(bot: Dictionary, delta: float) -> void:
 		var d := target.pos - me.pos
 		var want_yaw := atan2(d.x, d.z)
 		var want_pitch := clampf(asin(clampf(d.y / maxf(d.length(), 0.001), -1.0, 1.0)), -Pawn.MAX_PITCH, Pawn.MAX_PITCH)
-		bot["yaw"] = lerp_angle(bot["yaw"], want_yaw, 0.5) + randf_range(-0.003, 0.003)
-		bot["pitch"] = lerpf(bot["pitch"], want_pitch, 0.5)
-		var yaw_ok := absf(angle_diff(bot["yaw"], want_yaw)) < AIM_TOLERANCE
-		var pitch_ok := absf(want_pitch - bot["pitch"]) < AIM_TOLERANCE
+		# Track fast enough to follow a close strafing target (0.5/tick lagged too far behind to ever
+		# align — bots tracked point-blank movers without shooting). Fire tolerance is the target's
+		# angular HALF-SIZE (~capsule radius), so the bot fires only when the shot would actually land
+		# — not the over-wide cone that made it spray and miss.
+		bot["yaw"] = lerp_angle(bot["yaw"], want_yaw, 0.85) + randf_range(-0.003, 0.003)
+		bot["pitch"] = lerpf(bot["pitch"], want_pitch, 0.85)
+		var aim_tol := maxf(AIM_TOLERANCE, atan2(Stance.BODY_RADIUS, maxf(best, 1.0)))
+		var yaw_ok := absf(angle_diff(bot["yaw"], want_yaw)) < aim_tol
+		var pitch_ok := absf(want_pitch - bot["pitch"]) < aim_tol
 		var fire := best <= ENGAGE_RANGE and yaw_ok and pitch_ok
 		# Drillers override movement to continue the drill; non-drillers use the normal enemy-chase.
 		if is_driller and drill_geom_valid:
