@@ -134,12 +134,15 @@ func _physics_process(delta: float) -> void:
 		if buttons & InputCommand.BTN_RELOAD:
 			_wpred.begin_reload(_client_tick)
 
-		# Send input to server
+		# Send input to server. The server rebuilds the shot ray from Combat._forward(yaw,pitch),
+		# which points opposite the Godot camera, so send yaw+PI to make the authoritative aim
+		# match where the crosshair points. Movement is world-space (move_x/y) so it's unaffected.
+		var aim_yaw: float = wrapf(float(cmd["yaw"]) + PI, -PI, PI)
 		_net.send_to(_peer, NetHost.CHANNEL_INPUT,
 			InputCommand.encode(
 				_client_tick, _last_snapshot_seq,
 				float(cmd["move_x"]), float(cmd["move_y"]),
-				float(cmd["yaw"]), float(cmd["pitch"]),
+				aim_yaw, float(cmd["pitch"]),
 				buttons, _last_server_tick),
 			0)  # unreliable-sequenced
 
@@ -169,14 +172,14 @@ func _process(_dt: float) -> void:
 		return
 
 	var _t0 := Time.get_ticks_usec()
-	_renderer.update(_wv, _pred, _elapsed, _settings.fov)
+	_renderer.update(_wv, _pred, _elapsed, _settings.fov, _input_ctrl.yaw, _input_ctrl.pitch)
 	var _t1 := Time.get_ticks_usec()
 
 	var ctx: Dictionary = {
 		"weapon_predictor": _wpred,
 		"tick": _client_tick,
 		"self_pos": _pred.predicted.pos,
-		"self_yaw": _pred.predicted.yaw,
+		"self_yaw": _input_ctrl.yaw,   # client look yaw (camera), not the reconciled pawn yaw
 		"objectives": _objectives(),
 		"match_state": _match_state,
 		"point_positions": _point_positions(),

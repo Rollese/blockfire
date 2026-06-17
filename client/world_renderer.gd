@@ -109,7 +109,8 @@ func setup(map: MapDef, camera: Camera3D) -> void:
 
 
 ## Per-frame update. Safe to call with null world_view or predictor (early-returns).
-func update(world_view: WorldView, predictor: Prediction, now: float, fov: float) -> void:
+func update(world_view: WorldView, predictor: Prediction, now: float, fov: float,
+		look_yaw: float = 0.0, look_pitch: float = 0.0) -> void:
 	if world_view == null or predictor == null:
 		return
 
@@ -117,8 +118,8 @@ func update(world_view: WorldView, predictor: Prediction, now: float, fov: float
 	var remotes: Dictionary = world_view.remotes_at(now)
 	_sync_entity_pool(remotes)
 
-	# 2. Camera from prediction
-	_apply_camera(predictor, fov)
+	# 2. Camera from prediction (position) + client look (rotation)
+	_apply_camera(predictor, fov, look_yaw, look_pitch)
 
 	# 3. Age out shot tracers
 	_age_tracers(now)
@@ -235,14 +236,15 @@ func _pose_entity(node: MeshInstance3D, es: EntityState) -> void:
 #  Camera helper
 # =============================================================================
 
-func _apply_camera(predictor: Prediction, fov: float) -> void:
+func _apply_camera(predictor: Prediction, fov: float, look_yaw: float, look_pitch: float) -> void:
 	if _camera == null:
 		return
 	var pawn: Pawn = predictor.predicted
-	var eye: Vector3 = pawn.eye_position()
-	_camera.position = eye
-	# yaw around Y, then pitch around X (camera local)
-	_camera.transform.basis = Basis.from_euler(Vector3(pawn.pitch, pawn.yaw, 0.0))
+	_camera.position = pawn.eye_position()
+	# Rotation uses the client-authoritative LOOK (input) yaw/pitch, not the server-reconciled
+	# pawn yaw. That lets the wire carry a flipped aim yaw (yaw+PI, to match Combat._forward to
+	# where the camera points) without the reconciled value rotating the view 180°.
+	_camera.transform.basis = Basis.from_euler(Vector3(look_pitch, look_yaw, 0.0))
 	_camera.fov = fov
 
 
