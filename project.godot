@@ -18,6 +18,13 @@ common/max_fps=0
 
 limits/debugger/max_chars_per_second=32768
 
+[audio]
+
+; M7-P2 audio: Master -> SFX, UI, Listener bus layout (see client/audio/, docs/specs/audio.md).
+; SFX = spatial world sounds (gunfire/impacts), UI = non-spatial (hitmarker/reload), Listener =
+; reserved for the global suppression low-pass (M5.5). Server/bot are headless and never load this.
+buses/default_bus_layout="res://default_bus_layout.tres"
+
 [rendering]
 
 ; ADR-0005: Forward+ (Vulkan) primary, GL Compatibility fallback for weaker GPUs.
