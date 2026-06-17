@@ -61,6 +61,8 @@ var _renderer: WorldRenderer
 var _hud_view: HudView
 var _deploy_menu: DeployMenu
 var _settings_menu: SettingsMenu
+var _audio: AudioDirector   # M7-P2 spatial-audio orchestrator (presentation-only, AGENTS.md §7)
+const MAX_VOICES := 32      # finite concurrent voices at 128p (audio.md §10 Q1; owner-tunable)
 
 # ---- state flags ------------------------------------------------------------
 var _scene_built := false
@@ -171,9 +173,14 @@ func _physics_process(delta: float) -> void:
 		# A true return means a shot fired this tick -> draw a tracer for immediate feedback.
 		if _wpred.step(_client_tick, firing, sprinting, false) and _renderer != null:
 			_renderer.fire_tracer(_elapsed)
+			if _audio != null:
+				_audio.play_at("gunfire", _pred.predicted.eye_position())
 
 		if buttons & InputCommand.BTN_RELOAD:
+			var _was_reloading: bool = _wpred.reloading
 			_wpred.begin_reload(_client_tick)
+			if not _was_reloading and _wpred.reloading and _audio != null:
+				_audio.play_2d("reload")   # only on the actual reload-start transition
 
 		# Send input to server. The server rebuilds the shot ray from Combat._forward(yaw,pitch),
 		# which points opposite the Godot camera, so send yaw+PI to make the authoritative aim
@@ -244,6 +251,9 @@ func _process(_dt: float) -> void:
 		_input_ctrl.drain_look()
 	_pos_err = _pos_err.lerp(Vector3.ZERO, clampf(_dt * RECON_SMOOTH, 0.0, 1.0))
 	var eye: Vector3 = _prev_eye.lerp(_curr_eye, Engine.get_physics_interpolation_fraction()) + _pos_err
+
+	if _audio != null:
+		_audio.set_listener_pos(eye)   # spatial-audio listener tracks the rendered camera/eye
 
 	var _t0 := Time.get_ticks_usec()
 	_renderer.update(_wv, _pred, _elapsed, _settings.fov, _input_ctrl.yaw, _input_ctrl.pitch, eye, _dt)
@@ -440,6 +450,8 @@ func _on_packet(_from: ENetPacketPeer, _channel: int, bytes: PackedByteArray) ->
 			var h: Dictionary = Protocol.decode_hitmarker(bytes)
 			if _hud_view != null:
 				_hud_view.flash_hitmarker(bool(h["headshot"]), bool(h["lethal"]))
+			if _audio != null:
+				_audio.play_2d("hitmarker")
 		Protocol.Msg.MATCH_STATE:
 			_handle_match_state(bytes)
 		Protocol.Msg.ROSTER:
@@ -453,9 +465,11 @@ func _on_packet(_from: ENetPacketPeer, _channel: int, bytes: PackedByteArray) ->
 		Protocol.Msg.STRUCTURE_DELTA:
 			_wv.apply_structure_delta(bytes)
 		Protocol.Msg.SHOT_FX:
+			var fx: Dictionary = Protocol.decode_shot_fx(bytes)
 			if _renderer != null:
-				var fx: Dictionary = Protocol.decode_shot_fx(bytes)
 				_renderer.tracer_from(fx["origin"], fx["dir"], _elapsed)
+			if _audio != null:
+				_audio.play_at("gunfire", fx["origin"])   # spatial remote-pawn gunfire
 
 # ---- WELCOME ----------------------------------------------------------------
 func _handle_welcome(bytes: PackedByteArray) -> void:
@@ -601,6 +615,15 @@ func _build_scene() -> void:
 	_settings_menu.bind_settings(_settings)
 	_settings_menu.settings_applied.connect(_on_settings_applied)
 
+	# AudioDirector — spatial-audio orchestrator (presentation-only). setup() before add_child so its
+	# _ready() builds the voice players with the catalog ready. Spatializes relative to the Camera3D.
+	var _acat := AudioCatalog.new()
+	_acat.load_from("res://data/sounds.json")
+	_audio = AudioDirector.new()
+	_audio.setup(_acat, MAX_VOICES)
+	world_node.add_child(_audio)
+	_apply_master_volume()
+
 	_scene_built = true
 	if _novsync:
 		DisplayServer.window_set_vsync_mode(DisplayServer.VSYNC_DISABLED)
@@ -635,6 +658,13 @@ func _send_deploy_request(spawn_ref: int) -> void:
 func _on_settings_applied(new_settings: ClientSettings) -> void:
 	_settings = new_settings
 	# sensitivity and fov are read each frame from _settings — already live
+	_apply_master_volume()   # master volume slider now drives the audio Master bus
+
+## Drive the audio Master bus from the (previously inert) master_volume setting.
+func _apply_master_volume() -> void:
+	var v: float = clampf(_settings.master_volume, 0.0, 1.0)
+	AudioServer.set_bus_volume_db(0, linear_to_db(maxf(v, 0.0001)))
+	AudioServer.set_bus_mute(0, v <= 0.0)
 
 # ---- helpers ----------------------------------------------------------------
 func _objectives() -> Array:

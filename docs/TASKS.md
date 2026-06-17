@@ -41,7 +41,7 @@ Spec: [`docs/specs/combat-depth-2.md`](specs/combat-depth-2.md). Milestone: [`M5
 | M5.5-P2 execute (armor class, suppression) | — | todo | branch `m5.5-p2-survivability`; depends on P1 projectiles (near-miss → suppression) |
 | M5.5-P3 execute (melee/sledge, flashbang/impact) | — | todo | branch `m5.5-p3-melee-throwables`; reuses M4 grenade + structure-damage paths |
 
-## M7 Phase 2 (Audio) — engine merged ✅; integration deferred
+## M7 Phase 2 (Audio) — wired + owner-validated ✅
 
 Spec: [`docs/specs/audio.md`](specs/audio.md). Plan: [`docs/plans/2026-06-17-m7-p2-audio.md`](plans/2026-06-17-m7-p2-audio.md). Built **in parallel with M7-C3 (combat-depth UI)** and **M7-P2 art**; all engine code lives in a fresh `client/audio/*` namespace + `data/sounds.json` so it could not conflict. **Merged to master 2026-06-17** (tip `0429958`, pushed to origin); full suite **451 run / 0 failed**. The engine is **dormant** — present on master but not yet wired into the client (see the deferred integration row).
 
@@ -50,7 +50,7 @@ Spec: [`docs/specs/audio.md`](specs/audio.md). Plan: [`docs/plans/2026-06-17-m7-
 | M7-P2 audio spec | claude (audio) | done | `docs/specs/audio.md` — was reserved per M7-art-ux.md; sound taxonomy, bus layout, distance attenuation + occlusion, voice-stealing/priority for 128p, signal-sourced events (view-only, AGENTS.md §7). |
 | M7-P2 audio plan | claude (audio) | done | `docs/plans/2026-06-17-m7-p2-audio.md` — TDD task breakdown; final task is the **deferred** `client_main.gd` + `project.godot` integration. |
 | M7-P2 audio engine (non-deferred) | claude (audio) | **done ✅** | **Merged to master 2026-06-17** (`0429958`). Self-contained `client/audio/audio_director.gd` (standalone Node, signal/method-driven, **not** wired into `client_main`) + pure helpers (attenuation/occlusion/voice-stealing/bus math) + `data/sounds.json` catalog. 27 headless unit tests; full suite 451/0 on merged master. |
-| M7-P2 audio → client_main + project.godot wiring | — | **todo (next)** | Single integration task, now unblocked (C3 merged): wire `AudioDirector` into `client_main.gd`, declare `Master → SFX/UI/Listener` buses in `project.godot`, resolve catalog `stream` ids to real audio assets. Then owner playtest (feel/mixing is the gate, AGENTS.md §10). Open questions: `audio.md` §10 (all have working defaults). |
+| M7-P2 audio → client_main + project.godot wiring | claude | **done ✅** | **Owner-validated 2026-06-17** (desktop .194 playtest, RX 9070 XT / Vulkan Forward+ — "audio works fine"). Branch `m7-p2-audio-wiring` merged to master. Done: `Master→SFX/UI/Listener` buses (`default_bus_layout.tres` + `project.godot [audio]`); `AudioDirector` created in `_build_scene` (catalog-loaded, MAX_VOICES=32), listener tracks the rendered eye; wired events — local + remote gunfire (`SHOT_FX`, spatial), hitmarker + reload (UI 2D); master-volume slider now drives the Master bus. Placeholder synth tones (no binary assets yet). Full suite **451/0**; headless loopback smoke clean (no script/audio errors). **Gate = owner playtest of feel** (AGENTS.md §10). Follow-ups: real audio assets (`audio.md` §10 Q4); occlusion coverage (Q2) + suppression source (Q5) currently default 0 — no trigger yet; explosion/footstep/crack/whiz/engine catalog entries ready but have no client event source until grenade-VFX / M5.5 projectiles land. | |
 
 ## M4.5 Phase 1 (Survivability) — CLOSED ✅
 
