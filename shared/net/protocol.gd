@@ -35,6 +35,7 @@ enum Msg {
 	SELF_STATE = 22,        ## server -> owning client: authoritative weapon state for ammo reconcile
 	HITMARKER = 23,         ## server -> shooter: your shot hit an enemy (headshot/lethal flags)
 	GIVE_UP = 24,           ## client -> server: while DOWNED, skip the bleed-out and die now
+	ROSTER = 25,            ## server -> clients: per-client name/team/squad/kills/deaths/score
 }
 
 const OP_PLACE := 0
@@ -382,3 +383,30 @@ static func encode_self_state(mag: int, reloading: bool, reload_remaining: int, 
 static func decode_self_state(bytes: PackedByteArray) -> Dictionary:
 	var r := body_reader(bytes)
 	return {"mag": r.get_u8(), "reloading": r.get_u8() == 1, "reload_remaining": r.get_u16(), "weapon": r.get_u8()}
+
+
+static func encode_roster(rows: Array) -> PackedByteArray:
+	var buf := StreamPeerBuffer.new()
+	buf.put_u8(Msg.ROSTER)
+	buf.put_u8(mini(rows.size(), 255))
+	for i in mini(rows.size(), 255):
+		var rw: Dictionary = rows[i]
+		buf.put_u32(int(rw["id"]))
+		buf.put_utf8_string(String(rw["name"]))
+		buf.put_u8(int(rw["team"]) & 0xFF)
+		buf.put_u8(int(rw["squad"]) & 0xFF)
+		buf.put_u16(clampi(int(rw["kills"]), 0, 65535))
+		buf.put_u16(clampi(int(rw["deaths"]), 0, 65535))
+		buf.put_u16(clampi(int(rw["score"]), 0, 65535))
+	return buf.data_array
+
+static func decode_roster(bytes: PackedByteArray) -> Dictionary:
+	var r := body_reader(bytes)
+	var n := r.get_u8()
+	var rows: Array = []
+	for _i in n:
+		var id := r.get_u32()
+		var nm := r.get_utf8_string()
+		rows.append({"id": id, "name": nm, "team": r.get_u8(), "squad": r.get_u8(),
+			"kills": r.get_u16(), "deaths": r.get_u16(), "score": r.get_u16()})
+	return {"rows": rows}

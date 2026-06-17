@@ -178,3 +178,18 @@ func test_hello_auto_deploy_false_for_rendered_client() -> void:
 	var r := Protocol.body_reader(b)
 	r.get_u16(); r.get_utf8_string()
 	assert_eq(r.get_u8(), 0, "rendered client requests manual deploy")
+
+func test_roster_roundtrip() -> void:
+	var rows := [
+		{"id": 7, "name": "Ada", "team": 0, "squad": 1, "kills": 3, "deaths": 1, "score": 300},
+		{"id": 9, "name": "Bo", "team": 1, "squad": 0, "kills": 0, "deaths": 2, "score": 0},
+	]
+	var b := Protocol.encode_roster(rows)
+	assert_eq(Protocol.msg_type(b), Protocol.Msg.ROSTER)
+	var d := Protocol.decode_roster(b)
+	var out: Array = d["rows"]
+	assert_eq(out.size(), 2)
+	assert_eq(out[0]["name"], "Ada")
+	assert_eq(out[0]["kills"], 3)
+	assert_eq(out[1]["id"], 9)
+	assert_eq(out[1]["deaths"], 2)
