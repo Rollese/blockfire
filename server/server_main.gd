@@ -791,8 +791,11 @@ func _send_snapshots() -> void:
 		var bytes := Snapshot.encode(_sim.tick, seq, baseline_seq, c["last_input_tick"], current, baseline, current_v, baseline_v)
 		_net.send_to(c["peer"], NetHost.CHANNEL_SNAPSHOT, bytes, 0)
 		var reload_remaining: int = maxi(0, int(c["reload_done_tick"]) - _sim.tick) if c["reloading"] else 0
+		# Reliable so the authoritative ammo/reload always reaches the owner — otherwise dropped
+		# SELF_STATE packets (lossy links) leave the client predicting phantom ammo it doesn't have.
 		_net.send_to(c["peer"], NetHost.CHANNEL_CONTROL,
-			Protocol.encode_self_state(int(c["ammo"]), bool(c["reloading"]), reload_remaining, int(c["weapon"])), 0)
+			Protocol.encode_self_state(int(c["ammo"]), bool(c["reloading"]), reload_remaining, int(c["weapon"])),
+			ENetPacketPeer.FLAG_RELIABLE)
 		c["history"][seq] = current
 		c["history_v"][seq] = current_v
 		c["next_seq"] = seq + 1

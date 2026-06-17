@@ -35,14 +35,14 @@ func _lerp_views(a: Dictionary, b: Dictionary, f: float) -> Dictionary:
 	var out := {}
 	for id in b:
 		var eb: EntityState = b[id]
-		var e := EntityState.new()
+		# Clone the latest snapshot so ALL non-interpolated fields (team, stance, lean, alive,
+		# health, downed, …) are preserved — then interpolate only pos/yaw. (Previously this built a
+		# bare EntityState with just pos/yaw, defaulting team=0 -> every entity rendered as team 0.)
+		var e: EntityState = eb.clone()
 		if a.has(id):
 			var ea: EntityState = a[id]
 			e.pos = ea.pos.lerp(eb.pos, f)
 			e.yaw = lerp_angle(ea.yaw, eb.yaw, f)
-		else:
-			e.pos = eb.pos
-			e.yaw = eb.yaw
 		out[id] = e
 	return out
 
