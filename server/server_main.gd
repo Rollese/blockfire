@@ -509,6 +509,14 @@ func _kill_pawn(vid: int, victim: Pawn, killer_id: int, weapon_id: int, headshot
 		_clients[killer_id]["score"] = int(_clients[killer_id]["score"]) + KILL_SCORE
 	if source == Revive.Source.BLAST:
 		_splash_kills += 1
+	if _clients.has(vid):
+		var killer: Pawn = _sim.world.get_pawn(killer_id)
+		var dist: float = victim.pos.distance_to(killer.pos) if killer != null else 0.0
+		var khp: int = int(killer.health) if killer != null else 0
+		var attackers := DeathRecap.attackers_sorted(_clients[vid]["dmg_ledger"])
+		_net.send_to(_clients[vid]["peer"], NetHost.CHANNEL_CONTROL,
+			Protocol.encode_death_info(killer_id, weapon_id, dist, khp, attackers), ENetPacketPeer.FLAG_RELIABLE)
+		_clients[vid]["dmg_ledger"] = {}
 	var ev := Protocol.encode_kill(vid, killer_id, weapon_id, headshot)
 	for cid in _clients:
 		_net.send_to(_clients[cid]["peer"], NetHost.CHANNEL_CONTROL, ev, ENetPacketPeer.FLAG_RELIABLE)
@@ -526,6 +534,9 @@ func _apply_pawn_damage(vid: int, victim: Pawn, dmg: int, headshot: bool, source
 		var bearing: float = DamageDir.bearing(victim.pos, src.pos) if src != null else 0.0
 		_net.send_to(_clients[vid]["peer"], NetHost.CHANNEL_CONTROL,
 			Protocol.encode_damage_event(bearing, dmg), 0)
+		if killer_id != 0:
+			var led: Dictionary = _clients[vid]["dmg_ledger"]
+			led[killer_id] = int(led.get(killer_id, 0)) + dmg
 	if victim.health > 0:
 		return
 	victim.health = 0
@@ -703,6 +714,7 @@ func _handle_respawns() -> void:
 			c["ammo"] = Weapon.get_def(c["weapon"])["mag_size"]
 			c["reloading"] = false
 			c["rockets"] = int(_gadgets.def_of_kind(Gadget.KIND_RPG)["ammo"]) if int(c["weapon"]) == Weapon.RPG else 0
+			c["dmg_ledger"] = {}
 
 func _select_spawn(id: int) -> Vector3:
 	var c = _clients[id]
@@ -910,6 +922,7 @@ func _handle_deploy_request(peer: ENetPacketPeer, bytes: PackedByteArray) -> voi
 	c["ammo"] = Weapon.get_def(c["weapon"])["mag_size"]
 	c["reloading"] = false
 	c["respawn_tick"] = 0
+	c["dmg_ledger"] = {}
 
 func _handle_input(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
 	var id = _peer_to_id.get(peer, 0)
