@@ -45,6 +45,7 @@ var _was_alive: bool = false
 var _match_state: Dictionary = {}
 var _auto_deploy_ref: int = -1    # --deploy=N arg; -1 = not set
 var _auto_deploy_sent := false    # only send once
+var _dbg_accum := 0.0             # 1 Hz input/deploy diagnostic accumulator
 
 # ---- configure (called by bootstrap before add_child) -----------------------
 func configure(args: Dictionary) -> void:
@@ -174,6 +175,19 @@ func _process(_dt: float) -> void:
 		var ss: EntityState = _wv.self_state()
 		var deployed: bool = ss != null and ss.alive
 		_deploy_menu.visible = not deployed
+
+	# --- input/deploy diagnostic (1 Hz) ----------------------------------------
+	_dbg_accum += _dt
+	if _dbg_accum >= 1.0:
+		_dbg_accum = 0.0
+		var dss: EntityState = _wv.self_state()
+		print("[client-dbg] deployed=%s mouse_mode=%d menu_vis=%s refs=%d motion=%d w=%s fire=%s" % [
+			str(dss != null and dss.alive), int(Input.mouse_mode),
+			str(_deploy_menu.visible if _deploy_menu != null else false),
+			(_deploy_menu.refs.size() if _deploy_menu != null else 0),
+			_input_ctrl.motion_events,
+			str(Input.is_action_pressed("move_fwd")),
+			str(Input.is_action_pressed("fire"))])
 
 # ---- connect callback -------------------------------------------------------
 func _on_connected(peer: ENetPacketPeer) -> void:

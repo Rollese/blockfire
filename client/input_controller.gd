@@ -10,10 +10,12 @@ const LOOK_RAD_PER_PIXEL := 0.003   # base mouse gain; multiplied by settings.se
 var yaw: float = 0.0
 var pitch: float = 0.0
 var _mouse_rel: Vector2 = Vector2.ZERO
+var motion_events: int = 0   # diagnostic: count of mouse-motion events seen (proves window input)
 
 func _input(event: InputEvent) -> void:
 	if event is InputEventMouseMotion:
 		_mouse_rel += (event as InputEventMouseMotion).relative
+		motion_events += 1
 
 ## Apply accumulated look. Separated out so it is unit-testable without the Input singleton.
 func apply_look(rel: Vector2, settings: ClientSettings) -> void:
