@@ -124,6 +124,30 @@ func test_throwables_passthrough_and_active_cycle() -> void:
 	var t3: Dictionary = out3["throwables"]
 	assert_eq(t3["active"], 0, "wraps around")
 
+func test_death_recap_resolves_names_from_roster() -> void:
+	var m := HudModel.new()
+	var roster := [
+		{"id": 7, "name": "Killer", "team": 1, "squad": 0, "kills": 1, "deaths": 0, "score": 100},
+		{"id": 9, "name": "Helper", "team": 1, "squad": 0, "kills": 0, "deaths": 0, "score": 0},
+	]
+	m.set_death_info({"killer": 7, "weapon": Weapon.AR, "distance": 42.5, "killer_hp": 35,
+		"attackers": [{"id": 7, "dmg": 80}, {"id": 9, "dmg": 20}]})
+	var out := m.build({"roster": roster, "tick": 0})
+	var dr: Dictionary = out["death_recap"]
+	assert_eq(dr["killer_name"], "Killer")
+	assert_almost_eq(dr["distance"], 42.5, 0.1)
+	assert_eq(dr["killer_hp"], 35)
+	assert_eq(dr["attackers"][0]["name"], "Killer")
+	assert_eq(dr["attackers"][0]["dmg"], 80)
+	assert_eq(dr["attackers"][1]["name"], "Helper")
+
+func test_death_recap_null_until_set_and_after_clear() -> void:
+	var m := HudModel.new()
+	assert_eq(m.build({"tick": 0})["death_recap"], null)
+	m.set_death_info({"killer": 7, "weapon": 0, "distance": 1.0, "killer_hp": 100, "attackers": []})
+	m.clear_death_info()
+	assert_eq(m.build({"tick": 0})["death_recap"], null)
+
 func test_damage_arc_relative_and_fades() -> void:
 	var m := HudModel.new()
 	# yaw 0 -> camera looks -Z; damage from world bearing 0 (+Z) comes from directly behind -> 180 deg.

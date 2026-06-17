@@ -9,6 +9,7 @@ const DAMAGE_TTL := 1.5
 var _killfeed: Array = []   # [{killer,victim,headshot,weapon,t}]
 var _damages: Array = []   # [{bearing,amount,t}]
 var _throwable_active: int = 0
+var _death_info = null
 
 func push_kill(ev: Dictionary, now: float) -> void:
 	_killfeed.append({"killer": int(ev["killer"]), "victim": int(ev["victim"]),
@@ -46,7 +47,7 @@ func _damage(ctx: Dictionary) -> Dictionary:
 
 func build(ctx: Dictionary) -> Dictionary:
 	var dmg := _damage(ctx)
-	return {"ammo": _ammo(ctx), "compass": _compass(ctx), "tickets": _tickets(ctx), "capture": _capture(ctx), "killfeed": _killfeed_current(ctx), "damage_arcs": dmg["arcs"], "vignette": dmg["vignette"], "scoreboard": _scoreboard(ctx), "squad_roster": _squad_roster(ctx), "interaction_prompt": _interaction_prompt(ctx), "throwables": _throwables(ctx)}
+	return {"ammo": _ammo(ctx), "compass": _compass(ctx), "tickets": _tickets(ctx), "capture": _capture(ctx), "killfeed": _killfeed_current(ctx), "damage_arcs": dmg["arcs"], "vignette": dmg["vignette"], "scoreboard": _scoreboard(ctx), "squad_roster": _squad_roster(ctx), "interaction_prompt": _interaction_prompt(ctx), "throwables": _throwables(ctx), "death_recap": _death_recap(ctx)}
 
 func cycle_throwable(count: int) -> void:
 	if count <= 0:
@@ -139,6 +140,33 @@ func _squad_roster(ctx: Dictionary) -> Array:
 			status = "downed" if bool(e.get("is_downed", false)) else "alive"
 		out.append({"id": int(rw["id"]), "name": String(rw["name"]), "status": status})
 	return out
+
+func set_death_info(info: Dictionary) -> void:
+	_death_info = info
+
+func clear_death_info() -> void:
+	_death_info = null
+
+func _name_for(roster: Array, id: int) -> String:
+	for rw in roster:
+		if int(rw["id"]) == id:
+			return String(rw["name"])
+	return "#%d" % id
+
+func _death_recap(ctx: Dictionary):
+	if _death_info == null:
+		return null
+	var roster: Array = ctx.get("roster", [])
+	var attackers: Array = []
+	for a in _death_info["attackers"]:
+		attackers.append({"name": _name_for(roster, int(a["id"])), "dmg": int(a["dmg"])})
+	return {
+		"killer_name": _name_for(roster, int(_death_info["killer"])),
+		"weapon": int(_death_info["weapon"]),
+		"distance": float(_death_info["distance"]),
+		"killer_hp": int(_death_info["killer_hp"]),
+		"attackers": attackers,
+	}
 
 func _scoreboard(ctx: Dictionary) -> Dictionary:
 	var roster: Array = ctx.get("roster", [])
