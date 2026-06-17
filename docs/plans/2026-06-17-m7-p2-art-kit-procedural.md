@@ -631,8 +631,8 @@ extends TestCase
 
 func test_driver_spawns_one_node_per_catalog_entry() -> void:
 	var spawned := PreviewDriver.build_catalog()
-	# 2 teams of characters + 4 weapons + 1 vehicle*2 teams + 2 structures*4 buckets + 3 props
-	assert_true(spawned.size() >= 20, "catalog covers all kit variants, got %d" % spawned.size())
+	# 2 character teams + 4 weapons + 2 vehicle teams + 2 structures*4 buckets + 3 props = 19
+	assert_true(spawned.size() >= 19, "catalog covers all kit variants, got %d" % spawned.size())
 	var kinds := {}
 	for item in spawned:
 		kinds[item["kind"]] = true
