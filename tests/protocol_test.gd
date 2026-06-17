@@ -198,3 +198,16 @@ func test_set_squad_roundtrip() -> void:
 	var b := Protocol.encode_set_squad(4)
 	assert_eq(Protocol.msg_type(b), Protocol.Msg.SET_SQUAD)
 	assert_eq(Protocol.decode_set_squad(b)["squad"], 4)
+
+func test_death_info_roundtrip() -> void:
+	var atk := [{"id": 7, "dmg": 80}, {"id": 9, "dmg": 20}]
+	var b := Protocol.encode_death_info(7, Weapon.AR, 42.5, 35, atk)
+	assert_eq(Protocol.msg_type(b), Protocol.Msg.DEATH_INFO)
+	var d := Protocol.decode_death_info(b)
+	assert_eq(d["killer"], 7)
+	assert_eq(d["weapon"], Weapon.AR)
+	assert_almost_eq(d["distance"], 42.5, 0.1, "distance preserved to 0.1m")
+	assert_eq(d["killer_hp"], 35)
+	assert_eq(d["attackers"].size(), 2)
+	assert_eq(d["attackers"][0]["id"], 7)
+	assert_eq(d["attackers"][0]["dmg"], 80)

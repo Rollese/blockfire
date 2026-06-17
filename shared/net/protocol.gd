@@ -37,6 +37,7 @@ enum Msg {
 	GIVE_UP = 24,           ## client -> server: while DOWNED, skip the bleed-out and die now
 	ROSTER = 25,            ## server -> clients: per-client name/team/squad/kills/deaths/score
 	SET_SQUAD = 26,         ## client -> server: join/switch to squad id
+	DEATH_INFO = 27,        ## server -> victim: death-recap (killer/weapon/distance/hp + per-attacker damage)
 }
 
 const OP_PLACE := 0
@@ -421,3 +422,30 @@ static func encode_set_squad(squad_id: int) -> PackedByteArray:
 
 static func decode_set_squad(bytes: PackedByteArray) -> Dictionary:
 	return {"squad": body_reader(bytes).get_u8()}
+
+
+static func encode_death_info(killer_id: int, weapon: int, distance: float, killer_hp: int, attackers: Array) -> PackedByteArray:
+	var buf := StreamPeerBuffer.new()
+	buf.put_u8(Msg.DEATH_INFO)
+	buf.put_u32(killer_id)
+	buf.put_u8(weapon & 0xFF)
+	buf.put_u16(clampi(roundi(distance * 10.0), 0, 65535))
+	buf.put_u8(clampi(killer_hp, 0, 255))
+	buf.put_u8(mini(attackers.size(), 255))
+	for i in mini(attackers.size(), 255):
+		var a: Dictionary = attackers[i]
+		buf.put_u32(int(a["id"]))
+		buf.put_u16(clampi(int(a["dmg"]), 0, 65535))
+	return buf.data_array
+
+static func decode_death_info(bytes: PackedByteArray) -> Dictionary:
+	var r := body_reader(bytes)
+	var killer := r.get_u32()
+	var weapon := r.get_u8()
+	var distance := float(r.get_u16()) / 10.0
+	var killer_hp := r.get_u8()
+	var n := r.get_u8()
+	var attackers: Array = []
+	for _i in n:
+		attackers.append({"id": r.get_u32(), "dmg": r.get_u16()})
+	return {"killer": killer, "weapon": weapon, "distance": distance, "killer_hp": killer_hp, "attackers": attackers}
