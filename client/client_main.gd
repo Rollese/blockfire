@@ -19,6 +19,11 @@ var _client_tick := 0
 var _last_snapshot_seq := 0
 var _last_server_tick := 0
 var _elapsed := 0.0
+# Render interpolation: the predicted eye at the previous/current physics tick. The camera renders
+# a lerp between them by the physics-tick fraction, so 30 Hz prediction looks smooth at 60 Hz.
+var _prev_eye := Vector3.ZERO
+var _curr_eye := Vector3.ZERO
+var _eye_init := false
 
 # ---- components (all non-scene, headless-safe) ------------------------------
 var _settings: ClientSettings
@@ -166,13 +171,34 @@ func _physics_process(delta: float) -> void:
 			_auto_deploy_sent = true
 			_send_deploy_request(_auto_deploy_ref)
 
+	# Render-interpolation: snapshot the predicted eye each physics tick. Snap (don't smear) on big
+	# jumps — spawn/teleport/large reconcile — so a correction isn't dragged across a 33 ms tick.
+	if _scene_built:
+		var eye_now: Vector3 = _pred.predicted.eye_position()
+		if not _eye_init or eye_now.distance_to(_curr_eye) > 5.0:
+			_prev_eye = eye_now
+			_eye_init = true
+		else:
+			_prev_eye = _curr_eye
+		_curr_eye = eye_now
+
 # ---- render frame -----------------------------------------------------------
 func _process(_dt: float) -> void:
 	if not _scene_built:
 		return
 
+	# Render-rate look + camera-position interpolation, so a 30 Hz sim renders smoothly at 60 Hz.
+	var ss0: EntityState = _wv.self_state()
+	var deployed0: bool = ss0 != null and ss0.alive
+	var menu_open0: bool = _settings_menu != null and _settings_menu.visible
+	if deployed0 and not menu_open0:
+		_input_ctrl.update_look(_settings)   # apply accumulated mouse delta at render rate
+	else:
+		_input_ctrl.drain_look()
+	var eye: Vector3 = _prev_eye.lerp(_curr_eye, Engine.get_physics_interpolation_fraction())
+
 	var _t0 := Time.get_ticks_usec()
-	_renderer.update(_wv, _pred, _elapsed, _settings.fov, _input_ctrl.yaw, _input_ctrl.pitch)
+	_renderer.update(_wv, _pred, _elapsed, _settings.fov, _input_ctrl.yaw, _input_ctrl.pitch, eye)
 	var _t1 := Time.get_ticks_usec()
 
 	var ctx: Dictionary = {

@@ -33,9 +33,14 @@ func apply_look(rel: Vector2, settings: ClientSettings) -> void:
 	var inv := -1.0 if settings.invert_y else 1.0
 	pitch = clampf(pitch - rel.y * gain * inv, -Pawn.MAX_PITCH, Pawn.MAX_PITCH)
 
-func gather(settings: ClientSettings) -> Dictionary:
+## Apply the mouse delta accumulated since the last call, then clear it. Called at RENDER rate
+## (not the 30 Hz sim tick) so mouse-look is smooth — gather() then just reads the current yaw/pitch.
+func update_look(settings: ClientSettings) -> void:
 	apply_look(_mouse_rel, settings)
 	_mouse_rel = Vector2.ZERO
+
+func gather(settings: ClientSettings) -> Dictionary:
+	# Look is applied at render rate via update_look(); gather() reads the current yaw/pitch.
 	var local_x: float = Input.get_axis("move_left", "move_right")   # +X = right
 	# W must drive the player toward the camera's forward. The camera (Godot) looks down -Z, which
 	# is the opposite of the sim's +Z "forward" yaw convention, so feed move_fwd as the negative
