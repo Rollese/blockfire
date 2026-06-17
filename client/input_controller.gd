@@ -37,7 +37,10 @@ func gather(settings: ClientSettings) -> Dictionary:
 	apply_look(_mouse_rel, settings)
 	_mouse_rel = Vector2.ZERO
 	var local_x: float = Input.get_axis("move_left", "move_right")   # +X = right
-	var local_z: float = Input.get_axis("move_back", "move_fwd")     # +Z = forward
+	# W must drive the player toward the camera's forward. The camera (Godot) looks down -Z, which
+	# is the opposite of the sim's +Z "forward" yaw convention, so feed move_fwd as the negative
+	# axis (Task 20 sign knob; flip back here if forward/back ever reads inverted again).
+	var local_z: float = Input.get_axis("move_fwd", "move_back")
 	var f := move_world(local_x, local_z, yaw)                 # local -> world
 	var pressed := {
 		"jump": Input.is_action_pressed("jump"),

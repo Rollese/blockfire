@@ -32,6 +32,9 @@ var _viewmodel: MeshInstance3D = null
 ## Build static world geometry once. Call before any update().
 func setup(map: MapDef, camera: Camera3D) -> void:
 	_camera = camera
+	# Interpret settings.fov as HORIZONTAL fov (BattleBit-style). Godot defaults to KEEP_HEIGHT
+	# (vertical), which turns fov=90 into ~121° horizontal on 16:9 — the "fisheye" warp at edges.
+	_camera.keep_aspect = Camera3D.KEEP_WIDTH
 
 	# Ground plane
 	var ground := MeshInstance3D.new()
