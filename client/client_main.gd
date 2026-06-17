@@ -168,7 +168,9 @@ func _process(_dt: float) -> void:
 	if not _scene_built:
 		return
 
+	var _t0 := Time.get_ticks_usec()
 	_renderer.update(_wv, _pred, _elapsed, _settings.fov)
+	var _t1 := Time.get_ticks_usec()
 
 	var ctx: Dictionary = {
 		"weapon_predictor": _wpred,
@@ -181,7 +183,14 @@ func _process(_dt: float) -> void:
 		"capture_radius": 8.0,
 		"now": _elapsed,
 	}
-	_hud_view.render(_hud_model.build(ctx))
+	var _model := _hud_model.build(ctx)
+	var _t2 := Time.get_ticks_usec()
+	_hud_view.render(_model)
+	var _t3 := Time.get_ticks_usec()
+	# Per-section CPU timings surfaced on the perf overlay (permanent dev tool).
+	_hud_view.perf_render_us = _t1 - _t0   # world: entity pool + interpolation + camera + tracers
+	_hud_view.perf_build_us = _t2 - _t1    # HUD model build (incl. ctx: objectives/points)
+	_hud_view.perf_hud_us = _t3 - _t2      # HUD view render (compass/ammo/tickets/…)
 
 	# Settings menu toggle
 	if Input.is_action_just_pressed("menu"):

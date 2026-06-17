@@ -26,6 +26,11 @@ var _arc_pool: Array[Control] = []
 var _prompt_label: Label          # placeholder interaction hook
 var _perf_label: Label            # debug perf overlay (FPS / frame-time / draw calls)
 var _perf_accum: float = 0.0      # throttle perf-label refresh to ~4 Hz
+# Per-section CPU timings (usec), written by client_main each frame; shown on the overlay.
+var perf_render_us: int = 0       # WorldRenderer.update (world/entities/camera/tracers)
+var perf_build_us: int = 0        # HudModel.build
+var perf_hud_us: int = 0          # HudView.render (this object)
+var _perf_compass_us: int = 0     # _render_compass slice of render()
 
 # ---- constants for owner tint -----------------------------------------
 const _OWNER_COLORS: Array[Color] = [
@@ -54,7 +59,9 @@ func render(model: Dictionary) -> void:
 	if _ammo_label == null:
 		_build_tree()
 	_render_ammo(model.get("ammo", {}))
+	var _cs := Time.get_ticks_usec()
 	_render_compass(model.get("compass", {}))
+	_perf_compass_us = Time.get_ticks_usec() - _cs
 	_render_tickets(model.get("tickets", [0, 0]), model.get("capture"))
 	_render_killfeed(model.get("killfeed", []))
 	_render_damage(model.get("damage_arcs", []), float(model.get("vignette", 0.0)))
@@ -306,8 +313,9 @@ func _process(delta: float) -> void:
 	# CPU main-thread time per frame. If proc+phys ≈ frame_ms, we're CPU-bound (not GPU/vsync).
 	var proc_ms := Performance.get_monitor(Performance.TIME_PROCESS) * 1000.0
 	var phys_ms := Performance.get_monitor(Performance.TIME_PHYSICS_PROCESS) * 1000.0
-	_perf_label.text = "fps %d  %.1f ms  vsync:%s\ndraws %d  prims %s  vram %.0f MB  nodes %d\nproc %.1f ms  phys %.1f ms" % [
-		fps, frame_ms, vsync, draws, _commafy(prims), vram_mb, objs, proc_ms, phys_ms]
+	_perf_label.text = "fps %d  %.1f ms  vsync:%s\ndraws %d  prims %s  vram %.0f MB  nodes %d\nproc %.1f ms  phys %.1f ms\nworld %.2f  build %.2f  hud %.2f (cmp %.2f) ms" % [
+		fps, frame_ms, vsync, draws, _commafy(prims), vram_mb, objs, proc_ms, phys_ms,
+		perf_render_us / 1000.0, perf_build_us / 1000.0, perf_hud_us / 1000.0, _perf_compass_us / 1000.0]
 
 
 static func _commafy(n: int) -> String:
