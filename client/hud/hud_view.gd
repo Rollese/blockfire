@@ -21,6 +21,7 @@ const _THROWABLE_LABELS: Dictionary = {
 # ---- node references --------------------------------------------------
 var _ammo_label: Label
 var _reload_label: Label
+var _ammo_panel: Control   # ammo readout container — hidden while downed/dead
 var _compass_label: Label
 var _compass_container: Control   # holds marker labels; children are reused per render
 var _compass_markers: Array[Label] = []   # pooled objective-marker labels (▼), reused each frame
@@ -173,6 +174,7 @@ func _build_ammo() -> void:
 	panel.offset_bottom = 0.0
 	panel.mouse_filter = MOUSE_FILTER_IGNORE
 	add_child(panel)
+	_ammo_panel = panel
 
 	_ammo_label = Label.new()
 	_ammo_label.text = "30"
@@ -412,6 +414,15 @@ func _build_perf() -> void:
 	_perf_label.mouse_filter = MOUSE_FILTER_IGNORE
 	add_child(_perf_label)
 
+
+## Show/hide the alive-only combat HUD (ammo + throwable selector). Call each frame with
+## `true` only when the local player is alive and standing — hides them while downed, dead,
+## or on the deploy screen.
+func set_alive_hud(alive: bool) -> void:
+	if _ammo_panel != null:
+		_ammo_panel.visible = alive
+	if _throwable_root != null:
+		_throwable_root.visible = alive
 
 ## Toggle TAB scoreboard visibility. Call from client_main when the tab key is held/released.
 func set_scoreboard_held(held: bool) -> void:

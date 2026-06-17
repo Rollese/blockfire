@@ -48,7 +48,6 @@ var _struct_free_list: Array = []
 # active vehicle nodes: vid(int) -> MeshInstance3D (placeholder boxes; VehicleState has no team)
 var _vehicle_active: Dictionary = {}
 var _vehicle_free_list: Array = []
-var _last_veh_now: float = -1.0                  # for delta-based vehicle render smoothing
 const VEHICLE_COLOR := Color(0.30, 0.34, 0.22)   # olive — neutral placeholder, no team field on wire
 const VEHICLE_SMOOTH_RATE := 16.0                # higher = snappier; ~1/e catch-up in ~60 ms
 # structures pending a destroy pop: id(int) -> {node:MeshInstance3D, die:float, tween:Tween}
@@ -135,7 +134,8 @@ func setup(map: MapDef, camera: Camera3D) -> void:
 
 ## Per-frame update. Safe to call with null world_view or predictor (early-returns).
 func update(world_view: WorldView, predictor: Prediction, now: float, fov: float,
-		look_yaw: float = 0.0, look_pitch: float = 0.0, eye: Vector3 = Vector3.INF) -> void:
+		look_yaw: float = 0.0, look_pitch: float = 0.0, eye: Vector3 = Vector3.INF,
+		render_delta: float = 0.0) -> void:
 	if world_view == null or predictor == null:
 		return
 
@@ -146,8 +146,10 @@ func update(world_view: WorldView, predictor: Prediction, now: float, fov: float
 	# 2. Structure pool update
 	_sync_structure_pool(world_view.structures(), now)
 
-	# 2b. Vehicle pool update (placeholder boxes so vehicles are visible + interactable)
-	_sync_vehicle_pool(world_view.vehicles(), now)
+	# 2b. Vehicle pool update (placeholder boxes so vehicles are visible + interactable).
+	# Uses the real render-frame delta (not `now`, which only advances at the 30 Hz sim rate)
+	# so smoothing runs per render frame.
+	_sync_vehicle_pool(world_view.vehicles(), render_delta)
 
 	# 3. Camera from prediction (position) + client look (rotation)
 	_apply_camera(predictor, fov, look_yaw, look_pitch, eye)
@@ -464,12 +466,11 @@ func _make_structure_mesh() -> MeshInstance3D:
 # =============================================================================
 #  Vehicle pool (placeholder boxes — no team field on the wire, so neutral tint)
 # =============================================================================
-func _sync_vehicle_pool(vehicles: Dictionary, now: float) -> void:
+func _sync_vehicle_pool(vehicles: Dictionary, render_delta: float) -> void:
 	# Smoothing factor: vehicle states arrive only at the snapshot rate (~15 Hz), so posing the
 	# box directly looks choppy. Exponential-smooth toward the latest snapshot each render frame
-	# (framerate-independent via dt). New vehicles snap into place; existing ones ease.
-	var dt: float = clampf(now - _last_veh_now, 0.0, 0.1) if _last_veh_now >= 0.0 else 0.0
-	_last_veh_now = now
+	# (framerate-independent via the real render delta). New vehicles snap into place; existing ease.
+	var dt: float = clampf(render_delta, 0.0, 0.1)
 	var k: float = 1.0 - exp(-dt * VEHICLE_SMOOTH_RATE)
 	# Release nodes whose vid is gone from the view.
 	var to_release: Array = []

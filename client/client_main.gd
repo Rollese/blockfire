@@ -156,7 +156,9 @@ func _physics_process(delta: float) -> void:
 		var buttons: int = int(cmd["buttons"])
 		var sprinting: bool = bool(buttons & InputCommand.BTN_SPRINT) \
 			and _pred.predicted.stance == Stance.STAND
-		var firing: bool = bool(buttons & InputCommand.BTN_FIRE)
+		# No firing while downed — the server ignores it, so suppress the local tracer/ammo
+		# prediction too (otherwise a downed player still sees their own tracers).
+		var firing: bool = bool(buttons & InputCommand.BTN_FIRE) and not _pred.predicted.is_downed
 
 		# Predict weapon state — drop_shoot=false here; server gates authoritatively,
 		# and SELF_STATE reconciles the client's mag each tick so divergence is transient.
@@ -236,7 +238,7 @@ func _process(_dt: float) -> void:
 	var eye: Vector3 = _prev_eye.lerp(_curr_eye, Engine.get_physics_interpolation_fraction()) + _pos_err
 
 	var _t0 := Time.get_ticks_usec()
-	_renderer.update(_wv, _pred, _elapsed, _settings.fov, _input_ctrl.yaw, _input_ctrl.pitch, eye)
+	_renderer.update(_wv, _pred, _elapsed, _settings.fov, _input_ctrl.yaw, _input_ctrl.pitch, eye, _dt)
 	var _t1 := Time.get_ticks_usec()
 
 	var ctx: Dictionary = {
@@ -289,6 +291,9 @@ func _process(_dt: float) -> void:
 	# ---- C3: scoreboard hold (TAB) ------------------------------------------------
 	if _hud_view != null:
 		_hud_view.set_scoreboard_held(Input.is_action_pressed("scoreboard"))
+		# Hide the alive-only combat HUD (ammo + throwable selector) while downed/dead/deploying.
+		var hs: EntityState = _wv.self_state()
+		_hud_view.set_alive_hud(hs != null and hs.alive and not hs.is_downed)
 
 	# ---- C3: revive intent + self-bandage while downed ----------------------------
 	var sss: EntityState = _wv.self_state()
