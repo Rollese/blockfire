@@ -794,9 +794,9 @@ func _build_death_recap() -> void:
 	_recap_root.anchor_right = 0.0
 	_recap_root.anchor_bottom = 0.5
 	_recap_root.offset_left = 30.0
-	_recap_root.offset_right = 330.0
-	_recap_root.offset_top = -(_RECAP_ATTACKER_MAX * 20.0 + 80.0) * 0.5
-	_recap_root.offset_bottom = (_RECAP_ATTACKER_MAX * 20.0 + 80.0) * 0.5
+	_recap_root.offset_right = 380.0   # wider so the killer line has room
+	_recap_root.offset_top = -(_RECAP_ATTACKER_MAX * 20.0 + 110.0) * 0.5
+	_recap_root.offset_bottom = (_RECAP_ATTACKER_MAX * 20.0 + 110.0) * 0.5
 	# Draw above the deploy menu (same CanvasLayer, added after hud_view) + its full-screen dim,
 	# so the recap isn't hidden/darkened behind the respawn screen.
 	_recap_root.z_index = 100
@@ -811,14 +811,18 @@ func _build_death_recap() -> void:
 	panel_bg.mouse_filter = MOUSE_FILTER_IGNORE
 	_recap_root.add_child(panel_bg)
 
-	# Title label: "Killed by X · weapon · Y m · Z HP"
+	# Title label: "Killed by X · weapon · Y m · Z HP" — word-wraps within the card so it never
+	# overflows the box on long names/weapons.
 	_recap_title = Label.new()
 	_recap_title.anchor_left = 0.0
 	_recap_title.anchor_top = 0.0
 	_recap_title.anchor_right = 1.0
+	_recap_title.offset_left = 8.0
+	_recap_title.offset_right = -8.0
 	_recap_title.offset_top = 8.0
-	_recap_title.offset_bottom = 36.0
+	_recap_title.offset_bottom = 66.0
 	_recap_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_recap_title.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_recap_title.add_theme_font_size_override("font_size", 14)
 	_recap_title.add_theme_color_override("font_color", Color(1.0, 0.5, 0.4))
 	_recap_title.mouse_filter = MOUSE_FILTER_IGNORE
@@ -829,8 +833,8 @@ func _build_death_recap() -> void:
 		var lbl := Label.new()
 		lbl.anchor_left = 0.0
 		lbl.anchor_right = 1.0
-		lbl.offset_top = 44.0 + i * 20.0
-		lbl.offset_bottom = 62.0 + i * 20.0
+		lbl.offset_top = 74.0 + i * 20.0
+		lbl.offset_bottom = 92.0 + i * 20.0
 		lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		lbl.add_theme_font_size_override("font_size", 13)
 		lbl.modulate = Color(0.85, 0.85, 0.85)
