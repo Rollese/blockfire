@@ -9,6 +9,15 @@ func test_kill_event_round_trip() -> void:
 	assert_eq(d["weapon"], Weapon.DMR)
 	assert_eq(d["headshot"], true)
 
+func test_hitmarker_round_trip() -> void:
+	for hs in [false, true]:
+		for lethal in [false, true]:
+			var bytes := Protocol.encode_hitmarker(hs, lethal)
+			assert_eq(Protocol.msg_type(bytes), Protocol.Msg.HITMARKER)
+			var d := Protocol.decode_hitmarker(bytes)
+			assert_eq(d["headshot"], hs, "headshot flag round-trips")
+			assert_eq(d["lethal"], lethal, "lethal flag round-trips")
+
 
 func test_match_state_round_trip() -> void:
 	var points := [{"owner": -1, "attacker": 0, "cap": 0.5}, {"owner": 1, "attacker": -1, "cap": 1.0}]

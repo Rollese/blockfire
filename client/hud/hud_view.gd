@@ -24,6 +24,7 @@ var _killfeed_labels: Array[Label] = []
 var _vignette: ColorRect
 var _arc_pool: Array[Control] = []
 var _prompt_label: Label          # placeholder interaction hook
+var _hitmarker: _Hitmarker        # brief crosshair flash when your shot lands
 var _perf_label: Label            # debug perf overlay (FPS / frame-time / draw calls)
 var _perf_accum: float = 0.0      # throttle perf-label refresh to ~4 Hz
 # Per-section CPU timings (usec), written by client_main each frame; shown on the overlay.
@@ -71,6 +72,14 @@ func render(model: Dictionary) -> void:
 # Tree construction
 # -----------------------------------------------------------------------
 
+## Flash a hitmarker on the crosshair when your shot lands: white for a hit, red for a
+## kill/down (lethal), slightly larger on a headshot. Driven by the server HITMARKER event.
+func flash_hitmarker(headshot: bool, lethal: bool) -> void:
+	if _hitmarker == null:
+		return
+	_hitmarker.flash(Color(1.0, 0.3, 0.2) if lethal else Color(1, 1, 1), headshot)
+
+
 func _build_tree() -> void:
 	# This control covers the full screen but ignores mouse so menus work.
 	anchor_right = 1.0
@@ -78,6 +87,8 @@ func _build_tree() -> void:
 	mouse_filter = MOUSE_FILTER_IGNORE
 
 	_build_crosshair()
+	_hitmarker = _Hitmarker.new()
+	add_child(_hitmarker)
 	_build_ammo()
 	_build_compass()
 	_build_tickets()
@@ -438,6 +449,42 @@ static func _owner_color(owner: int) -> Color:
 # -----------------------------------------------------------------------
 # Inner class: arc marker drawn via _draw
 # -----------------------------------------------------------------------
+
+class _Hitmarker extends Control:
+	var _until_ms: int = 0
+	var _color := Color(1, 1, 1)
+	var _scale := 1.0
+	const TTL_MS := 180
+
+	func _ready() -> void:
+		set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		mouse_filter = MOUSE_FILTER_IGNORE
+
+	func flash(color: Color, big: bool) -> void:
+		_color = color
+		_scale = 1.5 if big else 1.0
+		_until_ms = Time.get_ticks_msec() + TTL_MS
+		queue_redraw()
+
+	func _process(_delta: float) -> void:
+		if _until_ms != 0:
+			queue_redraw()
+
+	func _draw() -> void:
+		var remaining := _until_ms - Time.get_ticks_msec()
+		if remaining <= 0:
+			_until_ms = 0
+			return
+		var a := clampf(float(remaining) / float(TTL_MS), 0.0, 1.0)
+		var c := Color(_color.r, _color.g, _color.b, a)
+		var ctr := size * 0.5
+		var inner := 5.0 * _scale
+		var outer := 11.0 * _scale
+		# Four diagonal ticks around the centre — the classic hitmarker "X".
+		for d in [Vector2(1, 1), Vector2(-1, 1), Vector2(1, -1), Vector2(-1, -1)]:
+			var dir: Vector2 = d.normalized()
+			draw_line(ctr + dir * inner, ctr + dir * outer, c, 2.0)
+
 
 class _ArcMarker extends Control:
 	var rel_bearing: float = 0.0   # radians, relative to camera facing

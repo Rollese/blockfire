@@ -470,6 +470,11 @@ func _fire_shot(shooter_id: int, shooter: Pawn, inp: Dictionary, shot_index: int
 	var victim: Pawn = _sim.world.get_pawn(best_victim)
 	if victim == null or not victim.alive: return
 	_apply_pawn_damage(best_victim, victim, enemy_dmg, best_head, Revive.Source.BULLET, shooter_id, wid)
+	# Hitmarker to the (human) shooter — confirm the hit; lethal = killed or downed by this shot.
+	var sc: Dictionary = _clients.get(shooter_id, {})
+	if not sc.is_empty() and not sc.get("auto_deploy", true):
+		var lethal: bool = (not victim.alive) or victim.is_downed
+		_net.send_to(sc["peer"], NetHost.CHANNEL_CONTROL, Protocol.encode_hitmarker(best_head, lethal), 0)
 
 func _is_medic(id: int) -> bool:
 	return _clients.has(id) and int(_clients[id]["class"]) == Loadout.MEDIC

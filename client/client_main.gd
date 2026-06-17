@@ -272,6 +272,10 @@ func _on_packet(_from: ENetPacketPeer, _channel: int, bytes: PackedByteArray) ->
 		Protocol.Msg.KILL:
 			var k: Dictionary = Protocol.decode_kill(bytes)
 			_hud_model.push_kill(k, _elapsed)
+		Protocol.Msg.HITMARKER:
+			var h: Dictionary = Protocol.decode_hitmarker(bytes)
+			if _hud_view != null:
+				_hud_view.flash_hitmarker(bool(h["headshot"]), bool(h["lethal"]))
 		Protocol.Msg.MATCH_STATE:
 			_handle_match_state(bytes)
 

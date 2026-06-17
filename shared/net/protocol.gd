@@ -33,6 +33,7 @@ enum Msg {
 	DEPLOY_REQUEST = 20,    ## client -> server: deploy me at spawn_ref (see DeploySpawn)
 	DAMAGE_EVENT = 21,      ## server -> client: damage taken, world bearing toward source + amount
 	SELF_STATE = 22,        ## server -> owning client: authoritative weapon state for ammo reconcile
+	HITMARKER = 23,         ## server -> shooter: your shot hit an enemy (headshot/lethal flags)
 }
 
 const OP_PLACE := 0
@@ -111,6 +112,18 @@ static func encode_kill(victim_id: int, killer_id: int, weapon_id: int, headshot
 static func decode_kill(bytes: PackedByteArray) -> Dictionary:
 	var r := body_reader(bytes)
 	return {"victim": r.get_u32(), "killer": r.get_u32(), "weapon": r.get_u8(), "headshot": r.get_u8() == 1}
+
+
+static func encode_hitmarker(headshot: bool, lethal: bool) -> PackedByteArray:
+	var buf := StreamPeerBuffer.new()
+	buf.put_u8(Msg.HITMARKER)
+	buf.put_u8((1 if headshot else 0) | (2 if lethal else 0))
+	return buf.data_array
+
+
+static func decode_hitmarker(bytes: PackedByteArray) -> Dictionary:
+	var f := body_reader(bytes).get_u8()
+	return {"headshot": (f & 1) != 0, "lethal": (f & 2) != 0}
 
 
 static func encode_match_state(points: Array, tickets: Array, match_over: bool, winner: int, elapsed: int) -> PackedByteArray:
