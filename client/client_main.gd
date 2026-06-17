@@ -452,6 +452,10 @@ func _on_packet(_from: ENetPacketPeer, _channel: int, bytes: PackedByteArray) ->
 			_wv.apply_structure_baseline(bytes)
 		Protocol.Msg.STRUCTURE_DELTA:
 			_wv.apply_structure_delta(bytes)
+		Protocol.Msg.SHOT_FX:
+			if _renderer != null:
+				var fx: Dictionary = Protocol.decode_shot_fx(bytes)
+				_renderer.tracer_from(fx["origin"], fx["dir"], _elapsed)
 
 # ---- WELCOME ----------------------------------------------------------------
 func _handle_welcome(bytes: PackedByteArray) -> void:

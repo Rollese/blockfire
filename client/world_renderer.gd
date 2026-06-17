@@ -166,12 +166,26 @@ func update(world_view: WorldView, predictor: Prediction, now: float, fov: float
 ## shot fired. Drawn along the real camera forward (-Z), so it goes exactly where the crosshair
 ## points regardless of the sim's yaw convention.
 func fire_tracer(now: float) -> void:
-	if _camera == null or _tracers.is_empty():
+	if _camera == null:
 		return
 	var cb := _camera.global_transform
 	var fwd := (-cb.basis.z).normalized()
 	# Muzzle: from the eye, nudged right/down/forward so the beam doesn't emit from screen centre.
 	var origin := cb.origin + cb.basis.x * 0.18 - cb.basis.y * 0.12 + fwd * 0.5
+	_spawn_tracer(origin, fwd, now)
+
+
+## Cosmetic tracer for a REMOTE pawn's shot (from a server SHOT_FX): a beam from the shooter's
+## muzzle along their aim, so other players' fire is readable instead of looking like statues.
+func tracer_from(origin: Vector3, dir: Vector3, now: float) -> void:
+	if dir.length() < 0.001:
+		return
+	_spawn_tracer(origin, dir.normalized(), now)
+
+
+func _spawn_tracer(origin: Vector3, fwd: Vector3, now: float) -> void:
+	if _tracers.is_empty():
+		return
 	var up := Vector3.UP if absf(fwd.dot(Vector3.UP)) < 0.99 else Vector3.RIGHT
 	var t: Dictionary = _tracers[_tracer_idx]
 	_tracer_idx = (_tracer_idx + 1) % _tracers.size()

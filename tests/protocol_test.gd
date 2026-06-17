@@ -9,6 +9,14 @@ func test_kill_event_round_trip() -> void:
 	assert_eq(d["weapon"], Weapon.DMR)
 	assert_eq(d["headshot"], true)
 
+func test_shot_fx_round_trip() -> void:
+	var b := Protocol.encode_shot_fx(Vector3(12.5, 1.8, -7.3), Vector3(0.0, 0.0, 1.0))
+	assert_eq(Protocol.msg_type(b), Protocol.Msg.SHOT_FX)
+	var d := Protocol.decode_shot_fx(b)
+	assert_almost_eq(d["origin"].x, 12.5, 0.05, "origin x preserved to 0.1 m")
+	assert_almost_eq(d["origin"].z, -7.3, 0.05, "origin z preserved to 0.1 m")
+	assert_almost_eq(d["dir"].z, 1.0, 0.001, "aim dir preserved")
+
 func test_hitmarker_round_trip() -> void:
 	for hs in [false, true]:
 		for lethal in [false, true]:

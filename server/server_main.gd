@@ -400,6 +400,19 @@ func _resolve_fires() -> void:
 		_shots += 1
 		_fire_shot(id, shooter, inp, shot_index)
 
+func _broadcast_shot_fx(shooter_id: int, origin: Vector3, dir: Vector3) -> void:
+	# Cosmetic remote-tracer hint. Sent only to HUMAN clients (auto_deploy=false) — bots don't
+	# render, and skipping them keeps the fan-out tiny at bot scale. Unreliable (droppable).
+	var pkt := Protocol.encode_shot_fx(origin, dir)
+	for cid in _clients:
+		if cid == shooter_id:
+			continue
+		var c = _clients[cid]
+		if bool(c.get("auto_deploy", true)):
+			continue   # bot client — does not render
+		_net.send_to(c["peer"], NetHost.CHANNEL_SNAPSHOT, pkt, 0)
+
+
 func _fire_shot(shooter_id: int, shooter: Pawn, inp: Dictionary, shot_index: int) -> void:
 	var lean_sign := 0
 	if shooter.lean == Stance.LEAN_LEFT: lean_sign = -1
@@ -410,6 +423,9 @@ func _fire_shot(shooter_id: int, shooter: Pawn, inp: Dictionary, shot_index: int
 	var prone: bool = shooter.stance == Stance.PRONE
 	var ray := Combat.reconstruct_ray(wid, shooter.eye_position(),
 		inp["yaw"], inp["pitch"], lean_sign, shooter_id, _sim.tick, shot_index, moving, prone, wdef)
+
+	# Cosmetic: tell human clients (renderers) about this shot so remote pawns show a tracer.
+	_broadcast_shot_fx(shooter_id, ray["origin"], ray["dir"])
 
 	var view_tick: int = inp["view_server_tick"]
 	if view_tick < _sim.tick - LagComp.MAX_REWIND or view_tick > _sim.tick:

@@ -38,6 +38,7 @@ enum Msg {
 	ROSTER = 25,            ## server -> clients: per-client name/team/squad/kills/deaths/score
 	SET_SQUAD = 26,         ## client -> server: join/switch to squad id
 	DEATH_INFO = 27,        ## server -> victim: death-recap (killer/weapon/distance/hp + per-attacker damage)
+	SHOT_FX = 28,           ## server -> human clients: cosmetic tracer for a remote pawn's shot (origin+dir)
 }
 
 const OP_PLACE := 0
@@ -309,6 +310,27 @@ static func decode_gadget_action(bytes: PackedByteArray) -> Dictionary:
 	var pos := Vector3(float(r.get_16()) / 10.0, float(r.get_16()) / 10.0, float(r.get_16()) / 10.0)
 	var dir := Vector3(float(r.get_16()) / 10000.0, float(r.get_16()) / 10000.0, float(r.get_16()) / 10000.0)
 	return {"action": action, "pos": pos, "dir": dir, "target": r.get_u32()}
+
+
+## Cosmetic remote-shot tracer: muzzle origin (0.1 m units) + aim direction (unit vec, 1e-4 units).
+## Best-effort/unreliable; presentation-only (no gameplay effect). Mirrors the gadget pos/dir packing.
+static func encode_shot_fx(origin: Vector3, dir: Vector3) -> PackedByteArray:
+	var buf := StreamPeerBuffer.new()
+	buf.put_u8(Msg.SHOT_FX)
+	buf.put_16(clampi(roundi(origin.x * 10.0), -32768, 32767))
+	buf.put_16(clampi(roundi(origin.y * 10.0), -32768, 32767))
+	buf.put_16(clampi(roundi(origin.z * 10.0), -32768, 32767))
+	buf.put_16(clampi(roundi(dir.x * 10000.0), -32768, 32767))
+	buf.put_16(clampi(roundi(dir.y * 10000.0), -32768, 32767))
+	buf.put_16(clampi(roundi(dir.z * 10000.0), -32768, 32767))
+	return buf.data_array
+
+
+static func decode_shot_fx(bytes: PackedByteArray) -> Dictionary:
+	var r := body_reader(bytes)
+	var origin := Vector3(float(r.get_16()) / 10.0, float(r.get_16()) / 10.0, float(r.get_16()) / 10.0)
+	var dir := Vector3(float(r.get_16()) / 10000.0, float(r.get_16()) / 10000.0, float(r.get_16()) / 10000.0)
+	return {"origin": origin, "dir": dir}
 
 
 static func encode_structure_baseline(region: Vector2i, records: Array) -> PackedByteArray:
