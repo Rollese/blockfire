@@ -9,6 +9,18 @@ extends Node3D
 const TEAM_COLOR := [Color(0.2, 0.5, 1.0), Color(1.0, 0.3, 0.2)]  # [team0=blue, team1=red]
 const NEUTRAL_COLOR := Color(0.6, 0.6, 0.6)
 
+# -- structure type colours (placeholder tint, index == PieceCatalog type int) --
+const STRUCTURE_TYPE_COLORS := [
+	Color(0.70, 0.55, 0.35),   # type 0: wood   — warm tan
+	Color(0.55, 0.55, 0.60),   # type 1: metal  — cool grey
+	Color(0.65, 0.60, 0.55),   # type 2: concrete — warm grey
+]
+const STRUCTURE_DEFAULT_COLOR := Color(0.60, 0.58, 0.56)
+
+# -- structure feedback timing ------------------------------------------------
+const STRUCT_SPAWN_DUR := 0.18     # seconds for build pop scale-up
+const STRUCT_DESTROY_DUR := 0.14   # seconds for destroy pop scale-down before release
+
 # -- viewmodel placeholder dimensions -----------------------------------------
 const VM_SIZE := Vector3(0.08, 0.08, 0.35)
 const VM_OFFSET := Vector3(0.15, -0.12, -0.40)   # right / down / forward in camera space
@@ -28,6 +40,13 @@ var _tracer_idx: int = 0
 var _active: Dictionary = {}
 # free list for recycled entity MeshInstance3D nodes
 var _free_list: Array = []
+
+# active structure nodes: id(int) -> MeshInstance3D
+var _struct_active: Dictionary = {}
+# free list for recycled structure MeshInstance3D nodes
+var _struct_free_list: Array = []
+# structures pending a destroy pop: id(int) -> {node:MeshInstance3D, die:float, tween:Tween}
+var _struct_dying: Dictionary = {}
 
 # viewmodel box (optional placeholder)
 var _viewmodel: MeshInstance3D = null
@@ -118,10 +137,13 @@ func update(world_view: WorldView, predictor: Prediction, now: float, fov: float
 	var remotes: Dictionary = world_view.remotes_at(now)
 	_sync_entity_pool(remotes)
 
-	# 2. Camera from prediction (position) + client look (rotation)
+	# 2. Structure pool update
+	_sync_structure_pool(world_view.structures(), now)
+
+	# 3. Camera from prediction (position) + client look (rotation)
 	_apply_camera(predictor, fov, look_yaw, look_pitch, eye)
 
-	# 3. Age out shot tracers
+	# 4. Age out shot tracers
 	_age_tracers(now)
 
 
@@ -233,6 +255,116 @@ func _pose_entity(node: MeshInstance3D, es: EntityState) -> void:
 
 
 # =============================================================================
+#  Structure pool helpers
+# =============================================================================
+
+func _sync_structure_pool(structs: Dictionary, now: float) -> void:
+	# Tick dying pops — release when their tween has finished (tracked by die time)
+	var to_finish: Array = []
+	for id: int in _struct_dying:
+		var entry: Dictionary = _struct_dying[id]
+		if now >= float(entry["die"]):
+			to_finish.append(id)
+	for id: int in to_finish:
+		var entry: Dictionary = _struct_dying[id]
+		var node: MeshInstance3D = entry["node"] as MeshInstance3D
+		_struct_dying.erase(id)
+		_struct_release_node(node)
+
+	# Release nodes for ids that have been removed from the store
+	var to_release: Array = []
+	for id: int in _struct_active:
+		if not structs.has(id):
+			to_release.append(id)
+	for id: int in to_release:
+		_start_destroy_pop(id, now)
+
+	# Acquire / update nodes for all known structures
+	for id_v: Variant in structs:
+		var id: int = int(id_v)
+		var rec: Dictionary = structs[id_v]
+		var is_new := not _struct_active.has(id)
+		var node: MeshInstance3D = _acquire_structure(id, rec)
+		_pose_structure(node, rec)
+		if is_new:
+			_start_build_pop(node)
+
+
+func _acquire_structure(id: int, rec: Dictionary) -> MeshInstance3D:
+	if _struct_active.has(id):
+		return _struct_active[id] as MeshInstance3D
+	# Reuse from free list or create new
+	var node: MeshInstance3D
+	if not _struct_free_list.is_empty():
+		node = _struct_free_list.pop_back() as MeshInstance3D
+	else:
+		node = _make_structure_mesh()
+		add_child(node)
+	node.visible = true
+	# Apply type tint
+	var type_idx: int = int(rec.get("type", 0))
+	var col: Color = STRUCTURE_TYPE_COLORS[type_idx] \
+		if type_idx < STRUCTURE_TYPE_COLORS.size() else STRUCTURE_DEFAULT_COLOR
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = col
+	node.material_override = mat
+	_struct_active[id] = node
+	return node
+
+
+func _start_destroy_pop(id: int, now: float) -> void:
+	# If already in dying list (e.g. double remove), skip
+	if _struct_dying.has(id):
+		return
+	var node: MeshInstance3D = _struct_active[id] as MeshInstance3D
+	_struct_active.erase(id)
+	# Scale-down tween as destroy feedback
+	var tw: Tween = create_tween()
+	tw.tween_property(node, "scale", Vector3.ZERO, STRUCT_DESTROY_DUR)
+	_struct_dying[id] = {"node": node, "die": now + STRUCT_DESTROY_DUR, "tween": tw}
+
+
+func _struct_release_node(node: MeshInstance3D) -> void:
+	node.visible = false
+	node.scale = Vector3.ONE   # reset scale for reuse
+	_struct_free_list.append(node)
+
+
+func _start_build_pop(node: MeshInstance3D) -> void:
+	# Scale-up from near-zero as spawn feedback; reuses create_tween() (Godot 4 Node method)
+	node.scale = Vector3(0.05, 0.05, 0.05)
+	var tw: Tween = create_tween()
+	tw.tween_property(node, "scale", Vector3.ONE, STRUCT_SPAWN_DUR) \
+		.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+
+
+func _pose_structure(node: MeshInstance3D, rec: Dictionary) -> void:
+	# Cell centre: cell_min + half a cell on each axis (matches BuildGrid.world_of / cell_min).
+	# BuildGrid.CELL_SIZE = 2.0 m; pieces sit with their base at cell.y * CELL_SIZE.
+	var cell: Vector3i = rec["cell"] as Vector3i
+	var half := BuildGrid.CELL_SIZE * 0.5
+	var base := Vector3(float(cell.x) * BuildGrid.CELL_SIZE,
+						float(cell.y) * BuildGrid.CELL_SIZE,
+						float(cell.z) * BuildGrid.CELL_SIZE)
+	node.position = base + Vector3(half, half, half)
+	# Yaw is a step index (0..YAW_STEPS-1); convert to radians and orient around Y.
+	var yaw_rad := BuildGrid.yaw_radians(int(rec.get("yaw", 0)))
+	node.transform.basis = Basis.from_euler(Vector3(0.0, yaw_rad, 0.0))
+	# Health feedback: darken material by bucket (3=pristine..0=heavy).
+	# Recompute from the canonical type colour each frame so the tint stays consistent.
+	var type_idx: int = int(rec.get("type", 0))
+	var base_col: Color = STRUCTURE_TYPE_COLORS[type_idx] \
+		if type_idx < STRUCTURE_TYPE_COLORS.size() else STRUCTURE_DEFAULT_COLOR
+	if rec.has("bucket"):
+		var bucket: int = int(rec["bucket"])   # 0..3; 3=pristine
+		var brightness: float = 0.35 + 0.65 * (float(bucket) / 3.0)
+		base_col = base_col * brightness   # scale RGB, preserve reference alpha
+	var mat := node.material_override as StandardMaterial3D
+	if mat != null:
+		mat.albedo_color = base_col
+
+
+# =============================================================================
 #  Camera helper
 # =============================================================================
 
@@ -298,5 +430,23 @@ func _make_box_mesh(size: Vector3, color: Color) -> MeshInstance3D:
 	mi.mesh = mesh
 	var mat := StandardMaterial3D.new()
 	mat.albedo_color = color
+	mi.material_override = mat
+	return mi
+
+
+func _make_structure_mesh() -> MeshInstance3D:
+	# Placeholder: a BoxMesh sized to one full build cell (2 m cube).
+	# Half-height pieces share the same node; _pose_structure scales Y to 0.5 for halves is
+	# handled via the mesh size only — keeping scale=1 so build-pop tweens work cleanly.
+	var mi := MeshInstance3D.new()
+	var mesh := BoxMesh.new()
+	mesh.size = Vector3(BuildGrid.CELL_SIZE * 0.92,   # slight gap so adjacent pieces are distinct
+						BuildGrid.CELL_SIZE * 0.92,
+						BuildGrid.CELL_SIZE * 0.92)
+	mi.mesh = mesh
+	# material_override assigned at acquire time (type tint); roughness set here as default.
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = STRUCTURE_DEFAULT_COLOR
+	mat.roughness = 0.85
 	mi.material_override = mat
 	return mi
