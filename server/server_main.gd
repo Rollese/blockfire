@@ -202,7 +202,7 @@ func _physics_process(delta: float) -> void:
 			_vaults += 1
 		_prev_climb_vault[id] = cur
 	var t_move := Time.get_ticks_usec()
-	_sim.step_vehicles(_build_vehicle_inputs())
+	_sim.step_vehicles(_build_vehicle_inputs(), _map.world_half)
 	_track_transport_distance()
 	var t_veh := Time.get_ticks_usec()
 	_lag.record(_sim.tick, _sim.world)
@@ -373,7 +373,7 @@ func _resolve_fires() -> void:
 		var inp = c["last_input"]
 		if inp == null: continue
 		var shooter: Pawn = _sim.world.get_pawn(id)
-		if shooter == null or not shooter.alive: continue
+		if shooter == null or not shooter.alive or shooter.is_downed: continue   # downed = incapacitated, can't fire
 		if c["weapon"] == Weapon.RPG:
 			c["shot_index"] = 0
 			continue   # RPG fires via GADGET_ACTION(GA_RPG_FIRE), not the hit-scan path
@@ -428,6 +428,10 @@ func _fire_shot(shooter_id: int, shooter: Pawn, inp: Dictionary, shot_index: int
 		if not frame.has(tid): continue
 		var st = frame[tid]
 		if not st["alive"] or st["team"] == shooter.team: continue
+		# Downed pawns are immune (BattleBit-style no finishing): they aren't hittable targets,
+		# so the bullet passes through to anyone behind and no (false) hitmarker is sent.
+		var live_target: Pawn = _sim.world.get_pawn(tid)
+		if live_target != null and live_target.is_downed: continue
 		var to_target: Vector3 = st["pos"] - ray["origin"]
 		if to_target.length() > max_range: continue
 		if to_target.normalized().dot(ray["dir"]) < FIRE_CONE_DOT: continue

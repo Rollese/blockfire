@@ -90,13 +90,13 @@ func _apply_platform_floor(p: Pawn) -> void:
 ## Integrate vehicles (server authority). vinputs: vid -> driver command dict. Applies
 ## structure-stop + platform-floor (SimLoop owns the geometry arrays), then slaves seated
 ## occupants to their seat transform and feeds the gunner's look into the turret. See vehicles spec.
-func step_vehicles(vinputs: Dictionary) -> void:
+func step_vehicles(vinputs: Dictionary, world_half: float = Vehicle.WORLD_HALF) -> void:
 	for vid in world.vehicles:
 		var v: Vehicle = world.vehicles[vid]
 		if not v.alive:
 			continue
 		var prev := v.pos
-		v.step(DT, vinputs.get(vid, {}))
+		v.step(DT, vinputs.get(vid, {}), world_half)
 		if structures != null:
 			var seg := v.pos - prev
 			var seg_len := seg.length()

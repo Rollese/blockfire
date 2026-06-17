@@ -17,6 +17,15 @@ func test_make_copies_stats_and_seats() -> void:
 func test_id_for_is_in_disjoint_range() -> void:
 	assert_true(Vehicle.id_for(0) >= Vehicle.ID_BASE)
 
+func test_step_clamps_to_supplied_world_half() -> void:
+	# Small-map regression: vehicles must stay inside the map's world_half, not the 1000 m default.
+	var v := _veh()
+	v.heading = PI / 2.0   # forward -> +x
+	for _i in 600:         # full throttle for ~10 s — far enough to exit a 60 m arena
+		v.step(0.0166667, {"move_y": 1.0, "move_x": 0.0}, 60.0)
+	assert_true(absf(v.pos.x) <= 60.0 + 0.001, "x clamped to world_half=60 (was %f)" % v.pos.x)
+	assert_true(absf(v.pos.z) <= 60.0 + 0.001, "z clamped to world_half=60")
+
 func test_seat_world_at_zero_heading_adds_offset() -> void:
 	var v := _veh()
 	v.heading = 0.0

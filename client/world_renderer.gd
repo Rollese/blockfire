@@ -48,7 +48,9 @@ var _struct_free_list: Array = []
 # active vehicle nodes: vid(int) -> MeshInstance3D (placeholder boxes; VehicleState has no team)
 var _vehicle_active: Dictionary = {}
 var _vehicle_free_list: Array = []
+var _last_veh_now: float = -1.0                  # for delta-based vehicle render smoothing
 const VEHICLE_COLOR := Color(0.30, 0.34, 0.22)   # olive — neutral placeholder, no team field on wire
+const VEHICLE_SMOOTH_RATE := 16.0                # higher = snappier; ~1/e catch-up in ~60 ms
 # structures pending a destroy pop: id(int) -> {node:MeshInstance3D, die:float, tween:Tween}
 var _struct_dying: Dictionary = {}
 
@@ -145,7 +147,7 @@ func update(world_view: WorldView, predictor: Prediction, now: float, fov: float
 	_sync_structure_pool(world_view.structures(), now)
 
 	# 2b. Vehicle pool update (placeholder boxes so vehicles are visible + interactable)
-	_sync_vehicle_pool(world_view.vehicles())
+	_sync_vehicle_pool(world_view.vehicles(), now)
 
 	# 3. Camera from prediction (position) + client look (rotation)
 	_apply_camera(predictor, fov, look_yaw, look_pitch, eye)
@@ -462,7 +464,13 @@ func _make_structure_mesh() -> MeshInstance3D:
 # =============================================================================
 #  Vehicle pool (placeholder boxes — no team field on the wire, so neutral tint)
 # =============================================================================
-func _sync_vehicle_pool(vehicles: Dictionary) -> void:
+func _sync_vehicle_pool(vehicles: Dictionary, now: float) -> void:
+	# Smoothing factor: vehicle states arrive only at the snapshot rate (~15 Hz), so posing the
+	# box directly looks choppy. Exponential-smooth toward the latest snapshot each render frame
+	# (framerate-independent via dt). New vehicles snap into place; existing ones ease.
+	var dt: float = clampf(now - _last_veh_now, 0.0, 0.1) if _last_veh_now >= 0.0 else 0.0
+	_last_veh_now = now
+	var k: float = 1.0 - exp(-dt * VEHICLE_SMOOTH_RATE)
 	# Release nodes whose vid is gone from the view.
 	var to_release: Array = []
 	for vid: int in _vehicle_active:
@@ -479,10 +487,16 @@ func _sync_vehicle_pool(vehicles: Dictionary) -> void:
 		var vs: VehicleState = vehicles[vid_v]
 		if vs == null:
 			continue
+		var is_new := not _vehicle_active.has(vid)
 		var node: MeshInstance3D = _acquire_vehicle(vid)
 		# Box is ~1.6 m tall; lift by half so it rests on the ground at vs.pos.
-		node.position = vs.pos + Vector3(0.0, 0.8, 0.0)
-		node.transform.basis = Basis.from_euler(Vector3(0.0, vs.heading, 0.0))
+		var target_pos: Vector3 = vs.pos + Vector3(0.0, 0.8, 0.0)
+		if is_new or k <= 0.0:
+			node.position = target_pos
+			node.rotation = Vector3(0.0, vs.heading, 0.0)
+		else:
+			node.position = node.position.lerp(target_pos, k)
+			node.rotation.y = lerp_angle(node.rotation.y, vs.heading, k)
 
 
 func _acquire_vehicle(vid: int) -> MeshInstance3D:

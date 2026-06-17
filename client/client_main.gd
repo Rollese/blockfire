@@ -302,6 +302,12 @@ func _process(_dt: float) -> void:
 		# Revive intent: hold interact while the interaction prompt targets a downed mate.
 		var ip = _model.get("interaction_prompt")
 		var interact_held: bool = Input.is_action_pressed("interact")
+		# Enter-vehicle intent: a single F press when the prompt offers a friendly vehicle.
+		if ip != null and String(ip.get("action", "")) == "enter_vehicle" \
+				and Input.is_action_just_pressed("interact") and _peer != null:
+			_net.send_to(_peer, NetHost.CHANNEL_CONTROL,
+				Protocol.encode_vehicle_action(Protocol.VA_ENTER, int(ip["target"]), int(ip.get("seat", 0))),
+				ENetPacketPeer.FLAG_RELIABLE)
 		if ip != null and String(ip.get("action", "")) == "revive" and interact_held and _peer != null:
 			_revive_hold += _dt
 			var revive_time: float = float(Revive.REVIVE_TICKS) / 30.0
