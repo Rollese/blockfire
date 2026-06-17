@@ -8,6 +8,7 @@ const KILLFEED_TTL := 6.0
 const DAMAGE_TTL := 1.5
 var _killfeed: Array = []   # [{killer,victim,headshot,weapon,t}]
 var _damages: Array = []   # [{bearing,amount,t}]
+var _throwable_active: int = 0
 
 func push_kill(ev: Dictionary, now: float) -> void:
 	_killfeed.append({"killer": int(ev["killer"]), "victim": int(ev["victim"]),
@@ -45,7 +46,19 @@ func _damage(ctx: Dictionary) -> Dictionary:
 
 func build(ctx: Dictionary) -> Dictionary:
 	var dmg := _damage(ctx)
-	return {"ammo": _ammo(ctx), "compass": _compass(ctx), "tickets": _tickets(ctx), "capture": _capture(ctx), "killfeed": _killfeed_current(ctx), "damage_arcs": dmg["arcs"], "vignette": dmg["vignette"], "scoreboard": _scoreboard(ctx), "squad_roster": _squad_roster(ctx), "interaction_prompt": _interaction_prompt(ctx)}
+	return {"ammo": _ammo(ctx), "compass": _compass(ctx), "tickets": _tickets(ctx), "capture": _capture(ctx), "killfeed": _killfeed_current(ctx), "damage_arcs": dmg["arcs"], "vignette": dmg["vignette"], "scoreboard": _scoreboard(ctx), "squad_roster": _squad_roster(ctx), "interaction_prompt": _interaction_prompt(ctx), "throwables": _throwables(ctx)}
+
+func cycle_throwable(count: int) -> void:
+	if count <= 0:
+		_throwable_active = 0
+		return
+	_throwable_active = (_throwable_active + 1) % count
+
+func _throwables(ctx: Dictionary) -> Dictionary:
+	var list: Array = ctx.get("throwables", [])
+	if not list.is_empty() and _throwable_active >= list.size():
+		_throwable_active = 0
+	return {"list": list, "active": _throwable_active}
 
 func _compass(ctx: Dictionary) -> Dictionary:
 	var yaw := float(ctx.get("self_yaw", 0.0))

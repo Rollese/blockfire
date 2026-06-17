@@ -108,6 +108,22 @@ func test_prompt_none_when_nothing_in_range() -> void:
 	var out := m.build({"downed_mates": [], "vehicles_near": [], "tick": 0})
 	assert_eq(out["interaction_prompt"], null)
 
+func test_throwables_passthrough_and_active_cycle() -> void:
+	var m := HudModel.new()
+	var thr := [{"kind": 0, "count": 1}, {"kind": 1, "count": 2}, {"kind": 2, "count": 0}]
+	var out := m.build({"throwables": thr, "tick": 0})
+	var t: Dictionary = out["throwables"]
+	assert_eq(t["list"].size(), 3)
+	assert_eq(t["active"], 0, "defaults to first slot")
+	m.cycle_throwable(thr.size())
+	var out2 := m.build({"throwables": thr, "tick": 0})
+	var t2: Dictionary = out2["throwables"]
+	assert_eq(t2["active"], 1, "cycle advances active slot")
+	m.cycle_throwable(thr.size()); m.cycle_throwable(thr.size())
+	var out3 := m.build({"throwables": thr, "tick": 0})
+	var t3: Dictionary = out3["throwables"]
+	assert_eq(t3["active"], 0, "wraps around")
+
 func test_damage_arc_relative_and_fades() -> void:
 	var m := HudModel.new()
 	# yaw 0 -> camera looks -Z; damage from world bearing 0 (+Z) comes from directly behind -> 180 deg.
