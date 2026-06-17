@@ -9,6 +9,8 @@ var _view: Dictionary = {}      # id -> EntityState (latest authoritative)
 var _view_v: Dictionary = {}    # vid -> VehicleState
 var _interp := Interpolation.new()
 var last_header: Dictionary = {}
+var _structs: Dictionary = {}
+var _roster: Array = []
 
 func set_local_id(id: int) -> void:
 	_local_id = id
@@ -30,3 +32,25 @@ func self_state() -> EntityState:
 
 func vehicles() -> Dictionary:
 	return _view_v
+
+func apply_structure_baseline(bytes: PackedByteArray) -> void:
+	for rec in Protocol.decode_structure_baseline(bytes)["records"]:
+		_structs[int(rec["id"])] = rec
+
+func apply_structure_delta(bytes: PackedByteArray) -> void:
+	var d := Protocol.decode_structure_delta(bytes)
+	match int(d["op"]):
+		Protocol.OP_PLACE: _structs[int(d["rec"]["id"])] = d["rec"]
+		Protocol.OP_REMOVE: _structs.erase(int(d["id"]))
+		Protocol.OP_DAMAGE:
+			if _structs.has(int(d["id"])):
+				_structs[int(d["id"])]["bucket"] = int(d["bucket"])
+
+func structures() -> Dictionary:
+	return _structs
+
+func set_roster(rows: Array) -> void:
+	_roster = rows
+
+func roster() -> Array:
+	return _roster

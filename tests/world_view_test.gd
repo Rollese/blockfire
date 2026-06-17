@@ -30,3 +30,11 @@ func test_self_state_is_latest_authoritative() -> void:
 	assert_true(s != null, "self present after snapshot")
 	assert_almost_eq(s.pos.x, 0.0, 0.1, "self authoritative pos")
 	assert_eq(wv.last_header["last_input_tick"], 1, "header surfaced")
+
+func test_structure_baseline_then_delta_add_remove() -> void:
+	var wv := WorldView.new()
+	wv.apply_structure_baseline(Protocol.encode_structure_baseline(Vector2i(0, 0), [
+		{"id": 5, "type": 0, "cell": Vector3i(1, 0, 1), "yaw": 0, "health": 100, "owner": 1}]))
+	assert_true(wv.structures().has(5), "baseline piece present")
+	wv.apply_structure_delta(Protocol.encode_structure_delta(Protocol.OP_REMOVE, {"id": 5}))
+	assert_false(wv.structures().has(5), "removed piece gone")
