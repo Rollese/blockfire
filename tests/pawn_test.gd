@@ -9,6 +9,19 @@ func test_walks_at_stand_speed() -> void:
 	assert_almost_eq(p.pos.x, Stance.speed(Stance.STAND), 0.001)
 	assert_almost_eq(p.pos.y, 0.0, 0.001, "stays grounded")
 
+func test_step_clamps_to_supplied_world_half() -> void:
+	# Small-map regression: pawns must stay inside the map's world_half, not the 1000 m default.
+	var p := Pawn.new(1)
+	for _i in 600:   # walk +x for ~10 s — well past a 60 m arena edge
+		p.step(0.0166667, _cmd(1.0, 0.0), 60.0)
+	assert_true(p.pos.x <= 60.0 + 0.001, "x clamped to world_half=60 (was %f)" % p.pos.x)
+	# and the downed crawl path clamps too
+	var d := Pawn.new(2)
+	d.is_downed = true
+	for _i in 600:
+		d.step(0.0166667, _cmd(1.0, 0.0), 60.0)
+	assert_true(d.pos.x <= 60.0 + 0.001, "downed crawl also clamps to world_half")
+
 func test_crouch_is_slower() -> void:
 	var p := Pawn.new(1)
 	p.step(1.0, _cmd(1.0, 0.0, 0.0, 0.0, InputCommand.BTN_CROUCH))

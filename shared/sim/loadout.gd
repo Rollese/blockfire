@@ -39,3 +39,10 @@ static func default_attachments() -> Dictionary:
 
 static func random_class() -> int:
 	return randi() % 5
+
+## Class roll for HUMAN players — never ENGINEER. The engineer's RPG-primary variant is a
+## bot-fleet anti-vehicle device and reads as a broken weapon to a human; excluding the class
+## outright keeps every human loadout a normal click-fire gun. Bots still use random_class().
+static func random_class_no_engineer() -> int:
+	var pool := [ASSAULT, MEDIC, SUPPORT, RECON]
+	return pool[randi() % pool.size()]

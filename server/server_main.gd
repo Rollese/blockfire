@@ -288,7 +288,7 @@ func _step_movement() -> void:
 		if c["reloading"] and _sim.tick >= c["reload_done_tick"]:
 			c["reloading"] = false
 			c["ammo"] = Weapon.get_def(c["weapon"])["mag_size"]
-	_sim.step(inputs)
+	_sim.step(inputs, _map.world_half)
 
 ## Build vid -> driver command from each vehicle's seat-0 (driver) occupant's last input. Also
 ## refreshes the gunner pawn's look so SimLoop.step_vehicles can mirror it to the turret.
@@ -884,7 +884,8 @@ func _handle_hello(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
 	_next_id += 1
 	var team: int = 0 if _team_counts[0] <= _team_counts[1] else 1
 	_team_counts[team] += 1
-	var cls := Loadout.random_class()
+	# Humans never roll ENGINEER (its RPG-primary loadout has no click-fire gun); bots still do.
+	var cls := Loadout.random_class() if auto_deploy else Loadout.random_class_no_engineer()
 	var wid: int = Loadout.weapon_for(cls)
 	# RPG-primary is a bot-fleet thing (1/3 of engineers carry it so the fleet exercises
 	# anti-vehicle fire). A human handed an RPG-only loadout has no click-fire gun, which reads

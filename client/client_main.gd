@@ -105,6 +105,8 @@ func _ready() -> void:
 	# 3. Create non-scene components
 	_wv = WorldView.new()
 	_pred = Prediction.new()
+	if _map != null:
+		_pred.world_half = _map.world_half   # clamp local prediction to the map like the server
 	_wpred = WeaponPredictor.new()
 	_hud_model = HudModel.new()
 
