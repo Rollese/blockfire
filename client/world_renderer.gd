@@ -45,6 +45,7 @@ var _struct_key_of: Dictionary = {}
 var _friend_markers: Dictionary = {}
 var _marker_free_list: Array = []
 const FRIEND_MARKER_Y := 2.35    # world height above the pawn's feet (fixed; ignores stance squash)
+const PRONE_LIFT := 0.3          # small lift so a flat-lying prone/downed body rests on the ground
 # active vehicle nodes: vid(int) -> Node3D (VehicleKit transport; VehicleState carries no team)
 var _vehicle_active: Dictionary = {}
 var _vehicle_free_list: Array = []
@@ -289,9 +290,13 @@ func _make_friend_marker() -> MeshInstance3D:
 	mi.rotation = Vector3(PI, 0.0, 0.0)   # flip apex to point down toward the head
 	var mat := StandardMaterial3D.new()
 	mat.albedo_color = ArtPalette.FRIENDLY
-	mat.emission_enabled = true
-	mat.emission = ArtPalette.FRIENDLY
 	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	# Always visible — even through walls/objects (BattleBit friendly markers). Ignore the depth
+	# buffer and route through the transparent pass with max render priority so it draws on top of
+	# all opaque geometry.
+	mat.no_depth_test = true
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mat.render_priority = 127
 	mi.material_override = mat
 	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	return mi
@@ -302,16 +307,24 @@ func _pose_entity(node: Node3D, es: EntityState) -> void:
 	var height: float = pose["height"] as float
 	var tilt: float = pose["tilt"] as float
 
-	# Position: the kit's base sits at y=0, so place it directly at the pawn's ground position
-	# (no centre-of-capsule lift — that was for the old CapsuleMesh).
-	node.position = Vector3(es.pos.x, es.pos.y, es.pos.z)
+	if es.stance == Stance.PRONE or es.is_downed:
+		# Prone / downed: lay the soldier flat along its facing direction. A vertical scale would
+		# crush the standing figure into an unrecognisable blob, so instead tip the upright body
+		# 90° forward about its (yawed) right axis so it lies full-length on the ground.
+		var b := Basis.IDENTITY
+		b = b.rotated(Vector3.UP, es.yaw)
+		b = b.rotated(b.x, PI * 0.5)   # pitch head forward, down onto the ground
+		node.transform.basis = b
+		node.scale = Vector3.ONE
+		node.position = Vector3(es.pos.x, es.pos.y + PRONE_LIFT, es.pos.z)
+		return
 
+	# Standing / crouch: upright, the kit's base sits at the pawn's feet (no capsule-centre lift).
+	node.position = Vector3(es.pos.x, es.pos.y, es.pos.z)
 	# Orientation: yaw around Y, then lean tilt around Z (local forward = +Z, gun mount at +Z).
 	# Set basis BEFORE scale: assigning scale preserves rotation, but assigning basis resets scale.
 	node.transform.basis = Basis.from_euler(Vector3(0.0, es.yaw, tilt))
-
-	# Scale vertically to the sim's stance body-height. The kit is built at STAND_HEIGHT, so the
-	# ratio is 1.0 standing and squashes for crouch/prone (placeholder-grade stance feedback).
+	# Scale vertically to the stance body-height (crouch reads as a shorter, still-upright figure).
 	node.scale = Vector3(1.0, height / CharacterKit.STAND_HEIGHT, 1.0)
 
 
