@@ -1,14 +1,21 @@
 extends TestCase
 
-func test_builds_named_body_parts_team_tinted() -> void:
+func test_builds_named_body_parts_neutral_uniform() -> void:
 	var soldier := CharacterKit.build(0)
 	assert_true(soldier is Node3D, "returns a Node3D root")
 	assert_true(soldier.has_node("Torso"), "has a torso")
 	assert_true(soldier.has_node("Head"), "has a head")
 	assert_true(soldier.has_node("GunMount"), "has the aim-direction gun mount")
 	var torso := soldier.get_node("Torso") as MeshInstance3D
-	assert_eq((torso.material_override as StandardMaterial3D).albedo_color, Color(0.2, 0.5, 1.0),
-		"team 0 tint applied to body")
+	assert_eq((torso.material_override as StandardMaterial3D).albedo_color, ArtPalette.UNIFORM,
+		"body wears the shared neutral uniform — NOT a team tint (friend/foe is the marker)")
+
+func test_both_teams_render_identically_no_tint() -> void:
+	var a := CharacterKit.build(0).get_node("Torso") as MeshInstance3D
+	var b := CharacterKit.build(1).get_node("Torso") as MeshInstance3D
+	assert_eq((a.material_override as StandardMaterial3D).albedo_color,
+		(b.material_override as StandardMaterial3D).albedo_color,
+		"all players look alike regardless of team (BattleBit-style)")
 
 func test_stand_height_matches_sim_body_height() -> void:
 	assert_almost_eq(CharacterKit.STAND_HEIGHT, Stance.body_height(Stance.STAND), 0.01,

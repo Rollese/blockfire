@@ -2,12 +2,15 @@ class_name CharacterKit
 extends Object
 ## Procedural blocky soldier. Presentation-only. Built at STAND height; the renderer scales the
 ## root vertically to Stance.body_height each frame. Local +Z is forward (gun mount + aim).
+## NOT team-tinted (BattleBit-style): every player wears the same uniform. Friend/foe is shown by
+## a separate blue marker the renderer floats above friendlies — never by body colour. The `team`
+## arg is kept for call-site compatibility but does not affect appearance.
 
 const STAND_HEIGHT := 1.8   # must track Stance.body_height(STAND)
 
-static func build(team: int) -> Node3D:
+static func build(_team: int = 0) -> Node3D:
 	var root := Node3D.new()
-	var mat := ArtPalette.team_material(team)
+	var mat := ArtPalette.uniform_material()
 	var dark := ArtPalette.gun_material()
 
 	var legs := _box("Legs", Vector3(0.5, 0.8, 0.3), Vector3(0.0, 0.4, 0.0), mat)

@@ -1,21 +1,17 @@
 class_name WorldRenderer
 extends Node3D
-## Presentation-only renderer. Reads MapDef + WorldView + Prediction each frame and draws
-## placeholder primitives. Contains NO gameplay or authority logic (AGENTS.md §7, ADR-0005).
-## P2 can swap meshes by changing _make_entity_mesh() / _make_ground_mesh() etc. without
-## touching netcode or calling code.
+## Presentation-only renderer. Reads MapDef + WorldView + Prediction each frame and draws the
+## procedural low-poly art kit (client/art/*_kit.gd). Contains NO gameplay or authority logic
+## (AGENTS.md §7, ADR-0005). Meshes come from the kits; swap kit internals without touching this.
 
-# -- team colours (placeholder tint) ------------------------------------------
+# -- team colours (markers/beacons; kits own their own tints) ------------------
 const TEAM_COLOR := [Color(0.2, 0.5, 1.0), Color(1.0, 0.3, 0.2)]  # [team0=blue, team1=red]
 const NEUTRAL_COLOR := Color(0.6, 0.6, 0.6)
 
-# -- structure type colours (placeholder tint, index == PieceCatalog type int) --
-const STRUCTURE_TYPE_COLORS := [
-	Color(0.70, 0.55, 0.35),   # type 0: wood   — warm tan
-	Color(0.55, 0.55, 0.60),   # type 1: metal  — cool grey
-	Color(0.65, 0.60, 0.55),   # type 2: concrete — warm grey
-]
-const STRUCTURE_DEFAULT_COLOR := Color(0.60, 0.58, 0.56)
+# -- structure type -> PieceCatalog id (array order == wire `type` int; see pieces/*.json) -----
+# fortifications.json order: 0 = sandbag, 1 = wall. Unknown/extra types fall back to "wall"
+# (StructureKit also falls back to "wall" for any id it doesn't know).
+const STRUCT_TYPE_ID := ["sandbag", "wall"]
 
 # -- structure feedback timing ------------------------------------------------
 const STRUCT_SPAWN_DUR := 0.18     # seconds for build pop scale-up
@@ -36,21 +32,24 @@ var _camera: Camera3D = null
 var _tracers: Array = []          # [{node: MeshInstance3D, mat: StandardMaterial3D, die: float}]
 var _tracer_idx: int = 0
 
-# active entity nodes: id(int) -> MeshInstance3D
+# active entity nodes: id(int) -> Node3D (CharacterKit soldier)
 var _active: Dictionary = {}
-# free list for recycled entity MeshInstance3D nodes
+# free list for recycled entity Node3D roots (all soldiers are identical — no per-team re-tint)
 var _free_list: Array = []
 
-# active structure nodes: id(int) -> MeshInstance3D
+# active structure nodes: id(int) -> Node3D (StructureKit piece)
 var _struct_active: Dictionary = {}
-# free list for recycled structure MeshInstance3D nodes
-var _struct_free_list: Array = []
-# active vehicle nodes: vid(int) -> MeshInstance3D (placeholder boxes; VehicleState has no team)
+# id(int) -> "type:bucket" key; a change means rebuild (kit geometry/tint is baked at build)
+var _struct_key_of: Dictionary = {}
+# friend markers: id(int) -> MeshInstance3D (blue triangle above teammates; BattleBit-style)
+var _friend_markers: Dictionary = {}
+var _marker_free_list: Array = []
+const FRIEND_MARKER_Y := 2.35    # world height above the pawn's feet (fixed; ignores stance squash)
+# active vehicle nodes: vid(int) -> Node3D (VehicleKit transport; VehicleState carries no team)
 var _vehicle_active: Dictionary = {}
 var _vehicle_free_list: Array = []
-const VEHICLE_COLOR := Color(0.30, 0.34, 0.22)   # olive — neutral placeholder, no team field on wire
 const VEHICLE_SMOOTH_RATE := 16.0                # higher = snappier; ~1/e catch-up in ~60 ms
-# structures pending a destroy pop: id(int) -> {node:MeshInstance3D, die:float, tween:Tween}
+# structures pending a destroy pop: id(int) -> {node:Node3D, die:float, tween:Tween}
 var _struct_dying: Dictionary = {}
 
 # viewmodel box (optional placeholder)
@@ -139,9 +138,13 @@ func update(world_view: WorldView, predictor: Prediction, now: float, fov: float
 	if world_view == null or predictor == null:
 		return
 
-	# 1. Entity pool update
+	# 1. Entity pool update. Friend/foe is shown by a marker above friendlies (BattleBit-style),
+	# not by body colour — so we need the local player's team. self_state() is the local pawn's
+	# authoritative EntityState (null while dead/pre-spawn -> no friend markers that frame).
 	var remotes: Dictionary = world_view.remotes_at(now)
-	_sync_entity_pool(remotes)
+	var self_es: EntityState = world_view.self_state()
+	var local_team: int = self_es.team if self_es != null else -1
+	_sync_entity_pool(remotes, local_team)
 
 	# 2. Structure pool update
 	_sync_structure_pool(world_view.structures(), now)
@@ -193,11 +196,11 @@ func _age_tracers(now: float) -> void:
 
 
 # =============================================================================
-#  Entity pool helpers
+#  Entity pool helpers (CharacterKit soldiers)
 # =============================================================================
 
-func _sync_entity_pool(remotes: Dictionary) -> void:
-	# Release nodes for ids that are gone or dead
+func _sync_entity_pool(remotes: Dictionary, local_team: int) -> void:
+	# Release nodes for ids that are gone or dead (and their friend markers)
 	var to_release: Array = []
 	for id: int in _active:
 		if not remotes.has(id):
@@ -208,31 +211,34 @@ func _sync_entity_pool(remotes: Dictionary) -> void:
 				to_release.append(id)
 	for id: int in to_release:
 		_release_entity(id)
+		_release_marker(id)
 
-	# Acquire / update nodes for live remotes
+	# Acquire / update nodes for live remotes; mark friendlies (same team as the local player).
 	for id: Variant in remotes:
 		var es: EntityState = remotes[id] as EntityState
 		if not es.alive:
 			continue
-		var node: MeshInstance3D = _acquire_entity(int(id), es.team)
+		var node: Node3D = _acquire_entity(int(id))
 		_pose_entity(node, es)
+		if local_team >= 0 and es.team == local_team:
+			var marker: MeshInstance3D = _acquire_marker(int(id))
+			marker.position = Vector3(es.pos.x, es.pos.y + FRIEND_MARKER_Y, es.pos.z)
+		else:
+			_release_marker(int(id))
 
 
-func _acquire_entity(id: int, team: int) -> MeshInstance3D:
+func _acquire_entity(id: int) -> Node3D:
 	if _active.has(id):
-		return _active[id] as MeshInstance3D
-	# Reuse from free list or create new
-	var node: MeshInstance3D
+		return _active[id] as Node3D
+	# Reuse from free list or create new. Soldiers are not team-tinted (all identical), so a
+	# recycled node needs no re-tint — friend/foe is the marker, handled separately.
+	var node: Node3D
 	if not _free_list.is_empty():
-		node = _free_list.pop_back() as MeshInstance3D
+		node = _free_list.pop_back() as Node3D
 	else:
 		node = _make_entity_mesh()
 		add_child(node)
 	node.visible = true
-	# Apply team tint
-	var mat := StandardMaterial3D.new()
-	mat.albedo_color = TEAM_COLOR[team] if team < TEAM_COLOR.size() else NEUTRAL_COLOR
-	node.material_override = mat
 	_active[id] = node
 	return node
 
@@ -240,33 +246,77 @@ func _acquire_entity(id: int, team: int) -> MeshInstance3D:
 func _release_entity(id: int) -> void:
 	if not _active.has(id):
 		return
-	var node: MeshInstance3D = _active[id] as MeshInstance3D
+	var node: Node3D = _active[id] as Node3D
 	node.visible = false
 	_active.erase(id)
 	_free_list.append(node)
 
 
-func _pose_entity(node: MeshInstance3D, es: EntityState) -> void:
+# -- friend markers (blue triangle above teammates) ---------------------------
+
+func _acquire_marker(id: int) -> MeshInstance3D:
+	if _friend_markers.has(id):
+		return _friend_markers[id] as MeshInstance3D
+	var node: MeshInstance3D
+	if not _marker_free_list.is_empty():
+		node = _marker_free_list.pop_back() as MeshInstance3D
+	else:
+		node = _make_friend_marker()
+		add_child(node)
+	node.visible = true
+	_friend_markers[id] = node
+	return node
+
+
+func _release_marker(id: int) -> void:
+	if not _friend_markers.has(id):
+		return
+	var node: MeshInstance3D = _friend_markers[id] as MeshInstance3D
+	node.visible = false
+	_friend_markers.erase(id)
+	_marker_free_list.append(node)
+
+
+func _make_friend_marker() -> MeshInstance3D:
+	# Small downward-pointing cone = a triangle floating point-down above a teammate's head.
+	# Unshaded + emissive so it reads clearly at any distance/lighting; never casts shadow.
+	var mi := MeshInstance3D.new()
+	var mesh := CylinderMesh.new()
+	mesh.top_radius = 0.0          # apex
+	mesh.bottom_radius = 0.16
+	mesh.height = 0.26
+	mi.mesh = mesh
+	mi.rotation = Vector3(PI, 0.0, 0.0)   # flip apex to point down toward the head
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = ArtPalette.FRIENDLY
+	mat.emission_enabled = true
+	mat.emission = ArtPalette.FRIENDLY
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mi.material_override = mat
+	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	return mi
+
+
+func _pose_entity(node: Node3D, es: EntityState) -> void:
 	var pose: Dictionary = StancePose.of(es.stance, es.lean, es.is_downed, es.climbing)
 	var height: float = pose["height"] as float
-	var y_offset: float = pose["y_offset"] as float
 	var tilt: float = pose["tilt"] as float
 
-	# Position: entity pos + lift by y_offset so the base stays on floor
-	node.position = Vector3(es.pos.x, es.pos.y + y_offset, es.pos.z)
+	# Position: the kit's base sits at y=0, so place it directly at the pawn's ground position
+	# (no centre-of-capsule lift — that was for the old CapsuleMesh).
+	node.position = Vector3(es.pos.x, es.pos.y, es.pos.z)
 
-	# Orientation: yaw around Y, then lean tilt around Z (local forward = -Z)
-	var rot := Basis.from_euler(Vector3(0.0, es.yaw, tilt))
-	node.transform.basis = rot
+	# Orientation: yaw around Y, then lean tilt around Z (local forward = +Z, gun mount at +Z).
+	# Set basis BEFORE scale: assigning scale preserves rotation, but assigning basis resets scale.
+	node.transform.basis = Basis.from_euler(Vector3(0.0, es.yaw, tilt))
 
-	# Scale capsule height dynamically (CapsuleMesh height is along Y)
-	# We set scale.y to reflect the stance height relative to the default height.
-	# Default mesh height is 1.0; scale to match sim body_height.
-	node.scale = Vector3(1.0, height, 1.0)
+	# Scale vertically to the sim's stance body-height. The kit is built at STAND_HEIGHT, so the
+	# ratio is 1.0 standing and squashes for crouch/prone (placeholder-grade stance feedback).
+	node.scale = Vector3(1.0, height / CharacterKit.STAND_HEIGHT, 1.0)
 
 
 # =============================================================================
-#  Structure pool helpers
+#  Structure pool helpers (StructureKit pieces; rebuilt when piece/bucket changes)
 # =============================================================================
 
 func _sync_structure_pool(structs: Dictionary, now: float) -> void:
@@ -278,9 +328,9 @@ func _sync_structure_pool(structs: Dictionary, now: float) -> void:
 			to_finish.append(id)
 	for id: int in to_finish:
 		var entry: Dictionary = _struct_dying[id]
-		var node: MeshInstance3D = entry["node"] as MeshInstance3D
+		var node: Node3D = entry["node"] as Node3D
 		_struct_dying.erase(id)
-		_struct_release_node(node)
+		node.queue_free()
 
 	# Release nodes for ids that have been removed from the store
 	var to_release: Array = []
@@ -294,54 +344,49 @@ func _sync_structure_pool(structs: Dictionary, now: float) -> void:
 	for id_v: Variant in structs:
 		var id: int = int(id_v)
 		var rec: Dictionary = structs[id_v]
-		var is_new := not _struct_active.has(id)
-		var node: MeshInstance3D = _acquire_structure(id, rec)
+		var was_present := _struct_active.has(id)
+		var node: Node3D = _acquire_structure(id, rec)
 		_pose_structure(node, rec)
-		if is_new:
+		# Pop only on a genuinely new structure, not on a damage-driven rebuild (still present).
+		if not was_present:
 			_start_build_pop(node)
 
 
-func _acquire_structure(id: int, rec: Dictionary) -> MeshInstance3D:
+func _acquire_structure(id: int, rec: Dictionary) -> Node3D:
+	var key := _struct_key(rec)
 	if _struct_active.has(id):
-		return _struct_active[id] as MeshInstance3D
-	# Reuse from free list or create new
-	var node: MeshInstance3D
-	if not _struct_free_list.is_empty():
-		node = _struct_free_list.pop_back() as MeshInstance3D
-	else:
-		node = _make_structure_mesh()
-		add_child(node)
-	node.visible = true
-	# Apply type tint
-	var type_idx: int = int(rec.get("type", 0))
-	var col: Color = STRUCTURE_TYPE_COLORS[type_idx] \
-		if type_idx < STRUCTURE_TYPE_COLORS.size() else STRUCTURE_DEFAULT_COLOR
-	var mat := StandardMaterial3D.new()
-	mat.albedo_color = col
-	node.material_override = mat
+		if String(_struct_key_of.get(id, "")) == key:
+			return _struct_active[id] as Node3D
+		# Piece type or damage bucket changed — the kit bakes geometry + tint at build time, so
+		# rebuild rather than re-tint (a heavier bucket also adds a chip in silhouette).
+		(_struct_active[id] as Node3D).queue_free()
+		_struct_active.erase(id)
+		_struct_key_of.erase(id)   # keep the two dicts moving together
+	var node := _make_structure_node(rec)
+	add_child(node)
 	_struct_active[id] = node
+	_struct_key_of[id] = key
 	return node
+
+
+func _struct_key(rec: Dictionary) -> String:
+	return "%d:%d" % [int(rec.get("type", 0)), int(rec.get("bucket", 3))]
 
 
 func _start_destroy_pop(id: int, now: float) -> void:
 	# If already in dying list (e.g. double remove), skip
 	if _struct_dying.has(id):
 		return
-	var node: MeshInstance3D = _struct_active[id] as MeshInstance3D
+	var node: Node3D = _struct_active[id] as Node3D
 	_struct_active.erase(id)
+	_struct_key_of.erase(id)
 	# Scale-down tween as destroy feedback
 	var tw: Tween = create_tween()
 	tw.tween_property(node, "scale", Vector3.ZERO, STRUCT_DESTROY_DUR)
 	_struct_dying[id] = {"node": node, "die": now + STRUCT_DESTROY_DUR, "tween": tw}
 
 
-func _struct_release_node(node: MeshInstance3D) -> void:
-	node.visible = false
-	node.scale = Vector3.ONE   # reset scale for reuse
-	_struct_free_list.append(node)
-
-
-func _start_build_pop(node: MeshInstance3D) -> void:
+func _start_build_pop(node: Node3D) -> void:
 	# Scale-up from near-zero as spawn feedback; reuses create_tween() (Godot 4 Node method)
 	node.scale = Vector3(0.05, 0.05, 0.05)
 	var tw: Tween = create_tween()
@@ -349,30 +394,17 @@ func _start_build_pop(node: MeshInstance3D) -> void:
 		.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 
 
-func _pose_structure(node: MeshInstance3D, rec: Dictionary) -> void:
-	# Cell centre: cell_min + half a cell on each axis (matches BuildGrid.world_of / cell_min).
-	# BuildGrid.CELL_SIZE = 2.0 m; pieces sit with their base at cell.y * CELL_SIZE.
+func _pose_structure(node: Node3D, rec: Dictionary) -> void:
+	# Cell floor: the kit's base sits at y=0, so the piece rests on the cell floor (cell.y*CELL_SIZE)
+	# and is centred horizontally in the cell. BuildGrid.CELL_SIZE = 2.0 m.
 	var cell: Vector3i = rec["cell"] as Vector3i
 	var half := BuildGrid.CELL_SIZE * 0.5
-	var base := Vector3(float(cell.x) * BuildGrid.CELL_SIZE,
-						float(cell.y) * BuildGrid.CELL_SIZE,
-						float(cell.z) * BuildGrid.CELL_SIZE)
-	node.position = base + Vector3(half, half, half)
+	node.position = Vector3(float(cell.x) * BuildGrid.CELL_SIZE + half,
+							float(cell.y) * BuildGrid.CELL_SIZE,
+							float(cell.z) * BuildGrid.CELL_SIZE + half)
 	# Yaw is a step index (0..YAW_STEPS-1); convert to radians and orient around Y.
 	var yaw_rad := BuildGrid.yaw_radians(int(rec.get("yaw", 0)))
 	node.transform.basis = Basis.from_euler(Vector3(0.0, yaw_rad, 0.0))
-	# Health feedback: darken material by bucket (3=pristine..0=heavy).
-	# Recompute from the canonical type colour each frame so the tint stays consistent.
-	var type_idx: int = int(rec.get("type", 0))
-	var base_col: Color = STRUCTURE_TYPE_COLORS[type_idx] \
-		if type_idx < STRUCTURE_TYPE_COLORS.size() else STRUCTURE_DEFAULT_COLOR
-	if rec.has("bucket"):
-		var bucket: int = int(rec["bucket"])   # 0..3; 3=pristine
-		var brightness: float = 0.35 + 0.65 * (float(bucket) / 3.0)
-		base_col = base_col * brightness   # scale RGB, preserve reference alpha
-	var mat := node.material_override as StandardMaterial3D
-	if mat != null:
-		mat.albedo_color = base_col
 
 
 # =============================================================================
@@ -395,29 +427,18 @@ func _apply_camera(predictor: Prediction, fov: float, look_yaw: float, look_pitc
 
 
 # =============================================================================
-#  Mesh / material factories (swap here in P2 without touching netcode)
+#  Mesh / material factories (markers + kit roots)
 # =============================================================================
 
-func _make_entity_mesh() -> MeshInstance3D:
-	var mi := MeshInstance3D.new()
-	var mesh := CapsuleMesh.new()
-	mesh.radius = 0.3
-	mesh.height = 1.0    # default; scaled per-frame in _pose_entity()
-	mi.mesh = mesh
-	# Placeholder gun barrel so a pawn's facing / aim direction is readable (capsules are round).
-	# The entity node's local +Z is its forward (Combat._forward via es.yaw), so a box sticking out
-	# +Z points where the pawn is aiming. Child of the capsule -> inherits the yaw rotation.
-	var gun := MeshInstance3D.new()
-	var gmesh := BoxMesh.new()
-	gmesh.size = Vector3(0.08, 0.08, 0.6)
-	gun.mesh = gmesh
-	gun.position = Vector3(0.22, 0.1, 0.45)   # held on the right, chest height, barrel forward
-	var gmat := StandardMaterial3D.new()
-	gmat.albedo_color = Color(0.08, 0.08, 0.08)
-	gun.material_override = gmat
-	gun.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	mi.add_child(gun)
-	return mi
+func _make_entity_mesh() -> Node3D:
+	# All soldiers share one neutral uniform (no team tint); friend/foe is the marker above the head.
+	return CharacterKit.build()
+
+
+func _make_structure_node(rec: Dictionary) -> Node3D:
+	var type_idx: int = int(rec.get("type", 0))
+	var piece_id: String = STRUCT_TYPE_ID[type_idx] if type_idx < STRUCT_TYPE_ID.size() else "wall"
+	return StructureKit.build(piece_id, int(rec.get("bucket", 3)))
 
 
 func _make_cylinder_marker(radius: float, height: float, color: Color) -> MeshInstance3D:
@@ -445,26 +466,8 @@ func _make_box_mesh(size: Vector3, color: Color) -> MeshInstance3D:
 	return mi
 
 
-func _make_structure_mesh() -> MeshInstance3D:
-	# Placeholder: a BoxMesh sized to one full build cell (2 m cube).
-	# Half-height pieces share the same node; _pose_structure scales Y to 0.5 for halves is
-	# handled via the mesh size only — keeping scale=1 so build-pop tweens work cleanly.
-	var mi := MeshInstance3D.new()
-	var mesh := BoxMesh.new()
-	mesh.size = Vector3(BuildGrid.CELL_SIZE * 0.92,   # slight gap so adjacent pieces are distinct
-						BuildGrid.CELL_SIZE * 0.92,
-						BuildGrid.CELL_SIZE * 0.92)
-	mi.mesh = mesh
-	# material_override assigned at acquire time (type tint); roughness set here as default.
-	var mat := StandardMaterial3D.new()
-	mat.albedo_color = STRUCTURE_DEFAULT_COLOR
-	mat.roughness = 0.85
-	mi.material_override = mat
-	return mi
-
-
 # =============================================================================
-#  Vehicle pool (placeholder boxes — no team field on the wire, so neutral tint)
+#  Vehicle pool (VehicleKit transport — no team field on the wire, so neutral tint)
 # =============================================================================
 func _sync_vehicle_pool(vehicles: Dictionary, render_delta: float) -> void:
 	# Smoothing factor: vehicle states arrive only at the snapshot rate (~15 Hz), so posing the
@@ -478,7 +481,7 @@ func _sync_vehicle_pool(vehicles: Dictionary, render_delta: float) -> void:
 		if not vehicles.has(vid):
 			to_release.append(vid)
 	for vid: int in to_release:
-		var node: MeshInstance3D = _vehicle_active[vid] as MeshInstance3D
+		var node: Node3D = _vehicle_active[vid] as Node3D
 		_vehicle_active.erase(vid)
 		node.visible = false
 		_vehicle_free_list.append(node)
@@ -489,9 +492,9 @@ func _sync_vehicle_pool(vehicles: Dictionary, render_delta: float) -> void:
 		if vs == null:
 			continue
 		var is_new := not _vehicle_active.has(vid)
-		var node: MeshInstance3D = _acquire_vehicle(vid)
-		# Box is ~1.6 m tall; lift by half so it rests on the ground at vs.pos.
-		var target_pos: Vector3 = vs.pos + Vector3(0.0, 0.8, 0.0)
+		var node: Node3D = _acquire_vehicle(vid)
+		# The kit's base (wheels) sits at y=0, so it rests on the ground directly at vs.pos.
+		var target_pos: Vector3 = vs.pos
 		if is_new or k <= 0.0:
 			node.position = target_pos
 			node.rotation = Vector3(0.0, vs.heading, 0.0)
@@ -500,12 +503,12 @@ func _sync_vehicle_pool(vehicles: Dictionary, render_delta: float) -> void:
 			node.rotation.y = lerp_angle(node.rotation.y, vs.heading, k)
 
 
-func _acquire_vehicle(vid: int) -> MeshInstance3D:
+func _acquire_vehicle(vid: int) -> Node3D:
 	if _vehicle_active.has(vid):
-		return _vehicle_active[vid] as MeshInstance3D
-	var node: MeshInstance3D
+		return _vehicle_active[vid] as Node3D
+	var node: Node3D
 	if not _vehicle_free_list.is_empty():
-		node = _vehicle_free_list.pop_back() as MeshInstance3D
+		node = _vehicle_free_list.pop_back() as Node3D
 	else:
 		node = _make_vehicle_mesh()
 		add_child(node)
@@ -514,14 +517,7 @@ func _acquire_vehicle(vid: int) -> MeshInstance3D:
 	return node
 
 
-func _make_vehicle_mesh() -> MeshInstance3D:
-	# Placeholder transport: a box roughly 2.4 W x 1.6 H x 5.0 L (forward = +Z, matches heading yaw).
-	var mi := MeshInstance3D.new()
-	var mesh := BoxMesh.new()
-	mesh.size = Vector3(2.4, 1.6, 5.0)
-	mi.mesh = mesh
-	var mat := StandardMaterial3D.new()
-	mat.albedo_color = VEHICLE_COLOR
-	mat.roughness = 0.8
-	mi.material_override = mat
-	return mi
+func _make_vehicle_mesh() -> Node3D:
+	# Neutral transport — VehicleState carries no team field on the wire, so build with the
+	# neutral tint (team -1 -> ArtPalette neutral). Forward = +Z, matches heading yaw.
+	return VehicleKit.build("transport", -1)
