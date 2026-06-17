@@ -25,6 +25,8 @@ const FIRE_CONE_DOT := 0.985       # broad-phase: target within ~10deg of ray
 const FIRE_RANGE_MARGIN := 20.0    # grid broad-phase slack for lag-comp movement
 const MAP_PATH := "res://maps/conquest_proving_grounds.json"   # default; override with --map=<name>
 const MATCH_STATE_INTERVAL := 15   # ticks between match-state broadcasts (2 Hz)
+const KILL_SCORE := 100             # score points awarded to killer per kill
+const ROSTER_STRIDE_TICKS := 30    # broadcast roster every N ticks (~1 Hz @30Hz)
 const MATCH_END_DRAIN_TICKS := 60  # keep running ~2s after a win, then exit
 const MAX_STRUCTURE_DELTAS_PER_TICK := 64   # graceful degradation: cap delta SENDS/tick
 const GRENADE_FUSE_TICKS := 45        # 1.5s @30Hz
@@ -79,6 +81,7 @@ var _climbs := 0              # climb-mode entries this window
 var _vaults := 0              # vault completions this window
 var _drop_shoot_blocked := 0  # shots rejected by the prone-transition gate this window
 
+var _roster_tick := 0
 var _kills := 0
 var _shots := 0
 var _hits := 0
@@ -227,6 +230,9 @@ func _physics_process(delta: float) -> void:
 	var t_match := Time.get_ticks_usec()
 	_emit_structure_deltas()
 	_send_snapshots()
+	_roster_tick += 1
+	if _roster_tick % ROSTER_STRIDE_TICKS == 0:
+		_broadcast_roster()
 	var t_snap := Time.get_ticks_usec()
 	_phase_us["poll"] += t_poll - t0
 	_phase_us["move"] += t_move - t_poll
@@ -496,6 +502,11 @@ func _kill_pawn(vid: int, victim: Pawn, killer_id: int, weapon_id: int, headshot
 	# auto_deploy=false (human): leave respawn_tick at 0 -> returns to deploy screen
 	_conquest.register_death(victim.team)
 	_kills += 1
+	if _clients.has(vid):
+		_clients[vid]["deaths"] = int(_clients[vid]["deaths"]) + 1
+	if _clients.has(killer_id) and killer_id != vid:
+		_clients[killer_id]["kills"] = int(_clients[killer_id]["kills"]) + 1
+		_clients[killer_id]["score"] = int(_clients[killer_id]["score"]) + KILL_SCORE
 	if source == Revive.Source.BLAST:
 		_splash_kills += 1
 	var ev := Protocol.encode_kill(vid, killer_id, weapon_id, headshot)
@@ -808,6 +819,16 @@ func _send_snapshots() -> void:
 			if s < cutoff: c["history_v"].erase(s)
 		_tele.add_bytes(id, bytes.size())
 
+func _broadcast_roster() -> void:
+	var rows: Array = []
+	for id in _clients:
+		var c = _clients[id]
+		rows.append({"id": id, "name": String(c.get("name", "P%d" % id)), "team": int(c["team"]),
+			"squad": int(c["squad"]), "kills": int(c["kills"]), "deaths": int(c["deaths"]), "score": int(c["score"])})
+	var pkt := Protocol.encode_roster(rows)
+	for id in _clients:
+		_net.send_to(_clients[id]["peer"], NetHost.CHANNEL_CONTROL, pkt, ENetPacketPeer.FLAG_RELIABLE)
+
 func _on_packet(peer: ENetPacketPeer, _channel: int, bytes: PackedByteArray) -> void:
 	match Protocol.msg_type(bytes):
 		Protocol.Msg.HELLO: _handle_hello(peer, bytes)
@@ -858,6 +879,7 @@ func _handle_hello(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
 		"reloading": false, "reload_done_tick": 0, "last_fire_time": -999.0,
 		"shot_index": 0, "respawn_tick": 0, "auto_deploy": auto_deploy,
 		"last_build_tick": -100000, "last_grenade_tick": -100000, "known_regions": {},
+		"name": pname, "kills": 0, "deaths": 0, "score": 0, "dmg_ledger": {},
 	}
 	var p := _sim.world.spawn(id)
 	p.team = team
