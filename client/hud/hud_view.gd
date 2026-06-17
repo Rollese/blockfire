@@ -6,6 +6,7 @@ extends Control
 
 const COMPASS_STRIP_WIDTH := 400.0
 const COMPASS_HEIGHT := 24.0
+const COMPASS_MARKER_POOL := 12   # reused objective-marker labels (never realloc per frame)
 const KILLFEED_MAX := 6
 const ARC_POOL_SIZE := 8        # max concurrent directional-damage arcs
 const ARC_RADIUS := 180.0       # distance from screen centre where arcs appear
@@ -15,6 +16,7 @@ var _ammo_label: Label
 var _reload_label: Label
 var _compass_label: Label
 var _compass_container: Control   # holds marker labels; children are reused per render
+var _compass_markers: Array[Label] = []   # pooled objective-marker labels (▼), reused each frame
 var _tickets_label: Label
 var _cap_bar: ColorRect           # capture progress bar background
 var _cap_fill: ColorRect          # capture progress fill
@@ -159,8 +161,17 @@ func _build_compass() -> void:
 	_compass_label.mouse_filter = MOUSE_FILTER_IGNORE
 	strip.add_child(_compass_label)
 
-	# Container for objective markers (children reused each render).
+	# Container for objective markers — pooled labels, created ONCE and reused each frame.
+	# (Recreating them per frame cost ~10 ms/frame: Label alloc + theme + add_child.)
 	_compass_container = strip
+	for i in COMPASS_MARKER_POOL:
+		var dot := Label.new()
+		dot.text = "▼"
+		dot.add_theme_font_size_override("font_size", 12)
+		dot.mouse_filter = MOUSE_FILTER_IGNORE
+		dot.visible = false
+		strip.add_child(dot)
+		_compass_markers.append(dot)
 
 
 func _build_tickets() -> void:
@@ -333,27 +344,22 @@ func _render_compass(compass: Dictionary) -> void:
 	var cardinal: String = _cardinal(heading_deg)
 	_compass_label.text = "%s %d°" % [cardinal, heading_deg]
 
-	# Remove previous marker children (all except the bg ColorRect and the heading label).
-	# We keep index 0 (bg) and index 1 (compass_label) — remove any after.
-	var child_count := _compass_container.get_child_count()
-	for i in range(child_count - 1, 1, -1):
-		_compass_container.get_child(i).queue_free()
-
-	# Rebuild objective markers.
+	# Update objective markers by REUSING the pooled labels — no per-frame alloc/free.
+	# (The old recreate-every-frame path cost ~10 ms/frame and capped the client at ~40 fps.)
 	var markers: Array = compass.get("markers", [])
-	for m: Dictionary in markers:
+	var strip_half := COMPASS_STRIP_WIDTH * 0.5
+	for i in _compass_markers.size():
+		var dot: Label = _compass_markers[i]
+		if i >= markers.size():
+			dot.visible = false
+			continue
+		var m: Dictionary = markers[i]
 		var rel: float = float(m.get("rel_bearing", 0.0))
 		var owner: int = int(m.get("owner", -1))
-		# Map rel_bearing (-PI..PI] to x offset within strip.
-		var strip_half := COMPASS_STRIP_WIDTH * 0.5
 		var x := (rel / PI) * strip_half + strip_half - 6.0   # centre of strip at rel=0
-		var dot := Label.new()
-		dot.text = "▼"
-		dot.add_theme_font_size_override("font_size", 12)
-		dot.modulate = _owner_color(owner)
 		dot.position = Vector2(clampf(x, 2.0, COMPASS_STRIP_WIDTH - 14.0), COMPASS_HEIGHT - 2.0)
-		dot.mouse_filter = MOUSE_FILTER_IGNORE
-		_compass_container.add_child(dot)
+		dot.modulate = _owner_color(owner)
+		dot.visible = true
 
 
 func _render_tickets(tickets: Array, capture) -> void:
