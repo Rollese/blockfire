@@ -348,8 +348,13 @@ func _handle_snapshot(bytes: PackedByteArray) -> void:
 	# point ownership (it may have changed since the last deploy).
 	if _was_alive and not alive:
 		_deploy_menu_populated = false
+		_pos_err = Vector3.ZERO   # drop any residual reconcile offset so respawn doesn't inherit it
+		_reconciled = false
 	_was_alive = alive
 	if alive:
+		# Mirror downed state BEFORE reconcile so the replayed inputs crawl (1 m/s) on the very tick
+		# the down/revive lands — otherwise that transition tick replays full-speed and rubber-bands.
+		_pred.predicted.is_downed = ss.is_downed
 		# Reconcile movement prediction from authoritative position + pitch. Smooth only a genuine
 		# correction (deadzone..snap): ease it into the camera via _pos_err instead of snapping.
 		var pre_pos: Vector3 = _pred.predicted.pos

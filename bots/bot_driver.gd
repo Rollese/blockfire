@@ -210,7 +210,11 @@ func _drive(bot: Dictionary, delta: float) -> void:
 		drill_geom_valid = drill_geom_valid and not _drill_ladder.is_empty()
 
 	if target != null:
-		var d := target.pos - me.pos
+		# Aim from our EYE at the target's CENTRE-MASS (capsule middle), not feet→feet — otherwise the
+		# eye-height ray sails over a standing target's head, and the tight capsule-sized fire cone
+		# (below) would be centred on the wrong point.
+		var d := (target.pos + Vector3(0.0, Stance.body_height(target.stance) * 0.5, 0.0)) \
+			- (me.pos + Vector3(0.0, Stance.eye_height(me.stance), 0.0))
 		var want_yaw := atan2(d.x, d.z)
 		var want_pitch := clampf(asin(clampf(d.y / maxf(d.length(), 0.001), -1.0, 1.0)), -Pawn.MAX_PITCH, Pawn.MAX_PITCH)
 		# Track fast enough to follow a close strafing target (0.5/tick lagged too far behind to ever
@@ -325,6 +329,8 @@ func _is_closest_reviver(bot: Dictionary, me: EntityState, rid: int) -> bool:
 		return false
 	var dpos: Vector3 = (view[rid] as EntityState).pos
 	var my_d: float = me.pos.distance_to(dpos)
+	if my_d <= Revive.REVIVE_RANGE:
+		return true   # already in revive range -> always commit, never strand a downed mate
 	var my_id: int = int(bot["id"])
 	for id in view:
 		if int(id) == my_id or int(id) == rid:

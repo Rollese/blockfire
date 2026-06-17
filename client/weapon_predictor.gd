@@ -42,8 +42,9 @@ func reconcile(auth_mag: int, auth_reloading: bool, auth_reload_remaining: int, 
 	if auth_reloading:
 		mag = auth_mag
 		_reload_done_tick = now_tick + auth_reload_remaining
-	elif absi(auth_mag - mag) >= 3:
-		# Genuine divergence (reload refill, or the prediction drifted) — snap to authority.
+	elif (mag <= 0 and auth_mag > 0) or absi(auth_mag - mag) >= 3:
+		# Snap on a real divergence (reload refill / drift >= 3) OR when we've predicted ourselves dry
+		# but authority still has rounds — otherwise a small over-prediction could lock out firing.
 		mag = auth_mag
 	# else: small diff is just the prediction leading the lagged server mag by the in-flight shots;
 	# trust the local prediction so the counter doesn't jitter up/down every reconcile.
