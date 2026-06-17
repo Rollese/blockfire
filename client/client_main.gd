@@ -475,14 +475,20 @@ func _handle_snapshot(bytes: PackedByteArray) -> void:
 			_pos_err = Vector3.ZERO   # too large to smear (respawn/teleport) — snap
 		if _scene_built and _deploy_menu != null:
 			if not _deploy_menu_populated:
-				_deploy_menu.populate(ss.team, _map, _conquest)
+				var my_squad: int = _my_squad_id(ss.team)
+				_deploy_menu.populate(ss.team, _map, _conquest,
+					_build_squadmate_candidates(ss.team, my_squad),
+					_build_vehicle_candidates(ss.team))
 				_deploy_menu_populated = true
 			_deploy_menu.visible = false
 	else:
 		# Dead / not yet deployed — show deploy menu (re-populated from current conquest)
 		if _scene_built and _deploy_menu != null:
 			if not _deploy_menu_populated and ss != null:
-				_deploy_menu.populate(ss.team, _map, _conquest)
+				var my_squad: int = _my_squad_id(ss.team)
+				_deploy_menu.populate(ss.team, _map, _conquest,
+					_build_squadmate_candidates(ss.team, my_squad),
+					_build_vehicle_candidates(ss.team))
 				_deploy_menu_populated = true
 			_deploy_menu.visible = true
 
@@ -655,6 +661,72 @@ func _vehicles_near() -> Array:
 		if dist <= VEH_INTERACT_RANGE:
 			# Use seat 0 as default; server validates and assigns the actual free seat on VA_ENTER.
 			out.append({"vid": int(vid), "seat": 0, "dist": dist})
+	return out
+
+## Return the local player's current squad_id from the roster (-1 if unknown).
+func _my_squad_id(_team: int) -> int:
+	for rw in _wv.roster():
+		if int(rw["id"]) == my_id:
+			return int(rw.get("squad", 0))
+	return 0
+
+## Build squadmate candidate array for DeploySpawn.enumerate().
+## Filters WorldView roster to same-team + same-squad (excluding self), then joins with
+## interpolated entity state for pos/alive/downed. Mates not in the interpolated view
+## (out of range) are skipped — they'd fail server validation anyway.
+## Returns Array of {pos, team, alive, downed, name}.
+func _build_squadmate_candidates(my_team: int, my_squad: int) -> Array:
+	var out: Array = []
+	var roster: Array = _wv.roster()
+	var rem: Dictionary = _wv.remotes_at(_elapsed)
+	for rw in roster:
+		var rid: int = int(rw["id"])
+		if rid == my_id:
+			continue
+		if int(rw["team"]) != my_team:
+			continue
+		if int(rw["squad"]) != my_squad:
+			continue
+		# Only include mate if we have a current interpolated entity (in view).
+		var e: EntityState = rem.get(rid)
+		if e == null:
+			continue
+		out.append({
+			"pos": e.pos,
+			"team": e.team,
+			"alive": e.alive,
+			"downed": e.is_downed,
+			"name": String(rw.get("name", "")),
+		})
+	return out
+
+## Build vehicle candidate array for DeploySpawn.enumerate().
+## All friendly vehicles from WorldView.vehicles() with at least one free seat.
+## VehicleState has no team field; we accept all vehicles (server re-validates team ownership).
+## free_seats is counted from seats[] (0 = empty slot). type_name is a display-only extra key.
+## Returns Array of {pos, team, free_seats, type_name}.
+func _build_vehicle_candidates(my_team: int) -> Array:
+	var out: Array = []
+	var vehs: Dictionary = _wv.vehicles()
+	for vid in vehs:
+		var vs: VehicleState = vehs[vid]
+		if vs == null:
+			continue
+		# Count free seats: seats[i] == 0 means empty.
+		var free_count: int = 0
+		for occ in vs.seats:
+			if int(occ) == 0:
+				free_count += 1
+		if free_count == 0:
+			continue
+		# VehicleState carries no team field — pass my_team as best-effort.
+		# Server validates using its authoritative Vehicle.team; a mismatch is a no-op.
+		out.append({
+			"pos": vs.pos,
+			"team": my_team,
+			"free_seats": free_count,
+			"type_name": "transport",   # single vehicle type today; extend when catalog grows
+		})
 	return out
 
 ## Called when the deploy menu emits squad_selected(squad_id) (Task 20 hook).

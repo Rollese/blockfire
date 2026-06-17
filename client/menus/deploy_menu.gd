@@ -5,12 +5,20 @@ extends Control
 ## No spawn validation or placement happens here; the server re-validates via DeploySpawn.
 
 signal deploy_requested(spawn_ref: int)
+## Emitted when the player clicks a squad button (0-based squad_id).
+## client_main's _on_squad_selected sends Protocol.encode_set_squad(squad_id).
+signal squad_selected(squad_id: int)
 
 ## The refs currently shown, in order. Populated by populate(). Used by tests.
 var refs: Array = []
 
 var _vbox: VBoxContainer       # holds the spawn buttons
+var _squad_hbox: HBoxContainer # holds the squad selection buttons
 var _await_label: Label
+
+## Number of squad slots to show in the squad selection row.
+## Matches the server's dynamic squad model — show enough slots for a typical game.
+const SQUAD_DISPLAY_COUNT := 6
 
 func _ready() -> void:
 	# Full-screen overlay so the panel is centered and obvious. STOP on the root so a stray
@@ -48,9 +56,28 @@ func _build_layout() -> void:
 	_vbox = VBoxContainer.new()
 	_vbox.add_theme_constant_override("separation", 6)
 	panel.add_child(_vbox)
+	# Squad selection row — minimal: numbered buttons 0..(SQUAD_DISPLAY_COUNT-1).
+	var squad_label := Label.new()
+	squad_label.text = "Squad:"
+	squad_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	panel.add_child(squad_label)
+	_squad_hbox = HBoxContainer.new()
+	_squad_hbox.add_theme_constant_override("separation", 6)
+	_squad_hbox.alignment = BoxContainer.ALIGNMENT_CENTER
+	panel.add_child(_squad_hbox)
+	for i in SQUAD_DISPLAY_COUNT:
+		var sbtn := Button.new()
+		sbtn.text = str(i)
+		sbtn.custom_minimum_size = Vector2(44, 36)
+		sbtn.pressed.connect(_on_squad_pressed.bind(i))
+		_squad_hbox.add_child(sbtn)
 
 ## Populate the spawn list. Clears any previous buttons.
-func populate(team: int, map: MapDef, conquest: ConquestState) -> void:
+## squadmates: Array of {pos, team, alive, downed, ...} — may include an optional "name" key
+##   for display. Built by client_main from WorldView.roster() + remotes_at().
+## vehicles: Array of {pos, team, free_seats, ...} — may include an optional "type_name" key.
+##   Built by client_main from WorldView.vehicles(). "team" is best-effort (server re-validates).
+func populate(team: int, map: MapDef, conquest: ConquestState, squadmates: Array = [], vehicles: Array = []) -> void:
 	refs = []
 	# Ensure the layout exists even when called before _ready (e.g. DeployMenu.new() in tests).
 	if _vbox == null:
@@ -63,11 +90,25 @@ func populate(team: int, map: MapDef, conquest: ConquestState) -> void:
 	for child in _vbox.get_children():
 		child.queue_free()
 
-	var enumerated: Array = DeploySpawn.enumerate(team, map, conquest)
+	var enumerated: Array = DeploySpawn.enumerate(team, map, conquest, squadmates, vehicles)
 	for ref: int in enumerated:
 		refs.append(ref)
 		var label: String
-		if ref == 0:
+		if ref >= DeploySpawn.VEHICLE_BASE:
+			var vi: int = ref - DeploySpawn.VEHICLE_BASE
+			if vi < vehicles.size():
+				var type_name: String = String(vehicles[vi].get("type_name", ""))
+				label = "Vehicle: %s" % type_name if type_name != "" else "Vehicle %d" % vi
+			else:
+				label = "Vehicle %d" % (ref - DeploySpawn.VEHICLE_BASE)
+		elif ref >= DeploySpawn.SQUADMATE_BASE:
+			var si: int = ref - DeploySpawn.SQUADMATE_BASE
+			if si < squadmates.size():
+				var mate_name: String = String(squadmates[si].get("name", ""))
+				label = "Squadmate: %s" % mate_name if mate_name != "" else "Squadmate %d" % si
+			else:
+				label = "Squadmate %d" % (ref - DeploySpawn.SQUADMATE_BASE)
+		elif ref == 0:
 			label = "HQ"
 		else:
 			var idx: int = ref - 1
@@ -95,3 +136,6 @@ func emit_deploy(ref: int) -> void:
 
 func _on_deploy_pressed(ref: int) -> void:
 	deploy_requested.emit(ref)
+
+func _on_squad_pressed(squad_id: int) -> void:
+	squad_selected.emit(squad_id)
