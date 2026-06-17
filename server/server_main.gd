@@ -854,6 +854,7 @@ func _on_packet(peer: ENetPacketPeer, _channel: int, bytes: PackedByteArray) -> 
 		Protocol.Msg.GADGET_ACTION: _handle_gadget_action(peer, bytes)
 		Protocol.Msg.VEHICLE_ACTION: _handle_vehicle_action(peer, bytes)
 		Protocol.Msg.DEPLOY_REQUEST: _handle_deploy_request(peer, bytes)
+		Protocol.Msg.SET_SQUAD: _handle_set_squad(peer, bytes)
 		_: pass
 
 func _handle_hello(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
@@ -923,6 +924,18 @@ func _handle_deploy_request(peer: ENetPacketPeer, bytes: PackedByteArray) -> voi
 	c["reloading"] = false
 	c["respawn_tick"] = 0
 	c["dmg_ledger"] = {}
+
+func _handle_set_squad(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
+	var id = _peer_to_id.get(peer, 0)
+	if id == 0 or not _clients.has(id): return
+	var c = _clients[id]
+	var team: int = int(c["team"])
+	var target: int = int(Protocol.decode_set_squad(bytes)["squad"])
+	if not _squads.join(id, team, target): return   # full -> ignore
+	c["squad"] = target
+	var p: Pawn = _sim.world.get_pawn(id)
+	if p != null:
+		p.squad = target   # replicated via EntityState.squad -> roster/squad-list update next ROSTER
 
 func _handle_input(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
 	var id = _peer_to_id.get(peer, 0)
