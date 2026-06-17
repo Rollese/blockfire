@@ -45,7 +45,7 @@ func _damage(ctx: Dictionary) -> Dictionary:
 
 func build(ctx: Dictionary) -> Dictionary:
 	var dmg := _damage(ctx)
-	return {"ammo": _ammo(ctx), "compass": _compass(ctx), "tickets": _tickets(ctx), "capture": _capture(ctx), "killfeed": _killfeed_current(ctx), "damage_arcs": dmg["arcs"], "vignette": dmg["vignette"], "scoreboard": _scoreboard(ctx), "squad_roster": _squad_roster(ctx)}
+	return {"ammo": _ammo(ctx), "compass": _compass(ctx), "tickets": _tickets(ctx), "capture": _capture(ctx), "killfeed": _killfeed_current(ctx), "damage_arcs": dmg["arcs"], "vignette": dmg["vignette"], "scoreboard": _scoreboard(ctx), "squad_roster": _squad_roster(ctx), "interaction_prompt": _interaction_prompt(ctx)}
 
 func _compass(ctx: Dictionary) -> Dictionary:
 	var yaw := float(ctx.get("self_yaw", 0.0))
@@ -87,6 +87,23 @@ func _ammo(ctx: Dictionary) -> Dictionary:
 		"reload_remaining": wp.reload_remaining(int(ctx.get("tick", 0))),
 		"low": wp.mag <= int(ceil(mag_size * LOW_AMMO_FRAC)),
 	}
+
+func _interaction_prompt(ctx: Dictionary):
+	var mates: Array = ctx.get("downed_mates", [])
+	if not mates.is_empty():
+		var best: Dictionary = mates[0]
+		for mt in mates:
+			if float(mt["dist"]) < float(best["dist"]):
+				best = mt
+		return {"action": "revive", "target": int(best["id"])}
+	var veh: Array = ctx.get("vehicles_near", [])
+	if not veh.is_empty():
+		var bv: Dictionary = veh[0]
+		for v in veh:
+			if float(v["dist"]) < float(bv["dist"]):
+				bv = v
+		return {"action": "enter_vehicle", "target": int(bv["vid"]), "seat": int(bv["seat"])}
+	return null
 
 func _squad_roster(ctx: Dictionary) -> Array:
 	var roster: Array = ctx.get("roster", [])

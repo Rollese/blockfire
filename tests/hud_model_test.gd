@@ -86,6 +86,28 @@ func test_squad_roster_marks_dead_when_absent_or_not_alive() -> void:
 	var sq: Array = out["squad_roster"]
 	assert_eq(sq[0]["status"], "dead", "no entity -> dead/out of view")
 
+func test_prompt_prefers_revive_over_vehicle() -> void:
+	var m := HudModel.new()
+	var out := m.build({
+		"downed_mates": [{"id": 5, "dist": 2.0}],
+		"vehicles_near": [{"vid": 9, "seat": 1, "dist": 1.0}],
+		"tick": 0})
+	var p: Dictionary = out["interaction_prompt"]
+	assert_eq(p["action"], "revive")
+	assert_eq(p["target"], 5)
+
+func test_prompt_enter_vehicle_when_no_downed_mate() -> void:
+	var m := HudModel.new()
+	var out := m.build({"downed_mates": [], "vehicles_near": [{"vid": 9, "seat": 1, "dist": 1.0}], "tick": 0})
+	var p: Dictionary = out["interaction_prompt"]
+	assert_eq(p["action"], "enter_vehicle")
+	assert_eq(p["target"], 9)
+
+func test_prompt_none_when_nothing_in_range() -> void:
+	var m := HudModel.new()
+	var out := m.build({"downed_mates": [], "vehicles_near": [], "tick": 0})
+	assert_eq(out["interaction_prompt"], null)
+
 func test_damage_arc_relative_and_fades() -> void:
 	var m := HudModel.new()
 	# yaw 0 -> camera looks -Z; damage from world bearing 0 (+Z) comes from directly behind -> 180 deg.
