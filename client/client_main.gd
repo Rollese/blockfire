@@ -73,6 +73,10 @@ var _dbg_accum := 0.0             # 1 Hz input/deploy diagnostic accumulator
 var _novsync := false             # --novsync: disable vsync (perf diagnostic)
 var _map_path: String = MAP_PATH  # --map=<name> overrides (must match server + bots)
 
+# ---- C3 state ---------------------------------------------------------------
+var _throwables: Array = []        # latest throwable list from SELF_STATE
+var _revive_hold: float = 0.0      # seconds the interact key has been held on a revive target
+
 # ---- configure (called by bootstrap before add_child) -----------------------
 func configure(args: Dictionary) -> void:
 	_server_ip = String(args.get("connect", _server_ip))
@@ -243,6 +247,13 @@ func _process(_dt: float) -> void:
 		"point_positions": _point_positions(),
 		"capture_radius": 8.0,
 		"now": _elapsed,
+		# C3 additions
+		"roster": _wv.roster(),
+		"self_id": my_id,
+		"entities": _build_entities(),
+		"throwables": _throwables,
+		"downed_mates": _downed_mates(),
+		"vehicles_near": _vehicles_near(),
 	}
 	var _model := _hud_model.build(ctx)
 	var _t2 := Time.get_ticks_usec()
@@ -272,6 +283,83 @@ func _process(_dt: float) -> void:
 	elif _downed_since >= 0.0:
 		_downed_since = -1.0
 		_hud_view.set_downed(false, 0.0, -1.0, 0.0)
+
+	# ---- C3: scoreboard hold (TAB) ------------------------------------------------
+	if _hud_view != null:
+		_hud_view.set_scoreboard_held(Input.is_action_pressed("scoreboard"))
+
+	# ---- C3: revive intent + self-bandage while downed ----------------------------
+	var sss: EntityState = _wv.self_state()
+	var is_downed: bool = sss != null and sss.alive and sss.is_downed
+	if is_downed:
+		# Self-bandage: bound to reload while downed (unused reload key). Owner-tunable binding.
+		if Input.is_action_just_pressed("reload") and _peer != null:
+			_net.send_to(_peer, NetHost.CHANNEL_CONTROL,
+				Protocol.encode_self_bandage(), ENetPacketPeer.FLAG_RELIABLE)
+	else:
+		# Revive intent: hold interact while the interaction prompt targets a downed mate.
+		var ip = _model.get("interaction_prompt")
+		var interact_held: bool = Input.is_action_pressed("interact")
+		if ip != null and String(ip.get("action", "")) == "revive" and interact_held and _peer != null:
+			_revive_hold += _dt
+			var revive_time: float = float(Revive.REVIVE_TICKS) / 30.0
+			_net.send_to(_peer, NetHost.CHANNEL_CONTROL,
+				Protocol.encode_revive_action(int(ip["target"]), true), ENetPacketPeer.FLAG_RELIABLE)
+			if _hud_view != null:
+				_hud_view.set_revive_progress(clampf(_revive_hold / revive_time, 0.0, 1.0))
+		else:
+			if _revive_hold > 0.0 and _peer != null and ip != null \
+					and String(ip.get("action", "")) == "revive":
+				_net.send_to(_peer, NetHost.CHANNEL_CONTROL,
+					Protocol.encode_revive_action(int(ip["target"]), false), ENetPacketPeer.FLAG_RELIABLE)
+			_revive_hold = 0.0
+			if _hud_view != null:
+				_hud_view.set_revive_progress(0.0)
+
+	# ---- C3: one-shot actions (throw / throwable_cycle / gadget / squad_menu) ----
+	var alive_and_deployed: bool = sss != null and sss.alive and not sss.is_downed
+	if alive_and_deployed and _peer != null:
+		# Throwable cycle
+		if Input.is_action_just_pressed("throwable_cycle"):
+			_hud_model.cycle_throwable(_throwables.size())
+
+		# Throw: send grenade or RPG based on active throwable kind
+		if Input.is_action_just_pressed("throw"):
+			var throwables_model: Dictionary = _model.get("throwables", {})
+			var tlist: Array = throwables_model.get("list", [])
+			var active_idx: int = int(throwables_model.get("active", 0))
+			if active_idx < tlist.size():
+				var slot: Dictionary = tlist[active_idx]
+				var kind: int = int(slot.get("kind", -1))
+				# Aim direction: same camera-forward the server rebuilds for bullets
+				var aim_dir: Vector3 = -Vector3(sin(_input_ctrl.yaw), 0.0,
+					cos(_input_ctrl.yaw)).normalized()
+				# Tilt by pitch so thrown arc matches the look direction
+				var pitch: float = _input_ctrl.pitch
+				aim_dir = Vector3(aim_dir.x * cos(pitch), sin(pitch), aim_dir.z * cos(pitch)).normalized()
+				if kind == Grenade.FRAG or kind == Grenade.SMOKE:
+					_net.send_to(_peer, NetHost.CHANNEL_CONTROL,
+						Protocol.encode_grenade_throw(aim_dir, kind), ENetPacketPeer.FLAG_RELIABLE)
+				elif kind == 100:  # RPG
+					_net.send_to(_peer, NetHost.CHANNEL_CONTROL,
+						Protocol.encode_gadget_action(Protocol.GA_RPG_FIRE,
+							_pred.predicted.pos, aim_dir, 0), ENetPacketPeer.FLAG_RELIABLE)
+
+		# Gadget: non-throwable gadget action. Defaulting to C4 detonate; owner must verify
+		# if their class uses a different primary gadget (e.g. repair, bag throw).
+		if Input.is_action_just_pressed("gadget"):
+			_net.send_to(_peer, NetHost.CHANNEL_CONTROL,
+				Protocol.encode_gadget_action(Protocol.GA_C4_DETONATE,
+					_pred.predicted.pos, Vector3.ZERO, 0), ENetPacketPeer.FLAG_RELIABLE)
+			# OWNER VERIFY: GA_C4_DETONATE is the default; adapt to class loadout (repair/bag/etc.)
+
+		# Squad menu: open the deploy menu to the squad-selection view when one exists.
+		# Task 20 (deploy menu C3 extension) should add a squad_selected signal; wire it here.
+		# For now, opening the deploy menu is the minimum deliverable hook.
+		if Input.is_action_just_pressed("squad_menu") and _deploy_menu != null:
+			if sss != null and sss.alive and _deploy_menu.has_signal("squad_selected"):
+				# Task 20 hook: _deploy_menu.squad_selected is connected below in _build_scene
+				pass   # signal wired in _build_scene; nothing extra needed per-frame
 
 	# Settings menu toggle
 	if Input.is_action_just_pressed("menu"):
@@ -330,6 +418,16 @@ func _on_packet(_from: ENetPacketPeer, _channel: int, bytes: PackedByteArray) ->
 				_hud_view.flash_hitmarker(bool(h["headshot"]), bool(h["lethal"]))
 		Protocol.Msg.MATCH_STATE:
 			_handle_match_state(bytes)
+		Protocol.Msg.ROSTER:
+			_wv.set_roster(Protocol.decode_roster(bytes)["rows"])
+		Protocol.Msg.DEATH_INFO:
+			_hud_model.set_death_info(Protocol.decode_death_info(bytes))
+			# Show the deploy/recap screen (same path as the alive->dead snapshot transition)
+			_deploy_menu_populated = false
+		Protocol.Msg.STRUCTURE_BASELINE:
+			_wv.apply_structure_baseline(bytes)
+		Protocol.Msg.STRUCTURE_DELTA:
+			_wv.apply_structure_delta(bytes)
 
 # ---- WELCOME ----------------------------------------------------------------
 func _handle_welcome(bytes: PackedByteArray) -> void:
@@ -396,6 +494,8 @@ func _handle_self_state(bytes: PackedByteArray) -> void:
 		_wpred.set_weapon(int(d["weapon"]))
 	# Reconcile ammo from authority — no client rule logic, just snap
 	_wpred.reconcile(int(d["mag"]), bool(d["reloading"]), int(d["reload_remaining"]), _client_tick)
+	# Store throwable list for HUD ctx (C3: SELF_STATE now carries per-kind counts)
+	_throwables = d.get("throwables", [])
 
 # ---- MATCH_STATE ------------------------------------------------------------
 func _handle_match_state(bytes: PackedByteArray) -> void:
@@ -438,6 +538,9 @@ func _build_scene() -> void:
 	_deploy_menu.visible = true   # visible until deployed
 	hud_layer.add_child(_deploy_menu)
 	_deploy_menu.deploy_requested.connect(_on_deploy_requested)
+	# C3 squad hook: Task 20 may add squad_selected(squad_id) to DeployMenu; wire it here.
+	if _deploy_menu.has_signal("squad_selected"):
+		_deploy_menu.squad_selected.connect(_on_squad_selected)
 
 	# SettingsMenu
 	_settings_menu = SettingsMenu.new()
@@ -463,6 +566,8 @@ func _send_deploy_request(spawn_ref: int) -> void:
 	print("[client] deploy requested ref=%d" % spawn_ref)
 	if _scene_built and _deploy_menu != null:
 		_deploy_menu.set_awaiting(true)
+	# Clear death recap so it doesn't show on the next respawn
+	_hud_model.clear_death_info()
 
 # ---- settings live-update ---------------------------------------------------
 func _on_settings_applied(new_settings: ClientSettings) -> void:
@@ -487,6 +592,76 @@ func _point_positions() -> Array:
 	for pt: Dictionary in _map.points:
 		out.append(pt["pos"])
 	return out
+
+## Build entities map id->{alive, is_downed, pos} from interpolated remotes + self.
+func _build_entities() -> Dictionary:
+	var out: Dictionary = {}
+	var rem: Dictionary = _wv.remotes_at(_elapsed)
+	for rid in rem:
+		var e: EntityState = rem[rid]
+		out[int(rid)] = {"alive": e.alive, "is_downed": e.is_downed, "pos": e.pos}
+	# Include self from authoritative state (not predicted) so downed check is authoritative.
+	var sself: EntityState = _wv.self_state()
+	if sself != null:
+		out[my_id] = {"alive": sself.alive, "is_downed": sself.is_downed, "pos": _pred.predicted.pos}
+	return out
+
+## [{id, dist}] for same-team DOWNED entities within REVIVE_RANGE of the local player.
+## Proximity computation for UI prompt only — the server validates revive eligibility.
+func _downed_mates() -> Array:
+	var sself: EntityState = _wv.self_state()
+	if sself == null or not sself.alive or sself.is_downed:
+		return []
+	var roster: Array = _wv.roster()
+	var my_team: int = -1
+	for rw in roster:
+		if int(rw["id"]) == my_id:
+			my_team = int(rw["team"]); break
+	var rem: Dictionary = _wv.remotes_at(_elapsed)
+	var self_pos: Vector3 = _pred.predicted.pos
+	var out: Array = []
+	for rid in rem:
+		var e: EntityState = rem[rid]
+		if not e.alive or not e.is_downed:
+			continue
+		# Same-team check via roster
+		var e_team: int = -1
+		for rw in roster:
+			if int(rw["id"]) == int(rid):
+				e_team = int(rw["team"]); break
+		if e_team != my_team:
+			continue
+		var dist: float = self_pos.distance_to(e.pos)
+		if dist <= Revive.REVIVE_RANGE:
+			out.append({"id": int(rid), "dist": dist})
+	return out
+
+## [{vid, seat, dist}] for vehicles with a free seat within interact range.
+## Uses WorldView.vehicles() (added in C2). Seat availability is client best-effort;
+## the server validates on VA_ENTER. Owner should verify seat index in playtest.
+func _vehicles_near() -> Array:
+	var sself: EntityState = _wv.self_state()
+	if sself == null or not sself.alive or sself.is_downed:
+		return []
+	var self_pos: Vector3 = _pred.predicted.pos
+	const VEH_INTERACT_RANGE := 6.0   # metres; owner-tunable
+	var out: Array = []
+	var vehs: Dictionary = _wv.vehicles()
+	for vid in vehs:
+		var vs = vehs[vid]   # VehicleState
+		if vs == null:
+			continue
+		var dist: float = self_pos.distance_to(vs.pos)
+		if dist <= VEH_INTERACT_RANGE:
+			# Use seat 0 as default; server validates and assigns the actual free seat on VA_ENTER.
+			out.append({"vid": int(vid), "seat": 0, "dist": dist})
+	return out
+
+## Called when the deploy menu emits squad_selected(squad_id) (Task 20 hook).
+func _on_squad_selected(squad_id: int) -> void:
+	if _peer != null:
+		_net.send_to(_peer, NetHost.CHANNEL_CONTROL,
+			Protocol.encode_set_squad(squad_id), ENetPacketPeer.FLAG_RELIABLE)
 
 ## Distance to the nearest alive, standing teammate in view (for the downed screen). -1 if none.
 func _nearest_friendly_dist(sds: EntityState) -> float:
