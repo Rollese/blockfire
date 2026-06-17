@@ -13,6 +13,7 @@ signal squad_selected(squad_id: int)
 var refs: Array = []
 
 var _vbox: VBoxContainer       # holds the spawn buttons
+var _cooldown_label: Label     # "Respawn in N…" — shown during the post-death respawn cooldown
 var _squad_hbox: HBoxContainer # holds the squad selection buttons
 var _await_label: Label
 
@@ -53,6 +54,10 @@ func _build_layout() -> void:
 	_await_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_await_label.visible = false
 	panel.add_child(_await_label)
+	_cooldown_label = Label.new()
+	_cooldown_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_cooldown_label.visible = false
+	panel.add_child(_cooldown_label)
 	_vbox = VBoxContainer.new()
 	_vbox.add_theme_constant_override("separation", 6)
 	panel.add_child(_vbox)
@@ -131,6 +136,19 @@ func set_awaiting(awaiting: bool) -> void:
 		_await_label.visible = awaiting
 	if _vbox != null:
 		_vbox.visible = not awaiting
+
+## Post-death respawn cooldown: while secs_left > 0, hide the spawn list and show a countdown
+## (the server also rejects early deploy requests). At 0, restore the spawn options.
+func set_respawn_cooldown(secs_left: float) -> void:
+	var cooling := secs_left > 0.0
+	if _cooldown_label != null:
+		_cooldown_label.visible = cooling
+		if cooling:
+			_cooldown_label.text = "Respawn in %d…" % int(ceil(secs_left))
+	if cooling and _vbox != null:
+		_vbox.visible = false
+	elif _vbox != null and not _vbox.visible and (_await_label == null or not _await_label.visible):
+		_vbox.visible = true
 
 ## Helper: emit the signal for a given ref. Used by tests and by the button handler.
 func emit_deploy(ref: int) -> void:

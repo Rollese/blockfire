@@ -726,17 +726,20 @@ func _render_throwables(throwables: Dictionary) -> void:
 
 
 func _build_death_recap() -> void:
-	# Top-center of screen during the deploy/death state — kept clear of the centered respawn
-	# options below it (the recap used to be centered and overlapped them).
+	# Left side, vertically centered — kept clear of the centered respawn options and the
+	# top compass (earlier center/top placements overlapped both).
 	_recap_root = Control.new()
-	_recap_root.anchor_left = 0.5
-	_recap_root.anchor_top = 0.0
-	_recap_root.anchor_right = 0.5
-	_recap_root.anchor_bottom = 0.0
-	_recap_root.offset_left = -220.0
-	_recap_root.offset_right = 220.0
-	_recap_root.offset_top = 40.0
-	_recap_root.offset_bottom = 40.0 + _RECAP_ATTACKER_MAX * 20.0 + 80.0
+	_recap_root.anchor_left = 0.0
+	_recap_root.anchor_top = 0.5
+	_recap_root.anchor_right = 0.0
+	_recap_root.anchor_bottom = 0.5
+	_recap_root.offset_left = 30.0
+	_recap_root.offset_right = 330.0
+	_recap_root.offset_top = -(_RECAP_ATTACKER_MAX * 20.0 + 80.0) * 0.5
+	_recap_root.offset_bottom = (_RECAP_ATTACKER_MAX * 20.0 + 80.0) * 0.5
+	# Draw above the deploy menu (same CanvasLayer, added after hud_view) + its full-screen dim,
+	# so the recap isn't hidden/darkened behind the respawn screen.
+	_recap_root.z_index = 100
 	_recap_root.mouse_filter = MOUSE_FILTER_IGNORE
 	_recap_root.visible = false
 	add_child(_recap_root)

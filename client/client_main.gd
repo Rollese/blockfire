@@ -68,6 +68,8 @@ var _deploy_menu_populated := false
 var _awaiting_deploy := false   # true after a DEPLOY_REQUEST, until deployed or recovery
 var _await_snaps := 0           # snapshots elapsed while awaiting (server-reject recovery)
 var _was_alive: bool = false
+var _died_at: float = -1.0                  # _elapsed at the last death; drives the respawn cooldown
+const RESPAWN_COOLDOWN_S := 5.0             # mirrors server RESPAWN_DELAY_TICKS (150 @ 30 Hz)
 var _match_state: Dictionary = {}
 var _auto_deploy_ref: int = -1    # --deploy=N arg; -1 = not set
 var _auto_deploy_sent := false    # only send once
@@ -298,14 +300,11 @@ func _process(_dt: float) -> void:
 		var hs: EntityState = _wv.self_state()
 		_hud_view.set_alive_hud(hs != null and hs.alive and not hs.is_downed)
 
-	# ---- C3: revive intent + self-bandage while downed ----------------------------
+	# ---- C3: revive intent (no self-recovery — a teammate must revive you, BattleBit-style) ----
 	var sss: EntityState = _wv.self_state()
 	var is_downed: bool = sss != null and sss.alive and sss.is_downed
 	if is_downed:
-		# Self-bandage: bound to reload while downed (unused reload key). Owner-tunable binding.
-		if Input.is_action_just_pressed("reload") and _peer != null:
-			_net.send_to(_peer, NetHost.CHANNEL_CONTROL,
-				Protocol.encode_self_bandage(), ENetPacketPeer.FLAG_RELIABLE)
+		pass   # downed players have no self-bandage/self-revive; they wait for a teammate or bleed out
 	else:
 		# Revive intent: hold interact while the interaction prompt targets a downed mate.
 		var ip = _model.get("interaction_prompt")
@@ -484,6 +483,7 @@ func _handle_snapshot(bytes: PackedByteArray) -> void:
 		_deploy_menu_populated = false
 		_pos_err = Vector3.ZERO   # drop any residual reconcile offset so respawn doesn't inherit it
 		_reconciled = false
+		_died_at = _elapsed   # start the respawn-cooldown clock
 	_was_alive = alive
 	if alive:
 		# Mirror downed state BEFORE reconcile so the replayed inputs crawl (1 m/s) on the very tick
@@ -528,6 +528,8 @@ func _handle_snapshot(bytes: PackedByteArray) -> void:
 					_build_vehicle_candidates(ss.team))
 				_deploy_menu_populated = true
 			_deploy_menu.visible = true
+			if not _awaiting_deploy:
+				_deploy_menu.set_respawn_cooldown(_respawn_cooldown_left())
 
 # ---- SELF_STATE -------------------------------------------------------------
 func _handle_self_state(bytes: PackedByteArray) -> void:
@@ -599,10 +601,18 @@ func _build_scene() -> void:
 	print("[client] scene built")
 
 # ---- deploy request helpers -------------------------------------------------
+## Seconds left on the post-death respawn cooldown (0 when ready or never died).
+func _respawn_cooldown_left() -> float:
+	if _died_at < 0.0:
+		return 0.0
+	return maxf(0.0, RESPAWN_COOLDOWN_S - (_elapsed - _died_at))
+
 func _on_deploy_requested(spawn_ref: int) -> void:
 	_send_deploy_request(spawn_ref)
 
 func _send_deploy_request(spawn_ref: int) -> void:
+	if _respawn_cooldown_left() > 0.0:
+		return   # respawn cooldown not elapsed — server would reject anyway
 	_net.send_to(_peer, NetHost.CHANNEL_CONTROL,
 		Protocol.encode_deploy_request(spawn_ref),
 		ENetPacketPeer.FLAG_RELIABLE)

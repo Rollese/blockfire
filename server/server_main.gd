@@ -511,7 +511,10 @@ func _kill_pawn(vid: int, victim: Pawn, killer_id: int, weapon_id: int, headshot
 		victim.seat = -1
 	if _clients[vid].get("auto_deploy", true):
 		_clients[vid]["respawn_tick"] = _sim.tick + RESPAWN_DELAY_TICKS
-	# auto_deploy=false (human): leave respawn_tick at 0 -> returns to deploy screen
+	else:
+		# auto_deploy=false (human): returns to deploy screen, but not before a respawn cooldown
+		# (death has weight; the body stays put until they can redeploy).
+		_clients[vid]["deploy_ready_tick"] = _sim.tick + RESPAWN_DELAY_TICKS
 	_conquest.register_death(victim.team)
 	_kills += 1
 	if _clients.has(vid):
@@ -950,6 +953,7 @@ func _handle_deploy_request(peer: ENetPacketPeer, bytes: PackedByteArray) -> voi
 	var c = _clients[id]
 	var p: Pawn = _sim.world.get_pawn(id)
 	if p == null or p.alive: return    # already deployed
+	if _sim.tick < int(c.get("deploy_ready_tick", 0)): return   # respawn cooldown not elapsed
 	var ref := int(Protocol.decode_deploy_request(bytes)["spawn_ref"])
 	var mates := _squad_candidates(id, int(c["team"]), int(c["squad"]))
 	var vehs := _vehicle_candidates(int(c["team"]))
