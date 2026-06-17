@@ -41,6 +41,17 @@ Spec: [`docs/specs/combat-depth-2.md`](specs/combat-depth-2.md). Milestone: [`M5
 | M5.5-P2 execute (armor class, suppression) | — | todo | branch `m5.5-p2-survivability`; depends on P1 projectiles (near-miss → suppression) |
 | M5.5-P3 execute (melee/sledge, flashbang/impact) | — | todo | branch `m5.5-p3-melee-throwables`; reuses M4 grenade + structure-damage paths |
 
+## M7 Phase 2 (Audio) — in progress
+
+Spec: [`docs/specs/audio.md`](specs/audio.md). Plan: [`docs/plans/2026-06-17-m7-p2-audio.md`](plans/2026-06-17-m7-p2-audio.md). Runs **in parallel with M7-C3 (combat-depth UI)** and **M7-P2 art**; all engine code lives in a fresh `client/audio/*` namespace + `data/sounds.json` so it cannot conflict. Branch: `m7-p2-audio`.
+
+| Task | Owner | Status | Notes |
+|---|---|---|---|
+| M7-P2 audio spec | claude (audio) | in-progress | `docs/specs/audio.md` — was reserved per M7-art-ux.md; sound taxonomy, bus layout, distance attenuation + occlusion, voice-stealing/priority for 128p, signal-sourced events (view-only, AGENTS.md §7). |
+| M7-P2 audio plan | claude (audio) | in-progress | `docs/plans/2026-06-17-m7-p2-audio.md` — TDD task breakdown; final task is the **deferred** `client_main.gd` + `project.godot` integration (DO NOT EXECUTE until C3 merges). |
+| M7-P2 audio engine (non-deferred) | claude (audio) | in-progress | Self-contained `client/audio/audio_director.gd` (standalone Node, signal/method-driven, **not** wired into `client_main`) + pure helpers (attenuation/occlusion/voice-stealing/bus math) + `data/sounds.json` catalog. Headless unit tests for all pure logic. |
+| M7-P2 audio → client_main + project.godot wiring | — (owner) | **deferred (post-C3)** | The audio bus config (`project.godot`) and `client_main.gd` wiring are a single deferred integration task. **Not executed** in branch `m7-p2-audio` to avoid conflicts with in-flight C3 work. Run after C3 merges. |
+
 ## M4.5 Phase 1 (Survivability) — CLOSED ✅
 
 Spec: [`docs/specs/combat-depth.md`](specs/combat-depth.md) (three-phase split). Plan: [`docs/plans/2026-06-15-m4.5-p1-survivability.md`](plans/2026-06-15-m4.5-p1-survivability.md) — 9 TDD tasks (DBNO/revive/bandages), executed via `subagent-driven-development`. **Gated PASS 2026-06-15** on the dedicated `game2` host. Design evolved during gating (immune-DBNO, latched revive, friendlies-always replication) — see the spec + milestone doc. **Next: P2 (gadgets/RPG/penetration/attachments) and P3 (movement) get their own plans.**
