@@ -498,26 +498,47 @@ func _render_scoreboard(sb: Dictionary) -> void:
 		header.mouse_filter = MOUSE_FILTER_IGNORE
 		vbox.add_child(header)
 
-		# Column labels.
-		var col_lbl := Label.new()
-		col_lbl.text = "%-16s  K   D  Score" % "Name"
-		col_lbl.add_theme_font_size_override("font_size", 12)
-		col_lbl.modulate = Color(0.8, 0.8, 0.8)
-		col_lbl.mouse_filter = MOUSE_FILTER_IGNORE
-		vbox.add_child(col_lbl)
+		# Column header — fixed-width cells so columns align regardless of name length
+		# (the default Godot font is proportional; string padding does NOT line columns up).
+		vbox.add_child(_make_score_row("Name", "K", "D", "Score", 12, Color(0.8, 0.8, 0.8)))
 
 		# Player rows.
 		var rows: Array = team_data.get("rows", [])
 		for rw in rows:
-			var row_lbl := Label.new()
 			var name_str := String(rw.get("name", "?"))
 			if name_str.length() > 16:
 				name_str = name_str.substr(0, 15) + "…"
-			row_lbl.text = "%-16s  %d   %d  %d" % [name_str, int(rw.get("kills", 0)), int(rw.get("deaths", 0)), int(rw.get("score", 0))]
-			row_lbl.add_theme_font_size_override("font_size", 13)
-			row_lbl.modulate = Color(1, 1, 1)
-			row_lbl.mouse_filter = MOUSE_FILTER_IGNORE
-			vbox.add_child(row_lbl)
+			vbox.add_child(_make_score_row(
+				name_str,
+				str(int(rw.get("kills", 0))),
+				str(int(rw.get("deaths", 0))),
+				str(int(rw.get("score", 0))),
+				13, Color(1, 1, 1)))
+
+
+## One scoreboard row as fixed-width cells: name (left) + 3 right-aligned stat columns.
+## Using per-cell min widths instead of string padding keeps columns aligned in the
+## proportional default font, no matter how long a player's name is.
+func _make_score_row(name_s: String, k_s: String, d_s: String, score_s: String,
+		font_size: int, col: Color) -> HBoxContainer:
+	var row := HBoxContainer.new()
+	row.mouse_filter = MOUSE_FILTER_IGNORE
+	var cells := [
+		{"t": name_s, "w": 180.0, "align": HORIZONTAL_ALIGNMENT_LEFT},
+		{"t": k_s, "w": 44.0, "align": HORIZONTAL_ALIGNMENT_RIGHT},
+		{"t": d_s, "w": 44.0, "align": HORIZONTAL_ALIGNMENT_RIGHT},
+		{"t": score_s, "w": 72.0, "align": HORIZONTAL_ALIGNMENT_RIGHT},
+	]
+	for cell in cells:
+		var lbl := Label.new()
+		lbl.text = String(cell["t"])
+		lbl.custom_minimum_size = Vector2(float(cell["w"]), 0.0)
+		lbl.horizontal_alignment = int(cell["align"])
+		lbl.add_theme_font_size_override("font_size", font_size)
+		lbl.modulate = col
+		lbl.mouse_filter = MOUSE_FILTER_IGNORE
+		row.add_child(lbl)
+	return row
 
 
 func _build_squad_roster() -> void:

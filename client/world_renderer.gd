@@ -45,6 +45,10 @@ var _free_list: Array = []
 var _struct_active: Dictionary = {}
 # free list for recycled structure MeshInstance3D nodes
 var _struct_free_list: Array = []
+# active vehicle nodes: vid(int) -> MeshInstance3D (placeholder boxes; VehicleState has no team)
+var _vehicle_active: Dictionary = {}
+var _vehicle_free_list: Array = []
+const VEHICLE_COLOR := Color(0.30, 0.34, 0.22)   # olive — neutral placeholder, no team field on wire
 # structures pending a destroy pop: id(int) -> {node:MeshInstance3D, die:float, tween:Tween}
 var _struct_dying: Dictionary = {}
 
@@ -139,6 +143,9 @@ func update(world_view: WorldView, predictor: Prediction, now: float, fov: float
 
 	# 2. Structure pool update
 	_sync_structure_pool(world_view.structures(), now)
+
+	# 2b. Vehicle pool update (placeholder boxes so vehicles are visible + interactable)
+	_sync_vehicle_pool(world_view.vehicles())
 
 	# 3. Camera from prediction (position) + client look (rotation)
 	_apply_camera(predictor, fov, look_yaw, look_pitch, eye)
@@ -448,5 +455,58 @@ func _make_structure_mesh() -> MeshInstance3D:
 	var mat := StandardMaterial3D.new()
 	mat.albedo_color = STRUCTURE_DEFAULT_COLOR
 	mat.roughness = 0.85
+	mi.material_override = mat
+	return mi
+
+
+# =============================================================================
+#  Vehicle pool (placeholder boxes — no team field on the wire, so neutral tint)
+# =============================================================================
+func _sync_vehicle_pool(vehicles: Dictionary) -> void:
+	# Release nodes whose vid is gone from the view.
+	var to_release: Array = []
+	for vid: int in _vehicle_active:
+		if not vehicles.has(vid):
+			to_release.append(vid)
+	for vid: int in to_release:
+		var node: MeshInstance3D = _vehicle_active[vid] as MeshInstance3D
+		_vehicle_active.erase(vid)
+		node.visible = false
+		_vehicle_free_list.append(node)
+	# Acquire / pose nodes for all visible vehicles.
+	for vid_v: Variant in vehicles:
+		var vid: int = int(vid_v)
+		var vs: VehicleState = vehicles[vid_v]
+		if vs == null:
+			continue
+		var node: MeshInstance3D = _acquire_vehicle(vid)
+		# Box is ~1.6 m tall; lift by half so it rests on the ground at vs.pos.
+		node.position = vs.pos + Vector3(0.0, 0.8, 0.0)
+		node.transform.basis = Basis.from_euler(Vector3(0.0, vs.heading, 0.0))
+
+
+func _acquire_vehicle(vid: int) -> MeshInstance3D:
+	if _vehicle_active.has(vid):
+		return _vehicle_active[vid] as MeshInstance3D
+	var node: MeshInstance3D
+	if not _vehicle_free_list.is_empty():
+		node = _vehicle_free_list.pop_back() as MeshInstance3D
+	else:
+		node = _make_vehicle_mesh()
+		add_child(node)
+	node.visible = true
+	_vehicle_active[vid] = node
+	return node
+
+
+func _make_vehicle_mesh() -> MeshInstance3D:
+	# Placeholder transport: a box roughly 2.4 W x 1.6 H x 5.0 L (forward = +Z, matches heading yaw).
+	var mi := MeshInstance3D.new()
+	var mesh := BoxMesh.new()
+	mesh.size = Vector3(2.4, 1.6, 5.0)
+	mi.mesh = mesh
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = VEHICLE_COLOR
+	mat.roughness = 0.8
 	mi.material_override = mat
 	return mi
