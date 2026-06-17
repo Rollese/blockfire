@@ -18,6 +18,11 @@ var my_id := 0
 var _client_tick := 0
 var _last_snapshot_seq := 0
 var _last_server_tick := 0
+# Input redundancy: each INPUT packet re-sends the last N frames so the server recovers a dropped
+# packet from the next one's copy (see input_command.gd / InputBuffer). Frames are stored already
+# in wire form (aim_yaw incl. the +PI flip, the view tick captured at generation time).
+const INPUT_REDUNDANCY := 3
+var _input_history: Array = []
 var _elapsed := 0.0
 # Render interpolation: the predicted eye at the previous/current physics tick. The camera renders
 # a lerp between them by the physics-tick fraction, so 30 Hz prediction looks smooth at 60 Hz.
@@ -160,12 +165,17 @@ func _physics_process(delta: float) -> void:
 		# which points opposite the Godot camera, so send yaw+PI to make the authoritative aim
 		# match where the crosshair points. Movement is world-space (move_x/y) so it's unaffected.
 		var aim_yaw: float = wrapf(float(cmd["yaw"]) + PI, -PI, PI)
+		# Append this tick's frame to the redundancy ring and send the last N. ack_seq is
+		# per-packet (latest snapshot); each frame keeps its own view tick for lag comp.
+		_input_history.append({
+			"client_tick": _client_tick, "move_x": float(cmd["move_x"]), "move_y": float(cmd["move_y"]),
+			"yaw": aim_yaw, "pitch": float(cmd["pitch"]), "buttons": buttons,
+			"view_server_tick": _last_server_tick,
+		})
+		while _input_history.size() > INPUT_REDUNDANCY:
+			_input_history.pop_front()
 		_net.send_to(_peer, NetHost.CHANNEL_INPUT,
-			InputCommand.encode(
-				_client_tick, _last_snapshot_seq,
-				float(cmd["move_x"]), float(cmd["move_y"]),
-				aim_yaw, float(cmd["pitch"]),
-				buttons, _last_server_tick),
+			InputCommand.encode_bundle(_last_snapshot_seq, _input_history),
 			0)  # unreliable-sequenced
 
 		_client_tick += 1

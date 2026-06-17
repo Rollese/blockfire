@@ -264,7 +264,10 @@ func _step_movement() -> void:
 	var inputs := {}
 	for id in _clients:
 		var c = _clients[id]
-		var inp = c["queued_input"]
+		# Drain one buffered input frame (FIFO, oldest-first). The redundancy bundle (input_command.gd)
+		# means a dropped packet's frame is recovered from the next packet's copy, so this rarely
+		# starves; when it does (nothing buffered), reuse the last frame and count it.
+		var inp = c["input_buf"].pop()
 		if inp == null:
 			inp = c["last_input"]
 			if inp != null: _tele.starvation += 1
@@ -276,7 +279,6 @@ func _step_movement() -> void:
 					_ac_viol += 1
 			c["last_input"] = inp
 			c["last_input_tick"] = inp["client_tick"]
-		c["queued_input"] = null
 		if c["reloading"] and _sim.tick >= c["reload_done_tick"]:
 			c["reloading"] = false
 			c["ammo"] = Weapon.get_def(c["weapon"])["mag_size"]
@@ -848,7 +850,7 @@ func _handle_hello(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
 	var squad := _squads.assign(id, team)
 	_peer_to_id[peer] = id
 	_clients[id] = {
-		"peer": peer, "queued_input": null, "last_input": null, "last_input_tick": 0,
+		"peer": peer, "input_buf": InputBuffer.new(), "last_input": null, "last_input_tick": 0,
 		"last_acked_seq": 0, "next_seq": 1, "history": {}, "history_v": {},
 		"team": team, "squad": squad, "class": cls, "weapon": wid, "weapon_def": weapon_def,
 		"rockets": start_rockets, "last_rocket_tick": -100000,
@@ -892,8 +894,10 @@ func _handle_input(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
 	if id == 0 or not _clients.has(id): return
 	var d := InputCommand.decode(bytes)
 	var c = _clients[id]
-	if c["queued_input"] != null and d["client_tick"] <= c["queued_input"]["client_tick"]: return
-	c["queued_input"] = d
+	# Enqueue the bundle's frames (dedup of already-seen copies happens in the buffer); they drain
+	# one-per-tick in _step_movement. Redundant frames from earlier packets are how a dropped packet
+	# is recovered without staling the server's view of the player.
+	c["input_buf"].ingest(d["frames"])
 	var ack: int = d["ack_seq"]
 	if ack > c["last_acked_seq"]:
 		c["last_acked_seq"] = ack
