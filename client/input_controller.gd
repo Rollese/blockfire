@@ -17,6 +17,15 @@ func _input(event: InputEvent) -> void:
 		_mouse_rel += (event as InputEventMouseMotion).relative
 		motion_events += 1
 
+## Rotate local move intent (x=right, z=forward) into world space by yaw. Pure, so it is
+## unit-testable without the Input singleton. Result is consumed as Vector3(move_x,0,move_y)
+## by Pawn.step, so it must match the codebase aim convention (Combat._forward):
+## forward(yaw)=(sin,cos), right(yaw)=(cos,-sin) on the XZ plane.
+static func move_world(local_x: float, local_z: float, yaw: float) -> Vector2:
+	# Godot's Vector2.rotated() is the opposite handedness to the sim's Y-axis yaw, so rotate
+	# by -yaw: forward (0,1) -> (sin,cos), right (1,0) -> (cos,-sin), matching Combat._forward.
+	return Vector2(local_x, local_z).rotated(-yaw)
+
 ## Apply accumulated look. Separated out so it is unit-testable without the Input singleton.
 func apply_look(rel: Vector2, settings: ClientSettings) -> void:
 	var gain := LOOK_RAD_PER_PIXEL * settings.sensitivity
@@ -29,7 +38,7 @@ func gather(settings: ClientSettings) -> Dictionary:
 	_mouse_rel = Vector2.ZERO
 	var local_x: float = Input.get_axis("move_left", "move_right")   # +X = right
 	var local_z: float = Input.get_axis("move_back", "move_fwd")     # +Z = forward
-	var f := Vector2(local_x, local_z).rotated(yaw)            # local -> world (sign verified in playtest)
+	var f := move_world(local_x, local_z, yaw)                 # local -> world
 	var pressed := {
 		"jump": Input.is_action_pressed("jump"),
 		"crouch": Input.is_action_pressed("crouch"),
@@ -48,3 +57,8 @@ func capture_mouse() -> void:
 
 func release_mouse() -> void:
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+
+## Discard any accumulated look delta. Call while a menu owns the cursor so the view does
+## not snap by the menu-time mouse travel when input resumes.
+func drain_look() -> void:
+	_mouse_rel = Vector2.ZERO

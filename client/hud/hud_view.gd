@@ -22,6 +22,8 @@ var _killfeed_labels: Array[Label] = []
 var _vignette: ColorRect
 var _arc_pool: Array[Control] = []
 var _prompt_label: Label          # placeholder interaction hook
+var _perf_label: Label            # debug perf overlay (FPS / frame-time / draw calls)
+var _perf_accum: float = 0.0      # throttle perf-label refresh to ~4 Hz
 
 # ---- constants for owner tint -----------------------------------------
 const _OWNER_COLORS: Array[Color] = [
@@ -74,6 +76,7 @@ func _build_tree() -> void:
 	_build_vignette()
 	_build_damage_arcs()
 	_build_prompt()
+	_build_perf()
 
 
 func _build_crosshair() -> void:
@@ -256,6 +259,53 @@ func _build_prompt() -> void:
 	_prompt_label.visible = false
 	_prompt_label.mouse_filter = MOUSE_FILTER_IGNORE
 	add_child(_prompt_label)
+
+
+func _build_perf() -> void:
+	# Debug perf overlay — top-left, just below the tickets panel. Self-updating via _process.
+	_perf_label = Label.new()
+	_perf_label.anchor_left = 0.0
+	_perf_label.anchor_top = 0.0
+	_perf_label.offset_left = 12.0
+	_perf_label.offset_top = 92.0
+	_perf_label.add_theme_font_size_override("font_size", 13)
+	_perf_label.add_theme_color_override("font_color", Color(0.5, 1.0, 0.5))
+	_perf_label.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.9))
+	_perf_label.add_theme_constant_override("outline_size", 4)
+	_perf_label.text = "fps —"
+	_perf_label.mouse_filter = MOUSE_FILTER_IGNORE
+	add_child(_perf_label)
+
+
+func _process(delta: float) -> void:
+	# Refresh the perf overlay ~4x/sec so the numbers are readable, not a blur.
+	if _perf_label == null:
+		return
+	_perf_accum += delta
+	if _perf_accum < 0.25:
+		return
+	_perf_accum = 0.0
+	var fps := Engine.get_frames_per_second()
+	var frame_ms := 1000.0 / fps if fps > 0 else 0.0
+	var draws := int(Performance.get_monitor(Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME))
+	var prims := int(Performance.get_monitor(Performance.RENDER_TOTAL_PRIMITIVES_IN_FRAME))
+	var vram_mb := Performance.get_monitor(Performance.RENDER_VIDEO_MEM_USED) / 1048576.0
+	var objs := int(Performance.get_monitor(Performance.OBJECT_NODE_COUNT))
+	var vsync: String = ["off", "on", "adaptive", "mailbox"][DisplayServer.window_get_vsync_mode()]
+	_perf_label.text = "fps %d  %.1f ms  vsync:%s\ndraws %d  prims %s  vram %.0f MB  nodes %d" % [
+		fps, frame_ms, vsync, draws, _commafy(prims), vram_mb, objs]
+
+
+static func _commafy(n: int) -> String:
+	var s := str(n)
+	var out := ""
+	var c := 0
+	for i in range(s.length() - 1, -1, -1):
+		out = s[i] + out
+		c += 1
+		if c % 3 == 0 and i > 0:
+			out = "," + out
+	return out
 
 
 # -----------------------------------------------------------------------

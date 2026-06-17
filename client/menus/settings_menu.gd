@@ -23,21 +23,54 @@ func _ready() -> void:
 	_build_ui()
 
 func _build_ui() -> void:
-	var vbox := VBoxContainer.new()
-	add_child(vbox)
+	# Full-screen overlay: dimmed backdrop + centered panel so the menu is obvious and not a
+	# top-left cluster. STOP mouse on the root so clicks don't fall through to the 3D world.
+	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	mouse_filter = Control.MOUSE_FILTER_STOP
 
+	var bg := ColorRect.new()
+	bg.color = Color(0.0, 0.0, 0.0, 0.6)
+	bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(bg)
+
+	var center := CenterContainer.new()
+	center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	center.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(center)
+
+	var panel := PanelContainer.new()
+	center.add_child(panel)
+	var margin := MarginContainer.new()
+	for side in ["margin_left", "margin_right", "margin_top", "margin_bottom"]:
+		margin.add_theme_constant_override(side, 20)
+	panel.add_child(margin)
+
+	var vbox := VBoxContainer.new()
+	vbox.add_theme_constant_override("separation", 10)
+	vbox.custom_minimum_size = Vector2(320, 0)
+	margin.add_child(vbox)
+
+	var title := Label.new()
+	title.text = "SETTINGS"
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	vbox.add_child(title)
+
+	vbox.add_child(_row_label("Mouse sensitivity"))
 	_sensitivity_slider = HSlider.new()
 	_sensitivity_slider.min_value = 0.01
 	_sensitivity_slider.max_value = 2.0
 	_sensitivity_slider.step = 0.01
 	vbox.add_child(_sensitivity_slider)
 
+	vbox.add_child(_row_label("Field of view"))
 	_fov_spin = SpinBox.new()
 	_fov_spin.min_value = 60.0
 	_fov_spin.max_value = 120.0
 	_fov_spin.step = 1.0
 	vbox.add_child(_fov_spin)
 
+	vbox.add_child(_row_label("Master volume"))
 	_volume_slider = HSlider.new()
 	_volume_slider.min_value = 0.0
 	_volume_slider.max_value = 1.0
@@ -56,6 +89,11 @@ func _build_ui() -> void:
 	apply_btn.text = "Apply / Save"
 	apply_btn.pressed.connect(apply)
 	vbox.add_child(apply_btn)
+
+static func _row_label(text: String) -> Label:
+	var l := Label.new()
+	l.text = text
+	return l
 
 ## Store the settings object and populate controls from it.
 func bind_settings(s: ClientSettings) -> void:

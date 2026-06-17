@@ -99,7 +99,18 @@ func _physics_process(delta: float) -> void:
 	var ss: EntityState = _wv.self_state()
 	var deployed: bool = ss != null and ss.alive
 
-	if deployed:
+	# Alive but with the settings menu open: free the cursor and pause input so the player can
+	# click the menu without walking/looking. (Without this, the per-tick capture_mouse() below
+	# re-grabs the cursor every frame and the centered menu is unclickable.)
+	var menu_open: bool = _settings_menu != null and _settings_menu.visible
+
+	if deployed and menu_open:
+		if _scene_built:
+			_input_ctrl.release_mouse()
+			_input_ctrl.drain_look()
+			if _deploy_menu != null:
+				_deploy_menu.visible = false
+	elif deployed:
 		# Gather local input and run prediction
 		var cmd: Dictionary = _input_ctrl.gather(_settings)
 		_pred.record_cmd(_client_tick, cmd)
@@ -170,11 +181,13 @@ func _process(_dt: float) -> void:
 		if _settings_menu != null:
 			_settings_menu.visible = not _settings_menu.visible
 
-	# Keep deploy menu visible only when undeployed
+	# Keep deploy menu visible only when undeployed AND the settings menu isn't up — otherwise the
+	# two full-screen overlays stack (double-dimmed backdrop + dead spawn buttons behind settings).
 	if _deploy_menu != null:
 		var ss: EntityState = _wv.self_state()
 		var deployed: bool = ss != null and ss.alive
-		_deploy_menu.visible = not deployed
+		var settings_open: bool = _settings_menu != null and _settings_menu.visible
+		_deploy_menu.visible = not deployed and not settings_open
 
 	# --- input/deploy diagnostic (1 Hz) ----------------------------------------
 	_dbg_accum += _dt
