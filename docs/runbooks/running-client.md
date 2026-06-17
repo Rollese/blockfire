@@ -32,6 +32,16 @@ godot --headless --path . -- --bots --bot-count=8 --connect=127.0.0.1 --port=270
 Bots send `HELLO.auto_deploy=true` (the default), so they spawn and respawn automatically and keep a
 match running for you to drop into. A handful (6–8) is plenty for a feel pass.
 
+**Checkpoint-3 feel-pass tips (added 2026-06-17):**
+- Use the small **`--map=conquest_dev_arena`** (one objective, 60 m) for a tight infantry test instead
+  of the sprawling default `conquest_proving_grounds` — pass `--map=conquest_dev_arena` to the **server,
+  bots, AND client** (they must match). The arena now also carries a transport per team.
+- The server **exits at match end** (a team's tickets hit 0), which disconnects the client (grey
+  "connecting…" screen = dead server, not an import bug). For a long uninterrupted session bump
+  **`--tickets=2000 --time-limit=3600`** on the server, or just restart it when it ends.
+- New C3 keys: **G** throw grenade/RPG · **B** cycle throwable · **H** gadget · **U** squad menu (while
+  alive) · **R** reload · **F** revive (hold) / enter vehicle / interact.
+
 ## 2. On the desktop — run the rendered client
 
 ```

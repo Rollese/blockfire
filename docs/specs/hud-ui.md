@@ -51,7 +51,10 @@ Drives `DEPLOY_REQUEST` ([client-prediction](client-prediction.md)). Shows valid
 Selecting a spawn sends `DEPLOY_REQUEST{spawn_ref}` (unchanged wire across all ref kinds); the server **re-validates** the ref via `DeploySpawn.is_valid(...)` against its authoritative candidate arrays and places the pawn, or rejects (mate died / vehicle filled / point lost) → the deploy screen stays up to re-pick. A non-rendered await/spectator state covers the pre-deploy gap. Shown on initial join and after every death.
 
 ### Squad menu (minimal)
-View the squad (members + status, reusing the roster data) and **join/switch squad** via `SET_SQUAD` (backed by server `SquadManager`). P1 keeps it minimal — enough to see and pick a squad, since squad-spawn depends on it. Squad creation/leadership niceties are deferred.
+View the squad (members + status, reusing the roster data) and **join/switch squad** via `SET_SQUAD` (backed by server `SquadManager`). P1 keeps it minimal — enough to see and pick a squad, since squad-spawn depends on it. Squad creation/leadership niceties are deferred. **Two entry points (C3):** the squad buttons on the deploy screen (between lives), and a standalone **squad-select overlay toggled by `U` while alive** (releases the cursor like the settings menu, sends `SET_SQUAD` on pick, auto-closes on death).
+
+### DBNO / downed screen (C3)
+While `is_downed`: bleed-out countdown + **hold-to-give-up** (true death now; the downer is credited). **No self-recovery** — a downed player has no self-bandage/self-revive and is resolved only by a **teammate revive** or by bleeding out (BattleBit-style). When a teammate is actively reviving (server `being_revived` bit in `SELF_STATE`), the screen swaps to a green **"Being revived — hold on!"** cue so the player knows not to give up. The ammo readout + throwable selector are hidden while downed/dead/deploying. The **death-recap card** (left side, vertically centered above the deploy dim, word-wrapped) appears only on **true death**, never on a down (you can still be revived). A **respawn cooldown** ("Respawn in N…") gates redeploy after death.
 
 ### Settings menu (essentials + defaults)
 Persisted to a local config file:

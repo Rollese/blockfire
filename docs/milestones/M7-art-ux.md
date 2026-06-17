@@ -57,6 +57,39 @@ reviewers); review findings (deploy-menu repopulate on death; reload-remaining r
 record sign-off + session server log here. Feel issues (look/move sign, sensitivity, recoil, HUD
 layout) are follow-ups, not blockers.
 
+#### Checkpoint 3 — Combat-depth UI — DONE ✅ (owner-validated 2026-06-17)
+
+Plan: [`docs/plans/2026-06-17-m7-p1-c3-combat-depth-ui.md`](../plans/2026-06-17-m7-p1-c3-combat-depth-ui.md).
+Landed on `m7-rendered-client` (tip `dc3479c`) — the 22-task plan plus a long owner-playtest fix loop.
+
+**What landed (client/server-edge + presentation, no gameplay rule logic in `client/`):**
+- Wire: `ROSTER` (names + per-client K/D/score), `SET_SQUAD`, `DEATH_INFO` (recap), `SELF_STATE`
+  extended with `throwables` + a `being_revived` bit; `DEPLOY_REQUEST` widened to u16.
+- `DeploySpawn` squadmate/vehicle refs **keyed by stable entity id/slot** (not array position, which
+  aliased across the client/server edge); pure `DeathRecap`.
+- HUD: scoreboard, squad roster, interaction prompt, throwable selector, **death-recap card**
+  (left side, word-wrapped), respawn-cooldown countdown, "being revived — hold on!" cue, ammo/selector
+  hidden while downed. Standalone **squad-select overlay (U)**. world_renderer structures + vehicle
+  placeholder boxes (smoothed). deploy menu squadmate/vehicle options.
+
+**Playtest-surfaced sim fixes** (pre-existing bugs the visual client exposed for the first time —
+exactly the §10 purpose): pawn **and** vehicle movement clamp to the map's `world_half` (were hardcoded
+1000, so they left small maps); **seat vacated on death** (respawn-trap); downed players can't fire and
+aren't damageable (no false hitmarkers); bleed-out/give-up **credit the downer** with the kill +
+correct recap (was self → "Killed by <you>", 0 m, 0 HP); killer HP/range **snapshotted at down-time**;
+damage ledger reset on revive; humans **never roll Engineer** (the RPG-primary loadout had no
+click-fire gun); prone is a toggle; no self-revive (teammate-only).
+
+**Evidence:** full unit suite **400 run / 0 failed**; ≤48-bot smoke (`ci/m5_p1_test.sh`) **PASS**
+(`winner=0 enters=4 veh_dead=1 rkt_veh=1`, peak **15.76 ms** < 33.3); Tasks 13 & 15 (authoritative
+damage/deploy) two-stage read-only reviewed → SPEC-COMPLIANT + APPROVE. Owner ran the full loop
+desktop→game2 and signed off.
+
+**Deferred (P2 / separate vehicle-netcode pass — not C3 blockers):** grenade explosion VFX, corpse
+remains on death, and vehicle riding-jitter / exit / friendly-only enter (needs `in_vehicle` + vehicle
+`team` on the wire + seated-prediction suppression). This closes the **M7-P1 build order (C1→C2→C3)**;
+next is the P1 gate (full-match human playtest with complete HUD).
+
 ### P2 — Art kit + LOD
 Swap placeholder primitives for the low-poly blocky kit (characters, weapons, vehicles, environment) behind the same node interfaces, LOD pipeline, and audio/visual feedback polish (richer hit markers, animated damage indicators, SFX). Pure presentation on top of a proven-playable P1.
 
