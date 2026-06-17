@@ -94,8 +94,8 @@ Specs: [`client-prediction.md`](specs/client-prediction.md), [`hud-ui.md`](specs
 | M7-P1 specs (client-prediction, hud-ui) + ADR-0005 | claude | done | committed on `m7-rendered-client` |
 | M7-P1 C1 plan + execute (core infantry loop) | claude | done | `docs/plans/2026-06-16-m7-p1-c1-infantry-client.md`; impl complete + headless-validated (milestone doc) |
 | M7-P1 C2 execute (vehicles, predicted + rendered) | claude | done | landed on `m7-rendered-client` (input redundancy + FIFO jitter-buffer); see git `m7-c2` |
-| M7-P1 C3 plan (combat-depth UI) | claude | in-progress | `writing-plans` → `docs/plans/2026-06-17-m7-p1-c3-combat-depth-ui.md` — squad/scoreboard, DBNO/revive, gadget/grenade, build/destroy feedback, deploy-on-squadmate, death-recap (`ROSTER`/`SET_SQUAD`/`DEATH_INFO` + extended `SELF_STATE`/`DeploySpawn`) |
-| M7-P1 C3 execute (combat-depth UI) | — | todo | subagent-driven; server-edge tasks two-stage reviewed; owner playtests at checkpoint |
+| M7-P1 C3 plan (combat-depth UI) | claude | done | `docs/plans/2026-06-17-m7-p1-c3-combat-depth-ui.md` — squad/scoreboard, DBNO/revive, gadget/grenade, build/destroy feedback, deploy-on-squadmate, death-recap (`ROSTER`/`SET_SQUAD`/`DEATH_INFO` + extended `SELF_STATE`/`DeploySpawn`) |
+| M7-P1 C3 execute (combat-depth UI) | claude | review | **Build complete on `m7-rendered-client` (22-task plan, subagent-driven).** All 11 new `*_test.gd` + full suite green (390 run / 0 failed); ≤48 smoke PASS (winner=1, peak 15.89ms<33.3); Tasks 13 & 15 (authoritative damage/deploy) two-stage read-only reviewed → SPEC-COMPLIANT + APPROVE. Specs (`client-prediction`/`hud-ui`) updated; graph refreshed. **Awaiting owner playtest (Task 22 gate) → then `done`.** |
 | M7-P1 gate (full Conquest match, placeholder art, complete HUD) | — | todo | human playtest sign-off + server log |
 
 ## Active tasks (M0) — complete ✅
