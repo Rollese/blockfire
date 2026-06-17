@@ -55,6 +55,10 @@ func populate(team: int, map: MapDef, conquest: ConquestState) -> void:
 	# Ensure the layout exists even when called before _ready (e.g. DeployMenu.new() in tests).
 	if _vbox == null:
 		_build_layout()
+	# Fresh spawn list -> not awaiting. Without this, a populate() after death (the alive->dead
+	# repopulate) leaves the post-click "Awaiting deploy…" state up with the buttons hidden, and
+	# the player is stuck on a buttonless deploy screen.
+	set_awaiting(false)
 	# Remove old buttons.
 	for child in _vbox.get_children():
 		child.queue_free()
