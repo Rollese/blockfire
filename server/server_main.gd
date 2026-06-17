@@ -559,6 +559,11 @@ func _apply_pawn_damage(vid: int, victim: Pawn, dmg: int, headshot: bool, source
 	if Revive.is_instant_kill(headshot, source):
 		_kill_pawn(vid, victim, killer_id, weapon_id, headshot, source)
 	else:
+		# Remember who downed the pawn (+ their weapon) so a later bleed-out / give-up death
+		# credits the attacker, not the victim. (killer_id 0 = no attacker, e.g. fall.)
+		if _clients.has(vid) and killer_id != 0:
+			_clients[vid]["downed_by"] = killer_id
+			_clients[vid]["downed_by_weapon"] = weapon_id
 		_down_pawn(victim)
 
 func _complete_revive(target_id: int) -> void:
@@ -568,6 +573,11 @@ func _complete_revive(target_id: int) -> void:
 	p.health = Revive.REVIVE_HP
 	p.bleed_health = 0
 	p.bleed_halted = false
+	# Fresh start after a revive: clear the damage ledger so a later death's recap reflects the
+	# lethal sequence (~one health bar), not damage accumulated across the whole life.
+	if _clients.has(target_id):
+		_clients[target_id]["dmg_ledger"] = {}
+		_clients[target_id].erase("downed_by")
 	_revives += 1
 	# No ticket refund needed — DOWNED never spent one.
 
@@ -708,7 +718,9 @@ func _step_downed() -> void:
 			continue
 		p.bleed_health = Revive.bleed_step(p.bleed_health, p.bleed_halted)
 		if Revive.is_bled_out(p.bleed_health):
-			_kill_pawn(id, p, id, 0, false, Revive.Source.BULLET)  # killer = self (bleed-out)
+			# Credit the attacker who downed the pawn (falls back to self if unknown).
+			var c = _clients[id]
+			_kill_pawn(id, p, int(c.get("downed_by", id)), int(c.get("downed_by_weapon", 0)), false, Revive.Source.BULLET)
 			_bleedouts += 1
 
 func _handle_respawns() -> void:
@@ -1200,7 +1212,8 @@ func _handle_give_up(peer: ENetPacketPeer) -> void:
 	if id == 0 or not _clients.has(id): return
 	var p: Pawn = _sim.world.get_pawn(id)
 	if p == null or not p.alive or not p.is_downed: return
-	_kill_pawn(id, p, id, 0, false, Revive.Source.BULLET)
+	var c = _clients[id]
+	_kill_pawn(id, p, int(c.get("downed_by", id)), int(c.get("downed_by_weapon", 0)), false, Revive.Source.BULLET)
 	_bleedouts += 1
 
 func _handle_self_bandage(peer: ENetPacketPeer, _bytes: PackedByteArray) -> void:
