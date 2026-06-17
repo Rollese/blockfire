@@ -373,18 +373,32 @@ static func decode_damage_event(bytes: PackedByteArray) -> Dictionary:
 	return {"bearing": Quantize.dec_angle(r.get_u16()), "amount": r.get_u8()}
 
 
-static func encode_self_state(mag: int, reloading: bool, reload_remaining: int, weapon: int) -> PackedByteArray:
+static func encode_self_state(mag: int, reloading: bool, reload_remaining: int, weapon: int, throwables: Array = []) -> PackedByteArray:
 	var buf := StreamPeerBuffer.new()
 	buf.put_u8(Msg.SELF_STATE)
 	buf.put_u8(clampi(mag, 0, 255))
 	buf.put_u8(1 if reloading else 0)
 	buf.put_u16(clampi(reload_remaining, 0, 65535))
 	buf.put_u8(weapon & 0xFF)
+	buf.put_u8(mini(throwables.size(), 255))
+	for i in mini(throwables.size(), 255):
+		var t: Dictionary = throwables[i]
+		buf.put_u8(int(t["kind"]) & 0xFF)
+		buf.put_u8(clampi(int(t["count"]), 0, 255))
 	return buf.data_array
 
 static func decode_self_state(bytes: PackedByteArray) -> Dictionary:
 	var r := body_reader(bytes)
-	return {"mag": r.get_u8(), "reloading": r.get_u8() == 1, "reload_remaining": r.get_u16(), "weapon": r.get_u8()}
+	var mag := r.get_u8()
+	var reloading := r.get_u8() == 1
+	var reload_remaining := r.get_u16()
+	var weapon := r.get_u8()
+	var throwables: Array = []
+	if r.get_available_bytes() > 0:
+		var n := r.get_u8()
+		for _i in n:
+			throwables.append({"kind": r.get_u8(), "count": r.get_u8()})
+	return {"mag": mag, "reloading": reloading, "reload_remaining": reload_remaining, "weapon": weapon, "throwables": throwables}
 
 
 static func encode_roster(rows: Array) -> PackedByteArray:

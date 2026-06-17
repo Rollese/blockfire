@@ -211,3 +211,17 @@ func test_death_info_roundtrip() -> void:
 	assert_eq(d["attackers"].size(), 2)
 	assert_eq(d["attackers"][0]["id"], 7)
 	assert_eq(d["attackers"][0]["dmg"], 80)
+
+func test_self_state_carries_throwables() -> void:
+	var thr := [{"kind": 0, "count": 1}, {"kind": 1, "count": 2}]   # frag ready, 2 gadget charges
+	var b := Protocol.encode_self_state(17, false, 0, Weapon.AR, thr)
+	var d := Protocol.decode_self_state(b)
+	assert_eq(d["mag"], 17)
+	assert_eq(d["throwables"].size(), 2)
+	assert_eq(d["throwables"][1]["kind"], 1)
+	assert_eq(d["throwables"][1]["count"], 2)
+
+func test_self_state_without_throwables_defaults_empty() -> void:
+	var b := Protocol.encode_self_state(30, false, 0, Weapon.AR)   # 4-arg (pre-C3 senders)
+	var d := Protocol.decode_self_state(b)
+	assert_eq(d["throwables"], [], "absent block decodes as empty list")
