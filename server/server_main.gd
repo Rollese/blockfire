@@ -23,7 +23,7 @@ const MAX_ENEMY_SNAPSHOT := 24      # max enemies per snapshot (nearest-first) o
 const RESPAWN_DELAY_TICKS := 150   # 5s @30Hz
 const FIRE_CONE_DOT := 0.985       # broad-phase: target within ~10deg of ray
 const FIRE_RANGE_MARGIN := 20.0    # grid broad-phase slack for lag-comp movement
-const MAP_PATH := "res://maps/conquest_proving_grounds.json"
+const MAP_PATH := "res://maps/conquest_proving_grounds.json"   # default; override with --map=<name>
 const MATCH_STATE_INTERVAL := 15   # ticks between match-state broadcasts (2 Hz)
 const MATCH_END_DRAIN_TICKS := 60  # keep running ~2s after a win, then exit
 const MAX_STRUCTURE_DELTAS_PER_TICK := 64   # graceful degradation: cap delta SENDS/tick
@@ -54,6 +54,7 @@ var _grid := InterestGrid.new(CELL_SIZE)
 var _lag := LagComp.new()
 var _tele := Telemetry.new()
 var _map: MapDef
+var _map_path: String = MAP_PATH   # --map=<name> overrides (must match client + bots)
 var _conquest: ConquestState
 var _squads := SquadManager.new()
 var _catalog: PieceCatalog
@@ -136,11 +137,13 @@ func configure(args: Dictionary) -> void:
 	_port = int(args.get("port", _port))
 	_start_tickets = int(args.get("tickets", -1))
 	_time_limit = float(args.get("time-limit", -1.0))
+	if args.has("map"):
+		_map_path = "res://maps/%s.json" % String(args["map"])
 
 func _ready() -> void:
-	_map = MapDef.load_file(MAP_PATH)
+	_map = MapDef.load_file(_map_path)
 	if _map == null:
-		push_error("[server] failed to load map %s" % MAP_PATH); get_tree().quit(1); return
+		push_error("[server] failed to load map %s" % _map_path); get_tree().quit(1); return
 	_conquest = ConquestState.new(_map)
 	if _start_tickets > 0:
 		_conquest.tickets = [float(_start_tickets), float(_start_tickets)]

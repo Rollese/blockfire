@@ -4,7 +4,7 @@ extends Node
 ## Authority lives on the server; this file connects UI/input/prediction/rendering only.
 
 const Protocol := preload("res://shared/net/protocol.gd")
-const MAP_PATH := "res://maps/conquest_proving_grounds.json"
+const MAP_PATH := "res://maps/conquest_proving_grounds.json"   # default; override with --map=<name>
 
 # ---- network ----------------------------------------------------------------
 var _net: NetHost
@@ -47,6 +47,7 @@ var _auto_deploy_ref: int = -1    # --deploy=N arg; -1 = not set
 var _auto_deploy_sent := false    # only send once
 var _dbg_accum := 0.0             # 1 Hz input/deploy diagnostic accumulator
 var _novsync := false             # --novsync: disable vsync (perf diagnostic)
+var _map_path: String = MAP_PATH  # --map=<name> overrides (must match server + bots)
 
 # ---- configure (called by bootstrap before add_child) -----------------------
 func configure(args: Dictionary) -> void:
@@ -56,6 +57,8 @@ func configure(args: Dictionary) -> void:
 	if args.has("deploy"):
 		_auto_deploy_ref = int(args["deploy"])
 	_novsync = args.has("novsync")
+	if args.has("map"):
+		_map_path = "res://maps/%s.json" % String(args["map"])
 
 # ---- _ready -----------------------------------------------------------------
 func _ready() -> void:
@@ -64,9 +67,9 @@ func _ready() -> void:
 	_settings.load_from()
 
 	# 2. Load map + initial conquest state
-	_map = MapDef.load_file(MAP_PATH)
+	_map = MapDef.load_file(_map_path)
 	if _map == null:
-		push_error("[client] failed to load map: %s" % MAP_PATH)
+		push_error("[client] failed to load map: %s" % _map_path)
 	_conquest = ConquestState.new(_map)
 
 	# 3. Create non-scene components

@@ -6,7 +6,7 @@ extends Node
 const Protocol := preload("res://shared/net/protocol.gd")
 const AIM_TOLERANCE := 0.05   # radians; fire when aim within this of target
 const ENGAGE_RANGE := 50.0   # only fire once within this range (else keep closing)
-const MAP_PATH := "res://maps/conquest_proving_grounds.json"
+const MAP_PATH := "res://maps/conquest_proving_grounds.json"   # default; override with --map=<name>
 const BURST_TICKS := 60   # server ticks (~2.0s @30Hz) of firing before reloading; shorter
                           # than the fastest mag-empty time so no weapon runs dry mid-burst
 const RELOAD_TICKS := 84  # server ticks (~2.8s) to hold BTN_RELOAD; > the slowest weapon
@@ -28,6 +28,7 @@ const ROCKET_SPEED := 150.0  # keep in sync with data/gadgets.json rpg.rocket_sp
 const ROCKET_GRAVITY := 20.0  # matches Grenade.GRAVITY; bots aim higher by 1/2 g t^2 to counter rocket drop
 
 var _map: MapDef
+var _map_path: String = MAP_PATH   # --map=<name> overrides (must match server + client)
 var _match_points: Array = []   # array of {owner, attacker, cap}, index == map point index
 var _synced_logged := false   # logs once when any bot first sees a structure (gate signal)
 
@@ -40,11 +41,13 @@ func configure(args: Dictionary) -> void:
 	_server_ip = String(args.get("connect", _server_ip))
 	_port = int(args.get("port", _port))
 	_bot_count = maxi(1, int(args.get("bot-count", _bot_count)))
+	if args.has("map"):
+		_map_path = "res://maps/%s.json" % String(args["map"])
 
 func _ready() -> void:
-	_map = MapDef.load_file(MAP_PATH)
+	_map = MapDef.load_file(_map_path)
 	if _map == null:
-		push_error("[bots] failed to load map %s" % MAP_PATH)
+		push_error("[bots] failed to load map %s" % _map_path)
 	print("[bots] spawning %d bot(s) -> %s:%d" % [_bot_count, _server_ip, _port])
 	for i in _bot_count:
 		_spawn_bot(i)

@@ -1,0 +1,16 @@
+{
+  "name": "dev_arena",
+  "world_half": 60.0,
+  "points": [
+    {"id": "A", "pos": [-12, 0, 0], "radius": 10.0, "start_owner": -1},
+    {"id": "B", "pos": [ 12, 0, 0], "radius": 10.0, "start_owner": -1}
+  ],
+  "bases": [
+    {"team": 0, "pos": [-42, 0, 0], "radius": 12.0},
+    {"team": 1, "pos": [ 42, 0, 0], "radius": 12.0}
+  ],
+  "ladders": [],
+  "platforms": [],
+  "prebuilt": [],
+  "vehicle_spawns": []
+}
