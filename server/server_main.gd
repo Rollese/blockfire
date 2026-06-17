@@ -819,7 +819,7 @@ func _send_snapshots() -> void:
 		# Reliable so the authoritative ammo/reload always reaches the owner — otherwise dropped
 		# SELF_STATE packets (lossy links) leave the client predicting phantom ammo it doesn't have.
 		_net.send_to(c["peer"], NetHost.CHANNEL_CONTROL,
-			Protocol.encode_self_state(int(c["ammo"]), bool(c["reloading"]), reload_remaining, int(c["weapon"])),
+			Protocol.encode_self_state(int(c["ammo"]), bool(c["reloading"]), reload_remaining, int(c["weapon"]), _throwables_for(c)),
 			ENetPacketPeer.FLAG_RELIABLE)
 		c["history"][seq] = current
 		c["history_v"][seq] = current_v
@@ -904,6 +904,30 @@ func _handle_hello(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
 	_net.send_to(peer, NetHost.CHANNEL_CONTROL, Protocol.encode_welcome(id, TICK_RATE, cls), ENetPacketPeer.FLAG_RELIABLE)
 	print("[server] welcomed peer %d ('%s') team=%d squad=%d class=%d — %d peers" % [id, pname, team, squad, cls, _clients.size()])
 
+func _squad_candidates(req_id: int, team: int, squad_id: int) -> Array:
+	var out: Array = []
+	for mid in _squads.members(team, squad_id):
+		if mid == req_id: continue
+		var mp: Pawn = _sim.world.get_pawn(mid)
+		if mp == null: continue
+		out.append({"pos": mp.pos, "team": mp.team, "alive": mp.alive, "downed": mp.is_downed})
+	return out
+
+func _vehicle_candidates(team: int) -> Array:
+	var out: Array = []
+	for vid in _sim.world.vehicles:
+		var v: Vehicle = _sim.world.vehicles[vid]
+		if v == null or v.team != team or not v.alive: continue
+		out.append({"pos": v.pos, "team": v.team, "free_seats": v.seat_count() - v.occupant_ids().size()})
+	return out
+
+func _throwables_for(c: Dictionary) -> Array:
+	var ready := 1 if _sim.tick - int(c["last_grenade_tick"]) >= GRENADE_COOLDOWN_TICKS else 0
+	var list: Array = [{"kind": Grenade.FRAG, "count": ready}, {"kind": Grenade.SMOKE, "count": ready}]
+	if int(c["weapon"]) == Weapon.RPG:
+		list.append({"kind": 100, "count": int(c["rockets"])})   # kind 100 = RPG (UI-only tag; M5.5 formalizes)
+	return list
+
 func _handle_deploy_request(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
 	var id = _peer_to_id.get(peer, 0)
 	if id == 0 or not _clients.has(id): return
@@ -911,8 +935,10 @@ func _handle_deploy_request(peer: ENetPacketPeer, bytes: PackedByteArray) -> voi
 	var p: Pawn = _sim.world.get_pawn(id)
 	if p == null or p.alive: return    # already deployed
 	var ref := int(Protocol.decode_deploy_request(bytes)["spawn_ref"])
-	if not DeploySpawn.is_valid(int(c["team"]), ref, _map, _conquest): return
-	p.pos = DeploySpawn.resolve(int(c["team"]), ref, _map, _conquest)
+	var mates := _squad_candidates(id, int(c["team"]), int(c["squad"]))
+	var vehs := _vehicle_candidates(int(c["team"]))
+	if not DeploySpawn.is_valid(int(c["team"]), ref, _map, _conquest, mates, vehs): return
+	p.pos = DeploySpawn.resolve(int(c["team"]), ref, _map, _conquest, mates, vehs)
 	p.velocity = Vector3.ZERO
 	p.health = 100
 	p.alive = true
