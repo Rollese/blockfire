@@ -146,7 +146,7 @@ func _drive(bot: Dictionary, delta: float) -> void:
 				# Drive the transport toward the nearest visible enemy (into the firefight),
 				# falling back to the enemy spawn until contact. Staying mobile in combat is fine —
 				# no loiter hold, so the vehicle keeps pressing into the action where blast fire is.
-				var push := _hunt_pos(me, view)
+				var push := _hunt_pos(me, int(bot["id"]), view)
 				var cmd := BotDriver.drive_toward(v.heading, me.pos, push)
 				_send(bot, float(cmd["move_x"]), float(cmd["move_y"]), float(cmd["yaw"]), 0.0, 0)
 				return
@@ -710,8 +710,9 @@ func _objective_pos(me: EntityState) -> Vector3:
 
 ## Where a crewed transport should drive: toward the nearest visible enemy (into the firefight),
 ## else advance on the enemy spawn until contact. Falls back to current pos if nothing is known.
-func _hunt_pos(me: EntityState, view: Dictionary) -> Vector3:
-	var r := BotDriver.nearest_enemy_pos(view, int(me.id), int(me.team), me.pos)
+func _hunt_pos(me: EntityState, self_id: int, view: Dictionary) -> Vector3:
+	# EntityState carries no id (the id is the view dict key), so the caller passes bot["id"].
+	var r := BotDriver.nearest_enemy_pos(view, self_id, int(me.team), me.pos)
 	if bool(r["found"]):
 		return r["pos"]
 	if _map != null:
