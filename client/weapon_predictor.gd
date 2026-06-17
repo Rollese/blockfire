@@ -38,7 +38,12 @@ func reload_remaining(tick: int) -> int:
 	return maxi(0, _reload_done_tick - tick) if reloading else 0
 
 func reconcile(auth_mag: int, auth_reloading: bool, auth_reload_remaining: int, now_tick: int = 0) -> void:
-	mag = auth_mag
 	reloading = auth_reloading
 	if auth_reloading:
+		mag = auth_mag
 		_reload_done_tick = now_tick + auth_reload_remaining
+	elif absi(auth_mag - mag) >= 3:
+		# Genuine divergence (reload refill, or the prediction drifted) — snap to authority.
+		mag = auth_mag
+	# else: small diff is just the prediction leading the lagged server mag by the in-flight shots;
+	# trust the local prediction so the counter doesn't jitter up/down every reconcile.

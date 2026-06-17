@@ -261,6 +261,19 @@ func _make_entity_mesh() -> MeshInstance3D:
 	mesh.radius = 0.3
 	mesh.height = 1.0    # default; scaled per-frame in _pose_entity()
 	mi.mesh = mesh
+	# Placeholder gun barrel so a pawn's facing / aim direction is readable (capsules are round).
+	# The entity node's local +Z is its forward (Combat._forward via es.yaw), so a box sticking out
+	# +Z points where the pawn is aiming. Child of the capsule -> inherits the yaw rotation.
+	var gun := MeshInstance3D.new()
+	var gmesh := BoxMesh.new()
+	gmesh.size = Vector3(0.08, 0.08, 0.6)
+	gun.mesh = gmesh
+	gun.position = Vector3(0.22, 0.1, 0.45)   # held on the right, chest height, barrel forward
+	var gmat := StandardMaterial3D.new()
+	gmat.albedo_color = Color(0.08, 0.08, 0.08)
+	gun.material_override = gmat
+	gun.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	mi.add_child(gun)
 	return mi
 
 

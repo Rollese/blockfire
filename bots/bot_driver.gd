@@ -109,9 +109,10 @@ func _drive(bot: Dictionary, delta: float) -> void:
 		_send(bot, 0.0, 0.0, bot["yaw"], 0.0, 0)
 		return
 
-	# Revive a downed teammate if one is close enough.
+	# Revive a downed teammate if one is close enough — but ONLY the single nearest alive teammate
+	# goes for the revive; everyone else keeps fighting (no whole-squad swarm that stalls combat).
 	var rid := _nearest_downed_teammate(bot, me)
-	if rid != 0:
+	if rid != 0 and _is_closest_reviver(bot, me, rid):
 		var tpos: Vector3 = (bot["view"][rid] as EntityState).pos
 		var to := tpos - me.pos
 		if to.length() <= Revive.REVIVE_RANGE:
@@ -310,6 +311,26 @@ func _update_drill_phase(bot: Dictionary, next_phase: int) -> void:
 			bot["drill_phase_ticks"] = 0
 		else:
 			bot["drill_phase_ticks"] = ticks
+
+## True if THIS bot is the nearest alive teammate (in its view) to the downed mate `rid` — so only
+## one reviver commits while the rest keep fighting. Ties broken by id for a stable single winner.
+func _is_closest_reviver(bot: Dictionary, me: EntityState, rid: int) -> bool:
+	var view: Dictionary = bot["view"]
+	if not view.has(rid):
+		return false
+	var dpos: Vector3 = (view[rid] as EntityState).pos
+	var my_d: float = me.pos.distance_to(dpos)
+	var my_id: int = int(bot["id"])
+	for id in view:
+		if int(id) == my_id or int(id) == rid:
+			continue
+		var e: EntityState = view[id]
+		if not e.alive or e.is_downed or e.team != me.team:
+			continue
+		var d: float = e.pos.distance_to(dpos)
+		if d < my_d - 0.01 or (absf(d - my_d) <= 0.01 and int(id) < my_id):
+			return false   # a closer (or tie-broken) teammate will take this revive
+	return true
 
 func _nearest_downed_teammate(bot: Dictionary, me: EntityState) -> int:
 	if me == null:
