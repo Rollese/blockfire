@@ -37,7 +37,8 @@ func _damage(ctx: Dictionary) -> Dictionary:
 			continue
 		kept.append(d)
 		var fade: float = 1.0 - age / DAMAGE_TTL
-		arcs.append({"rel_bearing": wrapf(d["bearing"] - yaw, -PI, PI), "fade": fade})
+		# Camera-relative (view bearing = sim-yaw + PI), matching the compass convention.
+		arcs.append({"rel_bearing": wrapf((yaw + PI) - d["bearing"], -PI, PI), "fade": fade})
 		vignette = maxf(vignette, fade * clampf(float(d["amount"]) / 50.0, 0.0, 1.0))
 	_damages = kept
 	return {"arcs": arcs, "vignette": vignette}
@@ -48,13 +49,16 @@ func build(ctx: Dictionary) -> Dictionary:
 
 func _compass(ctx: Dictionary) -> Dictionary:
 	var yaw := float(ctx.get("self_yaw", 0.0))
+	# The camera looks along sim-yaw + PI (Godot cameras face -Z; the sim's forward is +Z), so
+	# the compass "ahead" (rel_bearing 0) must be the camera's view bearing, not the raw sim yaw.
+	var view := wrapf(yaw + PI, -PI, PI)
 	var sp: Vector3 = ctx.get("self_pos", Vector3.ZERO)
 	var markers: Array = []
 	for o in ctx.get("objectives", []):
 		var d: Vector3 = o["pos"] - sp
 		var world_bearing := atan2(d.x, d.z)
-		markers.append({"rel_bearing": wrapf(world_bearing - yaw, -PI, PI), "owner": int(o["owner"])})
-	return {"heading": wrapf(yaw, -PI, PI), "markers": markers}
+		markers.append({"rel_bearing": wrapf(view - world_bearing, -PI, PI), "owner": int(o["owner"])})
+	return {"heading": view, "markers": markers}
 
 func _tickets(ctx: Dictionary) -> Array:
 	var ms: Dictionary = ctx.get("match_state", {})

@@ -10,17 +10,17 @@ func test_ammo_from_weapon_predictor() -> void:
 
 func test_compass_relative_bearing_to_objective() -> void:
 	var m := HudModel.new()
-	# local at origin facing +Z (yaw 0); objective due +X (right) -> +90 deg relative.
+	# yaw 0 -> the camera looks -Z (sim-yaw + PI); objective due +X is to the camera's right -> +90.
 	var out := m.build({"self_pos": Vector3.ZERO, "self_yaw": 0.0,
 		"objectives": [{"pos": Vector3(10, 0, 0), "owner": -1}], "tick": 0})
-	assert_almost_eq(rad_to_deg(out["compass"]["heading"]), 0.0, 0.5)
+	assert_almost_eq(absf(rad_to_deg(out["compass"]["heading"])), 180.0, 0.5)  # camera points -Z
 	assert_almost_eq(rad_to_deg(out["compass"]["markers"][0]["rel_bearing"]), 90.0, 1.0)
 
 func test_compass_bearing_wraps_behind() -> void:
 	var m := HudModel.new()
-	# objective due -Z (behind) -> +/-180 deg.
+	# yaw 0 -> camera looks -Z, so an objective at +Z is directly behind -> +/-180 deg.
 	var out := m.build({"self_pos": Vector3.ZERO, "self_yaw": 0.0,
-		"objectives": [{"pos": Vector3(0, 0, -10), "owner": -1}], "tick": 0})
+		"objectives": [{"pos": Vector3(0, 0, 10), "owner": -1}], "tick": 0})
 	assert_almost_eq(absf(rad_to_deg(out["compass"]["markers"][0]["rel_bearing"])), 180.0, 1.0)
 
 func test_tickets_passthrough_and_capture_when_on_point() -> void:
@@ -49,8 +49,8 @@ func test_killfeed_entries_decay_out() -> void:
 
 func test_damage_arc_relative_and_fades() -> void:
 	var m := HudModel.new()
-	# damage from due-south in world (bearing PI); local facing +Z (yaw 0) -> arc at 180 deg.
-	m.push_damage(PI, 25, 10.0)
+	# yaw 0 -> camera looks -Z; damage from world bearing 0 (+Z) comes from directly behind -> 180 deg.
+	m.push_damage(0.0, 25, 10.0)
 	var out := m.build({"self_yaw": 0.0, "now": 10.0, "tick": 0})
 	assert_eq(out["damage_arcs"].size(), 1)
 	assert_almost_eq(absf(rad_to_deg(out["damage_arcs"][0]["rel_bearing"])), 180.0, 1.0)
