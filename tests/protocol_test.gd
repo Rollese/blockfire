@@ -193,3 +193,8 @@ func test_roster_roundtrip() -> void:
 	assert_eq(out[0]["kills"], 3)
 	assert_eq(out[1]["id"], 9)
 	assert_eq(out[1]["deaths"], 2)
+
+func test_set_squad_roundtrip() -> void:
+	var b := Protocol.encode_set_squad(4)
+	assert_eq(Protocol.msg_type(b), Protocol.Msg.SET_SQUAD)
+	assert_eq(Protocol.decode_set_squad(b)["squad"], 4)

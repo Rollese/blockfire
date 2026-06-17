@@ -36,6 +36,7 @@ enum Msg {
 	HITMARKER = 23,         ## server -> shooter: your shot hit an enemy (headshot/lethal flags)
 	GIVE_UP = 24,           ## client -> server: while DOWNED, skip the bleed-out and die now
 	ROSTER = 25,            ## server -> clients: per-client name/team/squad/kills/deaths/score
+	SET_SQUAD = 26,         ## client -> server: join/switch to squad id
 }
 
 const OP_PLACE := 0
@@ -410,3 +411,13 @@ static func decode_roster(bytes: PackedByteArray) -> Dictionary:
 		rows.append({"id": id, "name": nm, "team": r.get_u8(), "squad": r.get_u8(),
 			"kills": r.get_u16(), "deaths": r.get_u16(), "score": r.get_u16()})
 	return {"rows": rows}
+
+
+static func encode_set_squad(squad_id: int) -> PackedByteArray:
+	var buf := StreamPeerBuffer.new()
+	buf.put_u8(Msg.SET_SQUAD)
+	buf.put_u8(squad_id & 0xFF)
+	return buf.data_array
+
+static func decode_set_squad(bytes: PackedByteArray) -> Dictionary:
+	return {"squad": body_reader(bytes).get_u8()}
