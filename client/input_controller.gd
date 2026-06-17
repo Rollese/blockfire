@@ -11,6 +11,7 @@ var yaw: float = 0.0
 var pitch: float = 0.0
 var _mouse_rel: Vector2 = Vector2.ZERO
 var motion_events: int = 0   # diagnostic: count of mouse-motion events seen (proves window input)
+var _prone_on: bool = false   # prone is a TOGGLE (press to flip), not hold-to-prone
 
 func _input(event: InputEvent) -> void:
 	if event is InputEventMouseMotion:
@@ -47,10 +48,12 @@ func gather(settings: ClientSettings) -> Dictionary:
 	# axis (Task 20 sign knob; flip back here if forward/back ever reads inverted again).
 	var local_z: float = Input.get_axis("move_fwd", "move_back")
 	var f := move_world(local_x, local_z, yaw)                 # local -> world
+	if Input.is_action_just_pressed("prone"):
+		_prone_on = not _prone_on   # toggle on each press
 	var pressed := {
 		"jump": Input.is_action_pressed("jump"),
 		"crouch": Input.is_action_pressed("crouch"),
-		"prone": Input.is_action_pressed("prone"),
+		"prone": _prone_on,
 		"sprint": Input.is_action_pressed("sprint"),
 		"lean_left": Input.is_action_pressed("lean_left"),
 		"lean_right": Input.is_action_pressed("lean_right"),
@@ -59,6 +62,10 @@ func gather(settings: ClientSettings) -> Dictionary:
 	}
 	return {"move_x": f.x, "move_y": f.y, "yaw": yaw, "pitch": pitch,
 		"buttons": InputMap2.buttons_from(pressed)}
+
+## Clear the prone toggle (call on death/deploy so the player never spawns prone).
+func reset_prone() -> void:
+	_prone_on = false
 
 func capture_mouse() -> void:
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED

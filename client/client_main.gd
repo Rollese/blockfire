@@ -198,6 +198,7 @@ func _physics_process(delta: float) -> void:
 		# Not deployed — show deploy menu and release mouse
 		if _scene_built:
 			_input_ctrl.release_mouse()
+			_input_ctrl.reset_prone()   # don't carry a prone toggle into the next life
 			if _deploy_menu != null:
 				_deploy_menu.visible = true
 
@@ -357,6 +358,16 @@ func _process(_dt: float) -> void:
 					_net.send_to(_peer, NetHost.CHANNEL_CONTROL,
 						Protocol.encode_gadget_action(Protocol.GA_RPG_FIRE,
 							_pred.predicted.pos, aim_dir, 0), ENetPacketPeer.FLAG_RELIABLE)
+
+		# Left-click also fires the RPG when it's the equipped weapon. The RPG isn't a hit-scan
+		# click weapon, so without this the primary-fire button feels dead for an RPG loadout.
+		if Input.is_action_just_pressed("fire") and _has_rpg_equipped():
+			var rad: Vector3 = -Vector3(sin(_input_ctrl.yaw), 0.0, cos(_input_ctrl.yaw)).normalized()
+			var rpit: float = _input_ctrl.pitch
+			rad = Vector3(rad.x * cos(rpit), sin(rpit), rad.z * cos(rpit)).normalized()
+			_net.send_to(_peer, NetHost.CHANNEL_CONTROL,
+				Protocol.encode_gadget_action(Protocol.GA_RPG_FIRE, _pred.predicted.pos, rad, 0),
+				ENetPacketPeer.FLAG_RELIABLE)
 
 		# Gadget: non-throwable gadget action. Defaulting to C4 detonate; owner must verify
 		# if their class uses a different primary gadget (e.g. repair, bag throw).
@@ -688,6 +699,14 @@ func _vehicles_near() -> Array:
 			# Use seat 0 as default; server validates and assigns the actual free seat on VA_ENTER.
 			out.append({"vid": int(vid), "seat": 0, "dist": dist})
 	return out
+
+## True when the equipped weapon is the RPG — the server only includes the kind-100 throwable
+## entry in SELF_STATE when c["weapon"] == Weapon.RPG, so its presence is the client's RPG signal.
+func _has_rpg_equipped() -> bool:
+	for t in _throwables:
+		if int(t.get("kind", -1)) == 100:
+			return true
+	return false
 
 ## Return the local player's current squad_id from the roster (-1 if unknown).
 func _my_squad_id(_team: int) -> int:

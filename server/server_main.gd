@@ -886,7 +886,10 @@ func _handle_hello(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
 	_team_counts[team] += 1
 	var cls := Loadout.random_class()
 	var wid: int = Loadout.weapon_for(cls)
-	if cls == Loadout.ENGINEER and id % 3 == 0:
+	# RPG-primary is a bot-fleet thing (1/3 of engineers carry it so the fleet exercises
+	# anti-vehicle fire). A human handed an RPG-only loadout has no click-fire gun, which reads
+	# as "my weapon is broken" — so humans always keep their class's hit-scan primary.
+	if cls == Loadout.ENGINEER and id % 3 == 0 and auto_deploy:
 		wid = Weapon.RPG
 	if not Loadout.can_equip(cls, wid):   # authoritative guard (RPG -> Engineer only)
 		wid = Loadout.weapon_for(cls)
