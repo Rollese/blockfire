@@ -910,7 +910,7 @@ func _squad_candidates(req_id: int, team: int, squad_id: int) -> Array:
 		if mid == req_id: continue
 		var mp: Pawn = _sim.world.get_pawn(mid)
 		if mp == null: continue
-		out.append({"pos": mp.pos, "team": mp.team, "alive": mp.alive, "downed": mp.is_downed})
+		out.append({"id": mid, "pos": mp.pos, "team": mp.team, "alive": mp.alive, "downed": mp.is_downed})
 	return out
 
 func _vehicle_candidates(team: int) -> Array:
@@ -918,7 +918,7 @@ func _vehicle_candidates(team: int) -> Array:
 	for vid in _sim.world.vehicles:
 		var v: Vehicle = _sim.world.vehicles[vid]
 		if v == null or v.team != team or not v.alive: continue
-		out.append({"pos": v.pos, "team": v.team, "free_seats": v.seat_count() - v.occupant_ids().size()})
+		out.append({"slot": vid - Vehicle.ID_BASE, "pos": v.pos, "team": v.team, "free_seats": v.seat_count() - v.occupant_ids().size()})
 	return out
 
 func _throwables_for(c: Dictionary) -> Array:

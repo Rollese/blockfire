@@ -95,19 +95,21 @@ func populate(team: int, map: MapDef, conquest: ConquestState, squadmates: Array
 		refs.append(ref)
 		var label: String
 		if ref >= DeploySpawn.VEHICLE_BASE:
-			var vi: int = ref - DeploySpawn.VEHICLE_BASE
-			if vi < vehicles.size():
-				var type_name: String = String(vehicles[vi].get("type_name", ""))
-				label = "Vehicle: %s" % type_name if type_name != "" else "Vehicle %d" % vi
-			else:
-				label = "Vehicle %d" % (ref - DeploySpawn.VEHICLE_BASE)
+			# ref - VEHICLE_BASE is the vehicle's stable slot (not an array index); look it up.
+			var slot: int = ref - DeploySpawn.VEHICLE_BASE
+			var type_name: String = ""
+			for v in vehicles:
+				if int(v.get("slot", -1)) == slot:
+					type_name = String(v.get("type_name", "")); break
+			label = "Vehicle: %s" % type_name if type_name != "" else "Vehicle %d" % slot
 		elif ref >= DeploySpawn.SQUADMATE_BASE:
-			var si: int = ref - DeploySpawn.SQUADMATE_BASE
-			if si < squadmates.size():
-				var mate_name: String = String(squadmates[si].get("name", ""))
-				label = "Squadmate: %s" % mate_name if mate_name != "" else "Squadmate %d" % si
-			else:
-				label = "Squadmate %d" % (ref - DeploySpawn.SQUADMATE_BASE)
+			# ref - SQUADMATE_BASE is the mate's stable pawn id (not an array index); look it up.
+			var pid: int = ref - DeploySpawn.SQUADMATE_BASE
+			var mate_name: String = ""
+			for mt in squadmates:
+				if int(mt.get("id", -1)) == pid:
+					mate_name = String(mt.get("name", "")); break
+			label = "Squadmate: %s" % mate_name if mate_name != "" else "Squadmate #%d" % pid
 		elif ref == 0:
 			label = "HQ"
 		else:

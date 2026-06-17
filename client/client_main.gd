@@ -65,6 +65,8 @@ var _settings_menu: SettingsMenu
 # ---- state flags ------------------------------------------------------------
 var _scene_built := false
 var _deploy_menu_populated := false
+var _awaiting_deploy := false   # true after a DEPLOY_REQUEST, until deployed or recovery
+var _await_snaps := 0           # snapshots elapsed while awaiting (server-reject recovery)
 var _was_alive: bool = false
 var _match_state: Dictionary = {}
 var _auto_deploy_ref: int = -1    # --deploy=N arg; -1 = not set
@@ -481,8 +483,19 @@ func _handle_snapshot(bytes: PackedByteArray) -> void:
 					_build_vehicle_candidates(ss.team))
 				_deploy_menu_populated = true
 			_deploy_menu.visible = false
+			_awaiting_deploy = false   # deploy confirmed — clear awaiting state
 	else:
-		# Dead / not yet deployed — show deploy menu (re-populated from current conquest)
+		# Dead / not yet deployed — show deploy menu (re-populated from current conquest).
+		# Recovery: if we sent a deploy request but are STILL undeployed a few snapshots later,
+		# the server rejected it (e.g. mate died) — un-stick the "awaiting" overlay and refresh
+		# the spawn list so the player can re-pick instead of being trapped.
+		if _awaiting_deploy:
+			_await_snaps += 1
+			if _await_snaps >= 12:
+				_awaiting_deploy = false
+				_deploy_menu_populated = false
+				if _deploy_menu != null:
+					_deploy_menu.set_awaiting(false)
 		if _scene_built and _deploy_menu != null:
 			if not _deploy_menu_populated and ss != null:
 				var my_squad: int = _my_squad_id(ss.team)
@@ -570,6 +583,8 @@ func _send_deploy_request(spawn_ref: int) -> void:
 		Protocol.encode_deploy_request(spawn_ref),
 		ENetPacketPeer.FLAG_RELIABLE)
 	print("[client] deploy requested ref=%d" % spawn_ref)
+	_awaiting_deploy = true
+	_await_snaps = 0
 	if _scene_built and _deploy_menu != null:
 		_deploy_menu.set_awaiting(true)
 	# Clear death recap so it doesn't show on the next respawn
@@ -692,6 +707,7 @@ func _build_squadmate_candidates(my_team: int, my_squad: int) -> Array:
 		if e == null:
 			continue
 		out.append({
+			"id": rid,   # stable pawn id — DeploySpawn keys squadmate refs by this, not array position
 			"pos": e.pos,
 			"team": e.team,
 			"alive": e.alive,
@@ -722,6 +738,7 @@ func _build_vehicle_candidates(my_team: int) -> Array:
 		# VehicleState carries no team field — pass my_team as best-effort.
 		# Server validates using its authoritative Vehicle.team; a mismatch is a no-op.
 		out.append({
+			"slot": int(vid) - Vehicle.ID_BASE,   # stable vehicle slot — ref key, not array position
 			"pos": vs.pos,
 			"team": my_team,
 			"free_seats": free_count,

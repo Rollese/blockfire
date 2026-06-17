@@ -354,11 +354,11 @@ static func decode_vehicle_destroyed(bytes: PackedByteArray) -> Dictionary:
 static func encode_deploy_request(spawn_ref: int) -> PackedByteArray:
 	var buf := StreamPeerBuffer.new()
 	buf.put_u8(Msg.DEPLOY_REQUEST)
-	buf.put_u8(spawn_ref & 0xFF)
+	buf.put_u16(spawn_ref & 0xFFFF)   # u16: squadmate(200+pawn_id)/vehicle(400+slot) refs exceed 255
 	return buf.data_array
 
 static func decode_deploy_request(bytes: PackedByteArray) -> Dictionary:
-	return {"spawn_ref": body_reader(bytes).get_u8()}
+	return {"spawn_ref": body_reader(bytes).get_u16()}
 
 
 static func encode_damage_event(bearing: float, amount: int) -> PackedByteArray:

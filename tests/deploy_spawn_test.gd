@@ -36,37 +36,67 @@ func test_enumerate_lists_hq_plus_owned_points() -> void:
 func test_squadmate_ref_valid_when_mate_alive_standing() -> void:
 	var m := _map()
 	var c := _conquest(-1)
-	var mates := [{"pos": Vector3(20, 0, 5), "team": 0, "alive": true, "downed": false}]
-	assert_true(DeploySpawn.is_valid(0, DeploySpawn.SQUADMATE_BASE + 0, m, c, mates),
+	# Refs are keyed by the mate's stable pawn id, NOT array position.
+	var mates := [{"id": 7, "pos": Vector3(20, 0, 5), "team": 0, "alive": true, "downed": false}]
+	assert_true(DeploySpawn.is_valid(0, DeploySpawn.SQUADMATE_BASE + 7, m, c, mates),
 		"alive standing same-team mate is a valid spawn")
-	var pos := DeploySpawn.resolve(0, DeploySpawn.SQUADMATE_BASE + 0, m, c, mates)
+	var pos := DeploySpawn.resolve(0, DeploySpawn.SQUADMATE_BASE + 7, m, c, mates)
 	assert_almost_eq(pos.distance_to(Vector3(20, 0, 5)), 0.0, DeploySpawn.JITTER * sqrt(2.0) + 0.01,
 		"resolves near the mate (within jitter)")
 
 func test_squadmate_ref_invalid_when_downed_or_dead() -> void:
 	var m := _map()
 	var c := _conquest(-1)
-	var downed := [{"pos": Vector3(20, 0, 5), "team": 0, "alive": true, "downed": true}]
-	assert_false(DeploySpawn.is_valid(0, DeploySpawn.SQUADMATE_BASE + 0, m, c, downed), "downed mate rejected")
-	var dead := [{"pos": Vector3(20, 0, 5), "team": 0, "alive": false, "downed": false}]
-	assert_false(DeploySpawn.is_valid(0, DeploySpawn.SQUADMATE_BASE + 0, m, c, dead), "dead mate rejected")
+	var downed := [{"id": 7, "pos": Vector3(20, 0, 5), "team": 0, "alive": true, "downed": true}]
+	assert_false(DeploySpawn.is_valid(0, DeploySpawn.SQUADMATE_BASE + 7, m, c, downed), "downed mate rejected")
+	var dead := [{"id": 7, "pos": Vector3(20, 0, 5), "team": 0, "alive": false, "downed": false}]
+	assert_false(DeploySpawn.is_valid(0, DeploySpawn.SQUADMATE_BASE + 7, m, c, dead), "dead mate rejected")
+
+func test_squadmate_ref_resolves_by_id_regardless_of_array_order() -> void:
+	# Regression: client and server build the mates array in different order/membership.
+	# A ref keyed by pawn id must resolve to the SAME mate no matter the array layout.
+	var m := _map()
+	var c := _conquest(-1)
+	var mate_a := {"id": 3, "pos": Vector3(10, 0, 0), "team": 0, "alive": true, "downed": false}
+	var mate_b := {"id": 9, "pos": Vector3(50, 0, 0), "team": 0, "alive": true, "downed": false}
+	var server_order := [mate_a, mate_b]
+	var client_order := [mate_b, mate_a]   # different order
+	var ref := DeploySpawn.SQUADMATE_BASE + 9   # always mate_b
+	var p_server := DeploySpawn.resolve(0, ref, m, c, server_order)
+	var p_client_view := DeploySpawn.resolve(0, ref, m, c, client_order)
+	assert_almost_eq(p_server.distance_to(Vector3(50, 0, 0)), 0.0, DeploySpawn.JITTER * sqrt(2.0) + 0.01,
+		"server resolves ref 9 to mate_b")
+	assert_almost_eq(p_client_view.distance_to(Vector3(50, 0, 0)), 0.0, DeploySpawn.JITTER * sqrt(2.0) + 0.01,
+		"same ref resolves to mate_b even when the array is ordered differently")
+
+func test_squadmate_ref_invalid_when_id_absent() -> void:
+	var m := _map()
+	var c := _conquest(-1)
+	var mates := [{"id": 7, "pos": Vector3(20, 0, 5), "team": 0, "alive": true, "downed": false}]
+	assert_false(DeploySpawn.is_valid(0, DeploySpawn.SQUADMATE_BASE + 4, m, c, mates),
+		"ref for an id not in the candidate set is rejected (not a positional fallback)")
 
 func test_vehicle_ref_valid_with_free_seat_same_team() -> void:
 	var m := _map()
 	var c := _conquest(-1)
-	var veh := [{"pos": Vector3(30, 0, 30), "team": 0, "free_seats": 2}]
+	# Refs are keyed by the vehicle's stable slot, NOT array position.
+	var veh := [{"slot": 0, "pos": Vector3(30, 0, 30), "team": 0, "free_seats": 2}]
 	assert_true(DeploySpawn.is_valid(0, DeploySpawn.VEHICLE_BASE + 0, m, c, [], veh), "free-seat friendly vehicle valid")
-	var full := [{"pos": Vector3(30, 0, 30), "team": 0, "free_seats": 0}]
+	var full := [{"slot": 0, "pos": Vector3(30, 0, 30), "team": 0, "free_seats": 0}]
 	assert_false(DeploySpawn.is_valid(0, DeploySpawn.VEHICLE_BASE + 0, m, c, [], full), "full vehicle rejected")
-	var enemy := [{"pos": Vector3(30, 0, 30), "team": 1, "free_seats": 2}]
+	var enemy := [{"slot": 0, "pos": Vector3(30, 0, 30), "team": 1, "free_seats": 2}]
 	assert_false(DeploySpawn.is_valid(0, DeploySpawn.VEHICLE_BASE + 0, m, c, [], enemy), "enemy vehicle rejected")
+	# slot-keyed: a vehicle at slot 1 is addressed by VEHICLE_BASE+1 even if it's array index 0
+	var veh1 := [{"slot": 1, "pos": Vector3(30, 0, 30), "team": 0, "free_seats": 1}]
+	assert_true(DeploySpawn.is_valid(0, DeploySpawn.VEHICLE_BASE + 1, m, c, [], veh1), "vehicle addressed by slot, not index")
+	assert_false(DeploySpawn.is_valid(0, DeploySpawn.VEHICLE_BASE + 0, m, c, [], veh1), "wrong slot rejected")
 
 func test_enumerate_includes_valid_squadmate_and_vehicle_refs() -> void:
 	var m := _map()
 	var c := _conquest(0)
-	var mates := [{"pos": Vector3(20, 0, 5), "team": 0, "alive": true, "downed": false}]
-	var veh := [{"pos": Vector3(30, 0, 30), "team": 0, "free_seats": 1}]
+	var mates := [{"id": 5, "pos": Vector3(20, 0, 5), "team": 0, "alive": true, "downed": false}]
+	var veh := [{"slot": 0, "pos": Vector3(30, 0, 30), "team": 0, "free_seats": 1}]
 	var refs := DeploySpawn.enumerate(0, m, c, mates, veh)
-	assert_true(refs.has(DeploySpawn.SQUADMATE_BASE + 0), "valid mate ref offered")
-	assert_true(refs.has(DeploySpawn.VEHICLE_BASE + 0), "valid vehicle ref offered")
+	assert_true(refs.has(DeploySpawn.SQUADMATE_BASE + 5), "valid mate ref offered (keyed by id)")
+	assert_true(refs.has(DeploySpawn.VEHICLE_BASE + 0), "valid vehicle ref offered (keyed by slot)")
 	assert_true(refs.has(0), "HQ still offered")

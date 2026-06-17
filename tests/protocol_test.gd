@@ -150,6 +150,12 @@ func test_deploy_request_roundtrip() -> void:
 	assert_eq(Protocol.msg_type(b), Protocol.Msg.DEPLOY_REQUEST)
 	assert_eq(Protocol.decode_deploy_request(b)["spawn_ref"], 3)
 
+func test_deploy_request_carries_large_refs() -> void:
+	# squadmate refs (200+pawn_id) and vehicle refs (400+slot) exceed a u8 — must survive the wire.
+	for ref in [DeploySpawn.SQUADMATE_BASE + 128, DeploySpawn.VEHICLE_BASE + 3]:
+		var b := Protocol.encode_deploy_request(ref)
+		assert_eq(Protocol.decode_deploy_request(b)["spawn_ref"], ref, "ref %d round-trips" % ref)
+
 func test_damage_event_roundtrip() -> void:
 	var b := Protocol.encode_damage_event(1.2, 25)
 	assert_eq(Protocol.msg_type(b), Protocol.Msg.DAMAGE_EVENT)
