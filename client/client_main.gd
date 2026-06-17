@@ -127,7 +127,9 @@ func _physics_process(delta: float) -> void:
 
 		# Predict weapon state — drop_shoot=false here; server gates authoritatively,
 		# and SELF_STATE reconciles the client's mag each tick so divergence is transient.
-		_wpred.step(_client_tick, firing, sprinting, false)
+		# A true return means a shot fired this tick -> draw a tracer for immediate feedback.
+		if _wpred.step(_client_tick, firing, sprinting, false) and _renderer != null:
+			_renderer.fire_tracer(_elapsed)
 
 		if buttons & InputCommand.BTN_RELOAD:
 			_wpred.begin_reload(_client_tick)

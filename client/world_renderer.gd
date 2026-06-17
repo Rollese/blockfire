@@ -13,8 +13,16 @@ const NEUTRAL_COLOR := Color(0.6, 0.6, 0.6)
 const VM_SIZE := Vector3(0.08, 0.08, 0.35)
 const VM_OFFSET := Vector3(0.15, -0.12, -0.40)   # right / down / forward in camera space
 
+# -- tracer (shot feedback) ---------------------------------------------------
+const TRACER_POOL := 16
+const TRACER_LEN := 80.0          # metres the beam extends along the aim
+const TRACER_TTL := 0.06          # seconds the beam is visible (brief flash)
+const TRACER_COLOR := Color(1.0, 0.85, 0.35)
+
 # -- pool state ---------------------------------------------------------------
 var _camera: Camera3D = null
+var _tracers: Array = []          # [{node: MeshInstance3D, mat: StandardMaterial3D, die: float}]
+var _tracer_idx: int = 0
 
 # active entity nodes: id(int) -> MeshInstance3D
 var _active: Dictionary = {}
@@ -48,13 +56,17 @@ func setup(map: MapDef, camera: Camera3D) -> void:
 	ground.material_override = gmat
 	add_child(ground)
 
-	# Capture point markers — tinted cylinders
+	# Capture point markers — ground cylinder + a tall beacon so the point is a visible
+	# landmark from across the map (flat terrain is otherwise impossible to navigate).
 	for pt: Dictionary in map.points:
 		var pt_pos: Vector3 = pt["pos"] as Vector3
 		var pt_radius: float = pt["radius"] as float
 		var marker := _make_cylinder_marker(pt_radius * 0.5, 0.4, NEUTRAL_COLOR)
 		marker.position = Vector3(pt_pos.x, 0.2, pt_pos.z)
 		add_child(marker)
+		var beacon := _make_box_mesh(Vector3(1.2, 30.0, 1.2), Color(0.95, 0.85, 0.25))
+		beacon.position = Vector3(pt_pos.x, 15.0, pt_pos.z)
+		add_child(beacon)
 
 	# Base markers — team-coloured larger cylinders
 	for b: Dictionary in map.bases:
@@ -65,6 +77,28 @@ func setup(map: MapDef, camera: Camera3D) -> void:
 		var base_marker := _make_cylinder_marker(b_radius * 0.4, 0.8, col)
 		base_marker.position = Vector3(b_pos.x, 0.4, b_pos.z)
 		add_child(base_marker)
+		# Tall team-coloured beacon at each base — a navigation landmark.
+		var base_beacon := _make_box_mesh(Vector3(2.0, 40.0, 2.0), col)
+		base_beacon.position = Vector3(b_pos.x, 20.0, b_pos.z)
+		add_child(base_beacon)
+
+	# Tracer pool — thin emissive beams along the aim, hidden until fired.
+	for _i in TRACER_POOL:
+		var tn := MeshInstance3D.new()
+		var tmesh := BoxMesh.new()
+		tmesh.size = Vector3(0.06, 0.06, TRACER_LEN)
+		tn.mesh = tmesh
+		var tmat := StandardMaterial3D.new()
+		tmat.albedo_color = TRACER_COLOR
+		tmat.emission_enabled = true
+		tmat.emission = TRACER_COLOR
+		tmat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		tmat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		tn.material_override = tmat
+		tn.visible = false
+		tn.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		add_child(tn)
+		_tracers.append({"node": tn, "mat": tmat, "die": 0.0})
 
 	# Viewmodel placeholder (parented to camera so it moves with it)
 	_viewmodel = _make_box_mesh(VM_SIZE, Color(0.5, 0.5, 0.5))
@@ -85,6 +119,43 @@ func update(world_view: WorldView, predictor: Prediction, now: float, fov: float
 
 	# 2. Camera from prediction
 	_apply_camera(predictor, fov)
+
+	# 3. Age out shot tracers
+	_age_tracers(now)
+
+
+## Spawn a brief tracer beam along the camera's aim. Called when the weapon predictor reports a
+## shot fired. Drawn along the real camera forward (-Z), so it goes exactly where the crosshair
+## points regardless of the sim's yaw convention.
+func fire_tracer(now: float) -> void:
+	if _camera == null or _tracers.is_empty():
+		return
+	var cb := _camera.global_transform
+	var fwd := (-cb.basis.z).normalized()
+	# Muzzle: from the eye, nudged right/down/forward so the beam doesn't emit from screen centre.
+	var origin := cb.origin + cb.basis.x * 0.18 - cb.basis.y * 0.12 + fwd * 0.5
+	var up := Vector3.UP if absf(fwd.dot(Vector3.UP)) < 0.99 else Vector3.RIGHT
+	var t: Dictionary = _tracers[_tracer_idx]
+	_tracer_idx = (_tracer_idx + 1) % _tracers.size()
+	var node: MeshInstance3D = t["node"]
+	node.global_transform = Transform3D(Basis.looking_at(fwd, up), origin + fwd * (TRACER_LEN * 0.5))
+	(t["mat"] as StandardMaterial3D).albedo_color = TRACER_COLOR
+	node.visible = true
+	t["die"] = now + TRACER_TTL
+
+
+func _age_tracers(now: float) -> void:
+	for t: Dictionary in _tracers:
+		var node: MeshInstance3D = t["node"]
+		if not node.visible:
+			continue
+		var remaining: float = float(t["die"]) - now
+		if remaining <= 0.0:
+			node.visible = false
+		else:
+			var c := TRACER_COLOR
+			c.a = clampf(remaining / TRACER_TTL, 0.0, 1.0)
+			(t["mat"] as StandardMaterial3D).albedo_color = c
 
 
 # =============================================================================
