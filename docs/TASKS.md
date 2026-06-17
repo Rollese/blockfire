@@ -35,10 +35,11 @@ Spec: [`docs/specs/combat-depth-2.md`](specs/combat-depth-2.md). Milestone: [`M5
 | Task | Owner | Status | Notes |
 |---|---|---|---|
 | M5.5 brainstorm + spec | claude | done | `docs/specs/combat-depth-2.md` (this brainstorm-of-record) |
-| Hand ballistics model to M7-C2 | — | todo | M7 client must predict projectiles (cosmetic tracer; server-confirmed hits), not hit-scan |
-| M5.5-P1 plan + execute (ballistics, fire-mode, secondary) | — | todo | `writing-plans` next; gate = tick+bw budget under full-auto at 128p |
-| M5.5-P2 plan + execute (armor class, suppression) | — | todo | depends on P1 projectiles (near-miss → suppression) |
-| M5.5-P3 plan + execute (melee/sledge, flashbang/impact) | — | todo | reuses M4 grenade + structure-damage paths |
+| M5.5 P1/P2/P3 implementation plans | claude | done | [`p1-ballistics`](plans/2026-06-17-m5.5-p1-ballistics.md), [`p2-survivability`](plans/2026-06-17-m5.5-p2-survivability.md), [`p3-melee-throwables`](plans/2026-06-17-m5.5-p3-melee-throwables.md) |
+| Hand ballistics model to **M7-C3** | — | todo | C2 done; M7-C3 (combat-depth UI) must build projectile-aware prediction (cosmetic tracer; server-confirmed hits), not hit-scan. See spec §1 + M7 ⚡ callout. |
+| M5.5-P1 execute (ballistics, fire-mode, secondary) | — | todo | branch `m5.5-p1-ballistics`; subagent-driven; gate = tick+bw budget under full-auto at 128p. **Task 3 two-stage review** (fire path) |
+| M5.5-P2 execute (armor class, suppression) | — | todo | branch `m5.5-p2-survivability`; depends on P1 projectiles (near-miss → suppression) |
+| M5.5-P3 execute (melee/sledge, flashbang/impact) | — | todo | branch `m5.5-p3-melee-throwables`; reuses M4 grenade + structure-damage paths |
 
 ## M4.5 Phase 1 (Survivability) — CLOSED ✅
 

@@ -120,7 +120,7 @@ Being shot at degrades your aim — the BattleBit suppression mechanic. **Depend
 ### Sledgehammer — fast demolition
 
 - A **melee tool** (slot/option) whose role is **fast structure destruction** (BattleBit's pickaxe/sledge). Per-hit applies `SLEDGE_STRUCTURE_DAMAGE` (high) to the targeted structure cell via the **M4 structure-damage + bucket-delta path**; `SLEDGE_PAWN_DAMAGE` (moderate) vs pawns.
-- **Availability:** universal melee-slot option in v1 (not class-locked) — revisit in a balance pass. (Open question flagged to owner; default = universal.)
+- **Availability:** **Engineer-only** (owner-directed 2026-06-17). The sledgehammer is the Engineer's melee tool; other classes use the standard knife. `loadout.gd` rejects sledgehammer selection for non-Engineer loadouts (same pattern as RPG being Engineer-only in M4.5). Quick-melee (knife) remains universal.
 
 ### Flashbang + impact grenades
 
