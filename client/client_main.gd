@@ -46,6 +46,7 @@ var _match_state: Dictionary = {}
 var _auto_deploy_ref: int = -1    # --deploy=N arg; -1 = not set
 var _auto_deploy_sent := false    # only send once
 var _dbg_accum := 0.0             # 1 Hz input/deploy diagnostic accumulator
+var _novsync := false             # --novsync: disable vsync (perf diagnostic)
 
 # ---- configure (called by bootstrap before add_child) -----------------------
 func configure(args: Dictionary) -> void:
@@ -54,6 +55,7 @@ func configure(args: Dictionary) -> void:
 	_player_name = String(args.get("name", _player_name))
 	if args.has("deploy"):
 		_auto_deploy_ref = int(args["deploy"])
+	_novsync = args.has("novsync")
 
 # ---- _ready -----------------------------------------------------------------
 func _ready() -> void:
@@ -333,6 +335,9 @@ func _build_scene() -> void:
 	_settings_menu.settings_applied.connect(_on_settings_applied)
 
 	_scene_built = true
+	if _novsync:
+		DisplayServer.window_set_vsync_mode(DisplayServer.VSYNC_DISABLED)
+		print("[client] vsync DISABLED (--novsync)")
 	print("[client] scene built")
 
 # ---- deploy request helpers -------------------------------------------------

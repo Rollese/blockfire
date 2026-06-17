@@ -292,8 +292,11 @@ func _process(delta: float) -> void:
 	var vram_mb := Performance.get_monitor(Performance.RENDER_VIDEO_MEM_USED) / 1048576.0
 	var objs := int(Performance.get_monitor(Performance.OBJECT_NODE_COUNT))
 	var vsync: String = ["off", "on", "adaptive", "mailbox"][DisplayServer.window_get_vsync_mode()]
-	_perf_label.text = "fps %d  %.1f ms  vsync:%s\ndraws %d  prims %s  vram %.0f MB  nodes %d" % [
-		fps, frame_ms, vsync, draws, _commafy(prims), vram_mb, objs]
+	# CPU main-thread time per frame. If proc+phys ≈ frame_ms, we're CPU-bound (not GPU/vsync).
+	var proc_ms := Performance.get_monitor(Performance.TIME_PROCESS) * 1000.0
+	var phys_ms := Performance.get_monitor(Performance.TIME_PHYSICS_PROCESS) * 1000.0
+	_perf_label.text = "fps %d  %.1f ms  vsync:%s\ndraws %d  prims %s  vram %.0f MB  nodes %d\nproc %.1f ms  phys %.1f ms" % [
+		fps, frame_ms, vsync, draws, _commafy(prims), vram_mb, objs, proc_ms, phys_ms]
 
 
 static func _commafy(n: int) -> String:
