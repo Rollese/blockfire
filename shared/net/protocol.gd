@@ -373,13 +373,14 @@ static func decode_damage_event(bytes: PackedByteArray) -> Dictionary:
 	return {"bearing": Quantize.dec_angle(r.get_u16()), "amount": r.get_u8()}
 
 
-static func encode_self_state(mag: int, reloading: bool, reload_remaining: int, weapon: int, throwables: Array = []) -> PackedByteArray:
+static func encode_self_state(mag: int, reloading: bool, reload_remaining: int, weapon: int, throwables: Array = [], being_revived: bool = false) -> PackedByteArray:
 	var buf := StreamPeerBuffer.new()
 	buf.put_u8(Msg.SELF_STATE)
 	buf.put_u8(clampi(mag, 0, 255))
 	buf.put_u8(1 if reloading else 0)
 	buf.put_u16(clampi(reload_remaining, 0, 65535))
 	buf.put_u8(weapon & 0xFF)
+	buf.put_u8(1 if being_revived else 0)   # downed-screen "a teammate is reviving you" indicator
 	buf.put_u8(mini(throwables.size(), 255))
 	for i in mini(throwables.size(), 255):
 		var t: Dictionary = throwables[i]
@@ -393,12 +394,15 @@ static func decode_self_state(bytes: PackedByteArray) -> Dictionary:
 	var reloading := r.get_u8() == 1
 	var reload_remaining := r.get_u16()
 	var weapon := r.get_u8()
+	var being_revived := false
 	var throwables: Array = []
+	if r.get_available_bytes() > 0:
+		being_revived = r.get_u8() == 1
 	if r.get_available_bytes() > 0:
 		var n := r.get_u8()
 		for _i in n:
 			throwables.append({"kind": r.get_u8(), "count": r.get_u8()})
-	return {"mag": mag, "reloading": reloading, "reload_remaining": reload_remaining, "weapon": weapon, "throwables": throwables}
+	return {"mag": mag, "reloading": reloading, "reload_remaining": reload_remaining, "weapon": weapon, "throwables": throwables, "being_revived": being_revived}
 
 
 static func encode_roster(rows: Array) -> PackedByteArray:

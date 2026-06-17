@@ -76,6 +76,7 @@ var _prev_climb_vault: Dictionary = {}   # id -> int bitmask: bit0=climbing, bit
 
 var _reviving := {}            # reviver_id -> target_id, set per tick by REVIVE_ACTION(active)
 var _revive_ticks := {}        # target_id -> accumulated revive ticks
+var _being_revived := {}       # target_id -> reviver_id, this tick (drives the downed "being revived" UI)
 var _revives := 0              # completed revives this window
 var _climbs := 0              # climb-mode entries this window
 var _vaults := 0              # vault completions this window
@@ -587,6 +588,7 @@ func _step_revives() -> void:
 		if tp.team != rp.team: done.append(reviver_id); continue                       # enemy can't revive
 		if rp.pos.distance_to(tp.pos) > Revive.REVIVE_RANGE: continue                  # transient: hold latch, no progress
 		active_targets[target_id] = reviver_id
+	_being_revived = active_targets   # expose to the SELF_STATE send so the downed player sees it
 	# Drop accumulated progress for downed targets with no in-range reviver this tick.
 	for t in _revive_ticks.keys():
 		if not active_targets.has(t):
@@ -834,7 +836,7 @@ func _send_snapshots() -> void:
 		# Reliable so the authoritative ammo/reload always reaches the owner — otherwise dropped
 		# SELF_STATE packets (lossy links) leave the client predicting phantom ammo it doesn't have.
 		_net.send_to(c["peer"], NetHost.CHANNEL_CONTROL,
-			Protocol.encode_self_state(int(c["ammo"]), bool(c["reloading"]), reload_remaining, int(c["weapon"]), _throwables_for(c)),
+			Protocol.encode_self_state(int(c["ammo"]), bool(c["reloading"]), reload_remaining, int(c["weapon"]), _throwables_for(c), _being_revived.has(id)),
 			ENetPacketPeer.FLAG_RELIABLE)
 		c["history"][seq] = current
 		c["history_v"][seq] = current_v

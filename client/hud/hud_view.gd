@@ -388,14 +388,21 @@ func _build_downed() -> void:
 
 ## Drive the downed (DBNO) overlay. active=false hides it. secs_left = bleed-out countdown,
 ## nearest_dist = metres to nearest standing teammate (<0 = none), giveup = hold progress [0,1].
-func set_downed(active: bool, secs_left: float, nearest_dist: float, giveup: float) -> void:
+func set_downed(active: bool, secs_left: float, nearest_dist: float, giveup: float, being_revived: bool = false) -> void:
 	if _downed_root == null:
 		return
 	_downed_root.visible = active
 	if not active:
 		return
-	_downed_timer.text = "Bleeding out — %d s" % int(ceil(secs_left))
-	_downed_friendly.text = ("Nearest friendly: %d m" % int(round(nearest_dist))) if nearest_dist >= 0.0 else "No friendly nearby"
+	if being_revived:
+		# A teammate is actively reviving — tell the player to hold on (don't give up).
+		_downed_timer.text = "Being revived — hold on!"
+		_downed_timer.add_theme_color_override("font_color", Color(0.4, 1.0, 0.4))
+		_downed_friendly.text = "A teammate is reviving you"
+	else:
+		_downed_timer.text = "Bleeding out — %d s" % int(ceil(secs_left))
+		_downed_timer.add_theme_color_override("font_color", Color(1.0, 0.5, 0.5))
+		_downed_friendly.text = ("Nearest friendly: %d m" % int(round(nearest_dist))) if nearest_dist >= 0.0 else "No friendly nearby"
 	_downed_giveup_fill.size = Vector2(240.0 * clampf(giveup, 0.0, 1.0), 12.0)
 
 

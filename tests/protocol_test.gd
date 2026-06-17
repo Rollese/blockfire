@@ -231,3 +231,11 @@ func test_self_state_without_throwables_defaults_empty() -> void:
 	var b := Protocol.encode_self_state(30, false, 0, Weapon.AR)   # 4-arg (pre-C3 senders)
 	var d := Protocol.decode_self_state(b)
 	assert_eq(d["throwables"], [], "absent block decodes as empty list")
+	assert_eq(d["being_revived"], false, "being_revived defaults false")
+
+func test_self_state_carries_being_revived() -> void:
+	var thr := [{"kind": 0, "count": 1}]
+	var b := Protocol.encode_self_state(20, false, 0, Weapon.AR, thr, true)
+	var d := Protocol.decode_self_state(b)
+	assert_eq(d["being_revived"], true, "being_revived round-trips")
+	assert_eq(d["throwables"].size(), 1, "throwables still decode after being_revived byte")

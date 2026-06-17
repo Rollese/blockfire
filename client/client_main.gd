@@ -79,6 +79,7 @@ var _map_path: String = MAP_PATH  # --map=<name> overrides (must match server + 
 
 # ---- C3 state ---------------------------------------------------------------
 var _throwables: Array = []        # latest throwable list from SELF_STATE
+var _being_revived: bool = false   # latest "a teammate is reviving me" flag from SELF_STATE
 var _revive_hold: float = 0.0      # seconds the interact key has been held on a revive target
 
 # ---- configure (called by bootstrap before add_child) -----------------------
@@ -288,7 +289,7 @@ func _process(_dt: float) -> void:
 		else:
 			_giveup_hold = 0.0
 		var secs_left: float = maxf(0.0, BLEEDOUT_SECS - (_elapsed - _downed_since))
-		_hud_view.set_downed(true, secs_left, _nearest_friendly_dist(sds), clampf(_giveup_hold / GIVEUP_HOLD, 0.0, 1.0))
+		_hud_view.set_downed(true, secs_left, _nearest_friendly_dist(sds), clampf(_giveup_hold / GIVEUP_HOLD, 0.0, 1.0), _being_revived)
 	elif _downed_since >= 0.0:
 		_downed_since = -1.0
 		_hud_view.set_downed(false, 0.0, -1.0, 0.0)
@@ -541,6 +542,7 @@ func _handle_self_state(bytes: PackedByteArray) -> void:
 	_wpred.reconcile(int(d["mag"]), bool(d["reloading"]), int(d["reload_remaining"]), _client_tick)
 	# Store throwable list for HUD ctx (C3: SELF_STATE now carries per-kind counts)
 	_throwables = d.get("throwables", [])
+	_being_revived = bool(d.get("being_revived", false))   # downed-screen "being revived" indicator
 
 # ---- MATCH_STATE ------------------------------------------------------------
 func _handle_match_state(bytes: PackedByteArray) -> void:
