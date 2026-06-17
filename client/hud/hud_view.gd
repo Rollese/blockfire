@@ -726,16 +726,17 @@ func _render_throwables(throwables: Dictionary) -> void:
 
 
 func _build_death_recap() -> void:
-	# Center of screen; shown during the deploy/death state when death_recap != null.
+	# Top-center of screen during the deploy/death state — kept clear of the centered respawn
+	# options below it (the recap used to be centered and overlapped them).
 	_recap_root = Control.new()
 	_recap_root.anchor_left = 0.5
-	_recap_root.anchor_top = 0.5
+	_recap_root.anchor_top = 0.0
 	_recap_root.anchor_right = 0.5
-	_recap_root.anchor_bottom = 0.5
+	_recap_root.anchor_bottom = 0.0
 	_recap_root.offset_left = -220.0
 	_recap_root.offset_right = 220.0
-	_recap_root.offset_top = -100.0
-	_recap_root.offset_bottom = _RECAP_ATTACKER_MAX * 20.0 + 20.0
+	_recap_root.offset_top = 40.0
+	_recap_root.offset_bottom = 40.0 + _RECAP_ATTACKER_MAX * 20.0 + 80.0
 	_recap_root.mouse_filter = MOUSE_FILTER_IGNORE
 	_recap_root.visible = false
 	add_child(_recap_root)

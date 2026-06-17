@@ -501,6 +501,14 @@ func _down_pawn(victim: Pawn) -> void:
 func _kill_pawn(vid: int, victim: Pawn, killer_id: int, weapon_id: int, headshot: bool, source: int) -> void:
 	victim.alive = false
 	victim.is_downed = false
+	# Vacate any vehicle seat on death, else the per-tick seat-follow drags the pawn back to
+	# the seat after it respawns elsewhere (HQ/teammate) — trapping the player in the vehicle.
+	if victim.in_vehicle != 0:
+		var seated_veh: Vehicle = _sim.world.vehicles.get(victim.in_vehicle)
+		if seated_veh != null and victim.seat >= 0 and victim.seat < seated_veh.seats.size():
+			seated_veh.seats[victim.seat] = 0
+		victim.in_vehicle = 0
+		victim.seat = -1
 	if _clients[vid].get("auto_deploy", true):
 		_clients[vid]["respawn_tick"] = _sim.tick + RESPAWN_DELAY_TICKS
 	# auto_deploy=false (human): leave respawn_tick at 0 -> returns to deploy screen
@@ -950,6 +958,8 @@ func _handle_deploy_request(peer: ENetPacketPeer, bytes: PackedByteArray) -> voi
 	p.is_downed = false
 	p.climbing = false
 	p.vaulting = false
+	p.in_vehicle = 0   # defensive: never deploy still bound to a seat
+	p.seat = -1
 	c["ammo"] = Weapon.get_def(c["weapon"])["mag_size"]
 	c["reloading"] = false
 	c["respawn_tick"] = 0
