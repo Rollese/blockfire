@@ -92,8 +92,10 @@ Specs: [`client-prediction.md`](specs/client-prediction.md), [`hud-ui.md`](specs
 |---|---|---|---|
 | M7 brainstorm + re-scope | claude | done | 2026-06-16; Steam + L3 deferred; phased P1→P2 (owner-approved) |
 | M7-P1 specs (client-prediction, hud-ui) + ADR-0005 | claude | done | committed on `m7-rendered-client` |
-| M7-P1 implementation plan | claude | todo | `writing-plans` → `docs/plans/` next |
-| M7-P1 execute (infantry core → vehicles → combat-depth UI) | — | todo | subagent-driven; owner playtests each checkpoint |
+| M7-P1 C1 plan + execute (core infantry loop) | claude | done | `docs/plans/2026-06-16-m7-p1-c1-infantry-client.md`; impl complete + headless-validated (milestone doc) |
+| M7-P1 C2 execute (vehicles, predicted + rendered) | claude | done | landed on `m7-rendered-client` (input redundancy + FIFO jitter-buffer); see git `m7-c2` |
+| M7-P1 C3 plan (combat-depth UI) | claude | in-progress | `writing-plans` → `docs/plans/2026-06-17-m7-p1-c3-combat-depth-ui.md` — squad/scoreboard, DBNO/revive, gadget/grenade, build/destroy feedback, deploy-on-squadmate, death-recap (`ROSTER`/`SET_SQUAD`/`DEATH_INFO` + extended `SELF_STATE`/`DeploySpawn`) |
+| M7-P1 C3 execute (combat-depth UI) | — | todo | subagent-driven; server-edge tasks two-stage reviewed; owner playtests at checkpoint |
 | M7-P1 gate (full Conquest match, placeholder art, complete HUD) | — | todo | human playtest sign-off + server log |
 
 ## Active tasks (M0) — complete ✅
