@@ -815,6 +815,7 @@ func _on_packet(peer: ENetPacketPeer, _channel: int, bytes: PackedByteArray) -> 
 		Protocol.Msg.GRENADE_THROW: _handle_grenade_throw(peer, bytes)
 		Protocol.Msg.REVIVE_ACTION: _handle_revive_action(peer, bytes)
 		Protocol.Msg.SELF_BANDAGE: _handle_self_bandage(peer, bytes)
+		Protocol.Msg.GIVE_UP: _handle_give_up(peer)
 		Protocol.Msg.GADGET_ACTION: _handle_gadget_action(peer, bytes)
 		Protocol.Msg.VEHICLE_ACTION: _handle_vehicle_action(peer, bytes)
 		Protocol.Msg.DEPLOY_REQUEST: _handle_deploy_request(peer, bytes)
@@ -1089,6 +1090,16 @@ func _remove_c4_on_cell(cell: Vector3i) -> void:
 			if c4["cell"] != cell:
 				kept.append(c4)
 		_c4[owner] = kept
+
+## A DOWNED player chooses to skip the bleed-out and die now (BattleBit give-up) -> true death,
+## spends a ticket, returns them to the deploy screen.
+func _handle_give_up(peer: ENetPacketPeer) -> void:
+	var id = _peer_to_id.get(peer, 0)
+	if id == 0 or not _clients.has(id): return
+	var p: Pawn = _sim.world.get_pawn(id)
+	if p == null or not p.alive or not p.is_downed: return
+	_kill_pawn(id, p, id, 0, false, Revive.Source.BULLET)
+	_bleedouts += 1
 
 func _handle_self_bandage(peer: ENetPacketPeer, _bytes: PackedByteArray) -> void:
 	var id = _peer_to_id.get(peer, 0)

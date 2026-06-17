@@ -25,6 +25,11 @@ var _vignette: ColorRect
 var _arc_pool: Array[Control] = []
 var _prompt_label: Label          # placeholder interaction hook
 var _hitmarker: _Hitmarker        # brief crosshair flash when your shot lands
+# DBNO downed screen
+var _downed_root: Control
+var _downed_timer: Label
+var _downed_friendly: Label
+var _downed_giveup_fill: ColorRect
 var _perf_label: Label            # debug perf overlay (FPS / frame-time / draw calls)
 var _perf_accum: float = 0.0      # throttle perf-label refresh to ~4 Hz
 # Per-section CPU timings (usec), written by client_main each frame; shown on the overlay.
@@ -96,6 +101,7 @@ func _build_tree() -> void:
 	_build_vignette()
 	_build_damage_arcs()
 	_build_prompt()
+	_build_downed()
 	_build_perf()
 
 
@@ -288,6 +294,68 @@ func _build_prompt() -> void:
 	_prompt_label.visible = false
 	_prompt_label.mouse_filter = MOUSE_FILTER_IGNORE
 	add_child(_prompt_label)
+
+
+func _build_downed() -> void:
+	# DBNO overlay: red wash + bleed-out countdown + nearest-friendly + hold-to-give-up bar.
+	_downed_root = Control.new()
+	_downed_root.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_downed_root.mouse_filter = MOUSE_FILTER_IGNORE
+	_downed_root.visible = false
+	add_child(_downed_root)
+	var wash := ColorRect.new()
+	wash.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	wash.color = Color(0.45, 0.0, 0.0, 0.32)
+	wash.mouse_filter = MOUSE_FILTER_IGNORE
+	_downed_root.add_child(wash)
+	var center := CenterContainer.new()
+	center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	center.mouse_filter = MOUSE_FILTER_IGNORE
+	_downed_root.add_child(center)
+	var vbox := VBoxContainer.new()
+	vbox.add_theme_constant_override("separation", 10)
+	vbox.alignment = BoxContainer.ALIGNMENT_CENTER
+	center.add_child(vbox)
+	var title := Label.new()
+	title.text = "DOWNED"
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	title.add_theme_font_size_override("font_size", 44)
+	title.add_theme_color_override("font_color", Color(1, 0.35, 0.3))
+	vbox.add_child(title)
+	_downed_timer = Label.new()
+	_downed_timer.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_downed_timer.add_theme_font_size_override("font_size", 22)
+	vbox.add_child(_downed_timer)
+	_downed_friendly = Label.new()
+	_downed_friendly.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	vbox.add_child(_downed_friendly)
+	var giveup := Label.new()
+	giveup.text = "Hold [SPACE] to give up"
+	giveup.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	vbox.add_child(giveup)
+	var barbg := ColorRect.new()
+	barbg.color = Color(0.15, 0.15, 0.15, 0.85)
+	barbg.custom_minimum_size = Vector2(240, 12)
+	vbox.add_child(barbg)
+	_downed_giveup_fill = ColorRect.new()
+	_downed_giveup_fill.color = Color(1.0, 0.45, 0.2)
+	_downed_giveup_fill.position = Vector2.ZERO
+	_downed_giveup_fill.size = Vector2(0, 12)
+	_downed_giveup_fill.mouse_filter = MOUSE_FILTER_IGNORE
+	barbg.add_child(_downed_giveup_fill)
+
+
+## Drive the downed (DBNO) overlay. active=false hides it. secs_left = bleed-out countdown,
+## nearest_dist = metres to nearest standing teammate (<0 = none), giveup = hold progress [0,1].
+func set_downed(active: bool, secs_left: float, nearest_dist: float, giveup: float) -> void:
+	if _downed_root == null:
+		return
+	_downed_root.visible = active
+	if not active:
+		return
+	_downed_timer.text = "Bleeding out — %d s" % int(ceil(secs_left))
+	_downed_friendly.text = ("Nearest friendly: %d m" % int(round(nearest_dist))) if nearest_dist >= 0.0 else "No friendly nearby"
+	_downed_giveup_fill.size = Vector2(240.0 * clampf(giveup, 0.0, 1.0), 12.0)
 
 
 func _build_perf() -> void:

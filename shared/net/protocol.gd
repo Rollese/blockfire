@@ -34,6 +34,7 @@ enum Msg {
 	DAMAGE_EVENT = 21,      ## server -> client: damage taken, world bearing toward source + amount
 	SELF_STATE = 22,        ## server -> owning client: authoritative weapon state for ammo reconcile
 	HITMARKER = 23,         ## server -> shooter: your shot hit an enemy (headshot/lethal flags)
+	GIVE_UP = 24,           ## client -> server: while DOWNED, skip the bleed-out and die now
 }
 
 const OP_PLACE := 0
@@ -124,6 +125,12 @@ static func encode_hitmarker(headshot: bool, lethal: bool) -> PackedByteArray:
 static func decode_hitmarker(bytes: PackedByteArray) -> Dictionary:
 	var f := body_reader(bytes).get_u8()
 	return {"headshot": (f & 1) != 0, "lethal": (f & 2) != 0}
+
+
+static func encode_give_up() -> PackedByteArray:
+	var buf := StreamPeerBuffer.new()
+	buf.put_u8(Msg.GIVE_UP)
+	return buf.data_array
 
 
 static func encode_match_state(points: Array, tickets: Array, match_over: bool, winner: int, elapsed: int) -> PackedByteArray:

@@ -18,6 +18,9 @@ func test_hitmarker_round_trip() -> void:
 			assert_eq(d["headshot"], hs, "headshot flag round-trips")
 			assert_eq(d["lethal"], lethal, "lethal flag round-trips")
 
+func test_give_up_message() -> void:
+	assert_eq(Protocol.msg_type(Protocol.encode_give_up()), Protocol.Msg.GIVE_UP)
+
 
 func test_match_state_round_trip() -> void:
 	var points := [{"owner": -1, "attacker": 0, "cap": 0.5}, {"owner": 1, "attacker": -1, "cap": 1.0}]

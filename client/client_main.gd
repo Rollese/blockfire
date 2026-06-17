@@ -24,6 +24,20 @@ var _elapsed := 0.0
 var _prev_eye := Vector3.ZERO
 var _curr_eye := Vector3.ZERO
 var _eye_init := false
+# Reconcile smoothing: residual server-correction offset, eased to zero in render so a correction
+# doesn't snap the camera. Only REAL mispredictions (above the deadzone) are smoothed — tiny
+# per-tick corrections (sub-mm quantization) are ignored so the render interpolation stays intact.
+var _pos_err := Vector3.ZERO
+var _reconciled := false
+const RECON_DEADZONE := 0.04   # corrections under this (m) are noise — left to normal interpolation
+const RECON_SNAP := 2.5        # corrections over this (m) snap (respawn/teleport), not smoothed
+const RECON_SMOOTH := 13.0     # per-second decay of _pos_err (~a correction fades over ~150 ms)
+# DBNO downed screen
+var _downed_since := -1.0      # _elapsed when the current down began (-1 = not downed)
+var _giveup_hold := 0.0        # seconds the give-up key (jump) has been held while downed
+var _giveup_sent := false
+const BLEEDOUT_SECS := 8.0     # Revive |BLEEDOUT_FLOOR|/BLEED_RATE / TICK_RATE = 240/30
+const GIVEUP_HOLD := 0.8       # seconds to hold to confirm give-up (avoid accidental skip)
 
 # ---- components (all non-scene, headless-safe) ------------------------------
 var _settings: ClientSettings
@@ -121,6 +135,9 @@ func _physics_process(delta: float) -> void:
 			if _deploy_menu != null:
 				_deploy_menu.visible = false
 	elif deployed:
+		# Mirror authoritative downed state into the predictor so it crawls (1 m/s) like the server
+		# instead of predicting full-speed movement the server rejects (the down-state rubber-band).
+		_pred.predicted.is_downed = ss.is_downed
 		# Gather local input and run prediction
 		var cmd: Dictionary = _input_ctrl.gather(_settings)
 		_pred.record_cmd(_client_tick, cmd)
@@ -175,9 +192,13 @@ func _physics_process(delta: float) -> void:
 	# jumps — spawn/teleport/large reconcile — so a correction isn't dragged across a 33 ms tick.
 	if _scene_built:
 		var eye_now: Vector3 = _pred.predicted.eye_position()
-		if not _eye_init or eye_now.distance_to(_curr_eye) > 5.0:
+		# On a real reconcile (or init/teleport) snap the interp base to the corrected eye — the
+		# correction is carried/eased in _pos_err, so the per-tick lerp doesn't double-smear it.
+		# Tiny corrections don't set _reconciled, so normal 30->60 interpolation is preserved.
+		if not _eye_init or _reconciled or eye_now.distance_to(_curr_eye) > 5.0:
 			_prev_eye = eye_now
 			_eye_init = true
+			_reconciled = false
 		else:
 			_prev_eye = _curr_eye
 		_curr_eye = eye_now
@@ -195,7 +216,8 @@ func _process(_dt: float) -> void:
 		_input_ctrl.update_look(_settings)   # apply accumulated mouse delta at render rate
 	else:
 		_input_ctrl.drain_look()
-	var eye: Vector3 = _prev_eye.lerp(_curr_eye, Engine.get_physics_interpolation_fraction())
+	_pos_err = _pos_err.lerp(Vector3.ZERO, clampf(_dt * RECON_SMOOTH, 0.0, 1.0))
+	var eye: Vector3 = _prev_eye.lerp(_curr_eye, Engine.get_physics_interpolation_fraction()) + _pos_err
 
 	var _t0 := Time.get_ticks_usec()
 	_renderer.update(_wv, _pred, _elapsed, _settings.fov, _input_ctrl.yaw, _input_ctrl.pitch, eye)
@@ -220,6 +242,26 @@ func _process(_dt: float) -> void:
 	_hud_view.perf_render_us = _t1 - _t0   # world: entity pool + interpolation + camera + tracers
 	_hud_view.perf_build_us = _t2 - _t1    # HUD model build (incl. ctx: objectives/points)
 	_hud_view.perf_hud_us = _t3 - _t2      # HUD view render (compass/ammo/tickets/…)
+
+	# DBNO downed screen: bleed-out countdown, nearest-friendly distance, hold-to-give-up.
+	var sds: EntityState = _wv.self_state()
+	if sds != null and sds.alive and sds.is_downed:
+		if _downed_since < 0.0:
+			_downed_since = _elapsed
+			_giveup_hold = 0.0
+			_giveup_sent = false
+		if Input.is_action_pressed("jump"):
+			_giveup_hold += _dt
+			if _giveup_hold >= GIVEUP_HOLD and not _giveup_sent and _peer != null:
+				_net.send_to(_peer, NetHost.CHANNEL_CONTROL, Protocol.encode_give_up(), ENetPacketPeer.FLAG_RELIABLE)
+				_giveup_sent = true
+		else:
+			_giveup_hold = 0.0
+		var secs_left: float = maxf(0.0, BLEEDOUT_SECS - (_elapsed - _downed_since))
+		_hud_view.set_downed(true, secs_left, _nearest_friendly_dist(sds), clampf(_giveup_hold / GIVEUP_HOLD, 0.0, 1.0))
+	elif _downed_since >= 0.0:
+		_downed_since = -1.0
+		_hud_view.set_downed(false, 0.0, -1.0, 0.0)
 
 	# Settings menu toggle
 	if Input.is_action_just_pressed("menu"):
@@ -308,8 +350,16 @@ func _handle_snapshot(bytes: PackedByteArray) -> void:
 		_deploy_menu_populated = false
 	_was_alive = alive
 	if alive:
-		# Reconcile movement prediction from authoritative position + pitch
+		# Reconcile movement prediction from authoritative position + pitch. Smooth only a genuine
+		# correction (deadzone..snap): ease it into the camera via _pos_err instead of snapping.
+		var pre_pos: Vector3 = _pred.predicted.pos
 		_pred.reconcile_full(ss.pos, ss.yaw, ss.pitch, int(hdr["last_input_tick"]))
+		var cl: float = (pre_pos - _pred.predicted.pos).length()
+		if cl > RECON_DEADZONE and cl <= RECON_SNAP:
+			_pos_err += pre_pos - _pred.predicted.pos
+			_reconciled = true
+		elif cl > RECON_SNAP:
+			_pos_err = Vector3.ZERO   # too large to smear (respawn/teleport) — snap
 		if _scene_built and _deploy_menu != null:
 			if not _deploy_menu_populated:
 				_deploy_menu.populate(ss.team, _map, _conquest)
@@ -422,3 +472,16 @@ func _point_positions() -> Array:
 	for pt: Dictionary in _map.points:
 		out.append(pt["pos"])
 	return out
+
+## Distance to the nearest alive, standing teammate in view (for the downed screen). -1 if none.
+func _nearest_friendly_dist(sds: EntityState) -> float:
+	var rem: Dictionary = _wv.remotes_at(_elapsed)
+	var best := -1.0
+	for rid in rem:
+		var e: EntityState = rem[rid]
+		if not e.alive or e.is_downed or e.team != sds.team:
+			continue
+		var d: float = sds.pos.distance_to(e.pos)
+		if best < 0.0 or d < best:
+			best = d
+	return best
