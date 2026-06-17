@@ -47,8 +47,8 @@ This is the BattleBit cue set: you *feel* the hit and learn roughly *where* it c
 ### Deploy screen (full-screen, between lives)
 Drives `DEPLOY_REQUEST` ([client-prediction](client-prediction.md)). Shows valid spawns and lets the player choose:
 - **Checkpoint 1:** HQ + currently-owned capture points.
-- **Checkpoint 3:** on a squadmate (needs squad data); on a friendly vehicle where convenient.
-Selecting a spawn sends `DEPLOY_REQUEST{spawn_ref}`; the server validates against `SpawnSelect` and places the pawn, or rejects → re-prompt. A non-rendered await/spectator state covers the pre-deploy gap. Shown on initial join and after every death.
+- **Checkpoint 3 (landed):** on a **squadmate** (`DeploySpawn.SQUADMATE_BASE+i`, valid only if the mate is alive + standing + same-team) and on a **friendly vehicle** with a free seat (`DeploySpawn.VEHICLE_BASE+i`). The deploy menu builds the same `squadmates`/`vehicles` candidate arrays the server uses (mates from `world_view.roster()` ∩ interpolated entities; vehicles from `world_view.vehicles()`), lists `DeploySpawn.enumerate(team, map, conquest, squadmates, vehicles)`, and labels mate refs with the mate's name and vehicle refs with the vehicle type.
+Selecting a spawn sends `DEPLOY_REQUEST{spawn_ref}` (unchanged wire across all ref kinds); the server **re-validates** the ref via `DeploySpawn.is_valid(...)` against its authoritative candidate arrays and places the pawn, or rejects (mate died / vehicle filled / point lost) → the deploy screen stays up to re-pick. A non-rendered await/spectator state covers the pre-deploy gap. Shown on initial join and after every death.
 
 ### Squad menu (minimal)
 View the squad (members + status, reusing the roster data) and **join/switch squad** via `SET_SQUAD` (backed by server `SquadManager`). P1 keeps it minimal — enough to see and pick a squad, since squad-spawn depends on it. Squad creation/leadership niceties are deferred.
