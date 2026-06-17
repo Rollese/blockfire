@@ -47,6 +47,21 @@ func test_killfeed_entries_decay_out() -> void:
 	var out2 := m.build({"now": 10.0 + HudModel.KILLFEED_TTL + 0.1, "tick": 0})
 	assert_eq(out2["killfeed"].size(), 0, "expired entry dropped")
 
+func test_scoreboard_groups_by_team_and_sorts_by_score_then_name() -> void:
+	var m := HudModel.new()
+	var roster := [
+		{"id": 1, "name": "Zoe", "team": 0, "squad": 0, "kills": 5, "deaths": 1, "score": 500},
+		{"id": 2, "name": "Al",  "team": 0, "squad": 0, "kills": 5, "deaths": 1, "score": 500},
+		{"id": 3, "name": "Ed",  "team": 1, "squad": 0, "kills": 2, "deaths": 4, "score": 200},
+	]
+	var out := m.build({"roster": roster, "match_state": {"tickets": [120, 95]}, "tick": 0})
+	var sb: Dictionary = out["scoreboard"]
+	assert_eq(sb["teams"][0]["rows"].size(), 2)
+	assert_eq(sb["teams"][0]["rows"][0]["name"], "Al", "score tie -> name asc")
+	assert_eq(sb["teams"][0]["tickets"], 120)
+	assert_eq(sb["teams"][1]["rows"][0]["name"], "Ed")
+	assert_eq(sb["teams"][1]["tickets"], 95)
+
 func test_damage_arc_relative_and_fades() -> void:
 	var m := HudModel.new()
 	# yaw 0 -> camera looks -Z; damage from world bearing 0 (+Z) comes from directly behind -> 180 deg.

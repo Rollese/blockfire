@@ -45,7 +45,7 @@ func _damage(ctx: Dictionary) -> Dictionary:
 
 func build(ctx: Dictionary) -> Dictionary:
 	var dmg := _damage(ctx)
-	return {"ammo": _ammo(ctx), "compass": _compass(ctx), "tickets": _tickets(ctx), "capture": _capture(ctx), "killfeed": _killfeed_current(ctx), "damage_arcs": dmg["arcs"], "vignette": dmg["vignette"]}
+	return {"ammo": _ammo(ctx), "compass": _compass(ctx), "tickets": _tickets(ctx), "capture": _capture(ctx), "killfeed": _killfeed_current(ctx), "damage_arcs": dmg["arcs"], "vignette": dmg["vignette"], "scoreboard": _scoreboard(ctx)}
 
 func _compass(ctx: Dictionary) -> Dictionary:
 	var yaw := float(ctx.get("self_yaw", 0.0))
@@ -87,3 +87,20 @@ func _ammo(ctx: Dictionary) -> Dictionary:
 		"reload_remaining": wp.reload_remaining(int(ctx.get("tick", 0))),
 		"low": wp.mag <= int(ceil(mag_size * LOW_AMMO_FRAC)),
 	}
+
+func _scoreboard(ctx: Dictionary) -> Dictionary:
+	var roster: Array = ctx.get("roster", [])
+	var ms: Dictionary = ctx.get("match_state", {})
+	var tickets: Array = ms.get("tickets", [0, 0])
+	var teams: Array = []
+	for t in 2:
+		var rows: Array = []
+		for rw in roster:
+			if int(rw["team"]) == t:
+				rows.append(rw)
+		rows.sort_custom(func(a, b):
+			if int(a["score"]) != int(b["score"]):
+				return int(a["score"]) > int(b["score"])
+			return String(a["name"]) < String(b["name"]))
+		teams.append({"team": t, "rows": rows, "tickets": int(tickets[t]) if t < tickets.size() else 0})
+	return {"teams": teams}
