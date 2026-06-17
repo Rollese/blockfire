@@ -32,3 +32,41 @@ func test_enumerate_lists_hq_plus_owned_points() -> void:
 	assert_true(refs.has(0), "HQ always offered")
 	assert_true(refs.has(1), "owned point offered")
 	assert_false(refs.has(2), "non-owned point not offered")
+
+func test_squadmate_ref_valid_when_mate_alive_standing() -> void:
+	var m := _map()
+	var c := _conquest(-1)
+	var mates := [{"pos": Vector3(20, 0, 5), "team": 0, "alive": true, "downed": false}]
+	assert_true(DeploySpawn.is_valid(0, DeploySpawn.SQUADMATE_BASE + 0, m, c, mates),
+		"alive standing same-team mate is a valid spawn")
+	var pos := DeploySpawn.resolve(0, DeploySpawn.SQUADMATE_BASE + 0, m, c, mates)
+	assert_almost_eq(pos.distance_to(Vector3(20, 0, 5)), 0.0, DeploySpawn.JITTER * sqrt(2.0) + 0.01,
+		"resolves near the mate (within jitter)")
+
+func test_squadmate_ref_invalid_when_downed_or_dead() -> void:
+	var m := _map()
+	var c := _conquest(-1)
+	var downed := [{"pos": Vector3(20, 0, 5), "team": 0, "alive": true, "downed": true}]
+	assert_false(DeploySpawn.is_valid(0, DeploySpawn.SQUADMATE_BASE + 0, m, c, downed), "downed mate rejected")
+	var dead := [{"pos": Vector3(20, 0, 5), "team": 0, "alive": false, "downed": false}]
+	assert_false(DeploySpawn.is_valid(0, DeploySpawn.SQUADMATE_BASE + 0, m, c, dead), "dead mate rejected")
+
+func test_vehicle_ref_valid_with_free_seat_same_team() -> void:
+	var m := _map()
+	var c := _conquest(-1)
+	var veh := [{"pos": Vector3(30, 0, 30), "team": 0, "free_seats": 2}]
+	assert_true(DeploySpawn.is_valid(0, DeploySpawn.VEHICLE_BASE + 0, m, c, [], veh), "free-seat friendly vehicle valid")
+	var full := [{"pos": Vector3(30, 0, 30), "team": 0, "free_seats": 0}]
+	assert_false(DeploySpawn.is_valid(0, DeploySpawn.VEHICLE_BASE + 0, m, c, [], full), "full vehicle rejected")
+	var enemy := [{"pos": Vector3(30, 0, 30), "team": 1, "free_seats": 2}]
+	assert_false(DeploySpawn.is_valid(0, DeploySpawn.VEHICLE_BASE + 0, m, c, [], enemy), "enemy vehicle rejected")
+
+func test_enumerate_includes_valid_squadmate_and_vehicle_refs() -> void:
+	var m := _map()
+	var c := _conquest(0)
+	var mates := [{"pos": Vector3(20, 0, 5), "team": 0, "alive": true, "downed": false}]
+	var veh := [{"pos": Vector3(30, 0, 30), "team": 0, "free_seats": 1}]
+	var refs := DeploySpawn.enumerate(0, m, c, mates, veh)
+	assert_true(refs.has(DeploySpawn.SQUADMATE_BASE + 0), "valid mate ref offered")
+	assert_true(refs.has(DeploySpawn.VEHICLE_BASE + 0), "valid vehicle ref offered")
+	assert_true(refs.has(0), "HQ still offered")
