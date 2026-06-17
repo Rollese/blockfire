@@ -45,7 +45,7 @@ func _damage(ctx: Dictionary) -> Dictionary:
 
 func build(ctx: Dictionary) -> Dictionary:
 	var dmg := _damage(ctx)
-	return {"ammo": _ammo(ctx), "compass": _compass(ctx), "tickets": _tickets(ctx), "capture": _capture(ctx), "killfeed": _killfeed_current(ctx), "damage_arcs": dmg["arcs"], "vignette": dmg["vignette"], "scoreboard": _scoreboard(ctx)}
+	return {"ammo": _ammo(ctx), "compass": _compass(ctx), "tickets": _tickets(ctx), "capture": _capture(ctx), "killfeed": _killfeed_current(ctx), "damage_arcs": dmg["arcs"], "vignette": dmg["vignette"], "scoreboard": _scoreboard(ctx), "squad_roster": _squad_roster(ctx)}
 
 func _compass(ctx: Dictionary) -> Dictionary:
 	var yaw := float(ctx.get("self_yaw", 0.0))
@@ -87,6 +87,28 @@ func _ammo(ctx: Dictionary) -> Dictionary:
 		"reload_remaining": wp.reload_remaining(int(ctx.get("tick", 0))),
 		"low": wp.mag <= int(ceil(mag_size * LOW_AMMO_FRAC)),
 	}
+
+func _squad_roster(ctx: Dictionary) -> Array:
+	var roster: Array = ctx.get("roster", [])
+	var self_id := int(ctx.get("self_id", 0))
+	var entities: Dictionary = ctx.get("entities", {})
+	var my_team := -1
+	var my_squad := -1
+	for rw in roster:
+		if int(rw["id"]) == self_id:
+			my_team = int(rw["team"]); my_squad = int(rw["squad"]); break
+	var out: Array = []
+	if my_team < 0:
+		return out
+	for rw in roster:
+		if int(rw["id"]) == self_id or int(rw["team"]) != my_team or int(rw["squad"]) != my_squad:
+			continue
+		var e: Dictionary = entities.get(int(rw["id"]), {})
+		var status := "dead"
+		if not e.is_empty() and bool(e.get("alive", false)):
+			status = "downed" if bool(e.get("is_downed", false)) else "alive"
+		out.append({"id": int(rw["id"]), "name": String(rw["name"]), "status": status})
+	return out
 
 func _scoreboard(ctx: Dictionary) -> Dictionary:
 	var roster: Array = ctx.get("roster", [])

@@ -62,6 +62,30 @@ func test_scoreboard_groups_by_team_and_sorts_by_score_then_name() -> void:
 	assert_eq(sb["teams"][1]["rows"][0]["name"], "Ed")
 	assert_eq(sb["teams"][1]["tickets"], 95)
 
+func test_squad_roster_lists_squadmates_with_status() -> void:
+	var m := HudModel.new()
+	var roster := [
+		{"id": 1, "name": "Me",  "team": 0, "squad": 2, "kills": 0, "deaths": 0, "score": 0},
+		{"id": 2, "name": "Mate","team": 0, "squad": 2, "kills": 0, "deaths": 0, "score": 0},
+		{"id": 3, "name": "Other","team": 0, "squad": 5, "kills": 0, "deaths": 0, "score": 0},
+	]
+	var ents := {2: {"alive": true, "is_downed": true, "pos": Vector3(10, 0, 0)}}
+	var out := m.build({"roster": roster, "self_id": 1, "entities": ents, "tick": 0})
+	var sq: Array = out["squad_roster"]
+	assert_eq(sq.size(), 1, "only same-squad, excluding self")
+	assert_eq(sq[0]["name"], "Mate")
+	assert_eq(sq[0]["status"], "downed", "downed status from entities")
+
+func test_squad_roster_marks_dead_when_absent_or_not_alive() -> void:
+	var m := HudModel.new()
+	var roster := [
+		{"id": 1, "name": "Me", "team": 0, "squad": 2, "kills": 0, "deaths": 0, "score": 0},
+		{"id": 2, "name": "Gone","team": 0, "squad": 2, "kills": 0, "deaths": 0, "score": 0},
+	]
+	var out := m.build({"roster": roster, "self_id": 1, "entities": {}, "tick": 0})
+	var sq: Array = out["squad_roster"]
+	assert_eq(sq[0]["status"], "dead", "no entity -> dead/out of view")
+
 func test_damage_arc_relative_and_fades() -> void:
 	var m := HudModel.new()
 	# yaw 0 -> camera looks -Z; damage from world bearing 0 (+Z) comes from directly behind -> 180 deg.
