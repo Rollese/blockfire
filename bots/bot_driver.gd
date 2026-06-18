@@ -7,10 +7,6 @@ const Protocol := preload("res://shared/net/protocol.gd")
 const AIM_TOLERANCE := 0.05   # radians; fire when aim within this of target
 const ENGAGE_RANGE := 50.0   # only fire once within this range (else keep closing)
 const MAP_PATH := "res://maps/conquest_proving_grounds.json"   # default; override with --map=<name>
-const BURST_TICKS := 60   # server ticks (~2.0s @30Hz) of firing before reloading; shorter
-                          # than the fastest mag-empty time so no weapon runs dry mid-burst
-const RELOAD_TICKS := 84  # server ticks (~2.8s) to hold BTN_RELOAD; > the slowest weapon
-                          # reload (2.6s) so the mag is surely refilled before the next burst
 const BUILD_COOLDOWN_TICKS := 150   # match server StructureStore.BUILD_COOLDOWN_TICKS (5s)
 const BUILD_DIST := 3.0             # how far ahead (m) to drop cover; within server BUILD_RANGE
 const MAX_BOT_BUILDS := 1           # walls each bot drops before stopping. Keeps the contested
@@ -229,8 +225,8 @@ func _drive(bot: Dictionary, delta: float) -> void:
 		var fire := best <= ENGAGE_RANGE and yaw_ok and pitch_ok
 		# Drillers override movement to continue the drill; non-drillers use the normal enemy-chase.
 		if is_driller and drill_geom_valid:
-			var phase: int = int(bot.get("drill_phase", DRILL_CLIMB))
-			var dr := drill_step(phase, me.pos, _drill_ladder, _drill_sandbag)
+			var phase: int = int(bot.get("drill_phase", AiDrill.DRILL_CLIMB))
+			var dr := AiDrill.drill_step(phase, me.pos, _drill_ladder, _drill_sandbag)
 			var drill_target: Vector3 = dr["move_to"]
 			var flat_d := Vector2(drill_target.x - me.pos.x, drill_target.z - me.pos.z)
 			if flat_d.length() > 0.001: flat_d = flat_d.normalized()
@@ -251,7 +247,7 @@ func _drive(bot: Dictionary, delta: float) -> void:
 				var flat := Vector2(move_to.x - me.pos.x, move_to.z - me.pos.z)
 				if flat.length() > 0.001: flat = flat.normalized()
 				move_x = flat.x; move_y = flat.y
-		var cb := combat_button(fire, bot["server_tick"], bot["reload_until"], bot["burst_start"])
+		var cb := AiCombat.combat_button(fire, bot["server_tick"], bot["reload_until"], bot["burst_start"])
 		buttons |= int(cb[0])
 		bot["reload_until"] = cb[1]
 		bot["burst_start"] = cb[2]
@@ -262,8 +258,8 @@ func _drive(bot: Dictionary, delta: float) -> void:
 		# no enemy in view
 		if is_driller and drill_geom_valid:
 			# Driller: march the obstacle course instead of toward the capture objective.
-			var phase: int = int(bot.get("drill_phase", DRILL_CLIMB))
-			var dr := drill_step(phase, me.pos, _drill_ladder, _drill_sandbag)
+			var phase: int = int(bot.get("drill_phase", AiDrill.DRILL_CLIMB))
+			var dr := AiDrill.drill_step(phase, me.pos, _drill_ladder, _drill_sandbag)
 			var drill_target: Vector3 = dr["move_to"]
 			var flat_d := Vector2(drill_target.x - me.pos.x, drill_target.z - me.pos.z)
 			if flat_d.length() > 0.001: flat_d = flat_d.normalized()
@@ -306,7 +302,7 @@ func _drive(bot: Dictionary, delta: float) -> void:
 ## has not changed but the tick counter exceeded DRILL_PHASE_TIMEOUT, force-advance to the next
 ## phase and reset — so a stuck driller (killed mid-traverse, geometry blocked) never stalls.
 func _update_drill_phase(bot: Dictionary, next_phase: int) -> void:
-	var cur_phase: int = int(bot.get("drill_phase", DRILL_CLIMB))
+	var cur_phase: int = int(bot.get("drill_phase", AiDrill.DRILL_CLIMB))
 	var ticks: int = int(bot.get("drill_phase_ticks", 0))
 	if next_phase != cur_phase:
 		# Phase transition from drill_step logic.
@@ -314,9 +310,9 @@ func _update_drill_phase(bot: Dictionary, next_phase: int) -> void:
 		bot["drill_phase_ticks"] = 0
 	else:
 		ticks += 1
-		if ticks >= DRILL_PHASE_TIMEOUT:
+		if ticks >= AiDrill.DRILL_PHASE_TIMEOUT:
 			# Stuck: force the other phase and reset.
-			bot["drill_phase"] = DRILL_VAULT if cur_phase == DRILL_CLIMB else DRILL_CLIMB
+			bot["drill_phase"] = AiDrill.DRILL_VAULT if cur_phase == AiDrill.DRILL_CLIMB else AiDrill.DRILL_CLIMB
 			bot["drill_phase_ticks"] = 0
 		else:
 			bot["drill_phase_ticks"] = ticks
@@ -532,50 +528,6 @@ func _cover_between(bot: Dictionary, a: Vector3, b: Vector3) -> bool:
 
 func angle_diff(a: float, b: float) -> float:
 	return wrapf(a - b, -PI, PI)
-
-const DRILL_CLIMB := 0   # drill phase: go climb the ladder
-const DRILL_VAULT := 1   # drill phase: go vault the sandbag
-const DRILL_PHASE_TIMEOUT := 1500   # ticks (~50 s @30Hz): reset stuck driller to next phase
-
-## Pure driller steering. phase 0 = go climb the ladder, phase 1 = go vault the sandbag.
-## Returns {"move_to": Vector3, "force_climb": bool, "next_phase": int}.
-## - CLIMB: steer toward the ladder base. force_climb=true once horizontally within (radius+0.5)
-##   of the base. next_phase flips to VAULT once my_pos.y >= top.y - 0.3 (reached the top).
-## - VAULT: steer toward the sandbag world point. next_phase flips back to CLIMB once
-##   horizontally within ~1.5 m of the sandbag (vaulted past it).
-static func drill_step(phase: int, my_pos: Vector3, ladder: Dictionary, sandbag_world: Vector3) -> Dictionary:
-	if phase == DRILL_CLIMB:
-		var base: Vector3 = ladder["bottom"]
-		var top: Vector3 = ladder["top"]
-		var radius: float = float(ladder["radius"])
-		# Check if we've reached the ladder top (done climbing).
-		if my_pos.y >= top.y - 0.3:
-			return {"move_to": base, "force_climb": true, "next_phase": DRILL_VAULT}
-		# Check horizontal distance to the base for force-climb engagement.
-		var horiz_dist := Vector2(my_pos.x - base.x, my_pos.z - base.z).length()
-		var force_climb := horiz_dist <= radius + 0.5
-		return {"move_to": base, "force_climb": force_climb, "next_phase": DRILL_CLIMB}
-	else:
-		# VAULT phase: steer toward the sandbag; once within 1.5 m (vaulted past it), reset.
-		var horiz_dist := Vector2(my_pos.x - sandbag_world.x, my_pos.z - sandbag_world.z).length()
-		if horiz_dist <= 1.5:
-			return {"move_to": sandbag_world, "force_climb": false, "next_phase": DRILL_CLIMB}
-		return {"move_to": sandbag_world, "force_climb": false, "next_phase": DRILL_VAULT}
-
-## Combat button for an ammo-blind bot, paced in SERVER game-time (`st` = server tick).
-## Returns [button, reload_until, burst_start]. Fires BURST_TICKS-long bursts then holds
-## BTN_RELOAD for RELOAD_TICKS before the next burst, so combat is sustained instead of dying
-## after one magazine. See docs/specs/m3-bot-convergence-fix.md.
-static func combat_button(fire: bool, st: int, reload_until: int, burst_start: int) -> Array:
-	if st < reload_until:
-		return [InputCommand.BTN_RELOAD, reload_until, burst_start]
-	if not fire:
-		return [0, reload_until, burst_start]
-	if burst_start < 0:
-		burst_start = st
-	if st - burst_start >= BURST_TICKS:
-		return [InputCommand.BTN_RELOAD, st + RELOAD_TICKS, -1]
-	return [InputCommand.BTN_FIRE, reload_until, burst_start]
 
 ## Apply a decoded STRUCTURE_DELTA to a bot's local mirror (id->record). PLACE inserts, DAMAGE
 ## updates the record's bucket in place (must NOT remove), REMOVE erases. Pure + unit-tested;
