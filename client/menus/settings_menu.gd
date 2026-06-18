@@ -10,6 +10,11 @@ signal settings_applied(settings: ClientSettings)
 ## The active settings object. Populated by bind_settings().
 var settings: ClientSettings = null
 
+## Where apply() persists settings. Defaults to the real user file; tests override it so the suite
+## never overwrites the player's real settings (which silently reset unedited fields like
+## use_model_characters).
+var save_path: String = "user://settings.cfg"
+
 # UI controls — may be null when run headless / in tests.
 var _sensitivity_slider: HSlider = null
 var _fov_spin: SpinBox = null
@@ -129,5 +134,5 @@ func apply() -> void:
 		settings.invert_y = _invert_y_check.button_pressed
 	if _fallback_check != null:
 		settings.renderer_fallback = _fallback_check.button_pressed
-	settings.save_to()
+	settings.save_to(save_path)
 	settings_applied.emit(settings)
