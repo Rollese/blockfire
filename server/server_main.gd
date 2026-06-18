@@ -1099,6 +1099,7 @@ func _handle_build_request(peer: ENetPacketPeer, bytes: PackedByteArray) -> void
 	var d := Protocol.decode_build_request(bytes)
 	var type: int = d["type"]
 	if type < 0 or type >= _catalog.size(): return
+	if int(d["yaw"]) < 0 or int(d["yaw"]) >= BuildGrid.YAW_STEPS: return   # reject malformed/out-of-range yaw (map path validates; player path did not)
 	var cell: Vector3i = d["cell"]
 	var v := _store.validate_place(cell, p.pos, _sim.tick, c["last_build_tick"], Pawn.WORLD_HALF)
 	if not v["ok"]: return

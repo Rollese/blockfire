@@ -38,6 +38,8 @@ func test_takes_cover_when_taking_damage() -> void:
 	var intent := ai.decide()
 	assert_eq(String(intent["behavior"]), "take_cover", "health drop raises pressure -> take_cover")
 	assert_eq(int(intent["stance"]), Stance.CROUCH, "crouch under fire")
+	# No structures in view -> no known cover. Must flee (break LOS), not root crouched in the open.
+	assert_true(absf(float(intent["move_x"])) + absf(float(intent["move_y"])) > 0.0, "take_cover with no cover flees instead of rooting")
 
 func test_engage_closes_distance_when_out_of_range() -> void:
 	var ai := AiDriver.new(42, 0, "regular")

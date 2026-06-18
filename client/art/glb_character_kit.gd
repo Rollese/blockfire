@@ -18,7 +18,14 @@ const WEAPON_SCALE := 1.0                          # compensate for the model's 
 
 static func build() -> Node3D:
 	var ps := load(SCENE_PATH) as PackedScene
+	if ps == null:
+		# Imported scene missing/stale — fall back to the procedural kit instead of crashing the
+		# client on the first remote spawn (mirrors GlbWeaponKit's null-guard fallback).
+		push_warning("[GlbCharacterKit] %s failed to load; using procedural CharacterKit" % SCENE_PATH)
+		return CharacterKit.build()
 	var model := ps.instantiate() as Node3D
+	if model == null:
+		return CharacterKit.build()
 	# Normalize the model's own height to STAND_HEIGHT.
 	var raw := world_aabb(model)
 	if raw.size.y > 0.001:

@@ -95,6 +95,8 @@ func decide() -> Dictionary:
 					intent["move_x"] = mv.x; intent["move_y"] = mv.y
 		"take_cover":
 			var c := AiCover.pick_cover(w)
+			if w.cover.is_empty() and w.enemies.size() > 0:
+				c = me.pos + (me.pos - _nearest_enemy_pos(w, me.pos))   # no cover -> break LOS, do not root crouched in the open
 			var mv := _flat_dir(me.pos, c)
 			intent["move_x"] = mv.x; intent["move_y"] = mv.y
 			intent["stance"] = AiCover.desired_stance(w.incoming_fire)

@@ -57,7 +57,7 @@ func build(my_id: int, view: Dictionary, _vview: Dictionary, structs: Dictionary
 		if not e.alive:
 			continue
 		var d: float = (me.pos.distance_to(e.pos) if me else 0.0)
-		w.enemies.append({"id": int(id), "pos": e.pos, "stance": e.stance, "dist": d, "last_seen_tick": now})
+		w.enemies.append({"id": int(id), "pos": e.pos, "stance": e.stance, "dist": d, "last_seen_tick": now, "hp_frac": float(e.health) / 100.0})
 		seen_now[int(id)] = true
 		if not _first_seen.has(int(id)):
 			_first_seen[int(id)] = now

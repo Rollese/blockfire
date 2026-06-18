@@ -604,7 +604,9 @@ func _make_structure_node(rec: Dictionary) -> Node3D:
 
 ## M11: replace a collapsed building with a flat rubble marker at its last-known centroid.
 func _spawn_rubble_for(building_id: int) -> void:
-	var center: Vector3 = _building_centroid.get(building_id, Vector3.ZERO)
+	if not _building_centroid.has(building_id):
+		return   # unknown / double-collapse — don't dump rubble at world origin
+	var center: Vector3 = _building_centroid[building_id]
 	var rubble := BuildingKit.build_rubble()
 	rubble.position = center
 	add_child(rubble)

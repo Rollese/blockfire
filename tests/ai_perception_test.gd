@@ -19,6 +19,25 @@ func test_build_partitions_enemies_allies_downed() -> void:
 	assert_eq(w.enemies.size(), 1, "one alive enemy")
 	assert_eq(w.allies.size(), 1, "one alive non-downed ally")
 	assert_eq(w.downed_allies.size(), 1, "one downed ally")
+func test_enemy_record_carries_hp_frac_for_target_priority() -> void:
+	# Regression: pick_target blends hp_frac, but Perception used to omit it, collapsing target
+	# selection to nearest-only. Verify the enemy record now carries the real health fraction.
+	var p := Perception.new()
+	var me := _es(0, Vector3.ZERO)
+	var wounded := _es(1, Vector3(5, 0, 0)); wounded.health = 30
+	var w := p.build(1, {1: me, 2: wounded}, {}, {}, [], 100)
+	assert_eq(w.enemies.size(), 1, "one alive enemy")
+	assert_almost_eq(float(w.enemies[0].get("hp_frac", -1.0)), 0.30, 0.001, "enemy record carries hp_frac from replicated health")
+
+func test_pick_target_prefers_wounded_over_closer_healthy() -> void:
+	# With hp_frac populated, a badly-wounded farther enemy outranks a closer full-HP one.
+	var p := Perception.new()
+	var me := _es(0, Vector3.ZERO)
+	var close_full := _es(1, Vector3(5, 0, 0)); close_full.health = 100
+	var far_wounded := _es(1, Vector3(20, 0, 0)); far_wounded.health = 10
+	var w := p.build(1, {1: me, 2: close_full, 3: far_wounded}, {}, {}, [], 100)
+	assert_eq(AiCombat.pick_target(w), 3, "wounded enemy prioritized over closer healthy one")
+
 func test_build_applies_reaction_gate_on_first_sighting() -> void:
 	var p := Perception.new()
 	var me := _es(0, Vector3.ZERO)
