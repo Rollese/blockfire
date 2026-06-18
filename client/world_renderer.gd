@@ -32,6 +32,11 @@ var _camera: Camera3D = null
 var _tracers: Array = []          # [{node: MeshInstance3D, mat: StandardMaterial3D, die: float}]
 var _tracer_idx: int = 0
 
+# -- muzzle flash pool (MuzzleFlashKit; mirrors the tracer pool) ---------------
+const FLASH_POOL := 16
+var _flashes: Array = []          # [{node: MeshInstance3D, mat: StandardMaterial3D, die: float}]
+var _flash_idx: int = 0
+
 # active entity nodes: id(int) -> Node3D (CharacterKit soldier)
 var _active: Dictionary = {}
 # free list for recycled entity Node3D roots (all soldiers are identical — no per-team re-tint)
@@ -129,6 +134,13 @@ func setup(map: MapDef, camera: Camera3D) -> void:
 		add_child(tn)
 		_tracers.append({"node": tn, "mat": tmat, "die": 0.0})
 
+	# Muzzle flash pool — brief emissive plates at the muzzle, hidden until a shot is fired.
+	for _i in FLASH_POOL:
+		var fn := MuzzleFlashKit.build()
+		fn.visible = false
+		add_child(fn)
+		_flashes.append({"node": fn, "mat": fn.material_override, "die": 0.0})
+
 	# Viewmodel placeholder (parented to camera so it moves with it)
 	_viewmodel = _make_box_mesh(VM_SIZE, Color(0.5, 0.5, 0.5))
 	_viewmodel.position = VM_OFFSET
@@ -165,6 +177,7 @@ func update(world_view: WorldView, predictor: Prediction, now: float, fov: float
 
 	# 4. Age out shot tracers
 	_age_tracers(now)
+	_age_flashes(now)
 
 
 ## Spawn a brief tracer beam along the camera's aim. Called when the weapon predictor reports a
@@ -199,6 +212,7 @@ func _spawn_tracer(origin: Vector3, fwd: Vector3, now: float) -> void:
 	(t["mat"] as StandardMaterial3D).albedo_color = TRACER_COLOR
 	node.visible = true
 	t["die"] = now + TRACER_TTL
+	_spawn_flash(origin, fwd, now)
 
 
 func _age_tracers(now: float) -> void:
@@ -213,6 +227,35 @@ func _age_tracers(now: float) -> void:
 			var c := TRACER_COLOR
 			c.a = clampf(remaining / TRACER_TTL, 0.0, 1.0)
 			(t["mat"] as StandardMaterial3D).albedo_color = c
+
+
+func _spawn_flash(origin: Vector3, fwd: Vector3, now: float) -> void:
+	if _flashes.is_empty():
+		return
+	var up := Vector3.UP if absf(fwd.dot(Vector3.UP)) < 0.99 else Vector3.RIGHT
+	var f: Dictionary = _flashes[_flash_idx]
+	_flash_idx = (_flash_idx + 1) % _flashes.size()
+	var node: MeshInstance3D = f["node"]
+	node.global_transform = Transform3D(Basis.looking_at(fwd, up), origin)
+	var c := MuzzleFlashKit.COLOR
+	c.a = 1.0
+	(f["mat"] as StandardMaterial3D).albedo_color = c
+	node.visible = true
+	f["die"] = now + MuzzleFlashKit.TTL
+
+
+func _age_flashes(now: float) -> void:
+	for f: Dictionary in _flashes:
+		var node: MeshInstance3D = f["node"]
+		if not node.visible:
+			continue
+		var remaining: float = float(f["die"]) - now
+		if remaining <= 0.0:
+			node.visible = false
+		else:
+			var c := MuzzleFlashKit.COLOR
+			c.a = MuzzleFlashKit.alpha_for(remaining, MuzzleFlashKit.TTL)
+			(f["mat"] as StandardMaterial3D).albedo_color = c
 
 
 # =============================================================================
