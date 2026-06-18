@@ -67,6 +67,8 @@ var _vehicle_free_list: Array = []
 const VEHICLE_SMOOTH_RATE := 16.0                # higher = snappier; ~1/e catch-up in ~60 ms
 # structures pending a destroy pop: id(int) -> {node:Node3D, die:float, tween:Tween}
 var _struct_dying: Dictionary = {}
+# M11: building_id(int) -> last-posed piece position; rubble spawns here on COLLAPSE.
+var _building_centroid: Dictionary = {}
 
 # viewmodel box (optional placeholder)
 var _viewmodel: Node3D = null
@@ -181,8 +183,8 @@ func update(world_view: WorldView, predictor: Prediction, now: float, fov: float
 	var local_team: int = self_es.team if self_es != null else -1
 	_sync_entity_pool(remotes, local_team, render_delta)
 
-	# 2. Structure pool update
-	_sync_structure_pool(world_view.structures(), now)
+	# 2. Structure pool update (pass world_view so the sync can drain COLLAPSE events for rubble)
+	_sync_structure_pool(world_view, now)
 
 	# 2b. Vehicle pool update (placeholder boxes so vehicles are visible + interactable).
 	# Uses the real render-frame delta (not `now`, which only advances at the 30 Hz sim rate)
@@ -429,7 +431,8 @@ func _pose_entity(id: int, node: Node3D, es: EntityState, render_delta: float) -
 #  Structure pool helpers (StructureKit pieces; rebuilt when piece/bucket changes)
 # =============================================================================
 
-func _sync_structure_pool(structs: Dictionary, now: float) -> void:
+func _sync_structure_pool(world_view: WorldView, now: float) -> void:
+	var structs: Dictionary = world_view.structures()
 	# Tick dying pops — release when their tween has finished (tracked by die time)
 	var to_finish: Array = []
 	for id: int in _struct_dying:
@@ -457,9 +460,18 @@ func _sync_structure_pool(structs: Dictionary, now: float) -> void:
 		var was_present := _struct_active.has(id)
 		var node: Node3D = _acquire_structure(id, rec)
 		_pose_structure(node, rec)
+		# M11: track a per-building centroid (last-posed piece position is fine for a placeholder
+		# rubble marker) so a COLLAPSE can drop rubble where the building stood.
+		var bid: int = int(rec.get("building_id", 0))
+		if bid != 0:
+			_building_centroid[bid] = node.position
 		# Pop only on a genuinely new structure, not on a damage-driven rebuild (still present).
 		if not was_present:
 			_start_build_pop(node)
+
+	# M11: drain collapse events — each fully-collapsed building swaps to a rubble marker.
+	for bid_v: Variant in world_view.take_collapsed():
+		_spawn_rubble_for(int(bid_v))
 
 
 func _acquire_structure(id: int, rec: Dictionary) -> Node3D:
@@ -584,7 +596,19 @@ func _make_entity_mesh() -> Node3D:
 func _make_structure_node(rec: Dictionary) -> Node3D:
 	var type_idx: int = int(rec.get("type", 0))
 	var piece_id: String = STRUCT_TYPE_ID[type_idx] if type_idx < STRUCT_TYPE_ID.size() else "wall"
+	# M11: building piece ids ("b*" + prop_crate) come from BuildingKit; fortifications from StructureKit.
+	if piece_id.begins_with("b") or piece_id == "prop_crate":
+		return BuildingKit.build(piece_id, _bucket_of(rec))
 	return StructureKit.build(piece_id, _bucket_of(rec))
+
+
+## M11: replace a collapsed building with a flat rubble marker at its last-known centroid.
+func _spawn_rubble_for(building_id: int) -> void:
+	var center: Vector3 = _building_centroid.get(building_id, Vector3.ZERO)
+	var rubble := BuildingKit.build_rubble()
+	rubble.position = center
+	add_child(rubble)
+	_building_centroid.erase(building_id)
 
 
 func _make_cylinder_marker(radius: float, height: float, color: Color) -> MeshInstance3D:

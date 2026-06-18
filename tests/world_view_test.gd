@@ -48,3 +48,13 @@ func test_structure_op_chunk_updates_mask() -> void:
 	wv.apply_structure_delta(Protocol.encode_structure_delta(Protocol.OP_CHUNK, {"id": 7, "mask": newmask}))
 	assert_true(wv.structures().has(7), "record still exists after chunk update")
 	assert_eq(wv.structures()[7]["chunks"], newmask, "chunk mask updated by OP_CHUNK")
+
+func test_collapse_drops_buildings_pieces() -> void:
+	var wv := WorldView.new()
+	wv._structs[1] = {"id": 1, "type": 2, "cell": Vector3i(0,0,0), "yaw": 0, "chunks": -1, "building_id": 7}
+	wv._structs[2] = {"id": 2, "type": 2, "cell": Vector3i(0,1,0), "yaw": 0, "chunks": -1, "building_id": 7}
+	wv._structs[3] = {"id": 3, "type": 1, "cell": Vector3i(9,0,0), "yaw": 0, "chunks": -1, "building_id": 0}
+	wv.apply_collapse(7)
+	assert_false(wv.structures().has(1), "building 7 piece dropped")
+	assert_false(wv.structures().has(2), "building 7 piece dropped")
+	assert_true(wv.structures().has(3), "loose piece kept")

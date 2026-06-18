@@ -464,6 +464,8 @@ func _on_packet(_from: ENetPacketPeer, _channel: int, bytes: PackedByteArray) ->
 			_wv.apply_structure_baseline(bytes)
 		Protocol.Msg.STRUCTURE_DELTA:
 			_wv.apply_structure_delta(bytes)
+		Protocol.Msg.COLLAPSE:
+			_wv.apply_collapse(Protocol.decode_collapse(bytes))
 		Protocol.Msg.SHOT_FX:
 			var fx: Dictionary = Protocol.decode_shot_fx(bytes)
 			if _renderer != null:
