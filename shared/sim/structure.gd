@@ -19,6 +19,7 @@ var _by_id: Dictionary = {}         # id -> record
 var _occupancy: Dictionary = {}     # Vector3i cell -> id
 var _by_owner: Dictionary = {}      # owner -> Array[int] ids, oldest first
 var _by_region: Dictionary = {}     # Vector2i region -> Dictionary[id->true]
+var _by_building: Dictionary = {}   # building_id -> {id: true}
 
 func _init(catalog: PieceCatalog) -> void:
 	_catalog = catalog
@@ -34,6 +35,15 @@ func owner_count(owner: int) -> int:
 
 func get_record(id: int) -> Dictionary:
 	return _by_id.get(id, {})
+
+func is_structural(id: int) -> bool:
+	var rec: Dictionary = _by_id.get(id, {})
+	if rec.is_empty():
+		return false
+	return _catalog.is_structural(int(rec["type"]))
+
+func ids_of_building(building_id: int) -> Array:
+	return _by_building.get(building_id, {}).keys()
 
 func region_of(cell: Vector3i) -> Vector2i:
 	var w := BuildGrid.world_of(cell)
@@ -70,6 +80,11 @@ func insert(rec: Dictionary) -> Dictionary:
 	if not _by_region.has(region):
 		_by_region[region] = {}
 	_by_region[region][id] = true
+	var bid: int = int(rec.get("building_id", 0))
+	if bid != 0:
+		if not _by_building.has(bid):
+			_by_building[bid] = {}
+		_by_building[bid][id] = true
 	return rec
 
 func remove(id: int) -> void:
@@ -83,6 +98,9 @@ func remove(id: int) -> void:
 	var region := region_of(rec["cell"])
 	if _by_region.has(region):
 		_by_region[region].erase(id)
+	var bid: int = int(rec.get("building_id", 0))
+	if bid != 0 and _by_building.has(bid):
+		_by_building[bid].erase(id)
 	_by_id.erase(id)
 
 ## Face vertical extent of a piece: full = CELL_SIZE, half = CELL_SIZE*0.5.

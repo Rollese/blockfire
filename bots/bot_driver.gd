@@ -382,38 +382,83 @@ func _maybe_smoke(bot: Dictionary, me: EntityState, obj: Vector3) -> void:
 	bot["last_grenade_tick"] = st
 	bot["smokes_thrown"] = int(bot["smokes_thrown"]) + 1
 
-## Engineer RPG is anti-vehicle only. Estimate the target's velocity from successive snapshots and
-## lead the aim by the rocket's flight time so a moving transport actually gets hit. Cooldown-gated
-## (the server also enforces the real per-rocket cooldown + the 3-rocket reserve).
+## Engineer RPG is anti-vehicle first; falls back to targeting nearby structural building pieces
+## (building_id != 0) near the bot's current objective when no enemy vehicle is in range.
+## Estimate the vehicle target's velocity from successive snapshots and lead the aim by the
+## rocket's flight time so a moving transport actually gets hit. Cooldown-gated (the server also
+## enforces the real per-rocket cooldown + the 3-rocket reserve).
 func _maybe_rpg(bot: Dictionary, me: EntityState) -> void:
 	if bot["class"] != Loadout.ENGINEER: return
 	var vveh := AiVehicleCrew.nearest_enemy_vehicle(bot["vview"], bot["view"], me.pos, int(me.team), VEHICLE_RPG_RANGE)
-	if vveh == 0: return
-	var vv: VehicleState = bot["vview"][vveh]
+	if vveh != 0:
+		var vv: VehicleState = bot["vview"][vveh]
+		var now := int(bot["server_tick"])
+		# Update the velocity estimate for this vehicle (only when its position actually advanced).
+		var track: Dictionary = bot["vveh_track"]
+		var prev = track.get(vveh)
+		var vel := Vector3.ZERO
+		if prev != null:
+			vel = prev["vel"]   # persist last good estimate between snapshots
+			var dt_ticks := now - int(prev["tick"])
+			var moved: Vector3 = vv.pos - (prev["pos"] as Vector3)
+			if dt_ticks > 0 and moved.length() > 0.01:
+				vel = moved / (float(dt_ticks) * SimLoop.DT)
+		if prev == null or (vv.pos - (prev["pos"] as Vector3)).length() > 0.01:
+			track[vveh] = {"pos": vv.pos, "tick": now, "vel": vel}
+		# Cooldown gate (do the aim/fire only when ready).
+		if now - int(bot["rpg_last_tick"]) < RPG_FIRE_COOLDOWN: return
+		var origin := me.pos
+		var flight: float = origin.distance_to(vv.pos) / ROCKET_SPEED
+		# Lead the target, then raise the aim by 1/2 g t^2 so the ballistic rocket's arc passes
+		# through it (rockets fall under ROCKET_GRAVITY; a flat aim lands short at range).
+		var aim_pt: Vector3 = vv.pos + vel * flight
+		aim_pt.y += 0.5 * ROCKET_GRAVITY * flight * flight
+		# One refinement pass: the raised aim is slightly farther, so recompute flight + drop.
+		flight = origin.distance_to(aim_pt) / ROCKET_SPEED
+		aim_pt = vv.pos + vel * flight
+		aim_pt.y += 0.5 * ROCKET_GRAVITY * flight * flight
+		var dir := aim_pt - origin
+		if dir.length() < 0.001: return
+		(bot["net"] as NetHost).send_to(bot["peer"], NetHost.CHANNEL_INPUT,
+			Protocol.encode_gadget_action(Protocol.GA_RPG_FIRE, Vector3.ZERO, dir.normalized(), 0), 0)
+		bot["rpg_last_tick"] = now
+		return
+	# Fallback: no enemy vehicle in range — lob a rocket at the nearest structural building piece
+	# (building_id != 0) within RPG range. This is a best-effort heuristic to help bots chip away
+	# at destructible cover near contested points. Strictly additive; does NOT alter vehicle logic.
+	_maybe_rpg_building(bot, me)
+
+## Heuristic fallback for _maybe_rpg: find the nearest structural building piece within
+## VEHICLE_RPG_RANGE, aim at its cell centre (with rocket-drop compensation), and fire.
+## Guards against null structs, empty mirrors, and non-engineer bots (caller already checks class).
+func _maybe_rpg_building(bot: Dictionary, me: EntityState) -> void:
 	var now := int(bot["server_tick"])
-	# Update the velocity estimate for this vehicle (only when its position actually advanced).
-	var track: Dictionary = bot["vveh_track"]
-	var prev = track.get(vveh)
-	var vel := Vector3.ZERO
-	if prev != null:
-		vel = prev["vel"]   # persist last good estimate between snapshots
-		var dt_ticks := now - int(prev["tick"])
-		var moved: Vector3 = vv.pos - (prev["pos"] as Vector3)
-		if dt_ticks > 0 and moved.length() > 0.01:
-			vel = moved / (float(dt_ticks) * SimLoop.DT)
-	if prev == null or (vv.pos - (prev["pos"] as Vector3)).length() > 0.01:
-		track[vveh] = {"pos": vv.pos, "tick": now, "vel": vel}
-	# Cooldown gate (do the aim/fire only when ready).
 	if now - int(bot["rpg_last_tick"]) < RPG_FIRE_COOLDOWN: return
+	var structs: Dictionary = bot["structs"]
+	if structs.is_empty(): return
+	# Find the nearest structural piece (building_id != 0) within range.
+	var best_id := 0
+	var best_d := VEHICLE_RPG_RANGE
+	for sid in structs:
+		var rec: Dictionary = structs[sid]
+		if int(rec.get("building_id", 0)) == 0: continue   # skip non-building pieces
+		var cell: Vector3i = rec["cell"]
+		var wp: Vector3 = BuildGrid.world_of(cell)
+		var d: float = me.pos.distance_to(wp)
+		if d < best_d:
+			best_d = d; best_id = sid
+	if best_id == 0: return   # no structural piece in range
+	var target_cell: Vector3i = structs[best_id]["cell"]
+	var target_wp: Vector3 = BuildGrid.world_of(target_cell)
 	var origin := me.pos
-	var flight: float = origin.distance_to(vv.pos) / ROCKET_SPEED
-	# Lead the target, then raise the aim by 1/2 g t^2 so the ballistic rocket's arc passes
-	# through it (rockets fall under ROCKET_GRAVITY; a flat aim lands short at range).
-	var aim_pt: Vector3 = vv.pos + vel * flight
+	var flight: float = origin.distance_to(target_wp) / ROCKET_SPEED
+	# Apply the same ballistic drop compensation as the vehicle path — raise the aim so the
+	# rocket's arc passes through the target rather than falling short.
+	var aim_pt := target_wp
 	aim_pt.y += 0.5 * ROCKET_GRAVITY * flight * flight
-	# One refinement pass: the raised aim is slightly farther, so recompute flight + drop.
+	# One refinement pass (mirrors vehicle path).
 	flight = origin.distance_to(aim_pt) / ROCKET_SPEED
-	aim_pt = vv.pos + vel * flight
+	aim_pt = target_wp
 	aim_pt.y += 0.5 * ROCKET_GRAVITY * flight * flight
 	var dir := aim_pt - origin
 	if dir.length() < 0.001: return

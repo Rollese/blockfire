@@ -8,10 +8,15 @@ extends Node3D
 const TEAM_COLOR := [Color(0.2, 0.5, 1.0), Color(1.0, 0.3, 0.2)]  # [team0=blue, team1=red]
 const NEUTRAL_COLOR := Color(0.6, 0.6, 0.6)
 
-# -- structure type -> PieceCatalog id (array order == wire `type` int; see pieces/*.json) -----
-# fortifications.json order: 0 = sandbag, 1 = wall. Unknown/extra types fall back to "wall"
+# -- structure type -> PieceCatalog id (array order == wire `type` int; see pieces/pieces.json) -----
+# pieces.json order: 0 = sandbag, 1 = wall, 2+ = building pieces. Unknown/extra types fall back to "wall"
 # (StructureKit also falls back to "wall" for any id it doesn't know).
-const STRUCT_TYPE_ID := ["sandbag", "wall"]
+const STRUCT_TYPE_ID := ["sandbag", "wall", "bwall", "bwall_window", "bwall_door", "bfloor", "bstair", "bcolumn", "brailing", "prop_crate"]
+
+# -- structure type -> chunk-grid (mirror of pieces/pieces.json `chunk_grid`) ----------
+# Needed to turn a piece's live chunk alive-mask into a damage tier. Keep aligned with STRUCT_TYPE_ID
+# order; unknown types fall back to the 8x8 fortification grid.
+const STRUCT_TYPE_GRID := [8, 8, 8, 8, 8, 8, 8, 8, 4, 1]
 
 # -- structure feedback timing ------------------------------------------------
 const STRUCT_SPAWN_DUR := 0.18     # seconds for build pop scale-up
@@ -62,6 +67,8 @@ var _vehicle_free_list: Array = []
 const VEHICLE_SMOOTH_RATE := 16.0                # higher = snappier; ~1/e catch-up in ~60 ms
 # structures pending a destroy pop: id(int) -> {node:Node3D, die:float, tween:Tween}
 var _struct_dying: Dictionary = {}
+# M11: building_id(int) -> last-posed piece position; rubble spawns here on COLLAPSE.
+var _building_centroid: Dictionary = {}
 
 # viewmodel box (optional placeholder)
 var _viewmodel: Node3D = null
@@ -176,8 +183,8 @@ func update(world_view: WorldView, predictor: Prediction, now: float, fov: float
 	var local_team: int = self_es.team if self_es != null else -1
 	_sync_entity_pool(remotes, local_team, render_delta)
 
-	# 2. Structure pool update
-	_sync_structure_pool(world_view.structures(), now)
+	# 2. Structure pool update (pass world_view so the sync can drain COLLAPSE events for rubble)
+	_sync_structure_pool(world_view, now)
 
 	# 2b. Vehicle pool update (placeholder boxes so vehicles are visible + interactable).
 	# Uses the real render-frame delta (not `now`, which only advances at the 30 Hz sim rate)
@@ -424,7 +431,8 @@ func _pose_entity(id: int, node: Node3D, es: EntityState, render_delta: float) -
 #  Structure pool helpers (StructureKit pieces; rebuilt when piece/bucket changes)
 # =============================================================================
 
-func _sync_structure_pool(structs: Dictionary, now: float) -> void:
+func _sync_structure_pool(world_view: WorldView, now: float) -> void:
+	var structs: Dictionary = world_view.structures()
 	# Tick dying pops — release when their tween has finished (tracked by die time)
 	var to_finish: Array = []
 	for id: int in _struct_dying:
@@ -452,9 +460,18 @@ func _sync_structure_pool(structs: Dictionary, now: float) -> void:
 		var was_present := _struct_active.has(id)
 		var node: Node3D = _acquire_structure(id, rec)
 		_pose_structure(node, rec)
+		# M11: track a per-building centroid (last-posed piece position is fine for a placeholder
+		# rubble marker) so a COLLAPSE can drop rubble where the building stood.
+		var bid: int = int(rec.get("building_id", 0))
+		if bid != 0:
+			_building_centroid[bid] = node.position
 		# Pop only on a genuinely new structure, not on a damage-driven rebuild (still present).
 		if not was_present:
 			_start_build_pop(node)
+
+	# M11: drain collapse events — each fully-collapsed building swaps to a rubble marker.
+	for bid_v: Variant in world_view.take_collapsed():
+		_spawn_rubble_for(int(bid_v))
 
 
 func _acquire_structure(id: int, rec: Dictionary) -> Node3D:
@@ -475,7 +492,35 @@ func _acquire_structure(id: int, rec: Dictionary) -> Node3D:
 
 
 func _struct_key(rec: Dictionary) -> String:
-	return "%d:%d" % [int(rec.get("type", 0)), int(rec.get("bucket", 3))]
+	var type_idx := int(rec.get("type", 0))
+	return "%d:%d" % [type_idx, _bucket_of(rec)]
+
+
+## Damage tier (3 pristine .. 0 heavy) for a structure record. M11 dropped the M4 `bucket` field and
+## now ships a per-face chunk alive-mask (`chunks`); the StructureKit still skins by tier, so we
+## quantise the fraction of intact chunks. Missing/all-bits mask reads pristine (defensive default).
+func _bucket_of(rec: Dictionary) -> int:
+	return WorldRenderer.damage_bucket(int(rec.get("chunks", -1)), _grid_of(int(rec.get("type", 0))))
+
+
+static func _grid_of(type_idx: int) -> int:
+	return STRUCT_TYPE_GRID[type_idx] if type_idx >= 0 and type_idx < STRUCT_TYPE_GRID.size() else 8
+
+
+## Map a chunk alive-mask to a StructureKit damage bucket. Full mask -> 3 (pristine); fewer intact
+## chunks step down through 2 and 1; near-empty -> 0 (chipped silhouette). A piece is removed from the
+## store entirely once its mask hits 0, so the renderer only ever skins live (alive > 0) pieces.
+static func damage_bucket(chunks: int, grid: int) -> int:
+	var total := ChunkMask.count(grid)
+	var alive := ChunkMask.popcount(chunks)
+	if alive >= total:
+		return 3
+	var frac := float(alive) / float(total)
+	if frac > 0.66:
+		return 2
+	if frac > 0.33:
+		return 1
+	return 0
 
 
 func _start_destroy_pop(id: int, now: float) -> void:
@@ -551,7 +596,19 @@ func _make_entity_mesh() -> Node3D:
 func _make_structure_node(rec: Dictionary) -> Node3D:
 	var type_idx: int = int(rec.get("type", 0))
 	var piece_id: String = STRUCT_TYPE_ID[type_idx] if type_idx < STRUCT_TYPE_ID.size() else "wall"
-	return StructureKit.build(piece_id, int(rec.get("bucket", 3)))
+	# M11: building piece ids ("b*" + prop_crate) come from BuildingKit; fortifications from StructureKit.
+	if piece_id.begins_with("b") or piece_id == "prop_crate":
+		return BuildingKit.build(piece_id, _bucket_of(rec))
+	return StructureKit.build(piece_id, _bucket_of(rec))
+
+
+## M11: replace a collapsed building with a flat rubble marker at its last-known centroid.
+func _spawn_rubble_for(building_id: int) -> void:
+	var center: Vector3 = _building_centroid.get(building_id, Vector3.ZERO)
+	var rubble := BuildingKit.build_rubble()
+	rubble.position = center
+	add_child(rubble)
+	_building_centroid.erase(building_id)
 
 
 func _make_cylinder_marker(radius: float, height: float, color: Color) -> MeshInstance3D:

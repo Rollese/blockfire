@@ -10,6 +10,7 @@ var _view_v: Dictionary = {}    # vid -> VehicleState
 var _interp := Interpolation.new()
 var last_header: Dictionary = {}
 var _structs: Dictionary = {}
+var _collapsed_buildings: Array = []   # M11: building_ids that COLLAPSED this window — drained by the renderer to spawn rubble
 var _roster: Array = []
 
 func set_local_id(id: int) -> void:
@@ -48,6 +49,24 @@ func apply_structure_delta(bytes: PackedByteArray) -> void:
 
 func structures() -> Dictionary:
 	return _structs
+
+## M11: a building fully collapsed server-side — drop all its piece records (renderer swaps rubble).
+func apply_collapse(building_id: int) -> void:
+	if building_id == 0:
+		return  # sentinel / loose pieces are never a valid collapse target
+	var drop: Array = []
+	for id in _structs:
+		if int(_structs[id].get("building_id", 0)) == building_id:
+			drop.append(id)
+	for id in drop:
+		_structs.erase(id)
+	_collapsed_buildings.append(building_id)
+
+## Drain + clear the collapse queue (renderer calls this each frame to spawn rubble markers).
+func take_collapsed() -> Array:
+	var out := _collapsed_buildings.duplicate()
+	_collapsed_buildings.clear()
+	return out
 
 func set_roster(rows: Array) -> void:
 	_roster = rows

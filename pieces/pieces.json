@@ -1,0 +1,14 @@
+{
+  "pieces": [
+    {"id": "sandbag", "height": "half", "health": 150, "blocks": "both", "material": "METAL_THIN", "chunk_grid": 8, "structural": false, "damage": ["bullet", "explosive", "melee"]},
+    {"id": "wall",    "height": "full", "health": 350, "blocks": "both", "material": "CONCRETE",   "chunk_grid": 8, "structural": false, "damage": ["bullet", "explosive", "melee"]},
+    {"id": "bwall",        "height": "full", "health": 400, "blocks": "both", "material": "CONCRETE",    "chunk_grid": 8, "structural": true,  "damage": ["explosive", "melee"]},
+    {"id": "bwall_window", "height": "full", "health": 350, "blocks": "both", "material": "CONCRETE",    "chunk_grid": 8, "structural": true,  "damage": ["explosive", "melee"]},
+    {"id": "bwall_door",   "height": "full", "health": 350, "blocks": "both", "material": "CONCRETE",    "chunk_grid": 8, "structural": true,  "damage": ["explosive", "melee"]},
+    {"id": "bfloor",       "height": "full", "health": 400, "blocks": "both", "material": "CONCRETE",    "chunk_grid": 8, "structural": true,  "damage": ["explosive", "melee"]},
+    {"id": "bstair",       "height": "full", "health": 300, "blocks": "both", "material": "CONCRETE",    "chunk_grid": 8, "structural": true,  "damage": ["explosive", "melee"]},
+    {"id": "bcolumn",      "height": "full", "health": 500, "blocks": "both", "material": "METAL_THICK", "chunk_grid": 8, "structural": true,  "damage": ["explosive", "melee"]},
+    {"id": "brailing",     "height": "half", "health": 120, "blocks": "both", "material": "METAL_THIN",  "chunk_grid": 4, "structural": false, "damage": ["explosive", "melee"]},
+    {"id": "prop_crate",   "height": "half", "health": 80,  "blocks": "both", "material": "WOOD",        "chunk_grid": 1, "structural": false, "damage": ["explosive", "melee"]}
+  ]
+}

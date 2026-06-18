@@ -11,6 +11,7 @@ var bases: Array = []    # [{team:int, pos:Vector3, radius:float}]
 var ladders: Array = []   # [{bottom:Vector3, top:Vector3, radius:float}]
 var platforms: Array = [] # [{min:Vector3, max:Vector3}]
 var prebuilt: Array = []  # [{type:String (piece id), cell:Vector3i}] pre-placed at server start
+var buildings: Array = []  # [{prefab:String, origin_cell:Vector3i, yaw:int}]
 var vehicle_spawns: Array = []  # [{team:int, type:String, pos:Vector3, heading:float}]
 
 func base_for(team: int) -> Dictionary:
@@ -68,6 +69,19 @@ static func from_dict(data: Dictionary) -> Dictionary:
 			return {"ok": false, "map": null, "error": "each prebuilt needs type + 3-int cell"}
 		var c = pb["cell"]
 		m.prebuilt.append({"type": String(pb["type"]), "cell": Vector3i(int(c[0]), int(c[1]), int(c[2]))})
+	for b in data.get("buildings", []):
+		if not (b is Dictionary) or not b.has("prefab") or not b.has("origin_cell") \
+				or not (b["origin_cell"] is Array) or b["origin_cell"].size() != 3:
+			return {"ok": false, "map": null, "error": "each building needs prefab + 3-int origin_cell"}
+		var oc = b["origin_cell"]
+		var byaw := int(b.get("yaw", 0))
+		if byaw < 0 or byaw >= BuildGrid.YAW_STEPS:
+			return {"ok": false, "map": null, "error": "building yaw out of range"}
+		m.buildings.append({
+			"prefab": String(b["prefab"]),
+			"origin_cell": Vector3i(int(oc[0]), int(oc[1]), int(oc[2])),
+			"yaw": byaw,
+		})
 	for vs in data.get("vehicle_spawns", []):
 		if not (vs is Dictionary) or not vs.has("pos") or not (vs["pos"] is Array) or vs["pos"].size() != 3:
 			return {"ok": false, "map": null, "error": "each vehicle_spawn needs a 3-number pos"}

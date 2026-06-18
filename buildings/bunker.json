@@ -1,0 +1,19 @@
+{
+  "name": "bunker",
+  "pieces": [
+    {"type": "bwall_door",   "offset": [0, 0, 0], "yaw": 0},
+    {"type": "bwall",        "offset": [1, 0, 0], "yaw": 0},
+    {"type": "bwall_window", "offset": [2, 0, 0], "yaw": 0},
+    {"type": "bwall", "offset": [0, 0, 3], "yaw": 0},
+    {"type": "bwall", "offset": [1, 0, 3], "yaw": 0},
+    {"type": "bwall", "offset": [2, 0, 3], "yaw": 0},
+    {"type": "bwall", "offset": [0, 0, 1], "yaw": 2},
+    {"type": "bwall", "offset": [0, 0, 2], "yaw": 2},
+    {"type": "bwall_window", "offset": [2, 0, 1], "yaw": 2},
+    {"type": "bwall", "offset": [2, 0, 2], "yaw": 2},
+    {"type": "bfloor", "offset": [0, 1, 0], "yaw": 0},
+    {"type": "bfloor", "offset": [1, 1, 0], "yaw": 0},
+    {"type": "bfloor", "offset": [2, 1, 0], "yaw": 0},
+    {"type": "bfloor", "offset": [1, 1, 1], "yaw": 0}
+  ]
+}
