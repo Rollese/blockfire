@@ -26,7 +26,7 @@ Server-authoritative; all rules live in `shared/` so client prediction and serve
 | Cooperation gate | **Min builders scale by structure size** | Small piece = 1 builder (solo ok, faster with help); large structure / FOB = **≥2 simultaneous** shovellers to progress. Forces real cooperation on the big builds without removing solo cover. |
 | Resource cost | **Labor only (shovel time + builder count); no supply economy** | Keeps M4's deliberate "no resource economy"; the cooperation gate is the builder-count, not collected supplies. |
 | FOB structure | **Destructible bunker, cooperatively built** (≥2), placeholder model | Squad-game-style FOB, not a drop-and-go beacon. A real objective the enemy hunts. |
-| FOB counterplay | **Proximity disables spawning AND destructible** | Layered: suppress its vicinity to stop the spawn flood; destroy the bunker (M4 destruction) to remove it for good. |
+| FOB counterplay | **Proximity disables spawning AND destructible** | Layered: suppress its vicinity to stop the spawn flood; destroy the bunker to remove it — explosives/weapons (M4 destruction) or, with no explosives, slowly **shovel-dismantle** it. |
 | Squadmate-rally spawn | **Retained as a fallback** | Still spawn on an alive squadmate when no usable FOB; FOB is primary, not exclusive. |
 
 ---
@@ -76,6 +76,7 @@ Replaces M4's instant placement. **Placing a piece creates a build site, not a f
   Otherwise no progress (a large/FOB site with only 1 shoveller does **not** advance). On `build_progress >= piece.build_cost`: the site **completes** → becomes a normal M4 structure (full collision/cover, `health = piece.health`, destructible via M4 Phase-2).
   - `min_builders`: **small pieces = 1** (solo ok, faster with help up to `MAX_BUILDERS_PER_SITE`); **large structures = 2**; **FOB = 2** (P3).
 - **Repair:** shovelling a *completed* friendly structure below max HP restores `SHOVEL_REPAIR_RATE * dt` up to `piece.health`. Repair is **solo-allowed** (min_builders ignored for repair).
+- **Enemy shovel-dismantle:** shovelling an **enemy** structure/site *removes* it — the no-explosives route to take down cover when you have no frags/RPG/C4. Available to **any** class (not inventory-gated). On a build site (under construction), it reduces `build_progress` toward 0 at `SHOVEL_DISMANTLE_RATE * builders * dt` (site removed at 0); on a *completed* structure, it applies the same as HP damage toward 0 (removed at 0 via the M4 destruction removal path — bucket-delta, attached-C4 cleanup, etc.). **Solo-allowed** (min_builders is a *construction* gate only), and **scales with the number of enemy diggers** up to `MAX_BUILDERS_PER_SITE`; deliberately **much slower than explosives**, so it is a fallback, not the primary demolition tool. Applies to the FOB bunker too (§C) — slow against its high HP, but possible for an enemy with only a shovel.
 - **Decay:** a site with no shovelling for `BUILD_SITE_DECAY_TICKS` and `build_progress < build_cost` decays (freed), so abandoned ghosts don't accumulate.
 - **Catalog:** `pieces/fortifications.json` gains `build_cost` and `min_builders` per piece; add at least one **large** piece type (for the ≥2 path) plus the FOB (P3). Small pieces (sandbag/wall) get `min_builders=1`, modest `build_cost`.
 
@@ -93,7 +94,7 @@ The FOB is a **large build site → destructible bunker** that becomes a squad f
 - **Placement (site):** squad **leader only** (first member, per M3 leader rule). `Msg.PLACE_FOB` requests a FOB build site at the leader's position. Server validates: requester is the alive squad leader; valid ground, in bounds; **not inside an enemy-owned capture radius** or the enemy home base; no existing squad FOB (placing a new one removes the old). The FOB site is a **large piece (`min_builders = 2`)** → the squad must shovel it up.
 - **Build:** squadmates shovel the FOB site per §B (≥2 simultaneous shovellers to progress). On completion it becomes the **bunker** (placeholder model): high HP (`FOB_HEALTH`), full collision/cover.
 - **Persistence:** the built FOB **persists through the leader's death** (it's a structure, not tied to the leader's pawn). Removed when: the leader places a new FOB, it is destroyed (HP→0), or the squad disbands with no successor leader.
-- **Destruction:** the bunker takes damage via the **M4 Phase-2 destruction path** (weapons/explosives); at 0 HP it is removed and the squad loses the spawn. Friendly players may **shovel-repair** it (solo-allowed). Enemy **shovel-dismantle** is **out of scope** (v1) — enemies destroy it with firepower.
+- **Destruction:** the bunker takes damage via the **M4 Phase-2 destruction path** (weapons/explosives); at 0 HP it is removed and the squad loses the spawn. Friendly players may **shovel-repair** it (solo-allowed); enemy players may **shovel-dismantle** it (§B) — the no-explosives route, slow against its high HP but viable for an enemy carrying only a shovel.
 
 ### Spawn gating
 The FOB is a valid spawn source **iff**: it is **completed** (built, not still a site), **not destroyed**, and **no enemy pawn is alive within `FOB_VICINITY_RADIUS`** (planar XZ; reuses the interest grid). Proximity-disable is temporary (re-enables when enemies leave/die); destruction is permanent (must rebuild).
@@ -128,7 +129,7 @@ Choice policy unchanged from M3 (nearest valid source to the client's objective;
 
 - Drop Recon from bot class rolls (4 classes); Engineers roll `gadget_a` (C4 or claymore) so both are exercised.
 - **Shovel/build:** bots place + shovel small cover at objectives (replacing M4's instant build). **Squad bots converge to build the FOB cooperatively** — a leader bot places a FOB site near its objective and ≥2 squadmates shovel it to completion; squadmate bots then prefer the FOB spawn when enabled.
-- **Enemy AI targets the FOB:** because the built FOB is a normal destructible structure, the existing structure-aware combat/destruction behaviour applies; add a light preference for shooting/RPG-ing a known enemy FOB bunker near the front.
+- **Enemy AI targets the FOB:** because the built FOB is a normal destructible structure, the existing structure-aware combat/destruction behaviour applies; add a light preference for shooting/RPG-ing a known enemy FOB bunker near the front. **An enemy bot with no explosives available falls back to shovel-dismantling** an enemy structure/FOB it is adjacent to and blocked by.
 - **Deterministic exerciser (AGENTS.md §10):** a scripted **squad-build drill** (a squad of bots places a FOB site and ≥2 shovel it to completion, then spawn on it; an enemy element then destroys it) guarantees the gate exercises cooperative construction + FOB spawn + proximity-disable + destruction every match, independent of emergent AI.
 
 ## G. Constants (initial values; gate-tuned — default toward Squad/BattleBit feel)
@@ -139,7 +140,8 @@ Choice policy unchanged from M3 (nearest valid source to the client's objective;
 | `SHOVEL_RATE_PER_BUILDER` | tune | build progress / s per active builder |
 | `MAX_BUILDERS_PER_SITE` | 4 | builder count cap for rate scaling |
 | `BUILD_SITE_DECAY_TICKS` | 900 (30 s) | abandoned, incomplete site decays |
-| `SHOVEL_REPAIR_RATE` | tune | HP / s restored to a completed structure |
+| `SHOVEL_REPAIR_RATE` | tune | HP / s restored to a completed friendly structure |
+| `SHOVEL_DISMANTLE_RATE` | tune (≪ explosive DPS) | progress/HP / s removed from an enemy structure per digger; deliberately slow |
 | `MIN_BUILDERS_SMALL` | 1 | sandbag/wall solo-buildable |
 | `MIN_BUILDERS_LARGE` | 2 | large structures need ≥2 simultaneous |
 | `FOB_MIN_BUILDERS` | 2 | FOB bunker needs ≥2 simultaneous |
@@ -159,6 +161,7 @@ Choice policy unchanged from M3 (nearest valid source to the client's objective;
 **Unit (`TestCase`):**
 - `loadout`: 4-class enum; `can_equip` allows DMR only for Assault, RPG only for Engineer, rejects DMR for non-Assault; Engineer `gadget_a` accepts only `{C4, MINE}`.
 - `build_site`: placement creates a site at 0 progress (no cover); a small site (min 1) advances with 1 builder; a large/FOB site (min 2) does **not** advance with 1 builder, **does** with 2; rate scales with builders up to `MAX_BUILDERS_PER_SITE`; completion flips to a full structure with collision + HP; repair restores HP solo; abandoned site decays.
+- `shovel-dismantle`: an enemy shovelling a friendly-of-other-team build site reduces `build_progress` (removed at 0); shovelling a completed enemy structure reduces HP (removed at 0 via the M4 path); dismantle is solo-allowed and scales with diggers; a *friendly* shovel never damages own-team structures (repairs/builds instead); dismantle rate is ≪ explosive damage.
 - `fob`: leader-only placement; rejected inside enemy CP/base; one-per-squad replace; built FOB persists through leader death; removed on destruction / disband; enemy-proximity enable/disable boundary (just inside vs just outside `FOB_VICINITY_RADIUS`); a destroyed FOB is not a spawn source.
 - `spawn selection`: FOB offered only when completed + enabled + alive; squadmate fallback when no FOB; never returns an enemy/neutral point; home-base fallback when nothing else valid.
 - `protocol`: `PLACE_FOB`/`REMOVE_FOB`, `STRUCTURE_DELTA` with `build_progress`/`under_construction`, FOB entity round-trip.
@@ -168,7 +171,6 @@ Choice policy unchanged from M3 (nearest valid source to the client's objective;
 ## J. Out of scope (explicit)
 
 - **Supply / build-point economy** — building costs labor (shovel time) + the builder-count gate, not collected supplies (preserves M4's no-resource-economy decision).
-- **Enemy shovel-dismantle** (digging down enemy builds, Squad-style) — v1 enemies destroy with firepower (M4 destruction).
 - **Partial-build cover** — a site gives no cover until complete in v1 (revisit if playtest wants progressive cover/HP).
 - **Destructible-FOB intel label / "spotted FOB"** for enemies — the bunker is a visible structure but not labelled as a squad FOB to the enemy in v1.
 - Client shovel/build UI, build-site ghost rendering, and the FOB world model/VFX — **M7** (this spec replicates the data the UI needs; M7 renders it; placeholder model until art).
