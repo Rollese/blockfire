@@ -98,6 +98,7 @@ var _shots_blocked := 0
 var _pen := 0                 # bullet penetrations through a piece this window
 var _dmg := 0                 # damage events applied this window
 var _destroyed := 0           # pieces removed by damage/blast this window
+var _collapsed := 0           # buildings collapsed this window
 var _nades := 0               # frag detonations this window
 var _splash_kills := 0        # pawn deaths from blasts this window
 var _smokes := 0              # smoke zones deployed this window
@@ -117,6 +118,7 @@ var _veh_destroyed := 0
 var _rkt_vs_veh := 0
 var _pending_removes: Array = []   # [{id, cell}] removes awaiting send (degradation queue)
 var _dmg_touched := {}             # id -> true: pieces holed (alive) this tick, for end-of-tick chunk-mask resend
+var _buildings_to_cascade := {}    # building_id -> true; resolved at end of tick
 var _grenades: Array = []     # [{owner, team, type, pos, vel, detonate_tick}] — server-side, not replicated
 var _rockets: Array = []      # [{owner, team, pos, vel}] — server-side, not replicated
 var _mines: Array = []        # [{owner, team, pos, facing, armed_after_tick}]
@@ -168,6 +170,21 @@ func _ready() -> void:
 		var sid := _next_struct_id
 		_next_struct_id += 1
 		_store.place(sid, ti, pb["cell"], 0, 0)   # owner 0 = world-placed
+	# M11: stamp destructible building prefabs, each instance a unique building_id (>=1).
+	var _next_building_id := 1
+	for b in _map.buildings:
+		var pres := BuildingCatalog.load_file("res://buildings/%s.json" % b["prefab"], _catalog)
+		if not pres["ok"]:
+			push_error("[map] building '%s': %s" % [b["prefab"], pres["error"]]); continue
+		var bid := _next_building_id
+		_next_building_id += 1
+		var origin: Vector3i = b["origin_cell"]
+		var inst_yaw: int = int(b["yaw"])
+		for piece in pres["prefab"]["pieces"]:
+			var cell := origin + _rotate_offset(piece["offset"], inst_yaw)
+			var bsid := _next_struct_id
+			_next_struct_id += 1
+			_store.place(bsid, int(piece["type"]), cell, (int(piece["yaw"]) + inst_yaw) % BuildGrid.YAW_STEPS, -1, bid)
 	_gadgets = Gadget.load_file(GADGETS_PATH)
 	if _gadgets == null:
 		push_error("[server] failed to load gadgets %s" % GADGETS_PATH); get_tree().quit(1); return
@@ -229,6 +246,7 @@ func _physics_process(delta: float) -> void:
 	var t_conq := Time.get_ticks_usec()
 	_track_and_broadcast_match_state()
 	var t_match := Time.get_ticks_usec()
+	_resolve_cascades()
 	_emit_structure_deltas()
 	_send_snapshots()
 	_roster_tick += 1
@@ -310,6 +328,18 @@ func _piece_index(piece_id: String) -> int:
 		if _catalog.name_of(i) == piece_id:
 			return i
 	return -1
+
+## Rotate a cell offset by a yaw step (90° increments; YAW_STEPS is a multiple of 4) around Y.
+func _rotate_offset(off: Vector3i, yaw_step: int) -> Vector3i:
+	var quarters := (yaw_step % BuildGrid.YAW_STEPS) / (BuildGrid.YAW_STEPS / 4)
+	var x := off.x
+	var z := off.z
+	for _i in range(quarters):
+		var nx := -z
+		var nz := x
+		x = nx
+		z = nz
+	return Vector3i(x, off.y, z)
 
 func _spawn_map_vehicles() -> void:
 	var index := 0
@@ -1484,6 +1514,9 @@ func _cell_of_struct(id: int) -> Vector3i:
 ## frees the cell (in damage_chunks); a non-lethal hole marks the piece for a chunk-mask resend.
 func _damage_structure(id: int, source: int, impact: Vector3, radius: float) -> void:
 	var cell := _cell_of_struct(id)       # capture BEFORE possible removal
+	var pre := _store.get_record(id)
+	var bid := int(pre.get("building_id", 0)) if not pre.is_empty() else 0
+	var structural := (not pre.is_empty()) and _catalog.is_structural(int(pre["type"]))
 	var res := _store.damage_chunks(id, source, impact, radius)
 	if not res["hit"]:
 		return
@@ -1493,8 +1526,37 @@ func _damage_structure(id: int, source: int, impact: Vector3, radius: float) -> 
 		_pending_removes.append({"id": id, "cell": cell})
 		_dmg_touched.erase(id)
 		_remove_c4_on_cell(cell)
+		if bid != 0 and structural:
+			_buildings_to_cascade[bid] = true
 	else:
 		_dmg_touched[id] = true
+
+## After this tick's structural removals, orphan-check each touched building. Large orphan sets
+## collapse the whole building (one COLLAPSE broadcast); small sets queue per-piece removes.
+func _resolve_cascades() -> void:
+	if _buildings_to_cascade.is_empty():
+		return
+	for bid in _buildings_to_cascade.keys():
+		var orphans := Support.orphaned_after(_store, bid, [])
+		if orphans.is_empty():
+			continue
+		if Support.should_collapse(orphans.size()):
+			for oid in _store.ids_of_building(bid):
+				_store.remove(oid)
+			_collapsed += 1
+			var bytes := Protocol.encode_collapse(bid)
+			for cid in _clients:
+				_net.send_to(_clients[cid]["peer"], NetHost.CHANNEL_CONTROL, bytes, ENetPacketPeer.FLAG_RELIABLE)
+		else:
+			for oid in orphans:
+				var orec := _store.get_record(oid)
+				if orec.is_empty():
+					continue
+				var ocell: Vector3i = orec["cell"]
+				_store.remove(oid)
+				_pending_removes.append({"id": oid, "cell": ocell})
+				_dmg_touched.erase(oid)
+	_buildings_to_cascade.clear()
 
 ## Flush queued removes + chunk-mask deltas to interested clients, bounded by
 ## MAX_STRUCTURE_DELTAS_PER_TICK (removes first; overflow carried to next tick). Authoritative
@@ -1567,8 +1629,8 @@ func _log_telemetry() -> void:
 	var pts := ""
 	for pt in _conquest.points:
 		pts += "." if pt["owner"] == -1 else str(pt["owner"])
-	print("[telemetry] players=%d alive=%d tick_mean=%.2fms tick_p99=%.2fms agg=%.1fMbit/s kills=%d shots=%d hit_rate=%.2f starv=%d rewind_clamped=%d t0=%d t1=%d pts=%s cap_events=%d struct=%d bld=%d rmv=%d blk=%d pen=%d dmg=%d destroyed=%d nades=%d splash=%d smoke=%d rockets=%d rstruct=%d downed=%d bleedouts=%d revives=%d c4=%d mines=%d heals=%d ammo=%d bags=%d bagx=%d climbs=%d vaults=%d dropblk=%d enters=%d exits=%d veh_dead=%d repairs=%d repair_oh=%d rkt_veh=%d transport_m=%.1f ac_viol=%d"
-		% [n, alive, _tele.mean_tick_ms(), _tele.p99_tick_ms(), mbit, _kills, _shots, hit_rate, _tele.starvation, _rewind_clamped, _conquest.tickets_int(0), _conquest.tickets_int(1), pts, _cap_events, _store.count(), _builds, _removes, _shots_blocked, _pen, _dmg, _destroyed, _nades, _splash_kills, _smokes, _rockets_det, _rstruct, _downed, _bleedouts, _revives, _c4_det, _mine_trips, _heals, _ammo_gives, _bags_thrown, _bags_exhausted, _climbs, _vaults, _drop_shoot_blocked, _enters, _exits, _veh_destroyed, _repairs, _repair_overheats, _rkt_vs_veh, _transport_max, _ac_viol])
+	print("[telemetry] players=%d alive=%d tick_mean=%.2fms tick_p99=%.2fms agg=%.1fMbit/s kills=%d shots=%d hit_rate=%.2f starv=%d rewind_clamped=%d t0=%d t1=%d pts=%s cap_events=%d struct=%d bld=%d rmv=%d blk=%d pen=%d dmg=%d destroyed=%d collapsed=%d nades=%d splash=%d smoke=%d rockets=%d rstruct=%d downed=%d bleedouts=%d revives=%d c4=%d mines=%d heals=%d ammo=%d bags=%d bagx=%d climbs=%d vaults=%d dropblk=%d enters=%d exits=%d veh_dead=%d repairs=%d repair_oh=%d rkt_veh=%d transport_m=%.1f ac_viol=%d"
+		% [n, alive, _tele.mean_tick_ms(), _tele.p99_tick_ms(), mbit, _kills, _shots, hit_rate, _tele.starvation, _rewind_clamped, _conquest.tickets_int(0), _conquest.tickets_int(1), pts, _cap_events, _store.count(), _builds, _removes, _shots_blocked, _pen, _dmg, _destroyed, _collapsed, _nades, _splash_kills, _smokes, _rockets_det, _rstruct, _downed, _bleedouts, _revives, _c4_det, _mine_trips, _heals, _ammo_gives, _bags_thrown, _bags_exhausted, _climbs, _vaults, _drop_shoot_blocked, _enters, _exits, _veh_destroyed, _repairs, _repair_overheats, _rkt_vs_veh, _transport_max, _ac_viol])
 	var pt := maxi(_phase_ticks, 1)
 	print("[perf] us/tick: poll=%d move=%d veh=%d lag=%d interest=%d fire=%d respawn=%d conquest=%d match=%d snap=%d (ticks=%d)"
 		% [_phase_us["poll"] / pt, _phase_us["move"] / pt, _phase_us["veh"] / pt, _phase_us["lag"] / pt, _phase_us["interest"] / pt, _phase_us["fire"] / pt, _phase_us["respawn"] / pt, _phase_us["conquest"] / pt, _phase_us["match"] / pt, _phase_us["snap"] / pt, _phase_ticks])
@@ -1577,6 +1639,6 @@ func _log_telemetry() -> void:
 	_tele.reset_window()
 	_kills = 0; _shots = 0; _hits = 0; _rewind_clamped = 0; _cap_events = 0
 	_builds = 0; _removes = 0; _shots_blocked = 0; _pen = 0
-	_dmg = 0; _destroyed = 0; _nades = 0; _splash_kills = 0; _smokes = 0; _rockets_det = 0; _rstruct = 0; _downed = 0; _bleedouts = 0; _revives = 0; _c4_det = 0; _mine_trips = 0; _heals = 0; _ammo_gives = 0; _bags_thrown = 0; _bags_exhausted = 0; _climbs = 0; _vaults = 0; _drop_shoot_blocked = 0
+	_dmg = 0; _destroyed = 0; _collapsed = 0; _nades = 0; _splash_kills = 0; _smokes = 0; _rockets_det = 0; _rstruct = 0; _downed = 0; _bleedouts = 0; _revives = 0; _c4_det = 0; _mine_trips = 0; _heals = 0; _ammo_gives = 0; _bags_thrown = 0; _bags_exhausted = 0; _climbs = 0; _vaults = 0; _drop_shoot_blocked = 0
 	_enters = 0; _exits = 0; _veh_destroyed = 0; _repairs = 0; _repair_overheats = 0; _rkt_vs_veh = 0; _transport_max = 0.0
 	_ac_viol = 0
