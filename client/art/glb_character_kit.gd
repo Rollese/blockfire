@@ -12,17 +12,22 @@ const STAND_HEIGHT := 1.8   # must equal CharacterKit.STAND_HEIGHT
 
 static func build() -> Node3D:
 	var ps := load(SCENE_PATH) as PackedScene
-	var inst := ps.instantiate() as Node3D
-	# Normalize height: the raw model is authored at its own scale; fit its AABB height to STAND_HEIGHT.
-	var raw := world_aabb(inst)
+	var model := ps.instantiate() as Node3D
+	# Normalize the model's own height to STAND_HEIGHT.
+	var raw := world_aabb(model)
 	if raw.size.y > 0.001:
 		var s := STAND_HEIGHT / raw.size.y
-		inst.scale = Vector3(s, s, s)
-	return inst
+		model.scale = Vector3(s, s, s)
+	# Wrap in an identity-scale outer Node3D so the renderer's per-frame stance scaling composes
+	# with (instead of overwriting) the normalization scale. The wrapper behaves like the procedural
+	# CharacterKit root: natural scale 1, natural height == STAND_HEIGHT.
+	var wrapper := Node3D.new()
+	wrapper.add_child(model)
+	return wrapper
 
-## The model's AnimationPlayer (direct child of the instanced root).
+## The model's AnimationPlayer, searched recursively (it is now nested under the wrapper).
 static func anim_player(node: Node3D) -> AnimationPlayer:
-	return node.get_node_or_null("AnimationPlayer") as AnimationPlayer
+	return node.find_child("AnimationPlayer", true, false) as AnimationPlayer
 
 ## Recursive union of every MeshInstance3D AABB in world space (root treated as world origin).
 ## Headless-safe (mesh geometry only; no rendering context). Used to normalize height.

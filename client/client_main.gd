@@ -590,6 +590,7 @@ func _build_scene() -> void:
 	_renderer = WorldRenderer.new()
 	world_node.add_child(_renderer)
 	_renderer.setup(_map, _camera)
+	_renderer.use_models = _settings.use_model_characters
 
 	# HUD layer
 	var hud_layer: CanvasLayer = world_node.get_node("HUD") as CanvasLayer
