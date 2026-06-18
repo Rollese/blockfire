@@ -48,3 +48,28 @@ Highest netcode/physics-cost feature class (same family as M4). The tick is snap
 **P1 verdict:** chunked-store unify is **implemented, unit-green (461/0), and proven no-regression vs master**. Cascade/collapse (P2), building authoring + procedural art (P3), and the client cosmetic layer (P4, needs M7) follow.
 
 **Playtest:** P1 verification points (feel / visual / AI-dependent, deferred from headless gating) are recorded in `docs/runbooks/playtest-checklist.md` for the upcoming combined playtest.
+
+## Phase 2+3 (building catalog, structural cascade, procedural art) — gate evidence
+
+**Status:** implemented + unit/functional-verified (2026-06-18). Branch `m11-p2-p3-buildings`; executed via subagent-driven TDD (two-stage spec+quality review per task).
+
+**Implemented (P2+P3):**
+- Single unified `pieces/pieces.json` catalog with bullet-immune building-piece entries: `bwall`, `bwall_window`, `bwall_door`, `bfloor`, `bstair`, `bcolumn`, `brailing`, `prop_crate`.
+- `BuildingCatalog` prefab loader (`shared/sim/building_catalog.gd`) — loads `buildings/*.json` prefabs, stamps `building_id` on each piece during placement.
+- `MapDef.buildings[]` — map-level building placement list consumed by the server at startup.
+- 3 building prefabs: `buildings/bunker.json`, `buildings/house.json`, `buildings/tower.json`.
+- `Support` structural-only support-cascade flood-fill (`shared/sim/support.gd`) — BFS from ground anchor; unreachable pieces are orphans.
+- `StructureStore` building index — tracks live piece sets per `building_id`; used by cascade resolution.
+- `Msg.COLLAPSE` protocol message — carries `building_id` + rubble anchor; broadcast on whole-building collapse.
+- Server: building stamping at boot, per-tick cascade resolution (orphan removes or whole-building `COLLAPSE` for large orphan sets), C4/damage-touched cleanup on cascade removal.
+- Procedural `client/art/building_kit.gd` — generates geometry for each building-piece type with whole→damaged→destroyed visual states and rubble swap.
+- Client routing of building pieces to `BuildingKit` + `apply_collapse` rubble swap on `Msg.COLLAPSE`.
+- 3 buildings placed on `conquest_proving_grounds` (flag points A, C, E).
+- Bot RPG building-targeting fallback — bots select a building-piece target when no player target is in range.
+- Earlier bucket→chunks renderer fix (landed in P1 branch, merged here).
+
+**Verification:** full unit suite **536 run / 0 failed**; deterministic functional test of the destruction→cascade→orphan loop (`tests/server_buildings_functional_test.gd`); headless server boots clean stamping `struct=50` on `conquest_proving_grounds`. No owner playtest at this stage (the project-wide playtest runs after all parallel agents finish + headless-test); 128-bot Gate A deferred while combat AI is mid-rewrite.
+
+**Design/plan refs:** `docs/specs/m11-p2-p3-buildings-design.md`, `docs/plans/2026-06-18-m11-p2-p3-buildings.md`.
+
+**Known deferrals (P4 / later):** hole-aware march (pieces block until fully removed); GPU brick-debris particles + far-LOD; collapse cinematic is light (rubble swap only); 3 cosmetic BuildingKit geometry tweaks (lintel 1 cm clip, railing height, stair height) to eyeball in-engine; rubble nodes untracked (bounded, freed on renderer teardown).
