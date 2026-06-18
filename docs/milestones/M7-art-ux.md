@@ -97,6 +97,17 @@ Also lands the **M5.5 presentation/feel deferrals** (the VFX/audio pieces of Com
 
 **P2 gate (the full M7 gate):** end-to-end human playtest of a full Conquest match **with the real art and complete HUD.**
 
+#### P2 increment — Imported GLB characters (animated) — owner-validated ✅ 2026-06-18
+
+First real art swap: the player **character** moves from procedural boxes to the **Kenney "blocky characters"** GLB (CC0), with their 27 built-in node-transform animations. Supersedes the *character* portion of the procedural-art plan (weapons/vehicles/structures/props stay procedural). Plan: [`docs/plans/2026-06-18-m7-p2-glb-characters.md`](../plans/2026-06-18-m7-p2-glb-characters.md). Branch `m7-p2-glb-characters`.
+
+- **Architecture:** new `client/art/` presentation factories — `CharacterAnim` (pure state→clip map), `GlbCharacterKit` (load + height-normalize to STAND_HEIGHT, wrapped in an identity-scale `Node3D` so stance-scaling composes), `CharacterDriver` (idempotent clip play). Behind a persisted `ClientSettings.use_model_characters` flag (default **false** → procedural fallback intact). Renderer seam: `world_renderer._make_entity_mesh()` + `_pose_entity()`. No `shared/`/server/bot changes — client-only.
+- **v1 animation:** idle / walk / sprint (from a per-frame speed estimate), crouch = vertical shrink, prone = face-down tip, **downed (DBNO) = face-up on the back + calm idle** (playtest-driven fix; the `die` clip read as "hands-up").
+- **Validation:** full unit suite **465/0**, ≤48-bot smoke PASS (peak 19.45 ms), spec + code-quality two-stage review on the renderer integration. **Owner playtest 2026-06-18** on the home laptop (.128, RADV Renoir/Vulkan) → game2 server+bots: "looks much better… good enough for now"; crouch/downed/controls confirmed.
+- **Follow-ups (tracked, not blocking):**
+  - **Settings menu does not preserve `use_model_characters`** — opening/saving in-game Settings rewrites the file with the default (false), silently disabling models on next launch. Fix: the menu must round-trip the flag (or expose a toggle).
+  - Part 2 refinements per the plan: authored crouch/prone poses; remote **fire** anim (needs `shooter_id` on `SHOT_FX`); reload/jump (need new signals); optional team/squad variants.
+
 ## Rendering backend
 **Forward+ (Vulkan)** primary with **GL Compatibility** fallback for old hardware — [ADR-0005](../adr/0005-client-renderer.md). Client-only; server/bot stay headless.
 

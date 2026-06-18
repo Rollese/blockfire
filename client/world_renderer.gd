@@ -36,6 +36,11 @@ var _tracer_idx: int = 0
 var _active: Dictionary = {}
 # free list for recycled entity Node3D roots (all soldiers are identical — no per-team re-tint)
 var _free_list: Array = []
+# Character render mode: false = procedural CharacterKit (default), true = imported GLB model.
+var use_models: bool = false
+# Per-id last position + AnimationPlayer, for the per-frame speed estimate that selects the clip.
+var _last_pos: Dictionary = {}        # id(int) -> Vector3
+var _entity_ap: Dictionary = {}       # id(int) -> AnimationPlayer (only when use_models)
 
 # active structure nodes: id(int) -> Node3D (StructureKit piece)
 var _struct_active: Dictionary = {}
@@ -145,7 +150,7 @@ func update(world_view: WorldView, predictor: Prediction, now: float, fov: float
 	var remotes: Dictionary = world_view.remotes_at(now)
 	var self_es: EntityState = world_view.self_state()
 	var local_team: int = self_es.team if self_es != null else -1
-	_sync_entity_pool(remotes, local_team)
+	_sync_entity_pool(remotes, local_team, render_delta)
 
 	# 2. Structure pool update
 	_sync_structure_pool(world_view.structures(), now)
@@ -214,7 +219,7 @@ func _age_tracers(now: float) -> void:
 #  Entity pool helpers (CharacterKit soldiers)
 # =============================================================================
 
-func _sync_entity_pool(remotes: Dictionary, local_team: int) -> void:
+func _sync_entity_pool(remotes: Dictionary, local_team: int, render_delta: float) -> void:
 	# Release nodes for ids that are gone or dead (and their friend markers)
 	var to_release: Array = []
 	for id: int in _active:
@@ -234,7 +239,7 @@ func _sync_entity_pool(remotes: Dictionary, local_team: int) -> void:
 		if not es.alive:
 			continue
 		var node: Node3D = _acquire_entity(int(id))
-		_pose_entity(node, es)
+		_pose_entity(int(id), node, es, render_delta)
 		if local_team >= 0 and es.team == local_team:
 			var marker: MeshInstance3D = _acquire_marker(int(id))
 			marker.position = Vector3(es.pos.x, es.pos.y + FRIEND_MARKER_Y, es.pos.z)
@@ -255,6 +260,10 @@ func _acquire_entity(id: int) -> Node3D:
 		add_child(node)
 	node.visible = true
 	_active[id] = node
+	# Always (re)bind the AnimationPlayer on acquire — a node recycled from the free list belongs to
+	# this id now, so re-fetch rather than relying on release-time erase symmetry.
+	if use_models:
+		_entity_ap[id] = GlbCharacterKit.anim_player(node)
 	return node
 
 
@@ -264,6 +273,8 @@ func _release_entity(id: int) -> void:
 	var node: Node3D = _active[id] as Node3D
 	node.visible = false
 	_active.erase(id)
+	_entity_ap.erase(id)
+	_last_pos.erase(id)
 	_free_list.append(node)
 
 
@@ -316,18 +327,30 @@ func _make_friend_marker() -> MeshInstance3D:
 	return mi
 
 
-func _pose_entity(node: Node3D, es: EntityState) -> void:
+func _pose_entity(id: int, node: Node3D, es: EntityState, render_delta: float) -> void:
+	if use_models:
+		# Horizontal speed estimate from frame-to-frame position (velocity isn't replicated).
+		var last: Vector3 = _last_pos.get(id, es.pos)
+		var dt: float = maxf(render_delta, 0.001)   # 1 ms floor: avoid blowups from sub-ms deltas
+		var flat := Vector3(es.pos.x - last.x, 0.0, es.pos.z - last.z)
+		# Cap the estimate so a respawn/teleport jump can't read as a multi-frame sprint (one-frame
+		# pop at worst, recovers next frame). 20 m/s is well above SPRINT_SPEED.
+		var speed: float = minf(flat.length() / dt, 20.0)
+		_last_pos[id] = es.pos
+		var sel: Dictionary = CharacterAnim.clip_for(es.is_downed, speed, es.stance)
+		CharacterDriver.drive(_entity_ap.get(id) as AnimationPlayer, sel["clip"], sel["loop"])
 	var pose: Dictionary = StancePose.of(es.stance, es.lean, es.is_downed, es.climbing)
 	var height: float = pose["height"] as float
 	var tilt: float = pose["tilt"] as float
 
 	if es.stance == Stance.PRONE or es.is_downed:
-		# Prone / downed: lay the soldier flat along its facing direction. A vertical scale would
-		# crush the standing figure into an unrecognisable blob, so instead tip the upright body
-		# 90° forward about its (yawed) right axis so it lies full-length on the ground.
+		# Lay the soldier flat along its facing direction (a vertical scale would crush the figure
+		# into a blob). Prone = face-DOWN (crawling/firing); downed (DBNO) = face-UP, on the back, so
+		# an incapacitated teammate reads differently from someone prone. Downed wins if both hold.
+		var pitch: float = -PI * 0.5 if es.is_downed else PI * 0.5
 		var b := Basis.IDENTITY
 		b = b.rotated(Vector3.UP, es.yaw)
-		b = b.rotated(b.x, PI * 0.5)   # pitch head forward, down onto the ground
+		b = b.rotated(b.x, pitch)   # +90 = head pitches forward/down (prone); -90 = onto the back (downed)
 		node.transform.basis = b
 		node.scale = Vector3.ONE
 		node.position = Vector3(es.pos.x, es.pos.y + PRONE_LIFT, es.pos.z)
@@ -458,7 +481,9 @@ func _apply_camera(predictor: Prediction, fov: float, look_yaw: float, look_pitc
 # =============================================================================
 
 func _make_entity_mesh() -> Node3D:
-	# All soldiers share one neutral uniform (no team tint); friend/foe is the marker above the head.
+	# Soldiers share one uniform (no team tint); friend/foe is the marker above the head.
+	if use_models:
+		return GlbCharacterKit.build()
 	return CharacterKit.build()
 
 

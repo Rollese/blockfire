@@ -8,6 +8,7 @@ var fov: float = 90.0
 var master_volume: float = 0.8
 var invert_y: bool = false
 var renderer_fallback: bool = false   # true -> request GL Compatibility
+var use_model_characters: bool = false   # true -> imported GLB soldier; false -> procedural CharacterKit
 
 func save_to(path: String = "user://settings.cfg") -> void:
 	var cf := ConfigFile.new()
@@ -15,6 +16,7 @@ func save_to(path: String = "user://settings.cfg") -> void:
 	cf.set_value("input", "invert_y", invert_y)
 	cf.set_value("video", "fov", fov)
 	cf.set_value("video", "renderer_fallback", renderer_fallback)
+	cf.set_value("video", "use_model_characters", use_model_characters)
 	cf.set_value("audio", "master_volume", master_volume)
 	cf.save(path)
 
@@ -26,4 +28,5 @@ func load_from(path: String = "user://settings.cfg") -> void:
 	invert_y = bool(cf.get_value("input", "invert_y", invert_y))
 	fov = float(cf.get_value("video", "fov", fov))
 	renderer_fallback = bool(cf.get_value("video", "renderer_fallback", renderer_fallback))
+	use_model_characters = bool(cf.get_value("video", "use_model_characters", use_model_characters))
 	master_volume = float(cf.get_value("audio", "master_volume", master_volume))
