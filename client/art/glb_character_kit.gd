@@ -39,7 +39,7 @@ static func attach_weapon(root: Node3D, weapon_id: int) -> bool:
 	var hand := root.find_child(HAND_NODE, true, false)
 	if hand == null:
 		return false
-	var weapon := WeaponKit.build(weapon_id)
+	var weapon := GlbWeaponKit.build(weapon_id)
 	weapon.name = "HeldWeapon"
 	weapon.position = WEAPON_OFFSET
 	weapon.rotation = WEAPON_ROT

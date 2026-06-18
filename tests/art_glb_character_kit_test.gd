@@ -27,7 +27,17 @@ func test_attach_weapon_parents_a_weapon_under_the_hand() -> void:
 	var held := hand.find_child("HeldWeapon", false, false)
 	assert_true(held != null, "a HeldWeapon is parented directly under the hand node")
 	assert_true(held is Node3D, "the held weapon is a Node3D")
-	assert_true(held.get_child_count() >= 2, "the weapon is the multi-part WeaponKit model")
+	# The held weapon is now a GlbWeaponKit model (imported GLB for AR, or procedural fallback);
+	# either way it contributes at least one mesh somewhere in its subtree.
+	var meshes := 0
+	var stack: Array = [held]
+	while not stack.is_empty():
+		var n: Node = stack.pop_back()
+		if n is MeshInstance3D:
+			meshes += 1
+		for c in n.get_children():
+			stack.append(c)
+	assert_true(meshes >= 1, "the held weapon has renderable geometry")
 
 func test_build_includes_a_held_weapon_by_default() -> void:
 	var soldier := GlbCharacterKit.build()

@@ -1,7 +1,16 @@
 # Assets
 
-The M7 art kit is **procedurally generated in GDScript** (`client/art/*_kit.gd`), not authored
-in a DCC tool. There are intentionally no `.glb`/`.obj` files here — the low-poly blocky look is
-welded primitive boxes built at runtime, sized to the sim's real dimensions. Visual sign-off is
-the owner's playtest of the preview scenes (`client/art/preview/`); geometry is unit-tested
-headlessly. See `docs/plans/2026-06-17-m7-p2-art-kit-procedural.md`.
+The M7 art kit started **procedurally generated in GDScript** (`client/art/*_kit.gd`) — welded
+primitive boxes built at runtime, sized to the sim's real dimensions, unit-tested headlessly. As P2
+progresses, individual categories are being swapped for **imported low-poly GLB models** behind the
+same kit interfaces (the procedural kit remains the fallback). Visual sign-off is the owner's
+playtest; geometry is unit-tested headlessly. See `docs/specs/art-pipeline.md`.
+
+## Imported models (all CC0 — public domain, no attribution required; credited as courtesy)
+
+- **`characters/`** — Kenney "Blocky Characters" (CC0, kenney.nl). Node-transform animated; loaded by
+  `client/art/glb_character_kit.gd`, behind the `use_model_characters` setting.
+- **`weapons/`** — Quaternius "Ultimate Guns Pack" (CC0, quaternius.com / poly.pizza). Only the GLBs
+  mapped to the `Weapon` enum are committed (`assault_rifle.glb` = AR, `submachine_gun.glb` = SMG,
+  `sniper_rifle.glb` = DMR); loaded by `client/art/glb_weapon_kit.gd`, normalized to a common length
+  and forward axis. RPG has no model in this pack, so it falls back to the procedural `WeaponKit`.
