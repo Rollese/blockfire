@@ -20,8 +20,9 @@ export_presets.cfg.local
 /telemetry-out/
 /replays/
 
-# GDExtension build artifacts (if/when escalated)
+# GDExtension build artifacts (M6 voice Opus codec — ADR-0006 — + any future escalation)
 /shared/native/target/
+/native/voice_opus/target/
 *.so
 *.dll
 *.dylib
