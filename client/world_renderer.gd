@@ -260,7 +260,9 @@ func _acquire_entity(id: int) -> Node3D:
 		add_child(node)
 	node.visible = true
 	_active[id] = node
-	if use_models and not _entity_ap.has(id):
+	# Always (re)bind the AnimationPlayer on acquire — a node recycled from the free list belongs to
+	# this id now, so re-fetch rather than relying on release-time erase symmetry.
+	if use_models:
 		_entity_ap[id] = GlbCharacterKit.anim_player(node)
 	return node
 
@@ -329,9 +331,11 @@ func _pose_entity(id: int, node: Node3D, es: EntityState, render_delta: float) -
 	if use_models:
 		# Horizontal speed estimate from frame-to-frame position (velocity isn't replicated).
 		var last: Vector3 = _last_pos.get(id, es.pos)
-		var dt: float = maxf(render_delta, 0.0001)
+		var dt: float = maxf(render_delta, 0.001)   # 1 ms floor: avoid blowups from sub-ms deltas
 		var flat := Vector3(es.pos.x - last.x, 0.0, es.pos.z - last.z)
-		var speed: float = flat.length() / dt
+		# Cap the estimate so a respawn/teleport jump can't read as a multi-frame sprint (one-frame
+		# pop at worst, recovers next frame). 20 m/s is well above SPRINT_SPEED.
+		var speed: float = minf(flat.length() / dt, 20.0)
 		_last_pos[id] = es.pos
 		var sel: Dictionary = CharacterAnim.clip_for(es.is_downed, speed, es.stance)
 		CharacterDriver.drive(_entity_ap.get(id) as AnimationPlayer, sel["clip"], sel["loop"])
