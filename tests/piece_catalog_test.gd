@@ -69,3 +69,11 @@ func test_explicit_chunk_and_damage_fields() -> void:
 func test_rejects_bad_chunk_grid_and_damage() -> void:
 	assert_false(PieceCatalog.from_json_string('{"pieces":[{"id":"w","height":"full","health":1,"chunk_grid":3}]}')["ok"], "chunk_grid must be 1,2,4,8")
 	assert_false(PieceCatalog.from_json_string('{"pieces":[{"id":"w","height":"full","health":1,"damage":["lasers"]}]}')["ok"], "unknown damage source")
+
+func test_fortifications_file_is_chunked_and_bullet_vulnerable() -> void:
+	var c := PieceCatalog.load_file("res://pieces/fortifications.json")
+	assert_true(c != null)
+	for t in c.size():
+		assert_eq(c.chunk_grid_of(t), 8, "player pieces are 8x8 chunked")
+		assert_true(c.takes_damage(t, PieceCatalog.SRC_BULLET), "player pieces keep M4 bullet damage")
+		assert_false(c.is_structural(t), "player pieces are non-structural")

@@ -1,6 +1,6 @@
 {
   "pieces": [
-    {"id": "sandbag", "height": "half", "health": 150, "blocks": "both", "material": "METAL_THIN"},
-    {"id": "wall",    "height": "full", "health": 350, "blocks": "both", "material": "CONCRETE"}
+    {"id": "sandbag", "height": "half", "health": 150, "blocks": "both", "material": "METAL_THIN", "chunk_grid": 8, "structural": false, "damage": ["bullet", "explosive", "melee"]},
+    {"id": "wall",    "height": "full", "health": 350, "blocks": "both", "material": "CONCRETE",   "chunk_grid": 8, "structural": false, "damage": ["bullet", "explosive", "melee"]}
   ]
 }
