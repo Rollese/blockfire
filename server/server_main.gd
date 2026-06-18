@@ -35,7 +35,7 @@ const GRENADE_COOLDOWN_TICKS := 300   # 10s between a player's throws (shared fr
 const BLAST_PAWN_RADIUS := 6.0        # m, sphere (current positions, FF-off)
 const BLAST_STRUCT_RADIUS := 4.0      # m (~2 build cells)
 const GRENADE_DAMAGE_PAWN := 100      # frag pawn splash at centre, linear falloff
-const GRENADE_DAMAGE_STRUCT := 200    # frag structure splash at centre, linear falloff
+const GRENADE_DAMAGE_STRUCT := 200    # frag structure blast GATE (>0 = enabled; magnitude unused — carve is governed by struct_radius, M11)
 const SMOKE_DURATION_TICKS := 150     # 5s @30Hz — smoke zone lifetime
 const SMOKE_RADIUS := 6.0             # m — smoke zone radius (matches blast radius)
 const PIECES_PATH := "res://pieces/fortifications.json"
@@ -116,7 +116,7 @@ var _rstruct := 0             # structures hit by rockets this window
 var _veh_destroyed := 0
 var _rkt_vs_veh := 0
 var _pending_removes: Array = []   # [{id, cell}] removes awaiting send (degradation queue)
-var _dmg_touched := {}             # id -> true: pieces damaged (alive) this tick, for bucket diff
+var _dmg_touched := {}             # id -> true: pieces holed (alive) this tick, for end-of-tick chunk-mask resend
 var _grenades: Array = []     # [{owner, team, type, pos, vel, detonate_tick}] — server-side, not replicated
 var _rockets: Array = []      # [{owner, team, pos, vel}] — server-side, not replicated
 var _mines: Array = []        # [{owner, team, pos, facing, armed_after_tick}]
@@ -483,7 +483,9 @@ func _fire_shot(shooter_id: int, shooter: Pawn, inp: Dictionary, shot_index: int
 			if not PieceCatalog.is_penetrable(mat):
 				_damage_structure(block_id, PieceCatalog.SRC_BULLET, hit_pt, BULLET_CARVE_RADIUS)
 				return
-			# Penetrable: piece takes body*absorption; if it survives, bullet exits at *transmit.
+			# Penetrable: the bullet exits at *transmit (used below). The piece is carved
+			# geometrically (BULLET_CARVE_RADIUS), NOT scaled by caliber — split.piece_damage is
+			# intentionally unused (M11: structure damage is spatial, not scalar).
 			var split := Combat.apply_penetration(body_dmg, enemy_dmg,
 				PieceCatalog.absorption_of(mat), PieceCatalog.transmit_of(mat))
 			_damage_structure(block_id, PieceCatalog.SRC_BULLET, hit_pt, BULLET_CARVE_RADIUS)
@@ -1402,7 +1404,7 @@ func _step_mines() -> void:
 	_mines = still
 
 ## Frag: area damage at the grenade's current position — structures (cell radius) + pawns (sphere,
-## current positions, FF-off incl. thrower). Removes/bucket-drops route through _damage_structure.
+## current positions, FF-off incl. thrower). Removes/chunk-mask deltas route through _damage_structure.
 ## (Smoke is handled by a branch added in Task 9.)
 func _detonate(g: Dictionary) -> void:
 	if int(g["type"]) == Grenade.SMOKE:
@@ -1494,7 +1496,7 @@ func _damage_structure(id: int, source: int, impact: Vector3, radius: float) -> 
 	else:
 		_dmg_touched[id] = true
 
-## Flush queued removes + bucket drops to interested clients, bounded by
+## Flush queued removes + chunk-mask deltas to interested clients, bounded by
 ## MAX_STRUCTURE_DELTAS_PER_TICK (removes first; overflow carried to next tick). Authoritative
 ## state is already applied — only the SEND volume is throttled. See docs/specs/destruction.md.
 func _emit_structure_deltas() -> void:
