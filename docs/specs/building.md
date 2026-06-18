@@ -4,6 +4,8 @@
 
 BattleBit-style fortification building on top of the M3 Conquest core: server-authoritative placement of snap-to-grid fortification pieces, event-based replication within the interest set, and coarse cover/collision (pieces block bullets and movement). Stays server-authoritative; all rules live in `shared/` so client and server can't diverge (AGENTS.md §5, §7). The gate is **bot-only**: building under 128-bot load must hold the tick + bandwidth budget.
 
+> **Placement model superseded (2026-06-18, [ADR-0007](../adr/0007-battlebit-divergences.md) §2 → [M12-P2](../milestones/M12-squad-fob-class-refit.md)):** the **instant placement** described below is replaced by **universal shovel-based progressive construction** — `BUILD_REQUEST` now creates a *build site* at 0 progress that must be shovelled to completion (small pieces solo; large structures + the FOB require ≥2 simultaneous builders). The **grid, catalog, event-based `STRUCTURE_DELTA`/baseline replication, cover/collision, and per-player caps** in this spec are reused as-is; only the place-completes-instantly step becomes place-then-build. See [`squad-fob-class-refit`](./squad-fob-class-refit.md) for the construction system.
+
 ## Phasing
 
 M4 is split into two independently-gated phases:

@@ -4,6 +4,8 @@
 
 **Objective:** BattleBit's signature fortification building and destructible environment, networked efficiently.
 
+> **Building model partially superseded (2026-06-18, [ADR-0007](../adr/0007-battlebit-divergences.md) §2):** the **instant snap-to-grid placement** is replaced by **universal shovel-based progressive construction** (placing a piece creates a *build site* that squadmates shovel to completion; large structures + the FOB require ≥2 builders). Implemented in **[M12-P2](M12-squad-fob-class-refit.md)**. The build **grid, piece catalog, event-based replication, and collision** are reused, and **all of M4 Phase-2 destruction is reused unchanged** — built structures and FOBs are destroyed via the existing M4 destruction path.
+
 ## Scope
 - Place/remove fortification pieces (data-driven piece catalog).
 - Networked structure state, replicated within the interest set (no global broadcast).
