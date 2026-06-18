@@ -17,6 +17,14 @@ const _MATERIALS := {
 	"CONCRETE": MAT_CONCRETE, "METAL_THICK": MAT_METAL_THICK,
 }
 
+# Damage-source bitflags (M11). damage_types is an OR of these; default = all.
+const SRC_BULLET := 1
+const SRC_EXPLOSIVE := 2
+const SRC_MELEE := 4
+const SRC_ALL := SRC_BULLET | SRC_EXPLOSIVE | SRC_MELEE
+const _SRC_NAMES := {"bullet": SRC_BULLET, "explosive": SRC_EXPLOSIVE, "melee": SRC_MELEE}
+const _VALID_GRIDS := [1, 2, 4, 8]
+
 # Per-material penetration factors: {penetrable, absorption, transmit}. Non-penetrable
 # materials stop the shot (the piece eats full body damage; nothing exits).
 const _PEN := {
@@ -45,6 +53,15 @@ func is_half(type: int) -> bool:
 
 func health_of(type: int) -> int:
 	return int(pieces[type]["health"])
+
+func chunk_grid_of(type: int) -> int:
+	return int(pieces[type]["chunk_grid"])
+
+func is_structural(type: int) -> bool:
+	return bool(pieces[type]["structural"])
+
+func takes_damage(type: int, source: int) -> bool:
+	return (int(pieces[type]["damage_types"]) & source) != 0
 
 func name_of(type: int) -> String:
 	return String(pieces[type]["id"])
@@ -82,7 +99,23 @@ static func from_dict(data: Dictionary) -> Dictionary:
 		var mat_str := String(p.get("material", "CONCRETE"))
 		if not _MATERIALS.has(mat_str):
 			return {"ok": false, "catalog": null, "error": "unknown material '%s'" % mat_str}
-		c.pieces.append({"id": id, "half": height == "half", "health": health, "material": _MATERIALS[mat_str]})
+		var grid := int(p.get("chunk_grid", 1))
+		if not _VALID_GRIDS.has(grid):
+			return {"ok": false, "catalog": null, "error": "chunk_grid must be one of 1,2,4,8"}
+		var dmg := SRC_ALL
+		if p.has("damage"):
+			var raw_d = p["damage"]
+			if typeof(raw_d) != TYPE_ARRAY:
+				return {"ok": false, "catalog": null, "error": "damage must be an array"}
+			dmg = 0
+			for s in raw_d:
+				var key := String(s)
+				if not _SRC_NAMES.has(key):
+					return {"ok": false, "catalog": null, "error": "unknown damage source '%s'" % key}
+				dmg |= _SRC_NAMES[key]
+		c.pieces.append({"id": id, "half": height == "half", "health": health,
+			"material": _MATERIALS[mat_str], "chunk_grid": grid,
+			"structural": bool(p.get("structural", false)), "damage_types": dmg})
 	return {"ok": true, "catalog": c, "error": ""}
 
 static func load_file(path: String) -> PieceCatalog:

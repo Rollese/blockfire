@@ -46,3 +46,26 @@ func test_penetration_factors_wood() -> void:
 func test_penetration_factors_concrete_blocks() -> void:
 	assert_false(PieceCatalog.is_penetrable(PieceCatalog.MAT_CONCRETE))
 	assert_false(PieceCatalog.is_penetrable(PieceCatalog.MAT_METAL_THICK))
+
+func test_chunk_and_damage_fields_parse_with_defaults() -> void:
+	var res := PieceCatalog.from_json_string('{"pieces":[{"id":"wall","height":"full","health":350,"material":"CONCRETE"}]}')
+	assert_true(res["ok"])
+	var c: PieceCatalog = res["catalog"]
+	assert_eq(c.chunk_grid_of(0), 1)                         # default
+	assert_eq(c.is_structural(0), false)                     # default
+	assert_true(c.takes_damage(0, PieceCatalog.SRC_BULLET))  # default: all sources
+	assert_true(c.takes_damage(0, PieceCatalog.SRC_EXPLOSIVE))
+
+func test_explicit_chunk_and_damage_fields() -> void:
+	var res := PieceCatalog.from_json_string('{"pieces":[{"id":"bwall","height":"full","health":800,"material":"CONCRETE","chunk_grid":8,"structural":true,"damage":["explosive","melee"]}]}')
+	assert_true(res["ok"])
+	var c: PieceCatalog = res["catalog"]
+	assert_eq(c.chunk_grid_of(0), 8)
+	assert_eq(c.is_structural(0), true)
+	assert_false(c.takes_damage(0, PieceCatalog.SRC_BULLET), "building wall is bullet-immune")
+	assert_true(c.takes_damage(0, PieceCatalog.SRC_EXPLOSIVE))
+	assert_true(c.takes_damage(0, PieceCatalog.SRC_MELEE))
+
+func test_rejects_bad_chunk_grid_and_damage() -> void:
+	assert_false(PieceCatalog.from_json_string('{"pieces":[{"id":"w","height":"full","health":1,"chunk_grid":3}]}')["ok"], "chunk_grid must be 1,2,4,8")
+	assert_false(PieceCatalog.from_json_string('{"pieces":[{"id":"w","height":"full","health":1,"damage":["lasers"]}]}')["ok"], "unknown damage source")
