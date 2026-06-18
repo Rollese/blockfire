@@ -23,7 +23,7 @@ const STRUCT_SPAWN_DUR := 0.18     # seconds for build pop scale-up
 const STRUCT_DESTROY_DUR := 0.14   # seconds for destroy pop scale-down before release
 
 # -- viewmodel placeholder dimensions -----------------------------------------
-const VM_OFFSET := Vector3(0.15, -0.12, -0.40)   # right / down / forward in camera space
+const VM_OFFSET := Vector3(0.15, -0.12, -0.28)   # right / down / forward in camera space (pulled back from -0.40 — was too far forward)
 const VM_YAW := PI   # GlbWeaponKit aims the barrel +Z; camera-forward is -Z, so flip 180° to aim with the view
 
 # -- tracer (shot feedback) ---------------------------------------------------

@@ -49,16 +49,30 @@ func test_engage_closes_distance_when_out_of_range() -> void:
 	assert_true(float(intent["move_x"]) > 0.5, "moves toward distant target (+x)")
 	assert_true(int(intent["buttons"]) & InputCommand.BTN_FIRE == 0, "no fire out of range")
 
-func test_engage_stops_and_fires_in_range() -> void:
+func test_engage_advances_and_fires_at_range() -> void:
+	# Beyond STANDOFF_RANGE but within ENGAGE_RANGE: bot fires AND advances toward the enemy
+	# (no longer roots in place — playtest 2026-06-18).
 	var ai := AiDriver.new(42, 0, "regular")
-	var view := {1: _es(0, Vector3.ZERO), 2: _es(1, Vector3(10, 0, 0))}  # 10m < ENGAGE_RANGE
+	var view := {1: _es(0, Vector3.ZERO), 2: _es(1, Vector3(30, 0, 0))}  # 30m: in ENGAGE, beyond STANDOFF
 	ai.observe(1, view, {}, {}, [], 100, Vector3.ZERO)
 	ai.observe(1, view, {}, {}, [], 112, Vector3.ZERO)
 	var intent := ai.decide()
 	assert_eq(String(intent["behavior"]), "engage")
 	assert_true(int(intent["buttons"]) & InputCommand.BTN_FIRE != 0, "fires in range")
-	assert_almost_eq(float(intent["move_x"]), 0.0, 0.001, "stop-to-shoot: no x move")
-	assert_almost_eq(float(intent["move_y"]), 0.0, 0.001, "stop-to-shoot: no y move")
+	assert_true(float(intent["move_x"]) > 0.5, "advances toward enemy at +x while firing")
+
+func test_engage_strafes_inside_standoff() -> void:
+	# Inside STANDOFF_RANGE: bot fires AND strafes laterally (perpendicular to the +x line of
+	# fire => lateral z move, no forward charge) instead of standing still.
+	var ai := AiDriver.new(42, 0, "regular")
+	var view := {1: _es(0, Vector3.ZERO), 2: _es(1, Vector3(6, 0, 0))}  # 6m < STANDOFF_RANGE
+	ai.observe(1, view, {}, {}, [], 100, Vector3.ZERO)
+	ai.observe(1, view, {}, {}, [], 112, Vector3.ZERO)
+	var intent := ai.decide()
+	assert_eq(String(intent["behavior"]), "engage")
+	assert_true(int(intent["buttons"]) & InputCommand.BTN_FIRE != 0, "fires at standoff")
+	assert_true(absf(float(intent["move_y"])) > 0.5, "strafes laterally instead of rooting")
+	assert_almost_eq(float(intent["move_x"]), 0.0, 0.001, "no forward charge inside standoff")
 
 func test_push_obj_marches_to_objective_when_no_enemy() -> void:
 	var ai := AiDriver.new(42, 0, "regular")

@@ -8,7 +8,7 @@ var fov: float = 90.0
 var master_volume: float = 0.8
 var invert_y: bool = false
 var renderer_fallback: bool = false   # true -> request GL Compatibility
-var use_model_characters: bool = false   # true -> imported GLB soldier; false -> procedural CharacterKit
+var use_model_characters: bool = true   # default ON: imported GLB soldier; set false for procedural CharacterKit
 
 func save_to(path: String = "user://settings.cfg") -> void:
 	var cf := ConfigFile.new()

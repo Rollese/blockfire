@@ -1,8 +1,8 @@
 extends TestCase
 
-func test_flag_defaults_false() -> void:
+func test_flag_defaults_true() -> void:
 	var s := ClientSettings.new()
-	assert_false(s.use_model_characters, "default is the procedural kit (safe fallback)")
+	assert_true(s.use_model_characters, "default ON: imported GLB soldier models (playtest 2026-06-18)")
 
 func test_flag_round_trips_through_configfile() -> void:
 	var path := "user://test_model_flag.cfg"

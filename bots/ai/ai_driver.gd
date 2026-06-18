@@ -15,6 +15,8 @@ var _now: int = 0
 var _objective: Vector3 = Vector3.ZERO
 
 const ENGAGE_RANGE := 50.0
+const STANDOFF_RANGE := 10.0   # inside this, hold ground and strafe-fire instead of charging in
+const STRAFE_PERIOD := 18      # ticks per strafe direction (~0.6s at 30Hz) — lateral juking while firing
 
 # NOTE: profile reaction_delay_ticks is loaded but gate scaling is deferred to §11; gate uses Perception.REACTION_DELAY_TICKS for now.
 func _init(global_seed: int, bot_index: int, profile_name: String) -> void:
@@ -74,8 +76,20 @@ func decide() -> Dictionary:
 				var to := aim - eye
 				intent["yaw"] = atan2(to.x, to.z) + jit
 				intent["pitch"] = clampf(asin(clampf(to.y / maxf(to.length(), 0.001), -1.0, 1.0)), -Pawn.MAX_PITCH, Pawn.MAX_PITCH)
-				if me.pos.distance_to(tpos) <= ENGAGE_RANGE:
-					intent["buttons"] = InputCommand.BTN_FIRE   # stop-to-shoot: movement stays 0
+				var dist := me.pos.distance_to(tpos)
+				if dist <= ENGAGE_RANGE:
+					intent["buttons"] = InputCommand.BTN_FIRE
+					var fwd := _flat_dir(me.pos, tpos)
+					if dist > STANDOFF_RANGE:
+						# advance into the fight while firing — don't root at max range
+						intent["move_x"] = fwd.x; intent["move_y"] = fwd.y
+					else:
+						# close enough: strafe laterally (world-space, perpendicular to the
+						# line of fire) so the bot juke-fires instead of standing still
+						var strafe := Vector2(fwd.y, -fwd.x)
+						if int(_aim_ticks / STRAFE_PERIOD) % 2 == 1:
+							strafe = -strafe
+						intent["move_x"] = strafe.x; intent["move_y"] = strafe.y
 				else:
 					var mv := _flat_dir(me.pos, tpos)
 					intent["move_x"] = mv.x; intent["move_y"] = mv.y
