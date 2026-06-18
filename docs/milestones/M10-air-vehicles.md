@@ -1,6 +1,6 @@
 # M10 — Air Vehicles (final content pass)
 
-**Status:** deferred (last) · **Blocked by:** M7 graphical client · *(scheduled last, after a working/playable game)*
+**Status:** **deferred — Beta / post-1.0 (last)** ([ADR-0007](../adr/0007-battlebit-divergences.md) §4, 2026-06-18) · **Blocked by:** M7 graphical client · *(scheduled last, after a working/playable game; not considered until every other milestone is finished)*
 
 **Objective:** Networked air vehicles (helicopter + jet) on the M5 vehicle substrate. **No boats** (per project scope).
 

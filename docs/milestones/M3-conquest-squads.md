@@ -4,6 +4,8 @@
 
 **Objective:** A complete, winnable match loop.
 
+> **Partially superseded (2026-06-18, [ADR-0007](../adr/0007-battlebit-divergences.md) §2):** the ratified **"spawn on any alive squadmate"** primary forward spawn is replaced by a **squad-leader-built FOB** (squadmate-rally retained only as a *fallback*; FOB spawning is disabled while an enemy is in its vicinity). Implemented in **[M12](M12-squad-fob-class-refit.md)** before/with the M7 client. The rest of M3 (Conquest capture/ticket machinery, squads, deploy/respawn) stands.
+
 ## Scope
 - **Conquest** mode: capture points, ticket bleed, team scores, win condition.
 - Data-driven map: flag/capture-point layout, team spawns (`maps/`).
