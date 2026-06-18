@@ -16,3 +16,14 @@ func test_build_mesh_is_small_and_no_shadow() -> void:
 	assert_almost_eq(size.x, MuzzleFlashKit.SIZE, 0.001, "flash width == SIZE")
 	assert_true(size.z < size.x, "flash is a thin facing plate, not a cube")
 	assert_eq(flash.cast_shadow, GeometryInstance3D.SHADOW_CASTING_SETTING_OFF, "a flash casts no shadow")
+
+func test_alpha_for_is_linear_and_clamped() -> void:
+	var ttl := MuzzleFlashKit.TTL
+	assert_almost_eq(MuzzleFlashKit.alpha_for(ttl, ttl), 1.0, 0.001, "full life = fully opaque")
+	assert_almost_eq(MuzzleFlashKit.alpha_for(0.0, ttl), 0.0, 0.001, "no life left = invisible")
+	assert_almost_eq(MuzzleFlashKit.alpha_for(ttl * 0.5, ttl), 0.5, 0.001, "half life = half alpha")
+	assert_almost_eq(MuzzleFlashKit.alpha_for(ttl * 2.0, ttl), 1.0, 0.001, "over-full clamps to 1")
+	assert_almost_eq(MuzzleFlashKit.alpha_for(-1.0, ttl), 0.0, 0.001, "negative clamps to 0")
+
+func test_alpha_for_handles_zero_ttl() -> void:
+	assert_almost_eq(MuzzleFlashKit.alpha_for(1.0, 0.0), 0.0, 0.001, "zero/invalid ttl -> 0, never divide-by-zero")
