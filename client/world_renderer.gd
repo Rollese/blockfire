@@ -13,6 +13,11 @@ const NEUTRAL_COLOR := Color(0.6, 0.6, 0.6)
 # (StructureKit also falls back to "wall" for any id it doesn't know).
 const STRUCT_TYPE_ID := ["sandbag", "wall"]
 
+# -- structure type -> chunk-grid (mirror of pieces/fortifications.json `chunk_grid`) ----------
+# Needed to turn a piece's live chunk alive-mask into a damage tier. Keep aligned with STRUCT_TYPE_ID
+# order; unknown types fall back to the 8x8 fortification grid.
+const STRUCT_TYPE_GRID := [8, 8]
+
 # -- structure feedback timing ------------------------------------------------
 const STRUCT_SPAWN_DUR := 0.18     # seconds for build pop scale-up
 const STRUCT_DESTROY_DUR := 0.14   # seconds for destroy pop scale-down before release
@@ -475,7 +480,35 @@ func _acquire_structure(id: int, rec: Dictionary) -> Node3D:
 
 
 func _struct_key(rec: Dictionary) -> String:
-	return "%d:%d" % [int(rec.get("type", 0)), int(rec.get("bucket", 3))]
+	var type_idx := int(rec.get("type", 0))
+	return "%d:%d" % [type_idx, _bucket_of(rec)]
+
+
+## Damage tier (3 pristine .. 0 heavy) for a structure record. M11 dropped the M4 `bucket` field and
+## now ships a per-face chunk alive-mask (`chunks`); the StructureKit still skins by tier, so we
+## quantise the fraction of intact chunks. Missing/all-bits mask reads pristine (defensive default).
+func _bucket_of(rec: Dictionary) -> int:
+	return WorldRenderer.damage_bucket(int(rec.get("chunks", -1)), _grid_of(int(rec.get("type", 0))))
+
+
+static func _grid_of(type_idx: int) -> int:
+	return STRUCT_TYPE_GRID[type_idx] if type_idx >= 0 and type_idx < STRUCT_TYPE_GRID.size() else 8
+
+
+## Map a chunk alive-mask to a StructureKit damage bucket. Full mask -> 3 (pristine); fewer intact
+## chunks step down through 2 and 1; near-empty -> 0 (chipped silhouette). A piece is removed from the
+## store entirely once its mask hits 0, so the renderer only ever skins live (alive > 0) pieces.
+static func damage_bucket(chunks: int, grid: int) -> int:
+	var total := ChunkMask.count(grid)
+	var alive := ChunkMask.popcount(chunks)
+	if alive >= total:
+		return 3
+	var frac := float(alive) / float(total)
+	if frac > 0.66:
+		return 2
+	if frac > 0.33:
+		return 1
+	return 0
 
 
 func _start_destroy_pop(id: int, now: float) -> void:
@@ -551,7 +584,7 @@ func _make_entity_mesh() -> Node3D:
 func _make_structure_node(rec: Dictionary) -> Node3D:
 	var type_idx: int = int(rec.get("type", 0))
 	var piece_id: String = STRUCT_TYPE_ID[type_idx] if type_idx < STRUCT_TYPE_ID.size() else "wall"
-	return StructureKit.build(piece_id, int(rec.get("bucket", 3)))
+	return StructureKit.build(piece_id, _bucket_of(rec))
 
 
 func _make_cylinder_marker(radius: float, height: float, color: Color) -> MeshInstance3D:
