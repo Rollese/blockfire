@@ -482,9 +482,15 @@ func _apply_camera(predictor: Prediction, fov: float, look_yaw: float, look_pitc
 
 func _make_entity_mesh() -> Node3D:
 	# Soldiers share one uniform (no team tint); friend/foe is the marker above the head.
+	var node: Node3D
 	if use_models:
-		return GlbCharacterKit.build()
-	return CharacterKit.build()
+		node = GlbCharacterKit.build()
+	else:
+		node = CharacterKit.build()
+	# Distance LOD: shed small parts with range, demote to a proxy box far away (Track A, spec §3).
+	# Idempotent + done once at pool-build time, so no per-frame cost.
+	Lod.apply_to_character(node)
+	return node
 
 
 func _make_structure_node(rec: Dictionary) -> Node3D:
