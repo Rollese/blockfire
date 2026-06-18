@@ -54,8 +54,8 @@ Spec: [`docs/specs/voice.md`](specs/voice.md). ADR: [`0006-gdextension-voice-cod
 |---|---|---|---|
 | M6 voice brainstorm + spec | claude | done | `docs/specs/voice.md` — relay-not-mix; 2nd-port + E-core relay thread (full tick isolation); Opus via first GDExtension; proximity PTT enemies-audible + squad PTT team-private. Owner-ratified forks (codec / proximity model / transport-isolation) 2026-06-18. |
 | ADR-0006 (first GDExtension) | claude | done (Proposed) | `docs/adr/0006-gdextension-voice-codec.md` — stub; promote to Accepted when the M6 plan lands. |
-| M6 implementation plan | — | todo | `writing-plans` → `docs/plans/`; per-phase (codec ext → wire/relay/isolation → client capture/playback → integration). Blocked-for-gate on M7 client; plan can be written now. |
-| M6 execute | — | blocked | by M7 rendered client (human-validated gate). |
+| M6 implementation plan | claude | done | [`docs/plans/2026-06-18-m6-voice.md`](plans/2026-06-18-m6-voice.md) — 4 phases, TDD. P0 Opus gdext · P1 pure wire/routing/jitter/PTT · P2 relay thread + tick publish · P3 client capture/playback · P4 deferred integration seam (blocked on M7 client). |
+| M6 execute | — | blocked | by M7 rendered client (human-validated gate). **P0–P1 are zero-conflict (all new files); P2 touches `server_main.gd`** (coordinate with m11-destruction / M7.5-bot-AI agents before landing). |
 
 ## M5.5 — Combat Depth II — todo (planned 2026-06-17)
 
