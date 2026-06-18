@@ -70,10 +70,29 @@ func test_rejects_bad_chunk_grid_and_damage() -> void:
 	assert_false(PieceCatalog.from_json_string('{"pieces":[{"id":"w","height":"full","health":1,"chunk_grid":3}]}')["ok"], "chunk_grid must be 1,2,4,8")
 	assert_false(PieceCatalog.from_json_string('{"pieces":[{"id":"w","height":"full","health":1,"damage":["lasers"]}]}')["ok"], "unknown damage source")
 
-func test_fortifications_file_is_chunked_and_bullet_vulnerable() -> void:
-	var c := PieceCatalog.load_file("res://pieces/fortifications.json")
+func test_fortifications_are_chunked_and_bullet_vulnerable() -> void:
+	var c := PieceCatalog.load_file("res://pieces/pieces.json")
 	assert_true(c != null)
-	for t in c.size():
+	# sandbag (0) and wall (1) are the player fortifications — bullet-vulnerable, non-structural
+	for t in [0, 1]:
 		assert_eq(c.chunk_grid_of(t), 8, "player pieces are 8x8 chunked")
 		assert_true(c.takes_damage(t, PieceCatalog.SRC_BULLET), "player pieces keep M4 bullet damage")
 		assert_false(c.is_structural(t), "player pieces are non-structural")
+
+func test_building_pieces_are_explosive_melee_only() -> void:
+	var cat := PieceCatalog.load_file("res://pieces/pieces.json")
+	assert_true(cat != null, "unified catalog loads")
+	var bwall := -1
+	for i in cat.size():
+		if cat.name_of(i) == "bwall":
+			bwall = i
+	assert_true(bwall >= 0, "bwall present in catalog")
+	assert_false(cat.takes_damage(bwall, PieceCatalog.SRC_BULLET), "building wall is bullet-immune")
+	assert_true(cat.takes_damage(bwall, PieceCatalog.SRC_EXPLOSIVE), "building wall takes explosive")
+	assert_true(cat.takes_damage(bwall, PieceCatalog.SRC_MELEE), "building wall takes melee")
+	assert_true(cat.is_structural(bwall), "bwall is structural")
+
+func test_catalog_index_order_is_stable() -> void:
+	var cat := PieceCatalog.load_file("res://pieces/pieces.json")
+	assert_eq(cat.name_of(0), "sandbag", "index 0 stays sandbag")
+	assert_eq(cat.name_of(1), "wall", "index 1 stays wall (player fortification)")

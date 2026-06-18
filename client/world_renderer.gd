@@ -8,15 +8,15 @@ extends Node3D
 const TEAM_COLOR := [Color(0.2, 0.5, 1.0), Color(1.0, 0.3, 0.2)]  # [team0=blue, team1=red]
 const NEUTRAL_COLOR := Color(0.6, 0.6, 0.6)
 
-# -- structure type -> PieceCatalog id (array order == wire `type` int; see pieces/*.json) -----
-# fortifications.json order: 0 = sandbag, 1 = wall. Unknown/extra types fall back to "wall"
+# -- structure type -> PieceCatalog id (array order == wire `type` int; see pieces/pieces.json) -----
+# pieces.json order: 0 = sandbag, 1 = wall, 2+ = building pieces. Unknown/extra types fall back to "wall"
 # (StructureKit also falls back to "wall" for any id it doesn't know).
-const STRUCT_TYPE_ID := ["sandbag", "wall"]
+const STRUCT_TYPE_ID := ["sandbag", "wall", "bwall", "bwall_window", "bwall_door", "bfloor", "bstair", "bcolumn", "brailing", "prop_crate"]
 
-# -- structure type -> chunk-grid (mirror of pieces/fortifications.json `chunk_grid`) ----------
+# -- structure type -> chunk-grid (mirror of pieces/pieces.json `chunk_grid`) ----------
 # Needed to turn a piece's live chunk alive-mask into a damage tier. Keep aligned with STRUCT_TYPE_ID
 # order; unknown types fall back to the 8x8 fortification grid.
-const STRUCT_TYPE_GRID := [8, 8]
+const STRUCT_TYPE_GRID := [8, 8, 8, 8, 8, 8, 8, 8, 4, 1]
 
 # -- structure feedback timing ------------------------------------------------
 const STRUCT_SPAWN_DUR := 0.18     # seconds for build pop scale-up

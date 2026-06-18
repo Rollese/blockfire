@@ -38,7 +38,7 @@ const GRENADE_DAMAGE_PAWN := 100      # frag pawn splash at centre, linear fallo
 const GRENADE_DAMAGE_STRUCT := 200    # frag structure blast GATE (>0 = enabled; magnitude unused — carve is governed by struct_radius, M11)
 const SMOKE_DURATION_TICKS := 150     # 5s @30Hz — smoke zone lifetime
 const SMOKE_RADIUS := 6.0             # m — smoke zone radius (matches blast radius)
-const PIECES_PATH := "res://pieces/fortifications.json"
+const PIECES_PATH := "res://pieces/pieces.json"
 const GADGETS_PATH := "res://data/gadgets.json"
 const ATTACHMENTS_PATH := "res://data/attachments.json"
 const VEHICLES_PATH := "res://data/vehicles.json"
