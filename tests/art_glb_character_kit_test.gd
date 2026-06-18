@@ -12,7 +12,7 @@ func test_build_returns_node3d_with_animationplayer() -> void:
 func test_build_scales_model_to_stand_height() -> void:
 	var node := GlbCharacterKit.build()
 	var aabb := GlbCharacterKit.world_aabb(node)
-assert_true(absf(aabb.size.y - GlbCharacterKit.STAND_HEIGHT) < 0.05,
+	assert_true(absf(aabb.size.y - GlbCharacterKit.STAND_HEIGHT) < 0.05,
 		"scaled height ~= STAND_HEIGHT (got %f)" % aabb.size.y)
 	node.free()
 
