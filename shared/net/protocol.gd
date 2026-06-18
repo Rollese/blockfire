@@ -39,6 +39,7 @@ enum Msg {
 	SET_SQUAD = 26,         ## client -> server: join/switch to squad id
 	DEATH_INFO = 27,        ## server -> victim: death-recap (killer/weapon/distance/hp + per-attacker damage)
 	SHOT_FX = 28,           ## server -> human clients: cosmetic tracer for a remote pawn's shot (origin+dir)
+	COLLAPSE = 29,          ## server -> clients: a building fully collapsed (building_id) -> rubble swap
 }
 
 const OP_PLACE := 0
@@ -239,6 +240,19 @@ static func decode_structure_delta(bytes: PackedByteArray) -> Dictionary:
 		var id := r.get_u16()
 		return {"op": op, "id": id, "mask": r.get_u64()}
 	return {"op": op, "id": r.get_u16()}
+
+
+static func encode_collapse(building_id: int) -> PackedByteArray:
+	var buf := StreamPeerBuffer.new()
+	buf.put_u8(Msg.COLLAPSE)
+	buf.put_u16(building_id)
+	return buf.data_array
+
+static func decode_collapse(bytes: PackedByteArray) -> int:
+	var r := StreamPeerBuffer.new()
+	r.data_array = bytes
+	r.get_u8()  # tag
+	return r.get_u16()
 
 
 static func encode_grenade_throw(dir: Vector3, type: int) -> PackedByteArray:
