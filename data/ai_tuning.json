@@ -1,0 +1,9 @@
+{
+  "profiles": {
+    "recruit":  {"reaction_delay_ticks": 15, "aim_error_deg": 6.0, "aim_settle_ticks": 10, "aggression": 0.7},
+    "regular":  {"reaction_delay_ticks": 9,  "aim_error_deg": 3.0, "aim_settle_ticks": 6,  "aggression": 1.0},
+    "veteran":  {"reaction_delay_ticks": 6,  "aim_error_deg": 2.0, "aim_settle_ticks": 4,  "aggression": 1.2},
+    "elite":    {"reaction_delay_ticks": 4,  "aim_error_deg": 1.2, "aim_settle_ticks": 3,  "aggression": 1.4}
+  },
+  "weights": {"retreat": 1.6, "take_cover": 1.0, "suppress": 0.4, "engage": 0.7, "push_obj": 0.2}
+}
