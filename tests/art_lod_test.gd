@@ -60,3 +60,15 @@ func test_active_part_count_drops_with_distance() -> void:
 	assert_eq(mid, 2, "only the 2 body parts draw at mid range (5 detail parts shed, proxy off)")
 	assert_eq(far, 1, "only the proxy box draws far away")
 	assert_true(far < mid and mid < near, "cost is monotonically non-increasing with distance")
+
+func test_128_soldiers_far_cost_is_a_small_fraction_of_near() -> void:
+	var near_total := 0
+	var far_total := 0
+	for _i in 128:
+		var soldier := CharacterKit.build()
+		Lod.apply_to_character(soldier)
+		near_total += Lod.active_part_count(soldier, 10.0)
+		far_total += Lod.active_part_count(soldier, Lod.FAR_BEGIN + 50.0)
+	assert_eq(near_total, 128 * 7, "worst case: every soldier at full detail")
+	assert_eq(far_total, 128 * 1, "all-far: one proxy box each")
+	assert_true(far_total <= near_total / 5, "far-scene draw cost <= 1/5 of the all-near worst case")
