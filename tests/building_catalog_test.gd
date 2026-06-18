@@ -50,3 +50,17 @@ func test_structural_defaults_from_catalog_and_overrides() -> void:
 	assert_true(res["ok"], "ok")
 	assert_true(res["prefab"]["pieces"][0]["structural"], "bwall defaults structural=true from catalog")
 	assert_true(res["prefab"]["pieces"][1]["structural"], "explicit structural=true overrides catalog false")
+
+func test_shipped_prefabs_load() -> void:
+	for name in ["bunker", "house", "tower"]:
+		var res := BuildingCatalog.load_file("res://buildings/%s.json" % name, _cat())
+		assert_true(res["ok"], "%s loads: %s" % [name, res["error"]])
+		assert_true(res["prefab"]["pieces"].size() >= 4, "%s has pieces" % name)
+
+func test_tower_has_columns() -> void:
+	var res := BuildingCatalog.load_file("res://buildings/tower.json", _cat())
+	var n := 0
+	for p in res["prefab"]["pieces"]:
+		if _cat().name_of(p["type"]) == "bcolumn":
+			n += 1
+	assert_true(n >= 4, "tower has >=4 columns (the collapse spine)")
