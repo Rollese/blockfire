@@ -19,3 +19,29 @@ func test_build_scales_model_to_stand_height() -> void:
 func test_stand_height_matches_canonical() -> void:
 	assert_eq(GlbCharacterKit.STAND_HEIGHT, CharacterKit.STAND_HEIGHT,
 		"GLB stand height equals the procedural kit's so renderer scaling is mode-agnostic")
+
+func test_attach_weapon_parents_a_weapon_under_the_hand() -> void:
+	var soldier := GlbCharacterKit.build()
+	var hand := soldier.find_child(GlbCharacterKit.HAND_NODE, true, false)
+	assert_true(hand != null, "the GLB exposes the '%s' hand node" % GlbCharacterKit.HAND_NODE)
+	var held := hand.find_child("HeldWeapon", false, false)
+	assert_true(held != null, "a HeldWeapon is parented directly under the hand node")
+	assert_true(held is Node3D, "the held weapon is a Node3D")
+	assert_true(held.get_child_count() >= 2, "the weapon is the multi-part WeaponKit model")
+
+func test_build_includes_a_held_weapon_by_default() -> void:
+	var soldier := GlbCharacterKit.build()
+	assert_true(soldier.find_child("HeldWeapon", true, false) != null,
+		"GlbCharacterKit.build() arms the soldier with a default weapon")
+
+func test_attach_weapon_is_safe_without_a_hand_node() -> void:
+	var bare := Node3D.new()
+	var ok := GlbCharacterKit.attach_weapon(bare, Weapon.AR)
+	assert_false(ok, "no hand node -> returns false, no crash")
+	assert_true(bare.find_child("HeldWeapon", true, false) == null, "nothing attached")
+
+func test_held_weapon_does_not_break_height_normalization() -> void:
+	var soldier := GlbCharacterKit.build()
+	var h := GlbCharacterKit.world_aabb(soldier).size.y
+	assert_almost_eq(h, GlbCharacterKit.STAND_HEIGHT, 0.35,
+		"standing height stays ~STAND_HEIGHT despite the held weapon")
