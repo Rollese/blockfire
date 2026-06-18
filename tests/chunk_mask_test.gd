@@ -17,6 +17,7 @@ func test_clear_in_radius_clears_only_near_chunks() -> void:
 	assert_true(ChunkMask.popcount(after) < 64, "some chunks cleared")
 	assert_true(ChunkMask.popcount(after) > 0, "not all chunks cleared")
 	assert_false(ChunkMask.is_alive_at(after, cell, 0, grid, height, impact), "hit chunk is dead")
+	assert_eq(ChunkMask.popcount(after), 61, "exactly 3 chunks cleared (hit + 2 orthogonal neighbours; diagonal at 0.354m is outside 0.3m)")
 
 func test_clear_whole_face_destroys() -> void:
 	var cell := Vector3i(0, 0, 0)
@@ -35,3 +36,8 @@ func test_clear_is_monotonic_and_idempotent() -> void:
 	var twice := ChunkMask.clear_in_radius(once, cell, 2, grid, 2.0, impact, 0.5)
 	assert_eq(once, twice, "re-clearing same impact is a no-op")
 	assert_true(ChunkMask.popcount(once) <= ChunkMask.popcount(m), "bits only clear")
+
+func test_is_empty() -> void:
+	assert_true(ChunkMask.is_empty(0))
+	assert_false(ChunkMask.is_empty(1))
+	assert_false(ChunkMask.is_empty(ChunkMask.full_mask(8)))

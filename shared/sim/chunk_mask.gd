@@ -5,6 +5,7 @@ extends Object
 ## U = horizontal axis rotated by yaw (face width); V = world-up scaled to the face `height`
 ## (full piece = CELL_SIZE, half piece = CELL_SIZE*0.5). Masks are bit patterns (full 8x8 == -1).
 ## See docs/specs/destructible-buildings.md §A.
+## Callers guarantee grid in 1..MAX_GRID (chunk math divides by grid).
 
 const MAX_GRID := 8
 
@@ -20,7 +21,7 @@ static func full_mask(grid: int) -> int:
 static func popcount(mask: int) -> int:
 	var c := 0
 	for i in 64:
-		if mask & (1 << i) != 0:
+		if (mask & (1 << i)) != 0:
 			c += 1
 	return c
 
@@ -48,7 +49,7 @@ static func bit_at(cell: Vector3i, yaw: int, grid: int, height: float, point: Ve
 	return row * grid + col
 
 static func is_alive_at(mask: int, cell: Vector3i, yaw: int, grid: int, height: float, point: Vector3) -> bool:
-	return mask & (1 << bit_at(cell, yaw, grid, height, point)) != 0
+	return (mask & (1 << bit_at(cell, yaw, grid, height, point))) != 0
 
 ## Clear every intact chunk whose centre is within `radius` (world) of `impact`. New mask.
 static func clear_in_radius(mask: int, cell: Vector3i, yaw: int, grid: int, height: float, impact: Vector3, radius: float) -> int:
@@ -56,7 +57,7 @@ static func clear_in_radius(mask: int, cell: Vector3i, yaw: int, grid: int, heig
 	for row in grid:
 		for col in grid:
 			var bit := row * grid + col
-			if m & (1 << bit) == 0:
+			if (m & (1 << bit)) == 0:
 				continue
 			if chunk_center(cell, yaw, row, col, grid, height).distance_to(impact) <= radius:
 				m &= ~(1 << bit)
