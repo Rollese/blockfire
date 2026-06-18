@@ -28,6 +28,17 @@ Canonical source of truth for what's being worked on. Claim a task (set owner + 
 >
 > **As of 2026-06-17: M5.5 (Combat Depth II) added** from the BattleBit feature-gap review. It is sim-layer and bot-gated like M4.5, but its **ballistics model is an input to the in-flight M7-C2** (bullet drop changes client prediction — decided now so M7 builds projectile-aware, not hit-scan). The remaining M5.5 phases follow the M4.5→M7 pattern (prove mechanics + budget headlessly; tune feel on the visual client). Two accepted gap-review items are presentation and live in **M7** instead: the **death-recap card (M7-P1)** and **audio (M7-P2)**.
 
+## M6 — Voice (Proximity + Squad) — spec drafted (2026-06-18)
+
+Spec: [`docs/specs/voice.md`](specs/voice.md). ADR: [`0006-gdextension-voice-codec.md`](adr/0006-gdextension-voice-codec.md). Milestone: [`M6-voice.md`](milestones/M6-voice.md). Brainstormed as **parallel pipeline-filler work** (docs-only, zero merge surface with the in-flight M7-art / M7.5-bot-AI / M11-destruction agents). **Gate stays blocked on the M7 client** (human-validated); the spec + ADR unblock the implementation plan now.
+
+| Task | Owner | Status | Notes |
+|---|---|---|---|
+| M6 voice brainstorm + spec | claude | done | `docs/specs/voice.md` — relay-not-mix; 2nd-port + E-core relay thread (full tick isolation); Opus via first GDExtension; proximity PTT enemies-audible + squad PTT team-private. Owner-ratified forks (codec / proximity model / transport-isolation) 2026-06-18. |
+| ADR-0006 (first GDExtension) | claude | done (Proposed) | `docs/adr/0006-gdextension-voice-codec.md` — stub; promote to Accepted when the M6 plan lands. |
+| M6 implementation plan | — | todo | `writing-plans` → `docs/plans/`; per-phase (codec ext → wire/relay/isolation → client capture/playback → integration). Blocked-for-gate on M7 client; plan can be written now. |
+| M6 execute | — | blocked | by M7 rendered client (human-validated gate). |
+
 ## M5.5 — Combat Depth II — todo (planned 2026-06-17)
 
 Spec: [`docs/specs/combat-depth-2.md`](specs/combat-depth-2.md). Milestone: [`M5.5-combat-depth-2.md`](milestones/M5.5-combat-depth-2.md). From the 2026-06-17 BattleBit feature-gap review (owner-approved). Three independently-gated phases; per-phase plans via `writing-plans` → `subagent-driven-development`.
