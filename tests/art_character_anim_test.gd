@@ -1,9 +1,9 @@
 extends TestCase
 
-func test_idle_when_still_and_alive() -> void:
+func test_holding_pose_when_still_and_alive() -> void:
 	var r := CharacterAnim.clip_for(false, 0.0, Stance.STAND)
-	assert_eq(r["clip"], "idle", "still -> idle")
-	assert_true(r["loop"], "idle loops")
+	assert_eq(r["clip"], "holding-both", "still + armed -> two-handed weapon-ready hold")
+	assert_true(r["loop"], "the ready hold loops (breathing)")
 
 func test_walk_above_walk_threshold() -> void:
 	var r := CharacterAnim.clip_for(false, 1.5, Stance.STAND)

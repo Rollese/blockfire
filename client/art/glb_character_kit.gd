@@ -9,6 +9,12 @@ extends Object
 
 const SCENE_PATH := "res://assets/characters/character-a.glb"
 const STAND_HEIGHT := 1.8   # must equal CharacterKit.STAND_HEIGHT
+const HAND_NODE := "arm-right"                  # the GLB node the weapon is parented under (the hand)
+# In-hand placement, in the hand node's LOCAL space. PLAYTEST KNOBS — tune by eye, not derivable
+# headlessly (depends on the model's normalization scale + arm axis). Starting guesses below.
+const WEAPON_OFFSET := Vector3(0.0, -0.35, 0.15)   # down toward the hand, slightly forward
+const WEAPON_ROT := Vector3(0.0, 0.0, 0.0)         # barrel orientation (radians); tune at playtest
+const WEAPON_SCALE := 1.0                          # compensate for the model's normalization scale
 
 static func build() -> Node3D:
 	var ps := load(SCENE_PATH) as PackedScene
@@ -23,7 +29,23 @@ static func build() -> Node3D:
 	# CharacterKit root: natural scale 1, natural height == STAND_HEIGHT.
 	var wrapper := Node3D.new()
 	wrapper.add_child(model)
+	attach_weapon(wrapper, Weapon.AR)
 	return wrapper
+
+## Parent a WeaponKit weapon under the model's hand node so the soldier visibly carries it. The GLB
+## is node-transform animated (no skeleton), so a child of the hand node follows the hand through
+## every clip. Returns true if attached. Placement is a playtest knob (see consts). Presentation-only.
+static func attach_weapon(root: Node3D, weapon_id: int) -> bool:
+	var hand := root.find_child(HAND_NODE, true, false)
+	if hand == null:
+		return false
+	var weapon := WeaponKit.build(weapon_id)
+	weapon.name = "HeldWeapon"
+	weapon.position = WEAPON_OFFSET
+	weapon.rotation = WEAPON_ROT
+	weapon.scale = Vector3(WEAPON_SCALE, WEAPON_SCALE, WEAPON_SCALE)
+	hand.add_child(weapon)
+	return true
 
 ## The model's AnimationPlayer, searched recursively (it is now nested under the wrapper).
 static func anim_player(node: Node3D) -> AnimationPlayer:
