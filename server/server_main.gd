@@ -186,7 +186,9 @@ func _ready() -> void:
 			var cell := origin + _rotate_offset(piece["offset"], inst_yaw)
 			var bsid := _next_struct_id
 			_next_struct_id += 1
-			_store.place(bsid, int(piece["type"]), cell, (int(piece["yaw"]) + inst_yaw) % BuildGrid.YAW_STEPS, -1, bid)
+			var placed := _store.place(bsid, int(piece["type"]), cell, (int(piece["yaw"]) + inst_yaw) % BuildGrid.YAW_STEPS, -1, bid)
+			if placed.is_empty():
+				push_error("[map] building '%s' piece at cell %s overlaps an occupied cell (dropped)" % [b["prefab"], cell])
 	_gadgets = Gadget.load_file(GADGETS_PATH)
 	if _gadgets == null:
 		push_error("[server] failed to load gadgets %s" % GADGETS_PATH); get_tree().quit(1); return
