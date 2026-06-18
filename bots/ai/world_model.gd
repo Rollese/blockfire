@@ -3,7 +3,7 @@ extends RefCounted
 ## Snapshot-derived per-bot world view. Built fresh each AI tick by Perception.
 ## All fields derive ONLY from the interest snapshot (fair-play; see docs/specs/bot-ai.md §3).
 var self_state: EntityState = null
-var enemies: Array[Dictionary] = []        # {id, pos, stance, dist, last_seen_tick}
+var enemies: Array[Dictionary] = []        # {id, pos, stance, dist, last_seen_tick}; optional combat-scoring fields hp_frac/priority added when perception populates them
 var allies: Array[Dictionary] = []          # {id, pos, dist}
 var downed_allies: Array[Dictionary] = []   # {id, pos, dist}
 var cover: Array[Vector3] = []               # candidate cover centres

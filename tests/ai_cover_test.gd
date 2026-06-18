@@ -19,3 +19,6 @@ func test_no_cover_returns_self_pos() -> void:
 func test_desired_stance_crouches_under_fire() -> void:
 	assert_eq(AiCover.desired_stance(0.9), Stance.CROUCH, "high pressure -> crouch")
 	assert_eq(AiCover.desired_stance(0.0), Stance.STAND, "calm -> stand")
+
+func test_desired_stance_at_threshold_crouches() -> void:
+	assert_eq(AiCover.desired_stance(0.5), Stance.CROUCH, "exactly at threshold (>=0.5) -> crouch")
