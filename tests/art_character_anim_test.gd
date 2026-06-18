@@ -14,11 +14,13 @@ func test_sprint_above_sprint_threshold() -> void:
 	var r := CharacterAnim.clip_for(false, 6.0, Stance.STAND)
 	assert_eq(r["clip"], "sprint", "high speed -> sprint")
 
-func test_downed_plays_die_pose_non_looping() -> void:
+func test_downed_uses_calm_lying_pose() -> void:
+	# Downed (DBNO) is alive, lying on the back — the renderer tips the body face-up. We want a calm
+	# breathing pose, NOT the `die` collapse clip (which flails the arms and reads as "hands-up").
 	var r := CharacterAnim.clip_for(true, 0.0, Stance.STAND)
-	assert_eq(r["clip"], "die", "downed -> die collapse pose")
-	assert_false(r["loop"], "die does not loop (holds last frame)")
+	assert_eq(r["clip"], "idle", "downed -> calm idle (renderer lays it on its back)")
+	assert_true(r["loop"], "downed pose loops (alive, breathing)")
 
 func test_downed_overrides_movement() -> void:
 	var r := CharacterAnim.clip_for(true, 6.0, Stance.STAND)
-	assert_eq(r["clip"], "die", "downed wins over speed")
+	assert_eq(r["clip"], "idle", "downed wins over speed (no sprinting while incapacitated)")

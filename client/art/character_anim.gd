@@ -10,7 +10,9 @@ const SPRINT_SPEED := 4.5   # m/s above which it is "sprinting"
 
 static func clip_for(downed: bool, speed: float, _stance: int) -> Dictionary:
 	if downed:
-		return {"clip": "die", "loop": false}   # collapse pose; held at last frame
+		# DBNO: alive but incapacitated. The renderer lays the body on its back (face-up); a calm
+		# looping idle reads as "downed, breathing" — not the `die` collapse clip (arm-flail).
+		return {"clip": "idle", "loop": true}
 	if speed >= SPRINT_SPEED:
 		return {"clip": "sprint", "loop": true}
 	if speed >= WALK_SPEED:

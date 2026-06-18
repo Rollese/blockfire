@@ -344,12 +344,13 @@ func _pose_entity(id: int, node: Node3D, es: EntityState, render_delta: float) -
 	var tilt: float = pose["tilt"] as float
 
 	if es.stance == Stance.PRONE or es.is_downed:
-		# Prone / downed: lay the soldier flat along its facing direction. A vertical scale would
-		# crush the standing figure into an unrecognisable blob, so instead tip the upright body
-		# 90° forward about its (yawed) right axis so it lies full-length on the ground.
+		# Lay the soldier flat along its facing direction (a vertical scale would crush the figure
+		# into a blob). Prone = face-DOWN (crawling/firing); downed (DBNO) = face-UP, on the back, so
+		# an incapacitated teammate reads differently from someone prone. Downed wins if both hold.
+		var pitch: float = -PI * 0.5 if es.is_downed else PI * 0.5
 		var b := Basis.IDENTITY
 		b = b.rotated(Vector3.UP, es.yaw)
-		b = b.rotated(b.x, PI * 0.5)   # pitch head forward, down onto the ground
+		b = b.rotated(b.x, pitch)   # +90 = head pitches forward/down (prone); -90 = onto the back (downed)
 		node.transform.basis = b
 		node.scale = Vector3.ONE
 		node.position = Vector3(es.pos.x, es.pos.y + PRONE_LIFT, es.pos.z)
