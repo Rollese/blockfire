@@ -58,3 +58,11 @@ func test_collapse_drops_buildings_pieces() -> void:
 	assert_false(wv.structures().has(1), "building 7 piece dropped")
 	assert_false(wv.structures().has(2), "building 7 piece dropped")
 	assert_true(wv.structures().has(3), "loose piece kept")
+	assert_eq(wv.take_collapsed(), [7], "collapsed building id queued for rubble spawn")
+
+func test_collapse_zero_is_ignored() -> void:
+	var wv := WorldView.new()
+	wv._structs[3] = {"id": 3, "type": 1, "cell": Vector3i(9,0,0), "yaw": 0, "chunks": -1, "building_id": 0}
+	wv.apply_collapse(0)
+	assert_true(wv.structures().has(3), "apply_collapse(0) must NOT wipe loose pieces")
+	assert_eq(wv.take_collapsed(), [], "no collapse queued for id 0")

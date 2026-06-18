@@ -52,6 +52,8 @@ func structures() -> Dictionary:
 
 ## M11: a building fully collapsed server-side — drop all its piece records (renderer swaps rubble).
 func apply_collapse(building_id: int) -> void:
+	if building_id == 0:
+		return  # sentinel / loose pieces are never a valid collapse target
 	var drop: Array = []
 	for id in _structs:
 		if int(_structs[id].get("building_id", 0)) == building_id:
