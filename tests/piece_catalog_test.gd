@@ -96,3 +96,5 @@ func test_catalog_index_order_is_stable() -> void:
 	var cat := PieceCatalog.load_file("res://pieces/pieces.json")
 	assert_eq(cat.name_of(0), "sandbag", "index 0 stays sandbag")
 	assert_eq(cat.name_of(1), "wall", "index 1 stays wall (player fortification)")
+	assert_eq(cat.name_of(8), "brailing", "index 8 stays brailing (chunk_grid 4)")
+	assert_eq(cat.name_of(9), "prop_crate", "index 9 stays prop_crate (chunk_grid 1)")
