@@ -2,7 +2,7 @@ class_name BuildingCatalog
 extends RefCounted
 ## Pure loader/validator for buildings/*.json prefabs. A prefab is a name + a list of pieces,
 ## each {type:String, offset:Vector3i (cells from origin), yaw:int (0..YAW_STEPS-1), structural?:bool}.
-## Validated against a PieceCatalog (types must exist). No engine deps beyond JSON/FileAccess.
+## Validated against a PieceCatalog (types must exist). No Godot Node/Resource deps (uses BuildGrid + PieceCatalog sim classes).
 
 ## Returns {ok:bool, prefab:{name, pieces:[{type:int, offset:Vector3i, yaw:int, structural:bool}]}, error:String}.
 static func from_dict(data: Dictionary, catalog: PieceCatalog) -> Dictionary:
@@ -22,9 +22,12 @@ static func from_dict(data: Dictionary, catalog: PieceCatalog) -> Dictionary:
 		var off = p["offset"]
 		if not (off is Array) or off.size() != 3:
 			return {"ok": false, "prefab": null, "error": "offset must be 3 ints"}
+		for elem in off:
+			if typeof(elem) != TYPE_INT and typeof(elem) != TYPE_FLOAT:
+				return {"ok": false, "prefab": null, "error": "offset elements must be numbers"}
 		var yaw := int(p.get("yaw", 0))
 		if yaw < 0 or yaw >= BuildGrid.YAW_STEPS:
-			return {"ok": false, "prefab": null, "error": "yaw out of range"}
+			return {"ok": false, "prefab": null, "error": "yaw must be 0..%d" % (BuildGrid.YAW_STEPS - 1)}
 		out.append({
 			"type": ti,
 			"offset": Vector3i(int(off[0]), int(off[1]), int(off[2])),
