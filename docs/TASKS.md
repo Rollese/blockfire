@@ -38,7 +38,8 @@ Spec: [`docs/specs/destructible-buildings.md`](specs/destructible-buildings.md).
 | Task | Owner | Status | Notes |
 |---|---|---|---|
 | M11 brainstorm + spec | claude | done | `docs/specs/destructible-buildings.md` (this brainstorm-of-record); branch `m11-destructible-buildings` |
-| M11 implementation plan(s) | — | todo | via `writing-plans` → `subagent-driven-development`; phase the unify refactor + M4 re-gate before chunk/cascade/collapse, client cosmetic layer last (needs M7) |
+| M11-P1 plan (chunked store) | claude | done | [`2026-06-18-m11-p1-chunked-store.md`](plans/2026-06-18-m11-p1-chunked-store.md) — 11 TDD tasks. **Option B**: full source-of-truth flip (chunk mask + spatial clear + hole-aware march + per-type immunity + OP_CHUNK wire) + M4 re-gate |
+| M11 P2/P3/P4 plans | — | todo | written after P1 lands (reflect real API): P2 support cascade + collapse; P3 building prefab authoring + procedural art; P4 client cosmetic layer (**needs M7**) |
 | M11 execute — sim (unify + chunks + cascade + collapse) | — | blocked | Gate A: 128-bot headless (chunks + cascade + collapse + replicate + budget + winner) **+ M4 re-gate**. **Unify touches M4 closed hot paths — re-gate mandatory** |
 | M11 execute — client cosmetic layer | — | blocked | **Blocked by M7 client.** Gate B: owner playtest (holes/debris/collapse cinematic) |
 | Coordinate melee wall-damage with M5.5-P3 | — | todo | M5.5-P3 owns the sledge/pickaxe gadget; M11 owns the melee→chunk-damage hook (minimal sledge if P3 not landed) |
