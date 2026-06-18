@@ -1498,7 +1498,7 @@ func _damage_structure(id: int, source: int, impact: Vector3, radius: float) -> 
 
 ## Flush queued removes + chunk-mask deltas to interested clients, bounded by
 ## MAX_STRUCTURE_DELTAS_PER_TICK (removes first; overflow carried to next tick). Authoritative
-## state is already applied — only the SEND volume is throttled. See docs/specs/destruction.md.
+## state is already applied — only the SEND volume is throttled. See docs/specs/destructible-buildings.md.
 func _emit_structure_deltas() -> void:
 	var budget := MAX_STRUCTURE_DELTAS_PER_TICK
 	while not _pending_removes.is_empty() and budget > 0:
