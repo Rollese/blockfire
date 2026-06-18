@@ -41,7 +41,7 @@ netcode coarse and deterministic.
 |---|---|
 | **Two granularities:** pieces (2 m cells; structure/support/collapse) + **0.25 m sub-cell chunks** (8×8 alive-mask per piece face; holes/chipping) | Per-brick **authoritative** physics (forever — coarse chunk-mask only) |
 | **Unify** `StructureStore`: every piece carries a 64-bit chunk alive-mask; M4 player-building refactored onto it and **re-gated** | **Client-divergent** destruction; **rigid-body tumbling** as gameplay |
-| **Hole-aware** ray-march/cover (a shot through a dead chunk passes through) | **Terrain/ground** deformation (buildings only, v1) |
+| Pieces block bullets/movement until **fully destroyed** (mask==0) — M4-equivalent cover | **Hole-aware march** (shoot/see through *partial* holes) — **deferred** to a later phase (needs art face geometry, P3/P4); **Terrain/ground** deformation (buildings only, v1) |
 | **Support-reachability cascade**: destroying load-bearing pieces orphans unsupported pieces → removed (chain reaction); degrades to a **whole-building collapse** event for large orphans | Per-piece **repair** (masks only ever lose bits in v1) |
 | **Procedural building art kit** (walls/window/door/floor/stair/column/railing + props) with whole→damaged→destroyed states + per-building **rubble** model | **Bespoke** hand-modelled buildings; CC0 import (fully procedural chosen) |
 | **Furniture/props** as lightweight **non-structural** destructible cover pieces | Building **resource/economy**; dynamic player-built *multi-cell* buildings |
@@ -65,7 +65,7 @@ netcode coarse and deterministic.
 ## Budgets (gate pass/fail)
 
 - **Server tick:** mean step **< 33.3 ms** at 128 bots (30 Hz held), including everything M4
-  measured **plus** chunk-mask damage, hole-aware march, support-cascade flood-fill, and chunk/
+  measured **plus** chunk-mask damage, support-cascade flood-fill, and chunk/
   collapse delta emission. M4-P2 fleet peak was **29.48 ms** (budget 33.3) and the tick is
   snapshot-dominated — headroom is thin, so M11 must add **no systematic per-tick cost**:
   - Chunk damage and cascade are **event-driven** (explosive/melee events, rare vs. 30 Hz), not
@@ -101,7 +101,7 @@ shared/sim/
   structure.gd        (mod) StructureStore: record gains chunks:int (alive-mask) + building_id:int;
                           health derived from popcount. apply_damage replaced by
                           damage_chunks(id, source_type, impact, radius) -> {hit, holed, destroyed,
-                          mask}; hole-aware march (skip dead chunk); ids_in_radius reused for blast.
+                          mask}; ids_in_radius reused for blast. (Hole-aware march deferred — §A.)
   support.gd          NEW  Support graph over StructureStore: foundation_of(building_id),
                           orphaned_after(removed_ids, building_id) -> Array[id] (flood-fill from
                           foundation; pure). Collapse threshold logic. Unit-tested.
@@ -146,10 +146,13 @@ ci/m11_buildings_test.sh NEW  gate: 128 bots vs destructible buildings; assert h
   sources allowed by the piece-type `damage_types` clear chunks (Decision A).
 - **Removal:** when `chunks == 0`, `store.remove(id)` + free the cell + (if `structural`) trigger a
   support re-evaluation for the piece's `building_id` (§C).
-- **Hole-aware march:** in `march`/`_ray_piece`, after the ray-AABB hit, compute the face UV at the
-  hit point → chunk bit; if the bit is **dead** (a hole), the ray **passes through** (continue the
-  march past this piece). Cost = one bit test added to the existing per-cell hit. Makes holes
-  tactically real (shoot/see through them) and keeps cover authoritative.
+- **Cover (P1):** a piece blocks the ray (and movement) as long as it exists — i.e. while **any**
+  chunk is alive — identical to M4 cover. Full destruction (`chunks == 0` → removed) stops blocking.
+  **Hole-aware march** (a shot passing through a *dead* chunk on a partially-holed piece) is
+  **deferred** to a later phase (amended 2026-06-18): the chunk-face geometry it needs is
+  ill-defined against M4's full-cell AABB collision and is properly designed against the actual wall
+  meshes/orientation in P3/P4. P1 partial holes are **cosmetic** (chunk state still tracked +
+  replicated); they do not yet open a firing line.
 
 ## B. Damage sources (`server/server_main.gd`)
 
@@ -260,8 +263,8 @@ All values gate-tuned in `ci/m11_buildings_test.sh`, exactly like the M4 constan
   `popcount` damage state; `chunk_at(face_uv)` boundaries.
 - `structure.damage_chunks`: respects `damage_types` (bullet no-ops on a building piece; clears on a
   sandbag); removes the piece at `mask == 0`; returns `{hit, holed, destroyed, mask}`.
-- **hole-aware march:** a ray through a **dead** chunk passes (no block); through a **live** chunk
-  blocks at the right distance; nearest live piece wins; half-height interaction preserved.
+- **cover (P1):** a partially-damaged piece still blocks the ray (any chunk alive); a fully
+  destroyed piece (`mask == 0`) no longer blocks and frees its cell. (Hole-aware march deferred — §A.)
 - `support.orphaned_after`: removing a foundation/column orphans the dependent pieces (full
   fixed-point in one pass); a self-supported remainder is **not** orphaned; threshold → collapse set.
 - **protocol:** `OP_PLACE` (with mask + building_id), `OP_CHUNK`, `OP_REMOVE`, `COLLAPSE`, and

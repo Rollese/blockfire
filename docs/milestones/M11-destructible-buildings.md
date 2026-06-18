@@ -12,7 +12,7 @@ Destruction + gunplay feel are the most important parts of the game (owner-direc
 
 - **Two granularities:** pieces (2 m cells; structure/support/collapse) + **0.25 m sub-cell chunks** (8×8 = 64-bit alive-mask per piece face; holes/chipping).
 - **Unify** `StructureStore` so every piece is chunked; M4 player-building is refactored onto it and **re-gated** (no second destruction codepath).
-- **Hole-aware** ray-march/cover (a shot through a dead chunk passes through).
+- Cover: a piece blocks until **fully destroyed** (M4-equivalent). **Hole-aware march** (shoot through partial holes) is **deferred** to a later phase (needs the art's face geometry — amended 2026-06-18).
 - **Support-reachability cascade**: destroying load-bearing pieces orphans unsupported pieces → removed (chain reaction); degrades to a single **whole-building collapse** event for large orphans (→ swap to static rubble).
 - Damage from **explosives** (reuse M4 frag + M4.5 RPG) and **melee** (sledge/pickaxe). **Bullets do not** carve building walls (per-type catalog flag; player-built fortifications keep M4 bullet vulnerability).
 - **Fully procedural** building art kit (walls/window/door/floor/stair/column/railing + props) with whole→damaged→destroyed states + per-building rubble model; furniture/props are non-structural destructible cover pieces.

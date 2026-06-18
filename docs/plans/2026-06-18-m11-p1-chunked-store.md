@@ -2,7 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Flip every `StructureStore` piece onto a 64-bit sub-cell **chunk alive-mask** as the single source of truth for destruction (spatial clear-where-hit + hole-aware ray-march + per-type damage immunity), replacing M4's scalar-HP/bucket model, and **re-gate M4** to prove no regression.
+**Goal:** Flip every `StructureStore` piece onto a 64-bit sub-cell **chunk alive-mask** as the single source of truth for destruction (spatial clear-where-hit + per-type damage immunity), replacing M4's scalar-HP/bucket model, and **re-gate M4** to prove no regression.
+
+> **Execution amendments (2026-06-18):** Tasks **4+5 merged** (record + `damage_chunks` land together — a typed-method removal parse-breaks dependent test files, which must migrate in the same commit) and **7+8 merged** (protocol rename + bot mirror). **Task 6 (hole-aware march) DESCOPED** to a later phase (chunk-face geometry needs the art; P1 pieces block until fully destroyed). Net P1 tasks: 1, 2, 3, 4(+5), 7(+8), 9, 10, 11.
 
 **Architecture:** A piece's destruction state becomes an N×N (N=`chunk_grid`, max 8 → 64 chunks) alive-mask held in one Godot `int`. Damage sources (bullet/explosive/melee) clear chunks within a world radius of the impact, projected onto the piece face; a piece is destroyed when its mask hits 0. The ray-march skips dead chunks (holes you can shoot through). All logic stays in `shared/` (server-authoritative, deterministic, unit-testable). Replication swaps M4's `OP_DAMAGE{id,bucket}` for `OP_CHUNK{id,mask:u64}` and carries the mask + `building_id` in the place/baseline record.
 
@@ -481,11 +483,18 @@ git commit -m "feat(m11): StructureStore.damage_chunks (spatial clear + per-type
 
 ---
 
-### Task 6: Hole-aware ray-march
+### Task 6: Hole-aware ray-march — **DESCOPED (2026-06-18)**
 
-**Files:**
-- Modify: `shared/sim/structure.gd`
-- Test: `tests/structure_march_test.gd`
+**Status:** DROPPED from Phase 1 (owner-approved). The chunk-face geometry hole-aware march needs is
+ill-defined against M4's full-cell AABB collision (a ray can enter any of 6 faces; chunks live on
+one plane → impacts and shots don't align in 3D). It is **deferred** to a later phase where the
+chunk-face model is designed against the actual wall meshes/orientation (P3/P4 art).
+
+**Phase-1 behaviour instead:** `march` is left exactly as M4 — a piece blocks the ray while **any**
+chunk is alive; full destruction (`chunks == 0` → removed) stops blocking (already covered by Task 4
+/ `structure_cover_test`). No code change here. Skip to Task 7. (Spec §A amended to match.)
+
+<details><summary>Original (void) steps — do not implement</summary>
 
 A ray that strikes a piece at a **dead** chunk passes through (a hole); a live chunk blocks as
 before. With the default `chunk_grid=1` (single chunk) the behaviour is identical to M4, so existing
@@ -546,6 +555,8 @@ Expected: PASS (new test + existing single-chunk march tests).
 git add shared/sim/structure.gd tests/structure_march_test.gd
 git commit -m "feat(m11): hole-aware ray-march (shots pass through dead chunks)"
 ```
+
+</details>
 
 ---
 
@@ -868,7 +879,7 @@ git commit -m "docs(m11): record Phase 1 M4 re-gate evidence"
 ## Self-Review
 
 **Spec coverage (Phase-1 slice of `docs/specs/destructible-buildings.md`):**
-- §A chunk model (64-bit mask, born full, popcount, clear-in-radius, hole-aware march) → Tasks 1, 5, 6. ✓
+- §A chunk model (64-bit mask, born full, popcount, clear-in-radius) → Tasks 1, 4. ✓ (hole-aware march descoped to a later phase — see Task 6 banner)
 - §2 unified store (chunks + building_id, health dropped) → Task 4. ✓
 - Decision 4 (0.25 m / 8×8 / per-type grid) → Tasks 1–3 (`chunk_grid`, fortifications 8×8). ✓
 - Decision 5 / §B (per-type bullet immunity; player pieces keep bullet) → Tasks 2, 3, 5, 9. ✓
