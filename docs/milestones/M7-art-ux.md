@@ -121,7 +121,7 @@ Deterministic headless tests for everything testable — prediction/reconciliati
 - [client-prediction.md](../specs/client-prediction.md) — P1 client architecture, prediction/reconciliation, new netcode, test plan. ✅
 - [hud-ui.md](../specs/hud-ui.md) — P1 HUD model+view, menus, keybind defaults, test plan. ✅
 - [ADR-0005](../adr/0005-client-renderer.md) — renderer choice. ✅
-- `art-pipeline.md` — **P2**, written when reached.
+- [art-pipeline.md](../specs/art-pipeline.md) — **P2** presentation design-of-record (kit conventions + GLB import flow + open tracks: LOD, animation, combat VFX). Drafted 2026-06-18; structure-destruction visuals scoped out (owned by M11). ✅
 
 ## Deferred out of M7
 - **Steam auth + VAC** (Layer 5) and **anti-cheat L3 — LOS replication culling** (Layer 3) → later online/anti-cheat track; see [anti-cheat-matchmaking](../specs/anti-cheat-matchmaking.md).
