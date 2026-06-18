@@ -180,6 +180,8 @@ func _ready() -> void:
 		_next_building_id += 1
 		var origin: Vector3i = b["origin_cell"]
 		var inst_yaw: int = int(b["yaw"])
+		if inst_yaw < 0 or inst_yaw >= BuildGrid.YAW_STEPS:
+			push_error("[map] building '%s' yaw %d out of range" % [b["prefab"], inst_yaw]); continue
 		for piece in pres["prefab"]["pieces"]:
 			var cell := origin + _rotate_offset(piece["offset"], inst_yaw)
 			var bsid := _next_struct_id
@@ -329,7 +331,7 @@ func _piece_index(piece_id: String) -> int:
 			return i
 	return -1
 
-## Rotate a cell offset by a yaw step (90° increments; YAW_STEPS is a multiple of 4) around Y.
+## Rotate a cell offset to the nearest 90° quarter-turn around Y. yaw_step is in 45° units (YAW_STEPS=8); odd steps quantise down to the lower quarter (cells can't sit at 45°).
 func _rotate_offset(off: Vector3i, yaw_step: int) -> Vector3i:
 	var quarters := (yaw_step % BuildGrid.YAW_STEPS) / (BuildGrid.YAW_STEPS / 4)
 	var x := off.x
@@ -1542,6 +1544,10 @@ func _resolve_cascades() -> void:
 			continue
 		if Support.should_collapse(orphans.size()):
 			for oid in _store.ids_of_building(bid):
+				var crec := _store.get_record(oid)
+				if not crec.is_empty():
+					_remove_c4_on_cell(crec["cell"])
+				_dmg_touched.erase(oid)
 				_store.remove(oid)
 			_collapsed += 1
 			var bytes := Protocol.encode_collapse(bid)
@@ -1553,6 +1559,7 @@ func _resolve_cascades() -> void:
 				if orec.is_empty():
 					continue
 				var ocell: Vector3i = orec["cell"]
+				_remove_c4_on_cell(ocell)
 				_store.remove(oid)
 				_pending_removes.append({"id": oid, "cell": ocell})
 				_dmg_touched.erase(oid)
