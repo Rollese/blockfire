@@ -34,7 +34,7 @@ func decide() -> Dictionary:
 	var w := _world
 	var me: EntityState = w.self_state if w else null
 	var default_intent := {"move_x": 0.0, "move_y": 0.0, "yaw": (me.yaw if me else 0.0), "pitch": 0.0, "buttons": 0, "stance": Stance.STAND, "behavior": "push_obj"}
-	if w == null:
+	if w == null or me == null:
 		return default_intent
 	var scores := Utility.score(w, float(_profile.get("aggression", 1.0)), _current_behavior)
 	var behavior := Utility.choose(scores, _current_behavior, Utility.HYSTERESIS_BONUS)
@@ -78,7 +78,7 @@ func decide() -> Dictionary:
 		"retreat":
 			var c := AiCover.pick_cover(w)
 			var dest := c
-			if c == me.pos and w.enemies.size() > 0:
+			if w.cover.is_empty() and w.enemies.size() > 0:
 				dest = me.pos + (me.pos - _nearest_enemy_pos(w, me.pos))   # flee directly away
 			var mv := _flat_dir(me.pos, dest)
 			intent["move_x"] = mv.x; intent["move_y"] = mv.y

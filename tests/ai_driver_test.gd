@@ -78,6 +78,14 @@ func test_suppress_holds_and_faces_fresh_enemy() -> void:
 	assert_almost_eq(float(intent["move_y"]), 0.0, 0.001, "suppress holds position (y)")
 	assert_true(int(intent["buttons"]) & InputCommand.BTN_FIRE == 0, "no fire before reaction gate clears")
 
+func test_decide_safe_when_self_absent_from_view() -> void:
+	var ai := AiDriver.new(42, 0, "regular")
+	# my_id 1 is NOT in the view -> self_state null -> must not crash, returns a safe default intent.
+	ai.observe(1, {2: _es(1, Vector3(10, 0, 0))}, {}, {}, [], 100, Vector3.ZERO)
+	var intent := ai.decide()
+	assert_true(intent.has("behavior"), "returns a valid intent dict even with no self")
+	assert_almost_eq(float(intent["move_x"]), 0.0, 0.001, "no movement without self")
+
 func test_retreat_moves_toward_cover_when_critically_hurt() -> void:
 	var ai := AiDriver.new(42, 0, "regular")
 	var enemy := _es(1, Vector3(10, 0, 0))
