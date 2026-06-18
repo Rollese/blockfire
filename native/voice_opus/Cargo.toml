@@ -1,0 +1,13 @@
+[package]
+name = "voice_opus"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+# gdext 0.5.3 — supports Godot 4.2–4.6; api-4-6 pins the generated bindings to 4.6.
+godot = { version = "0.5.3", features = ["api-4-6"] }
+# opus 0.3.1 — links system libopus via pkg-config (libopus 1.6.1 system-wide).
+opus = "0.3"
