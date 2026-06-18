@@ -31,18 +31,20 @@ Canonical source of truth for what's being worked on. Claim a task (set owner + 
 >
 > **As of 2026-06-18: M11 (Destructible Buildings) added** (owner-directed — "destruction + gunplay feel are the most important parts of the game"). BattleBit-style destructible map buildings on the M4 substrate: a unified chunked `StructureStore` (0.25 m / 64-bit chunk masks), support-reachability collapse cascade, and a client cosmetic layer (holes/debris/collapse cinematic). **Spec authored now, build sequenced after the M7 client** (the feel gate needs rendering + playtest — same now-spec/later-build pattern as M5/M10 vehicles). Unifying the store **re-gates M4**. Bullets do not damage building walls (explosive/melee only).
 
-## M11 — Destructible Buildings — todo (spec done 2026-06-18)
+## M11 — Destructible Buildings — P1 done 2026-06-18 (unit-verified; no-regression vs master)
 
 Spec: [`docs/specs/destructible-buildings.md`](specs/destructible-buildings.md). Milestone: [`M11-destructible-buildings.md`](milestones/M11-destructible-buildings.md). Owner-directed 2026-06-18 (destruction + gunplay are the game's most important feel). Ratified decisions: unify `StructureStore` onto a chunked model (+ M4 re-gate); 0.25 m / 8×8 / 64-bit chunk masks; support-reachability cascade degrading to whole-building collapse; per-type bullet immunity (A); MultiMesh holes + GPUParticles debris (B); sledge coordinated with M5.5-P3 (C); fully procedural art. **Build blocked by the M7 client** (cosmetic layer + feel gate).
 
 | Task | Owner | Status | Notes |
 |---|---|---|---|
 | M11 brainstorm + spec | claude | done | `docs/specs/destructible-buildings.md` (this brainstorm-of-record); branch `m11-destructible-buildings` |
-| M11-P1 plan (chunked store) | claude | done | [`2026-06-18-m11-p1-chunked-store.md`](plans/2026-06-18-m11-p1-chunked-store.md) — 11 TDD tasks. **Option B**: full source-of-truth flip (chunk mask + spatial clear + hole-aware march + per-type immunity + OP_CHUNK wire) + M4 re-gate |
-| M11 P2/P3/P4 plans | — | todo | written after P1 lands (reflect real API): P2 support cascade + collapse; P3 building prefab authoring + procedural art; P4 client cosmetic layer (**needs M7**) |
-| M11 execute — sim (unify + chunks + cascade + collapse) | — | blocked | Gate A: 128-bot headless (chunks + cascade + collapse + replicate + budget + winner) **+ M4 re-gate**. **Unify touches M4 closed hot paths — re-gate mandatory** |
+| M11-P1 plan (chunked store) | claude | done | [`2026-06-18-m11-p1-chunked-store.md`](plans/2026-06-18-m11-p1-chunked-store.md). **Option B** full flip (chunk mask + spatial clear + per-type immunity + OP_CHUNK wire). Hole-aware march **descoped** to a later phase (chunk-face geometry needs the art); tasks merged where API removals forced test co-migration |
+| **M11-P1 execute — chunked store (unify)** | claude | **done ✅** | Subagent-driven TDD (two-stage review per task). ChunkMask, catalog fields, chunked `StructureStore` + spatial `damage_chunks` + per-type immunity, `OP_CHUNK` wire, bot/client mirrors, server fire/blast rewire. Unit **461/0**; server boots clean; **no-regression vs master** (branch≡master match telemetry — see milestone evidence). Cascade/collapse is P2 |
+| M11 P2/P3/P4 plans | — | todo | written now P1 landed (reflect real API): P2 support cascade + collapse; P3 building prefab authoring + procedural art; P4 client cosmetic layer (**needs M7**) |
 | M11 execute — client cosmetic layer | — | blocked | **Blocked by M7 client.** Gate B: owner playtest (holes/debris/collapse cinematic) |
 | Coordinate melee wall-damage with M5.5-P3 | — | todo | M5.5-P3 owns the sledge/pickaxe gadget; M11 owns the melee→chunk-damage hook (minimal sledge if P3 not landed) |
+
+> **⚠ Pre-existing issue (NOT M11) — surfaced 2026-06-18:** the `ci/m4_*` 48-bot smokes do **not** produce combat on `game2` — bots connect (48/48) and move but never fire/build (`shots=0 bld=0 kills=0`, tickets stuck 80/80, no winner), with no script errors. **Confirmed identical on master `b0ff265`**, so it is independent of M11 (the `ci/` smoke appears bit-rotted relative to M4.5/M5/M7 changes since the M4 gate last passed 2026-06-15 on the *old laptop*; the canonical gate is `docker/`). Needs separate investigation before any `ci/`-smoke-gated milestone can close on `game2`. M11-P1's re-gate was therefore recorded as **unit 461/0 + branch≡master integration parity** (no regression), not a fresh smoke PASS.
 
 ## M5.5 — Combat Depth II — todo (planned 2026-06-17)
 

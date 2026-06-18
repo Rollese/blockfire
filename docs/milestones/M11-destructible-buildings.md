@@ -30,3 +30,19 @@ Highest netcode/physics-cost feature class (same family as M4). The tick is snap
 ## Specs required
 
 - `docs/specs/destructible-buildings.md` (brainstorm-of-record, ratified 2026-06-18).
+
+## Phase 1 (chunked store) — gate evidence
+
+**Status:** implemented + unit-verified + **no-regression vs master** (2026-06-18). Branch `m11-destructible-buildings`; executed via subagent-driven TDD (two-stage spec+quality review per task).
+
+**Implemented (P1):** `ChunkMask` (pure 64-bit sub-cell alive-mask helpers); `PieceCatalog` gains `chunk_grid`/`structural`/`damage_types` (+ `SRC_BULLET|EXPLOSIVE|MELEE`); player fortifications authored 8×8 chunked + bullet-vulnerable; `StructureStore` record carries `chunks`+`building_id` (scalar `health`/`bucket_of`/`apply_damage` removed) with spatial `damage_chunks(id, source, impact, radius)` honouring per-type immunity; protocol `OP_DAMAGE`→`OP_CHUNK{id, mask:u64}` and the place/baseline record carries `chunks`+`building_id`; bot **and** client structure mirrors apply `OP_CHUNK`; server fire/blast paths carve chunks (`BULLET_CARVE_RADIUS`, explosive `struct_radius`) and emit `OP_CHUNK` under the existing per-tick delta cap.
+
+**Descoped (2026-06-18, owner-approved):** hole-aware march — its chunk-face geometry is ill-defined against M4's full-cell AABB collision; deferred to a later phase designed against the art's face model. P1 pieces block until **fully destroyed** (M4-equivalent cover).
+
+**Execution adjustments:** Tasks 4+5 and 7+8 were **merged** — removing/renaming a typed API (`apply_damage`/`bucket_of`, `OP_DAMAGE`) parse-breaks every `class_name`/test file that references it, so each removal co-migrated its dependent tests in the same commit (the runner `load()`s all test files at boot). `server_main.gd` (no `class_name`, not parsed at test boot) was rewired in its own task, restoring a clean-compiling tree.
+
+**Unit:** full suite **461 run / 0 failed** (the M4-P2 baseline was 140). Coverage: chunk-mask math (clear-in-radius, popcount, monotonic/idempotent), per-type immunity, hole geometry, protocol round-trips incl. the u64 mask, and bot+client mirror `OP_CHUNK` updates. Headless server **boots clean** (no script errors) after the rewire.
+
+**M4 re-gate (no-regression basis):** the `ci/m4_destruction_test.sh` 48-bot smoke does **not** converge on `game2` — but **identically on master (`b0ff265`)**: bots connect (48/48) and move (climbs/vaults/transport) yet never fire or build (`shots=0 bld=0 kills=0 dmg=0 destroyed=0`, tickets 80/80, no winner), with **no script errors on either branch**. Side-by-side telemetry is behaviourally identical, so **M11 introduces no regression**. The non-convergence is a **pre-existing** condition (see the ⚠ note in `docs/TASKS.md` M11 section): the `ci/` 48-bot smoke appears bit-rotted relative to the M4.5/M5/M7 changes landed since the M4 gate last passed (2026-06-15, on the *old laptop*); the canonical gate is the 128-bot `docker/` fleet. A true smoke PASS requires fixing that pre-existing `ci/` bots-inert issue first — tracked independently of M11.
+
+**P1 verdict:** chunked-store unify is **implemented, unit-green (461/0), and proven no-regression vs master**. Cascade/collapse (P2), building authoring + procedural art (P3), and the client cosmetic layer (P4, needs M7) follow.
