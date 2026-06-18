@@ -2,6 +2,11 @@ class_name Perception
 extends RefCounted
 ## Builds the per-bot WorldModel from the interest snapshot. Owns short-term memory
 ## (decaying last-known enemy positions) and the reaction-delay gate. See docs/specs/bot-ai.md §5.
+
+const REACTION_DELAY_TICKS := 9   # ~0.3s @30Hz; profile-scaled later (§11)
+const MEMORY_DECAY_TICKS := 90    # 3s @30Hz (§11)
+const PRESSURE_HP_REF := 50.0
+
 static func is_actionable(first_seen_tick: int, now: int, delay: int) -> bool:
 	return now - first_seen_tick >= delay
 
@@ -16,7 +21,6 @@ static func decay_memory(mem: Dictionary, now: int, lifetime: int) -> Dictionary
 
 ## Infer 0..1 combat pressure from observables: recent health drop (normalised by a
 ## 50 HP reference) plus an enemy currently aiming at me. Pure (§6.1).
-const PRESSURE_HP_REF := 50.0
 static func infer_pressure(prev_hp: float, cur_hp: float, aimed_at: bool) -> float:
 	var dmg: float = maxf(prev_hp - cur_hp, 0.0)
 	var p: float = dmg / PRESSURE_HP_REF
@@ -24,8 +28,6 @@ static func infer_pressure(prev_hp: float, cur_hp: float, aimed_at: bool) -> flo
 		p += 0.5
 	return clampf(p, 0.0, 1.0)
 
-const REACTION_DELAY_TICKS := 9   # ~0.3s @30Hz; profile-scaled later (§11)
-const MEMORY_DECAY_TICKS := 90    # 3s @30Hz (§11)
 var _first_seen: Dictionary = {}   # enemy_id -> tick first continuously seen
 var _memory: Dictionary = {}        # enemy_id -> {pos, tick} last-known
 ## Build the WorldModel from the snapshot view. `my_id` is this bot's pawn id.
@@ -41,9 +43,9 @@ func build(my_id: int, view: Dictionary, _vview: Dictionary, structs: Dictionary
 		var e: EntityState = view[id]
 		if me != null and e.team == me.team:
 			if e.is_downed:
-				w.downed_allies.append({"id": int(id), "pos": e.pos, "dist": (me.pos.distance_to(e.pos) if me else 0.0)})
+				w.downed_allies.append({"id": int(id), "pos": e.pos, "dist": me.pos.distance_to(e.pos)})
 			elif e.alive:
-				w.allies.append({"id": int(id), "pos": e.pos, "dist": (me.pos.distance_to(e.pos) if me else 0.0)})
+				w.allies.append({"id": int(id), "pos": e.pos, "dist": me.pos.distance_to(e.pos)})
 			continue
 		if not e.alive:
 			continue
