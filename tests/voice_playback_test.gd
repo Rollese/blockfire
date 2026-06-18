@@ -15,3 +15,7 @@ func test_squad_is_2d() -> void:
 func test_muted_speaker_is_dropped() -> void:
 	var muted := {5: true}
 	assert_false(VoicePlayback.route(VoicePacket.KIND_PROXIMITY, 5, muted)["play"])
+
+func test_muted_speaker_is_dropped_on_squad() -> void:
+	var muted := {5: true}
+	assert_false(VoicePlayback.route(VoicePacket.KIND_SQUAD, 5, muted)["play"], "mute is kind-independent")
