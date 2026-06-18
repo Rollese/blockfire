@@ -30,12 +30,19 @@ static func infer_pressure(prev_hp: float, cur_hp: float, aimed_at: bool) -> flo
 
 var _first_seen: Dictionary = {}   # enemy_id -> tick first continuously seen
 var _memory: Dictionary = {}        # enemy_id -> {pos, tick} last-known
+var _last_hp: float = 100.0
 ## Build the WorldModel from the snapshot view. `my_id` is this bot's pawn id.
 func build(my_id: int, view: Dictionary, _vview: Dictionary, structs: Dictionary, match_points: Array, now: int) -> WorldModel:
 	var w := WorldModel.new()
 	w.now_tick = now
 	var me: EntityState = view.get(my_id)
 	w.self_state = me
+	var cur_hp: float = float(me.health) if me else 100.0
+	w.metadata_hp_frac = cur_hp / 100.0
+	# Pressure from health-drop since last tick. `aimed_at` geometry is deferred (§6.1 follow-up),
+	# so it's false for now — health loss alone drives take_cover/retreat this increment.
+	w.incoming_fire = infer_pressure(_last_hp, cur_hp, false)
+	_last_hp = cur_hp
 	var seen_now := {}
 	for id in view:
 		if int(id) == my_id:
