@@ -36,6 +36,12 @@ func owner_count(owner: int) -> int:
 func get_record(id: int) -> Dictionary:
 	return _by_id.get(id, {})
 
+func is_structural(id: int) -> bool:
+	var rec: Dictionary = _by_id.get(id, {})
+	if rec.is_empty():
+		return false
+	return _catalog.is_structural(int(rec["type"]))
+
 func ids_of_building(building_id: int) -> Array:
 	return _by_building.get(building_id, {}).keys()
 

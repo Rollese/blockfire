@@ -40,3 +40,27 @@ func test_other_building_unaffected() -> void:
 func test_collapse_threshold() -> void:
 	assert_true(Support.should_collapse(Support.COLLAPSE_THRESHOLD + 1), "over threshold collapses")
 	assert_false(Support.should_collapse(1), "small orphan set does not collapse")
+
+func test_collapse_at_exact_threshold_does_not_collapse() -> void:
+	assert_false(Support.should_collapse(Support.COLLAPSE_THRESHOLD), "at threshold (>) does not collapse")
+
+func test_nonstructural_does_not_transmit_support() -> void:
+	var cat := PieceCatalog.load_file("res://pieces/pieces.json")
+	var store := StructureStore.new(cat)
+	var bcol := -1
+	var brail := -1
+	for i in cat.size():
+		if cat.name_of(i) == "bcolumn": bcol = i
+		if cat.name_of(i) == "brailing": brail = i
+	# Foundation column at y=0; a railing (non-structural) stacked at y=1; a column at y=2
+	# that only connects down THROUGH the railing.
+	store.place(1, bcol,  Vector3i(0,0,0), 0, -1, 1)
+	store.place(2, brail, Vector3i(0,1,0), 0, -1, 1)
+	store.place(3, bcol,  Vector3i(0,2,0), 0, -1, 1)
+	var orphans := Support.orphaned_after(store, 1, [])
+	# The railing does not transmit support, so the top column (id 3) is orphaned even though a
+	# railing bridges it to the foundation. The railing itself is adjacent to the surviving
+	# foundation column (id 1) so it is NOT orphaned.
+	assert_true(orphans.has(3), "top structural column orphaned (railing cannot support it)")
+	assert_false(orphans.has(2), "railing kept (adjacent to surviving foundation column)")
+	assert_false(orphans.has(1), "foundation column kept")

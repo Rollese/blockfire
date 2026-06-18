@@ -17,23 +17,33 @@ static func foundation_ids(store: StructureStore, building_id: int) -> Array:
 		var rec := store.get_record(id)
 		if rec.is_empty():
 			continue
-		if int((rec["cell"] as Vector3i).y) == 0:
+		if not store.is_structural(id):
+			continue
+		if (rec["cell"] as Vector3i).y == 0:
 			out.append(id)
 	return out
 
 ## Ids of `building_id`'s pieces that are no longer connected to a foundation after `removed_ids`
-## are gone. `removed_ids` is informational (the store should already reflect the removals).
+## are gone. `_removed_ids` is reserved for a future incremental flood-fill; the store already
+## reflects removals.
+## Non-structural pieces (props, railings) never propagate support through the BFS — they are
+## orphaned if no face-neighbour structural cell was reached.
 static func orphaned_after(store: StructureStore, building_id: int, _removed_ids: Array) -> Array:
 	var members := store.ids_of_building(building_id)
 	if members.is_empty():
 		return []
-	# Build cell -> id for this building's live pieces.
-	var cell_to_id := {}
+	# Split members into structural cell->id and non-structural cell->id maps.
+	var structural_cell_to_id := {}
+	var nonstructural_cell_to_id := {}
 	for id in members:
 		var rec := store.get_record(id)
-		if not rec.is_empty():
-			cell_to_id[rec["cell"]] = id
-	# BFS from every foundation cell over 6-neighbour adjacency within this building.
+		if rec.is_empty():
+			continue
+		if store.is_structural(id):
+			structural_cell_to_id[rec["cell"]] = id
+		else:
+			nonstructural_cell_to_id[rec["cell"]] = id
+	# BFS from every structural foundation cell over structural cells only.
 	var reached := {}
 	var frontier: Array = []
 	for fid in foundation_ids(store, building_id):
@@ -46,12 +56,21 @@ static func orphaned_after(store: StructureStore, building_id: int, _removed_ids
 		var c: Vector3i = frontier.pop_back()
 		for d in dirs:
 			var n: Vector3i = c + d
-			if cell_to_id.has(n) and not reached.has(n):
+			if structural_cell_to_id.has(n) and not reached.has(n):
 				reached[n] = true
 				frontier.append(n)
-	# Any live member cell not reached is orphaned.
+	# Structural orphans: cells not reached by the BFS.
 	var orphans: Array = []
-	for c in cell_to_id:
+	for c in structural_cell_to_id:
 		if not reached.has(c):
-			orphans.append(cell_to_id[c])
+			orphans.append(structural_cell_to_id[c])
+	# Non-structural orphans: no face-neighbour is a reached structural cell.
+	for c in nonstructural_cell_to_id:
+		var has_support := false
+		for d in dirs:
+			if reached.has(c + d):
+				has_support = true
+				break
+		if not has_support:
+			orphans.append(nonstructural_cell_to_id[c])
 	return orphans
