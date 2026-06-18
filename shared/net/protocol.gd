@@ -249,10 +249,7 @@ static func encode_collapse(building_id: int) -> PackedByteArray:
 	return buf.data_array
 
 static func decode_collapse(bytes: PackedByteArray) -> int:
-	var r := StreamPeerBuffer.new()
-	r.data_array = bytes
-	r.get_u8()  # tag
-	return r.get_u16()
+	return body_reader(bytes).get_u16()
 
 
 static func encode_grenade_throw(dir: Vector3, type: int) -> PackedByteArray:
