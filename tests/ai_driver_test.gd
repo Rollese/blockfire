@@ -86,6 +86,18 @@ func test_decide_safe_when_self_absent_from_view() -> void:
 	assert_true(intent.has("behavior"), "returns a valid intent dict even with no self")
 	assert_almost_eq(float(intent["move_x"]), 0.0, 0.001, "no movement without self")
 
+func test_aim_settles_onto_true_bearing_over_time() -> void:
+	var ai := AiDriver.new(42, 0, "regular")
+	var view := {1: _es(0, Vector3.ZERO), 2: _es(1, Vector3(10, 0, 0))}
+	# Track the same in-range target long past the reaction gate + settle window.
+	var intent := {}
+	for i in 22:
+		ai.observe(1, view, {}, {}, [], 100 + i)
+		intent = ai.decide()
+	assert_eq(String(intent["behavior"]), "engage", "stable engage on a tracked target")
+	# enemy at +x (z=0): true yaw bearing = atan2(10, 0); settled jitter -> ~0
+	assert_almost_eq(float(intent["yaw"]), atan2(10.0, 0.0), 0.02, "aim settles onto the true bearing")
+
 func test_retreat_moves_toward_cover_when_critically_hurt() -> void:
 	var ai := AiDriver.new(42, 0, "regular")
 	var enemy := _es(1, Vector3(10, 0, 0))

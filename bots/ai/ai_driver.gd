@@ -8,6 +8,8 @@ var _perc: Perception
 var _human: Humanize
 var _profile: Dictionary
 var _current_behavior := ""
+var _aim_target_id: int = 0
+var _aim_ticks: int = 0
 var _world: WorldModel = null
 var _now: int = 0
 var _objective: Vector3 = Vector3.ZERO
@@ -59,11 +61,18 @@ func decide() -> Dictionary:
 		"engage":
 			var e := _enemy_rec(w, tgt)
 			if not e.is_empty():
+				if tgt == _aim_target_id:
+					_aim_ticks += 1
+				else:
+					_aim_target_id = tgt
+					_aim_ticks = 0
+				var settle := Humanize.settle_frac(_aim_ticks, int(_profile.get("aim_settle_ticks", 6)))
+				var jit := _human.aim_jitter(float(_profile.get("aim_error_deg", 3.0))) * settle
 				var tpos: Vector3 = e["pos"]
 				var aim := tpos + Vector3(0.0, Stance.body_height(int(e["stance"])) * 0.5, 0.0)
 				var eye := me.pos + Vector3(0.0, Stance.eye_height(me.stance), 0.0)
 				var to := aim - eye
-				intent["yaw"] = atan2(to.x, to.z) + _human.aim_jitter(float(_profile.get("aim_error_deg", 3.0)))
+				intent["yaw"] = atan2(to.x, to.z) + jit
 				intent["pitch"] = clampf(asin(clampf(to.y / maxf(to.length(), 0.001), -1.0, 1.0)), -Pawn.MAX_PITCH, Pawn.MAX_PITCH)
 				if me.pos.distance_to(tpos) <= ENGAGE_RANGE:
 					intent["buttons"] = InputCommand.BTN_FIRE   # stop-to-shoot: movement stays 0

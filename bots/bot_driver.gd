@@ -49,6 +49,8 @@ func _ready() -> void:
 		push_error("[bots] failed to load map %s" % _map_path)
 	print("[bots] spawning %d bot(s) -> %s:%d" % [_bot_count, _server_ip, _port])
 	print("[bots] ai seed=%d" % _global_seed)
+	# Deterministic bot headings for reproducible gate runs (seed wired from --seed).
+	seed(hash(_global_seed))
 	for i in _bot_count:
 		_spawn_bot(i)
 
