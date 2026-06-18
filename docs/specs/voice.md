@@ -39,9 +39,11 @@ A separate host on a separate port serviced by a separate thread removes voice p
 
 ```
 native/voice_opus/         NEW  Rust GDExtension (godot-rust/gdext). Exposes:
-                                  OpusVoiceEncoder.encode(PackedVector2Array pcm) -> PackedByteArray
-                                  OpusVoiceDecoder.decode(PackedByteArray frame) -> PackedVector2Array
-                                Built via cargo; .gdextension manifest + platform libs (see ADR-0006 / §9).
+                                  OpusVoiceEncoder.encode(PackedFloat32Array pcm) -> PackedByteArray
+                                  OpusVoiceDecoder.decode(PackedByteArray frame) -> PackedFloat32Array
+                                  (mono f32 samples — PackedFloat32Array, NOT Vector2/stereo)
+                                Built via cargo (gdext 0.5.3, feature api-4-6; opus 0.3); .gdextension
+                                manifest + platform libs (see ADR-0006 / §9).
 shared/net/voice_packet.gd  NEW  pure. VOICE wire codec + validation (§4.1).
 shared/net/voice_routing.gd NEW  pure. recipients_for(speaker, table, kind) -> Array[int] (§3.4).
 server/voice_relay.gd       NEW  Thread. Owns the 2nd ENet host; token auth; per-frame recipient

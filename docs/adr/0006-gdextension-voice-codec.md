@@ -1,6 +1,6 @@
 # ADR-0006: First GDExtension — Opus voice codec
 
-- **Status:** Proposed (stub — promote to Accepted when the M6 plan lands)
+- **Status:** Accepted (2026-06-18 — codec implemented + loads in Godot 4.6.3 headless; `native/voice_opus/`)
 - **Date:** 2026-06-18
 - **Context milestone:** M6 (Voice)
 - **Relates to:** [ADR-0001](0001-core-runtime-language.md) (escalation lever), [spec/voice.md](../specs/voice.md)
@@ -20,7 +20,7 @@ Options considered:
 
 **Option 1: a Rust `godot-rust/gdext` GDExtension `native/voice_opus/`, scoped to the Opus codec only.**
 
-- Exposes two leaf classes: `OpusVoiceEncoder.encode(pcm) -> PackedByteArray` and `OpusVoiceDecoder.decode(frame) -> PackedVector2Array`.
+- Exposes two leaf classes: `OpusVoiceEncoder.encode(PackedFloat32Array pcm) -> PackedByteArray` and `OpusVoiceDecoder.decode(PackedByteArray frame) -> PackedFloat32Array` (mono f32 samples — not stereo `Vector2`). Built with `godot-rust/gdext` 0.5.3 (feature `api-4-6`, verified against Godot 4.6.3) + the `opus` 0.3 crate (links system libopus via pkg-config). gdext requires a `base: Base<RefCounted>` field on each `#[class]`.
 - **Client-only linkage.** The dedicated **server** and **bot driver** do **not** load the extension — the server relays opaque encoded bytes and never decodes (see [spec/voice.md §1–2](../specs/voice.md)); bots never speak. Only the rendered client builds/links it.
 - **Leaf rule.** The extension contains **no gameplay rules and nothing from `shared/sim/`** — it is a pure codec behind a narrow interface, satisfying the ADR-0001 constraint.
 
