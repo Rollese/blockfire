@@ -23,10 +23,25 @@ Canonical source of truth for what's being worked on. Claim a task (set owner + 
 | M9 | [Online services (accounts, anti-cheat detection, matchmaking)](milestones/M9-online-services.md) | todo | Steam auth → skill-tier placement → matched into an official 128-slot server (with dynamic tier-merge); signed match reports update rating; a seeded cheat trace is flagged. |
 
 | M10 | [Air vehicles (final content pass)](milestones/M10-air-vehicles.md) | **deferred (last)** | Was M5-P2. Helicopter/jet on the M5 vehicle substrate. **Blocked until the M7 rendered client** — flight feel + heli/jet balance must be tuned visually by playtest, not blind off telemetry (owner-directed 2026-06-16; see AGENTS.md §10). |
+| M11 | [Destructible buildings](milestones/M11-destructible-buildings.md) | todo (spec done) | BattleBit-style destructible map buildings on the M4 substrate. **Split gate:** sim 128-bot headless (chunks destroyed + cascade + collapse + replicate + budget + winner; **+ M4 re-gate**), feel owner-playtest (holes/debris/collapse). **Blocked by M7 client** (cosmetic layer); coordinates with M5.5-P3 (melee). Spec ratified 2026-06-18. |
 
 > Milestones are **sequenced and gated**. Do not start a milestone before the previous gate passes. M4–M6 may be reordered but each remains independently gated. **As of 2026-06-16: the rendered client (M7) is pulled before M6** (voice's gate needs human testers in a live match → needs the client), and **air vehicles are deferred to M10 (last)** — they need the client to balance by feel.
 >
 > **As of 2026-06-17: M5.5 (Combat Depth II) added** from the BattleBit feature-gap review. It is sim-layer and bot-gated like M4.5, but its **ballistics model is an input to the in-flight M7-C2** (bullet drop changes client prediction — decided now so M7 builds projectile-aware, not hit-scan). The remaining M5.5 phases follow the M4.5→M7 pattern (prove mechanics + budget headlessly; tune feel on the visual client). Two accepted gap-review items are presentation and live in **M7** instead: the **death-recap card (M7-P1)** and **audio (M7-P2)**.
+>
+> **As of 2026-06-18: M11 (Destructible Buildings) added** (owner-directed — "destruction + gunplay feel are the most important parts of the game"). BattleBit-style destructible map buildings on the M4 substrate: a unified chunked `StructureStore` (0.25 m / 64-bit chunk masks), support-reachability collapse cascade, and a client cosmetic layer (holes/debris/collapse cinematic). **Spec authored now, build sequenced after the M7 client** (the feel gate needs rendering + playtest — same now-spec/later-build pattern as M5/M10 vehicles). Unifying the store **re-gates M4**. Bullets do not damage building walls (explosive/melee only).
+
+## M11 — Destructible Buildings — todo (spec done 2026-06-18)
+
+Spec: [`docs/specs/destructible-buildings.md`](specs/destructible-buildings.md). Milestone: [`M11-destructible-buildings.md`](milestones/M11-destructible-buildings.md). Owner-directed 2026-06-18 (destruction + gunplay are the game's most important feel). Ratified decisions: unify `StructureStore` onto a chunked model (+ M4 re-gate); 0.25 m / 8×8 / 64-bit chunk masks; support-reachability cascade degrading to whole-building collapse; per-type bullet immunity (A); MultiMesh holes + GPUParticles debris (B); sledge coordinated with M5.5-P3 (C); fully procedural art. **Build blocked by the M7 client** (cosmetic layer + feel gate).
+
+| Task | Owner | Status | Notes |
+|---|---|---|---|
+| M11 brainstorm + spec | claude | done | `docs/specs/destructible-buildings.md` (this brainstorm-of-record); branch `m11-destructible-buildings` |
+| M11 implementation plan(s) | — | todo | via `writing-plans` → `subagent-driven-development`; phase the unify refactor + M4 re-gate before chunk/cascade/collapse, client cosmetic layer last (needs M7) |
+| M11 execute — sim (unify + chunks + cascade + collapse) | — | blocked | Gate A: 128-bot headless (chunks + cascade + collapse + replicate + budget + winner) **+ M4 re-gate**. **Unify touches M4 closed hot paths — re-gate mandatory** |
+| M11 execute — client cosmetic layer | — | blocked | **Blocked by M7 client.** Gate B: owner playtest (holes/debris/collapse cinematic) |
+| Coordinate melee wall-damage with M5.5-P3 | — | todo | M5.5-P3 owns the sledge/pickaxe gadget; M11 owns the melee→chunk-damage hook (minimal sledge if P3 not landed) |
 
 ## M5.5 — Combat Depth II — todo (planned 2026-06-17)
 
