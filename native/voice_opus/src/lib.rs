@@ -1,6 +1,6 @@
 mod codec;
 
-use codec::{VoiceDecoder, VoiceEncoder, FRAME_SAMPLES};
+use codec::{VoiceDecoder, VoiceEncoder, BITRATE, FRAME_SAMPLES};
 use godot::prelude::*;
 
 struct VoiceOpusExt;
@@ -24,7 +24,7 @@ impl IRefCounted for OpusVoiceEncoder {
     fn init(base: Base<RefCounted>) -> Self {
         Self {
             base,
-            enc: VoiceEncoder::new(24_000),
+            enc: VoiceEncoder::new(BITRATE),
         }
     }
 }
@@ -32,6 +32,10 @@ impl IRefCounted for OpusVoiceEncoder {
 #[godot_api]
 impl OpusVoiceEncoder {
     /// pcm: mono f32 samples (FRAME_SAMPLES long) → encoded Opus frame bytes.
+    ///
+    /// Precondition: `pcm` must be exactly `FRAME_SAMPLES` (960) mono samples —
+    /// one 20 ms frame. A wrong-sized slice yields an empty frame, since libopus
+    /// rejects non-standard frame sizes.
     #[func]
     fn encode(&mut self, pcm: PackedFloat32Array) -> PackedByteArray {
         let encoded = self.enc.encode(pcm.as_slice());

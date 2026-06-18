@@ -4,6 +4,7 @@ use opus::{Application, Channels, Decoder, Encoder};
 pub const SAMPLE_RATE: u32 = 48_000;
 pub const FRAME_SAMPLES: usize = 960; // 20 ms @ 48 kHz, mono
 pub const MAX_FRAME_BYTES: usize = 256;
+pub const BITRATE: i32 = 24_000;
 
 pub struct VoiceEncoder {
     enc: Encoder,
@@ -50,7 +51,7 @@ mod tests {
 
     #[test]
     fn sine_round_trips_within_rms_bound() {
-        let mut enc = VoiceEncoder::new(24_000);
+        let mut enc = VoiceEncoder::new(BITRATE);
         let mut dec = VoiceDecoder::new();
         let pcm: Vec<f32> = (0..FRAME_SAMPLES)
             .map(|i| {
