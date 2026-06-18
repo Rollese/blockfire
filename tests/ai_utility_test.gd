@@ -20,6 +20,11 @@ func test_calm_with_target_picks_engage() -> void:
 	var best := Utility.choose(Utility.score(w, 1.0, ""), "", Utility.HYSTERESIS_BONUS)
 	assert_eq(best, "engage", "healthy, calm, target present -> engage")
 
+func test_hysteresis_keeps_current_when_all_scores_equal() -> void:
+	var scores := [{"behavior": "engage", "score": 0.0}, {"behavior": "take_cover", "score": 0.0}]
+	var Util := preload("res://bots/ai/utility.gd")
+	assert_eq(Util.choose(scores, "take_cover", Util.HYSTERESIS_BONUS), "take_cover", "all-equal -> stick with current")
+
 func test_hysteresis_keeps_current_on_a_tie() -> void:
 	var w := _world(0.5, 0.6, true)
 	var keep := Utility.choose(Utility.score(w, 1.0, "take_cover"), "take_cover", Utility.HYSTERESIS_BONUS)

@@ -10,9 +10,11 @@ static func score(w: WorldModel, aggression: float, _current: String) -> Array:
 	var hp := w.metadata_hp_frac
 	var fire := w.incoming_fire
 	var has_target := w.enemies.size() > 0
-	var out: Array = []
+	var out: Array[Dictionary] = []
 	out.append({"behavior": "retreat", "score": (1.0 - hp) * fire * 1.6})
-	out.append({"behavior": "take_cover", "score": fire * (1.0 - hp) * 1.0 + fire * 0.3})
+	# take_cover rises with pressure and with missing health; the +0.3*fire floor keeps a
+	# baseline cover bias under fire even at full HP. Equivalent to fire * (1.3 - hp).
+	out.append({"behavior": "take_cover", "score": fire * (1.3 - hp)})
 	out.append({"behavior": "suppress", "score": (0.4 if w.enemies.size() > 0 else 0.0)})
 	out.append({"behavior": "engage", "score": (0.7 * aggression if has_target else 0.0) * hp})
 	out.append({"behavior": "push_obj", "score": (0.2 if not has_target else 0.0)})
