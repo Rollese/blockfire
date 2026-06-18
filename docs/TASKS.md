@@ -46,16 +46,20 @@ Spec: [`docs/specs/destructible-buildings.md`](specs/destructible-buildings.md).
 
 > **⚠ Do not gate on AI-based full-match tests right now (2026-06-18):** the **combat AI is being completely rewritten** (separate workstream). While that is in flight, full-match runs have **inert bots** — they connect (48/48) and move but never fire/build (`shots=0 bld=0 kills=0`, tickets stuck 80/80, no winner), no script errors — **identically on master `b0ff265`** (independent of any feature branch). So the `ci/m4_*` smokes and fleet matches can't verify combat/attrition until the AI rewrite lands. Use **unit/functionality tests** (`godot --headless --path . -- --test`) and branch-vs-master telemetry parity for no-regression. M11-P1's re-gate was therefore recorded as **unit 461/0 + branch≡master integration parity** (no regression), not a fresh smoke PASS — AI-dependent behaviour is verified later.
 
-## M6 — Voice (Proximity + Squad) — spec drafted (2026-06-18)
+## M6 — Voice (Proximity + Squad) — logic core landed (2026-06-18)
 
-Spec: [`docs/specs/voice.md`](specs/voice.md). ADR: [`0006-gdextension-voice-codec.md`](adr/0006-gdextension-voice-codec.md). Milestone: [`M6-voice.md`](milestones/M6-voice.md). Brainstormed as **parallel pipeline-filler work** (docs-only, zero merge surface with the in-flight M7-art / M7.5-bot-AI / M11-destruction agents). **Gate stays blocked on the M7 client** (human-validated); the spec + ADR unblock the implementation plan now.
+Spec: [`docs/specs/voice.md`](specs/voice.md). ADR: [`0006-gdextension-voice-codec.md`](adr/0006-gdextension-voice-codec.md). Plan: [`2026-06-18-m6-voice.md`](plans/2026-06-18-m6-voice.md). Milestone: [`M6-voice.md`](milestones/M6-voice.md). Built on isolated worktree branch `worktree-m6-voice` (subagent-driven, two-stage review per task). The **pure tested logic core** is complete + green; the **shells + integration** remain (real prerequisites below). Full suite **509 run / 0 failed**.
 
 | Task | Owner | Status | Notes |
 |---|---|---|---|
-| M6 voice brainstorm + spec | claude | done | `docs/specs/voice.md` — relay-not-mix; 2nd-port + E-core relay thread (full tick isolation); Opus via first GDExtension; proximity PTT enemies-audible + squad PTT team-private. Owner-ratified forks (codec / proximity model / transport-isolation) 2026-06-18. |
-| ADR-0006 (first GDExtension) | claude | done (Proposed) | `docs/adr/0006-gdextension-voice-codec.md` — stub; promote to Accepted when the M6 plan lands. |
-| M6 implementation plan | claude | done | [`docs/plans/2026-06-18-m6-voice.md`](plans/2026-06-18-m6-voice.md) — 4 phases, TDD. P0 Opus gdext · P1 pure wire/routing/jitter/PTT · P2 relay thread + tick publish · P3 client capture/playback · P4 deferred integration seam (blocked on M7 client). |
-| M6 execute | — | blocked | by M7 rendered client (human-validated gate). **P0–P1 are zero-conflict (all new files); P2 touches `server_main.gd`** (coordinate with m11-destruction / M7.5-bot-AI agents before landing). |
+| M6 voice brainstorm + spec | claude | done | `docs/specs/voice.md` — relay-not-mix; 2nd-port + E-core relay thread (full tick isolation); Opus via first GDExtension; proximity PTT enemies-audible + squad PTT team-private. Owner-ratified forks 2026-06-18. |
+| ADR-0006 (first GDExtension) | claude | done (Proposed) | `docs/adr/0006-gdextension-voice-codec.md` — stub; promote to Accepted when the codec lands. |
+| M6 implementation plan | claude | done | 4 phases, TDD. P0 Opus gdext · P1 pure wire/routing/jitter/PTT · P2 relay thread + tick publish · P3 client capture/playback · P4 deferred integration seam. |
+| M6 Phase 1 — pure units | claude | **done ✅** | `voice_packet` (wire codec) · `voice_routing` (recipient select, deterministic) · `voice_routing_table` (double-buffer + bind queue) · `voice_jitter` · `voice_ptt`. 30 voice tests, two-stage reviewed (spec ✅ / quality ✅ + minor polish). All-new files, zero conflict. |
+| M6 pure decision helpers | claude | **done ✅** | `voice_relay.process_frame` (anti-spoof re-stamp, no decode) · `server_voice.build_route_table` · `voice_playback.route`. 38 voice tests total, two-stage reviewed. Shells deferred (see below). |
+| M6 P0 — Opus GDExtension | — | **blocked (toolchain)** | `native/voice_opus/` (Rust gdext). **Rust/cargo not installed** — first GDExtension; needs owner go-ahead to install the toolchain. Smoke test skips if unbuilt, so it didn't block the logic core. |
+| M6 P2/P3 shells + integration | — | **blocked (coord + client)** | relay thread/socket shell + `server_main.gd` publish/token wiring (**shared file — coordinate with m11-destruction / M7.5-bot-AI**) + client capture/playback/connection shells (need P0 decoder + mic). |
+| M6 P4 — client_main wiring + gate | — | blocked | M7 client integration (bus/keybinds/Docker port) + human-validated playtest gate. |
 
 ## M5.5 — Combat Depth II — todo (planned 2026-06-17)
 
