@@ -60,13 +60,14 @@ func test_build_remove_round_trip() -> void:
 	assert_eq(Protocol.decode_build_remove(b)["id"], 4242)
 
 func test_structure_delta_place_round_trip() -> void:
-	var rec := {"id": 9, "type": 1, "cell": Vector3i(2, 0, -3), "yaw": 5, "health": 350, "owner": 7}
+	var rec := {"id": 9, "type": 1, "cell": Vector3i(2, 0, -3), "yaw": 5, "chunks": ChunkMask.full_mask(8), "building_id": 4, "owner": 7}
 	var b := Protocol.encode_structure_delta(Protocol.OP_PLACE, rec)
 	var d := Protocol.decode_structure_delta(b)
 	assert_eq(d["op"], Protocol.OP_PLACE)
 	assert_eq(d["rec"]["id"], 9)
 	assert_eq(d["rec"]["cell"], Vector3i(2, 0, -3))
-	assert_eq(d["rec"]["health"], 350)
+	assert_eq(d["rec"]["chunks"], ChunkMask.full_mask(8))
+	assert_eq(d["rec"]["building_id"], 4)
 	assert_eq(d["rec"]["owner"], 7)
 
 func test_structure_delta_remove_round_trip() -> void:
@@ -77,8 +78,8 @@ func test_structure_delta_remove_round_trip() -> void:
 
 func test_structure_baseline_round_trip() -> void:
 	var recs := [
-		{"id": 1, "type": 0, "cell": Vector3i(0, 0, 0), "yaw": 0, "health": 150, "owner": 7},
-		{"id": 2, "type": 1, "cell": Vector3i(1, 0, 0), "yaw": 2, "health": 350, "owner": 7},
+		{"id": 1, "type": 0, "cell": Vector3i(0, 0, 0), "yaw": 0, "chunks": ChunkMask.full_mask(8), "building_id": 0, "owner": 7},
+		{"id": 2, "type": 1, "cell": Vector3i(1, 0, 0), "yaw": 2, "chunks": 12345, "building_id": 9, "owner": 7},
 	]
 	var b := Protocol.encode_structure_baseline(Vector2i(3, -4), recs)
 	var d := Protocol.decode_structure_baseline(b)
@@ -86,19 +87,22 @@ func test_structure_baseline_round_trip() -> void:
 	assert_eq(d["records"].size(), 2)
 	assert_eq(d["records"][1]["cell"], Vector3i(1, 0, 0))
 	assert_eq(d["records"][1]["yaw"], 2)
+	assert_eq(d["records"][1]["chunks"], 12345)
+	assert_eq(d["records"][1]["building_id"], 9)
 
-func test_structure_delta_damage_roundtrip() -> void:
-	var b := Protocol.encode_structure_delta(Protocol.OP_DAMAGE, {"id": 42, "bucket": 1})
+func test_structure_delta_chunk_roundtrip() -> void:
+	var mask := ChunkMask.full_mask(8) & ~0b1011
+	var b := Protocol.encode_structure_delta(Protocol.OP_CHUNK, {"id": 42, "mask": mask})
 	var d := Protocol.decode_structure_delta(b)
-	assert_eq(d["op"], Protocol.OP_DAMAGE)
+	assert_eq(d["op"], Protocol.OP_CHUNK)
 	assert_eq(d["id"], 42)
-	assert_eq(d["bucket"], 1)
+	assert_eq(d["mask"], mask)
 
 func test_structure_delta_place_and_remove_still_roundtrip() -> void:
-	var rec := {"id": 7, "type": 1, "cell": Vector3i(-3, 0, 5), "yaw": 2, "health": 350, "owner": 9}
+	var rec := {"id": 7, "type": 1, "cell": Vector3i(-3, 0, 5), "yaw": 2, "chunks": ChunkMask.full_mask(8), "building_id": 0, "owner": 9}
 	var pd := Protocol.decode_structure_delta(Protocol.encode_structure_delta(Protocol.OP_PLACE, rec))
 	assert_eq(pd["rec"]["id"], 7)
-	assert_eq(pd["rec"]["health"], 350)
+	assert_eq(pd["rec"]["chunks"], ChunkMask.full_mask(8))
 	var rd := Protocol.decode_structure_delta(Protocol.encode_structure_delta(Protocol.OP_REMOVE, {"id": 7}))
 	assert_eq(rd["op"], Protocol.OP_REMOVE)
 	assert_eq(rd["id"], 7)

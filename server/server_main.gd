@@ -29,12 +29,13 @@ const KILL_SCORE := 100             # score points awarded to killer per kill
 const ROSTER_STRIDE_TICKS := 30    # broadcast roster every N ticks (~1 Hz @30Hz)
 const MATCH_END_DRAIN_TICKS := 60  # keep running ~2s after a win, then exit
 const MAX_STRUCTURE_DELTAS_PER_TICK := 64   # graceful degradation: cap delta SENDS/tick
+const BULLET_CARVE_RADIUS := 0.30   # m: chunks a single blocked bullet clears (M11)
 const GRENADE_FUSE_TICKS := 45        # 1.5s @30Hz
 const GRENADE_COOLDOWN_TICKS := 300   # 10s between a player's throws (shared frag/smoke)
 const BLAST_PAWN_RADIUS := 6.0        # m, sphere (current positions, FF-off)
 const BLAST_STRUCT_RADIUS := 4.0      # m (~2 build cells)
 const GRENADE_DAMAGE_PAWN := 100      # frag pawn splash at centre, linear falloff
-const GRENADE_DAMAGE_STRUCT := 200    # frag structure splash at centre, linear falloff
+const GRENADE_DAMAGE_STRUCT := 200    # frag structure blast GATE (>0 = enabled; magnitude unused — carve is governed by struct_radius, M11)
 const SMOKE_DURATION_TICKS := 150     # 5s @30Hz — smoke zone lifetime
 const SMOKE_RADIUS := 6.0             # m — smoke zone radius (matches blast radius)
 const PIECES_PATH := "res://pieces/fortifications.json"
@@ -115,8 +116,7 @@ var _rstruct := 0             # structures hit by rockets this window
 var _veh_destroyed := 0
 var _rkt_vs_veh := 0
 var _pending_removes: Array = []   # [{id, cell}] removes awaiting send (degradation queue)
-var _dmg_touched := {}             # id -> true: pieces damaged (alive) this tick, for bucket diff
-var _last_bucket := {}             # id -> last SENT bucket (missing => pristine bucket 3)
+var _dmg_touched := {}             # id -> true: pieces holed (alive) this tick, for end-of-tick chunk-mask resend
 var _grenades: Array = []     # [{owner, team, type, pos, vel, detonate_tick}] — server-side, not replicated
 var _rockets: Array = []      # [{owner, team, pos, vel}] — server-side, not replicated
 var _mines: Array = []        # [{owner, team, pos, facing, armed_after_tick}]
@@ -475,17 +475,20 @@ func _fire_shot(shooter_id: int, shooter: Pawn, inp: Dictionary, shot_index: int
 			var rec: Dictionary = _store.get_record(block_id)
 			if rec.is_empty():
 				return   # piece gone (defensive; matches the guard in _emit_structure_deltas)
+			var hit_pt: Vector3 = ray["origin"] + ray["dir"] * float(blocked["dist"])
 			var mat := _catalog.material_of(int(rec["type"]))
 			# `blk` counts every shot a piece was interposed on (pen OR stop); `pen` (below) counts
 			# only the subset that penetrated through. They overlap by design — blk is "intersected".
 			_shots_blocked += 1
 			if not PieceCatalog.is_penetrable(mat):
-				_damage_structure(block_id, body_dmg)   # non-pen: piece eats it, shot stops
+				_damage_structure(block_id, PieceCatalog.SRC_BULLET, hit_pt, BULLET_CARVE_RADIUS)
 				return
-			# Penetrable: piece takes body*absorption; if it survives, bullet exits at *transmit.
+			# Penetrable: the bullet exits at *transmit (used below). The piece is carved
+			# geometrically (BULLET_CARVE_RADIUS), NOT scaled by caliber — split.piece_damage is
+			# intentionally unused (M11: structure damage is spatial, not scalar).
 			var split := Combat.apply_penetration(body_dmg, enemy_dmg,
 				PieceCatalog.absorption_of(mat), PieceCatalog.transmit_of(mat))
-			_damage_structure(block_id, int(split["piece_damage"]))
+			_damage_structure(block_id, PieceCatalog.SRC_BULLET, hit_pt, BULLET_CARVE_RADIUS)
 			if _store.get_record(block_id).is_empty():
 				return   # 1-pen: a piece destroyed this shot consumes the bullet
 			if best_victim == 0:
@@ -1293,12 +1296,7 @@ func _blast_at(center: Vector3, owner: int, team: int, pawn_dmg: int, pawn_radiu
 		struct_dmg: int, struct_radius: float, veh_dmg: int = 0) -> int:
 	if struct_dmg > 0 and struct_radius > 0.0:
 		for sid in _store.ids_in_radius(center, struct_radius):
-			var rec: Dictionary = _store.get_record(sid)
-			if rec.is_empty(): continue
-			var at := BuildGrid.cell_min(rec["cell"]) + Vector3.ONE * (BuildGrid.CELL_SIZE * 0.5)
-			var sd := Grenade.falloff_damage(center, at, struct_dmg, struct_radius)
-			if sd > 0:
-				_damage_structure(sid, sd)
+			_damage_structure(sid, PieceCatalog.SRC_EXPLOSIVE, center, struct_radius)
 	var hits := 0
 	for pid in _sim.world.pawns:
 		if pid == owner: continue
@@ -1406,7 +1404,7 @@ func _step_mines() -> void:
 	_mines = still
 
 ## Frag: area damage at the grenade's current position — structures (cell radius) + pawns (sphere,
-## current positions, FF-off incl. thrower). Removes/bucket-drops route through _damage_structure.
+## current positions, FF-off incl. thrower). Removes/chunk-mask deltas route through _damage_structure.
 ## (Smoke is handled by a branch added in Task 9.)
 func _detonate(g: Dictionary) -> void:
 	if int(g["type"]) == Grenade.SMOKE:
@@ -1481,12 +1479,12 @@ func _cell_of_struct(id: int) -> Vector3i:
 	var rec := _store.get_record(id)
 	return rec["cell"] if not rec.is_empty() else Vector3i(0, 0, 0)
 
-## Apply damage to a piece and record the side effects for end-of-tick replication
-## (_emit_structure_deltas). Destruction queues a remove + frees the cell (in apply_damage);
-## a non-lethal hit marks the piece for a bucket-diff check.
-func _damage_structure(id: int, amount: int) -> void:
+## Apply chunk damage to a piece from `source` at world `impact` (radius `radius`) and record the
+## side effects for end-of-tick replication (_emit_structure_deltas). Destruction queues a remove +
+## frees the cell (in damage_chunks); a non-lethal hole marks the piece for a chunk-mask resend.
+func _damage_structure(id: int, source: int, impact: Vector3, radius: float) -> void:
 	var cell := _cell_of_struct(id)       # capture BEFORE possible removal
-	var res := _store.apply_damage(id, amount)
+	var res := _store.damage_chunks(id, source, impact, radius)
 	if not res["hit"]:
 		return
 	_dmg += 1
@@ -1494,14 +1492,13 @@ func _damage_structure(id: int, amount: int) -> void:
 		_destroyed += 1
 		_pending_removes.append({"id": id, "cell": cell})
 		_dmg_touched.erase(id)
-		_last_bucket.erase(id)
 		_remove_c4_on_cell(cell)
 	else:
 		_dmg_touched[id] = true
 
-## Flush queued removes + bucket drops to interested clients, bounded by
+## Flush queued removes + chunk-mask deltas to interested clients, bounded by
 ## MAX_STRUCTURE_DELTAS_PER_TICK (removes first; overflow carried to next tick). Authoritative
-## state is already applied — only the SEND volume is throttled. See docs/specs/destruction.md.
+## state is already applied — only the SEND volume is throttled. See docs/specs/destructible-buildings.md.
 func _emit_structure_deltas() -> void:
 	var budget := MAX_STRUCTURE_DELTAS_PER_TICK
 	while not _pending_removes.is_empty() and budget > 0:
@@ -1516,11 +1513,7 @@ func _emit_structure_deltas() -> void:
 		if rec.is_empty():
 			_dmg_touched.erase(id)
 			continue
-		var max_health := _catalog.health_of(int(rec["type"]))
-		var bucket := StructureStore.bucket_of(int(rec["health"]), max_health)
-		if bucket < int(_last_bucket.get(id, 3)):
-			_last_bucket[id] = bucket
-			_emit_structure_delta(Protocol.OP_DAMAGE, {"id": id, "bucket": bucket}, rec["cell"])
+		_emit_structure_delta(Protocol.OP_CHUNK, {"id": id, "mask": int(rec["chunks"])}, rec["cell"])
 		_dmg_touched.erase(id)
 		budget -= 1
 

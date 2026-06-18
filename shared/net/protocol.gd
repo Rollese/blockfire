@@ -43,7 +43,7 @@ enum Msg {
 
 const OP_PLACE := 0
 const OP_REMOVE := 1
-const OP_DAMAGE := 2   ## STRUCTURE_DELTA payload {id u16, bucket u8} — partial-health bucket drop
+const OP_CHUNK := 2   ## STRUCTURE_DELTA payload {id u16, mask u64} — sub-cell alive-mask (M11)
 
 # GADGET_ACTION sub-actions.
 const GA_C4_PLACE := 0
@@ -200,7 +200,8 @@ static func _put_record(buf: StreamPeerBuffer, rec: Dictionary) -> void:
 	var cell: Vector3i = rec["cell"]
 	buf.put_16(cell.x); buf.put_16(cell.y); buf.put_16(cell.z)
 	buf.put_u8(int(rec["yaw"]))
-	buf.put_u16(int(rec["health"]))
+	buf.put_u64(int(rec["chunks"]))
+	buf.put_u16(int(rec["building_id"]))
 	buf.put_u16(int(rec["owner"]))
 
 
@@ -209,9 +210,10 @@ static func _get_record(r: StreamPeerBuffer) -> Dictionary:
 	var id := r.get_u16()
 	var cell := Vector3i(r.get_16(), r.get_16(), r.get_16())
 	var yaw := r.get_u8()
-	var health := r.get_u16()
+	var chunks := r.get_u64()
+	var building_id := r.get_u16()
 	var owner := r.get_u16()
-	return {"id": id, "type": type, "cell": cell, "yaw": yaw, "health": health, "owner": owner}
+	return {"id": id, "type": type, "cell": cell, "yaw": yaw, "chunks": chunks, "building_id": building_id, "owner": owner}
 
 
 static func encode_structure_delta(op: int, rec: Dictionary) -> PackedByteArray:
@@ -220,9 +222,9 @@ static func encode_structure_delta(op: int, rec: Dictionary) -> PackedByteArray:
 	buf.put_u8(op)
 	if op == OP_PLACE:
 		_put_record(buf, rec)
-	elif op == OP_DAMAGE:
+	elif op == OP_CHUNK:
 		buf.put_u16(int(rec["id"]))
-		buf.put_u8(int(rec["bucket"]))
+		buf.put_u64(int(rec["mask"]))
 	else:
 		buf.put_u16(int(rec["id"]))
 	return buf.data_array
@@ -233,9 +235,9 @@ static func decode_structure_delta(bytes: PackedByteArray) -> Dictionary:
 	var op := r.get_u8()
 	if op == OP_PLACE:
 		return {"op": op, "rec": _get_record(r)}
-	elif op == OP_DAMAGE:
+	elif op == OP_CHUNK:
 		var id := r.get_u16()
-		return {"op": op, "id": id, "bucket": r.get_u8()}
+		return {"op": op, "id": id, "mask": r.get_u64()}
 	return {"op": op, "id": r.get_u16()}
 
 

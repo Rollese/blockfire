@@ -628,17 +628,17 @@ static func combat_button(fire: bool, st: int, reload_until: int, burst_start: i
 		return [InputCommand.BTN_RELOAD, st + RELOAD_TICKS, -1]
 	return [InputCommand.BTN_FIRE, reload_until, burst_start]
 
-## Apply a decoded STRUCTURE_DELTA to a bot's local mirror (id->record). PLACE inserts, DAMAGE
-## updates the record's bucket in place (must NOT remove), REMOVE erases. Pure + unit-tested;
-## the live path runs inside _on_packet. See docs/specs/destruction.md.
+## Apply a decoded STRUCTURE_DELTA to a bot's local mirror (id->record). PLACE inserts, CHUNK
+## updates the record's chunk mask in place (must NOT remove), REMOVE erases. Pure + unit-tested;
+## the live path runs inside _on_packet. See docs/specs/destructible-buildings.md.
 static func apply_structure_delta(structs: Dictionary, d: Dictionary) -> void:
 	var op: int = d["op"]
 	if op == Protocol.OP_PLACE:
 		structs[d["rec"]["id"]] = d["rec"]
-	elif op == Protocol.OP_DAMAGE:
+	elif op == Protocol.OP_CHUNK:
 		var id: int = d["id"]
 		if structs.has(id):
-			structs[id]["bucket"] = d["bucket"]
+			structs[id]["chunks"] = d["mask"]
 	else:
 		structs.erase(d["id"])
 

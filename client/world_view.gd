@@ -42,9 +42,9 @@ func apply_structure_delta(bytes: PackedByteArray) -> void:
 	match int(d["op"]):
 		Protocol.OP_PLACE: _structs[int(d["rec"]["id"])] = d["rec"]
 		Protocol.OP_REMOVE: _structs.erase(int(d["id"]))
-		Protocol.OP_DAMAGE:
+		Protocol.OP_CHUNK:
 			if _structs.has(int(d["id"])):
-				_structs[int(d["id"])]["bucket"] = int(d["bucket"])
+				_structs[int(d["id"])]["chunks"] = int(d["mask"])
 
 func structures() -> Dictionary:
 	return _structs

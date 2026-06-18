@@ -4,20 +4,15 @@ extends RefCounted
 ## (cell -> id; this IS the spatial index, never rebuilt per tick), a per-owner FIFO (for cap
 ## recycle), and a region index keyed to InterestGrid cells (for replication baselines). All
 ## placement rules live here so server authority and future client prediction can't diverge.
-## Pieces are static and (Phase 1) indestructible. See docs/specs/building.md.
+## Pieces are placed statically; their chunks are destructible via damage_chunks(). See docs/specs/destructible-buildings.md.
 ##
-## A record is: {id:int, type:int, cell:Vector3i, yaw:int, health:int, owner:int}
+## A record is: {id:int, type:int, cell:Vector3i, yaw:int, chunks:int, building_id:int, owner:int}
 
 const MAX_PIECES_PER_PLAYER := 12
 const BUILD_COOLDOWN_TICKS := 150   # 5s @30Hz
 const BUILD_RANGE := 5.0            # max placement distance from the player (m)
 const REGION_CELL := 64.0           # must match server InterestGrid CELL_SIZE
 
-## Damage buckets as fractions of max health. A piece is bucket 3 (pristine) above 0.75, then
-## 2/1/0 as it drops past 0.50/0.25. health<=0 is destroyed (removed; no bucket). Replication
-## emits a STRUCTURE_DELTA(OP_DAMAGE) only when a piece crosses to a lower bucket. See
-## docs/specs/destruction.md.
-const DAMAGE_BUCKETS := [0.75, 0.50, 0.25]
 
 var _catalog: PieceCatalog
 var _by_id: Dictionary = {}         # id -> record
@@ -51,11 +46,12 @@ func records_in_region(region: Vector2i) -> Array:
 	return out
 
 ## Insert a record. Returns the record on success, {} if the cell is occupied.
-func place(id: int, type: int, cell: Vector3i, yaw: int, owner: int) -> Dictionary:
+func place(id: int, type: int, cell: Vector3i, yaw: int, owner: int, building_id: int = 0) -> Dictionary:
 	if _occupancy.has(cell):
 		return {}
 	var rec := {"id": id, "type": type, "cell": cell, "yaw": yaw,
-		"health": _catalog.health_of(type), "owner": owner}
+		"chunks": ChunkMask.full_mask(_catalog.chunk_grid_of(type)),
+		"building_id": building_id, "owner": owner}
 	return insert(rec)
 
 ## Insert a fully-formed record (used by clients applying deltas/baselines).
@@ -89,31 +85,32 @@ func remove(id: int) -> void:
 		_by_region[region].erase(id)
 	_by_id.erase(id)
 
-## Current damage bucket from remaining-health fraction: 3=pristine .. 0=heavy. Pure/static.
-static func bucket_of(health: int, max_health: int) -> int:
-	if max_health <= 0:
-		return 0
-	var f := float(health) / float(max_health)
-	var b := 0
-	for thr in DAMAGE_BUCKETS:
-		if f > thr:
-			b += 1
-	return b
+## Face vertical extent of a piece: full = CELL_SIZE, half = CELL_SIZE*0.5.
+func _face_height(type: int) -> float:
+	return BuildGrid.CELL_SIZE * (0.5 if _catalog.is_half(type) else 1.0)
 
-## Apply `amount` damage to piece `id`. Returns {hit, destroyed, health, bucket}; hit=false if
-## the id is unknown. On destruction the piece is removed from all indexes here (the caller emits
-## the remove delta). Pure over store state — unit-testable.
-func apply_damage(id: int, amount: int) -> Dictionary:
+## Clear chunks within `radius` of world `impact` on piece `id`, if the source can damage this
+## piece type. Returns {hit, holed, destroyed, mask}; removes the piece when the mask empties.
+## Pure over store state + catalog — unit-testable.
+## `holed` is true whenever chunks were cleared (currently equals `hit`); reserved for a future line-of-sight/penetration distinction.
+func damage_chunks(id: int, source_type: int, impact: Vector3, radius: float) -> Dictionary:
 	if not _by_id.has(id):
-		return {"hit": false, "destroyed": false, "health": 0, "bucket": 0}
+		return {"hit": false, "holed": false, "destroyed": false, "mask": 0}
 	var rec: Dictionary = _by_id[id]
-	var max_health := _catalog.health_of(int(rec["type"]))
-	var h: int = int(rec["health"]) - amount
-	if h <= 0:
+	var type := int(rec["type"])
+	var before := int(rec["chunks"])
+	if not _catalog.takes_damage(type, source_type):
+		return {"hit": false, "holed": false, "destroyed": false, "mask": before}
+	var grid := _catalog.chunk_grid_of(type)
+	var after := ChunkMask.clear_in_radius(before, rec["cell"], int(rec["yaw"]), grid,
+		_face_height(type), impact, radius)
+	if after == before:
+		return {"hit": false, "holed": false, "destroyed": false, "mask": before}
+	if after == 0:
 		remove(id)
-		return {"hit": true, "destroyed": true, "health": 0, "bucket": 0}
-	rec["health"] = h
-	return {"hit": true, "destroyed": false, "health": h, "bucket": bucket_of(h, max_health)}
+		return {"hit": true, "holed": true, "destroyed": true, "mask": 0}
+	rec["chunks"] = after
+	return {"hit": true, "holed": true, "destroyed": false, "mask": after}
 
 ## Ids of occupied pieces whose cell-centre is within `radius_m` of the world point `center`.
 ## Bounded by the (small) blast cell neighbourhood; used by explosive area damage. Array[int].
@@ -194,7 +191,7 @@ func march(origin: Vector3, dir: Vector3, max_dist: float) -> Dictionary:
 
 func _ray_piece(origin: Vector3, d: Vector3, rec: Dictionary) -> float:
 	var mn := BuildGrid.cell_min(rec["cell"])
-	var h := BuildGrid.CELL_SIZE * (0.5 if _catalog.is_half(rec["type"]) else 1.0)
+	var h := _face_height(int(rec["type"]))
 	var mx := Vector3(mn.x + BuildGrid.CELL_SIZE, mn.y + h, mn.z + BuildGrid.CELL_SIZE)
 	return _ray_aabb(origin, d, mn, mx)
 
@@ -245,4 +242,4 @@ func ground_blocker_top(p: Vector3) -> float:
 	if not _occupancy.has(cell):
 		return 0.0
 	var rec: Dictionary = _by_id[_occupancy[cell]]
-	return BuildGrid.CELL_SIZE * (0.5 if _catalog.is_half(int(rec["type"])) else 1.0)
+	return _face_height(int(rec["type"]))

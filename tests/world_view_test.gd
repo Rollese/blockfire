@@ -34,7 +34,17 @@ func test_self_state_is_latest_authoritative() -> void:
 func test_structure_baseline_then_delta_add_remove() -> void:
 	var wv := WorldView.new()
 	wv.apply_structure_baseline(Protocol.encode_structure_baseline(Vector2i(0, 0), [
-		{"id": 5, "type": 0, "cell": Vector3i(1, 0, 1), "yaw": 0, "health": 100, "owner": 1}]))
+		{"id": 5, "type": 0, "cell": Vector3i(1, 0, 1), "yaw": 0, "chunks": ChunkMask.full_mask(8), "building_id": 0, "owner": 1}]))
 	assert_true(wv.structures().has(5), "baseline piece present")
 	wv.apply_structure_delta(Protocol.encode_structure_delta(Protocol.OP_REMOVE, {"id": 5}))
 	assert_false(wv.structures().has(5), "removed piece gone")
+
+func test_structure_op_chunk_updates_mask() -> void:
+	var wv := WorldView.new()
+	wv.apply_structure_baseline(Protocol.encode_structure_baseline(Vector2i(0, 0), [
+		{"id": 7, "type": 0, "cell": Vector3i(2, 0, 3), "yaw": 0, "chunks": ChunkMask.full_mask(8), "building_id": 0, "owner": 1}]))
+	assert_true(wv.structures().has(7), "baseline piece present before chunk update")
+	var newmask := ChunkMask.full_mask(8) & ~0b1111
+	wv.apply_structure_delta(Protocol.encode_structure_delta(Protocol.OP_CHUNK, {"id": 7, "mask": newmask}))
+	assert_true(wv.structures().has(7), "record still exists after chunk update")
+	assert_eq(wv.structures()[7]["chunks"], newmask, "chunk mask updated by OP_CHUNK")
