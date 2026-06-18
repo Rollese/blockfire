@@ -28,10 +28,36 @@ func test_rpg_only_engineer_can_equip() -> void:
 	assert_false(Loadout.can_equip(Loadout.ASSAULT, Weapon.RPG))
 	assert_false(Loadout.can_equip(Loadout.RECON, Weapon.RPG))
 
-func test_non_rpg_weapons_unrestricted() -> void:
+func test_non_rpg_non_dmr_weapons_unrestricted() -> void:
+	# AR / SMG / etc. have no class restriction (only RPG and DMR are gated).
 	assert_true(Loadout.can_equip(Loadout.ASSAULT, Weapon.AR))
-	assert_true(Loadout.can_equip(Loadout.RECON, Weapon.DMR))
+	assert_true(Loadout.can_equip(Loadout.MEDIC, Weapon.SMG))
 
 func test_default_attachments_has_three_slots() -> void:
 	var a := Loadout.default_attachments()
 	assert_true(a.has("optic") and a.has("barrel") and a.has("underbarrel"))
+
+func test_dmr_only_assault_can_equip() -> void:
+	assert_true(Loadout.can_equip(Loadout.ASSAULT, Weapon.DMR), "Assault may equip DMR")
+	assert_false(Loadout.can_equip(Loadout.MEDIC, Weapon.DMR), "Medic may not")
+	assert_false(Loadout.can_equip(Loadout.ENGINEER, Weapon.DMR), "Engineer may not")
+	assert_false(Loadout.can_equip(Loadout.SUPPORT, Weapon.DMR), "Support may not")
+
+func test_engineer_gadget_options_c4_or_mine() -> void:
+	assert_eq(Loadout.gadget_options(Loadout.ENGINEER), [Loadout.GADGET_C4, Loadout.GADGET_MINE])
+	assert_true(Loadout.is_valid_gadget(Loadout.ENGINEER, Loadout.GADGET_C4))
+	assert_true(Loadout.is_valid_gadget(Loadout.ENGINEER, Loadout.GADGET_MINE))
+	assert_false(Loadout.is_valid_gadget(Loadout.ENGINEER, Loadout.GADGET_HEAL), "engineer can't pick heal")
+
+func test_single_gadget_classes_validate() -> void:
+	assert_true(Loadout.is_valid_gadget(Loadout.MEDIC, Loadout.GADGET_HEAL))
+	assert_false(Loadout.is_valid_gadget(Loadout.MEDIC, Loadout.GADGET_C4))
+	assert_true(Loadout.is_valid_gadget(Loadout.SUPPORT, Loadout.GADGET_AMMO))
+
+func test_gadget_for_player_engineer_splits_by_id() -> void:
+	# Engineers alternate C4 / claymore by id parity so the fleet exercises both.
+	assert_eq(Loadout.gadget_for_player(Loadout.ENGINEER, 2), Loadout.GADGET_C4)
+	assert_eq(Loadout.gadget_for_player(Loadout.ENGINEER, 3), Loadout.GADGET_MINE)
+	# Non-engineers ignore id and use their single gadget.
+	assert_eq(Loadout.gadget_for_player(Loadout.MEDIC, 3), Loadout.GADGET_HEAL)
+	assert_eq(Loadout.gadget_for_player(Loadout.ASSAULT, 7), Loadout.GADGET_NONE)
