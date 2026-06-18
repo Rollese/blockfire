@@ -25,3 +25,11 @@ func test_rejects_oversized_frame_length() -> void:
 	var buf := StreamPeerBuffer.new()
 	buf.put_u16(1); buf.put_u8(0); buf.put_u16(0); buf.put_u16(999); buf.put_u8(1)
 	assert_eq(VoicePacket.decode(buf.data_array), {}, "len/payload mismatch rejected")
+
+func test_rejects_frame_over_max_opus_bytes() -> void:
+	# flen = 257 exceeds MAX_OPUS_FRAME_BYTES (256) even though the payload length matches.
+	var buf := StreamPeerBuffer.new()
+	buf.put_u16(1); buf.put_u8(0); buf.put_u16(0); buf.put_u16(257)
+	for _i in range(257):
+		buf.put_u8(0)
+	assert_eq(VoicePacket.decode(buf.data_array), {}, "frame exceeding 256-byte cap rejected")

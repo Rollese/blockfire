@@ -34,5 +34,16 @@ func test_squad_is_team_and_squad_private() -> void:
 	assert_true(r.has(4), "squadmate out of range still hears squad")
 	assert_false(r.has(5), "no voice peer excluded")
 
+func test_equidistant_tie_break_is_deterministic_lowest_id() -> void:
+	# Two candidates at the SAME distance; with fanout 1 the lower id must win deterministically.
+	var t := {
+		1: _entry(Vector3.ZERO, 0, 1, 101),       # speaker
+		8: _entry(Vector3(10, 0, 0), 0, 1, 108),  # 10m
+		3: _entry(Vector3(0, 0, 10), 0, 1, 103),  # also 10m (same distance)
+	}
+	var r := VoiceRouting.recipients_for(1, t, VoicePacket.KIND_PROXIMITY, 50.0, 1)
+	assert_eq(r.size(), 1, "fanout cap applied")
+	assert_eq(r[0], 3, "equidistant tie-break keeps lower id")
+
 func test_unknown_speaker_returns_empty() -> void:
 	assert_eq(VoiceRouting.recipients_for(99, _table(), VoicePacket.KIND_PROXIMITY, 50.0, 12), [])

@@ -11,6 +11,8 @@ var _mutex := Mutex.new()
 var _bind_queue: Array = []
 
 ## tick thread: replace the inactive buffer wholesale, then atomically flip.
+## Caller transfers ownership — pass a freshly-built Dictionary each tick and never mutate it
+## after publishing (a later mutation would tear a concurrent reader's snapshot).
 func publish(table: Dictionary) -> void:
 	var inactive := 1 - _active
 	_buffers[inactive] = table

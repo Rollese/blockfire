@@ -30,7 +30,7 @@ static func recipients_for(speaker_id: int, table: Dictionary, kind: int,
 		var d: float = (e["pos"] as Vector3).distance_to(spos)
 		if d <= prox_range:
 			cands.append([d, id])
-	cands.sort_custom(func(a, b): return a[0] < b[0])
+	cands.sort_custom(func(a, b): return a[0] < b[0] if a[0] != b[0] else a[1] < b[1])
 	for i in range(mini(max_fanout, cands.size())):
 		out.append(cands[i][1])
 	return out

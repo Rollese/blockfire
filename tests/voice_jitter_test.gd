@@ -26,6 +26,14 @@ func test_drops_late_and_duplicate() -> void:
 func test_empty_pop_returns_empty_dict() -> void:
 	assert_eq(VoiceJitter.new(2).pop(), {})
 
+func test_ready_only_once_depth_buffered() -> void:
+	var j := VoiceJitter.new(3)   # _depth = 3
+	assert_false(j.ready(), "empty buffer is not ready")
+	j.insert(0, _f(0)); j.insert(1, _f(1))
+	assert_false(j.ready(), "fewer than _depth frames is not ready")
+	j.insert(2, _f(2))
+	assert_true(j.ready(), "ready once _depth frames are present")
+
 func test_overflow_drops_oldest() -> void:
 	var j := VoiceJitter.new(2)   # capacity depth+1 = 3
 	j.insert(0, _f(0)); j.insert(1, _f(1)); j.insert(2, _f(2)); j.insert(3, _f(3))
