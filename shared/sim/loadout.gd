@@ -3,7 +3,7 @@ extends Object
 ## Class -> weapon + gadget + default attachments mapping. Gadget identity per spec
 ## §"Class gadget assignment"; RPG is an Engineer-only weapon-slot choice (can_equip gate).
 
-enum { ASSAULT = 0, MEDIC = 1, ENGINEER = 2, SUPPORT = 3, RECON = 4 }
+enum { ASSAULT = 0, MEDIC = 1, ENGINEER = 2, SUPPORT = 3 }
 
 # Gadget kinds owned by a class (mirror Gadget.Kind values; kept here so loadout has no hard dep
 # on the Gadget catalog). GADGET_NONE = class has no active gadget in v1.
@@ -16,13 +16,11 @@ const GADGET_AMMO := 4
 static func weapon_for(cls: int) -> int:
 	match cls:
 		ENGINEER: return Weapon.SMG
-		RECON: return Weapon.DMR
-		_: return Weapon.AR   # assault/medic/support
+		_: return Weapon.AR   # assault/medic/support (DMR is an Assault loadout choice, not a default)
 
 static func gadget_for(cls: int) -> int:
 	match cls:
-		ENGINEER: return GADGET_C4
-		RECON: return GADGET_MINE
+		ENGINEER: return GADGET_C4   # default; the claymore alternative is via gadget_for_player
 		MEDIC: return GADGET_HEAL
 		SUPPORT: return GADGET_AMMO
 		_: return GADGET_NONE   # assault (frag/smoke are M4 grenades, not a gadget slot)
@@ -61,11 +59,11 @@ static func default_attachments() -> Dictionary:
 	return {"optic": "iron", "barrel": "standard", "underbarrel": "none_ub"}
 
 static func random_class() -> int:
-	return randi() % 5
+	return randi() % 4
 
 ## Class roll for HUMAN players — never ENGINEER. The engineer's RPG-primary variant is a
 ## bot-fleet anti-vehicle device and reads as a broken weapon to a human; excluding the class
 ## outright keeps every human loadout a normal click-fire gun. Bots still use random_class().
 static func random_class_no_engineer() -> int:
-	var pool := [ASSAULT, MEDIC, SUPPORT, RECON]
+	var pool := [ASSAULT, MEDIC, SUPPORT]
 	return pool[randi() % pool.size()]

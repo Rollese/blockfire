@@ -943,7 +943,10 @@ func _handle_hello(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
 	# as "my weapon is broken" — so humans always keep their class's hit-scan primary.
 	if cls == Loadout.ENGINEER and id % 3 == 0 and auto_deploy:
 		wid = Weapon.RPG
-	if not Loadout.can_equip(cls, wid):   # authoritative guard (RPG -> Engineer only)
+	# Hand a third of Assault bots the DMR so the fleet exercises the Assault-only marksman path.
+	if cls == Loadout.ASSAULT and id % 3 == 0 and auto_deploy:
+		wid = Weapon.DMR
+	if not Loadout.can_equip(cls, wid):   # authoritative guard (RPG -> Engineer, DMR -> Assault)
 		wid = Loadout.weapon_for(cls)
 	var attachments := Loadout.default_attachments()
 	var weapon_def := Weapon.effective_def(wid, _attachments.multipliers(attachments))
@@ -1181,7 +1184,7 @@ func _fire_rocket(id: int, p: Pawn, dir: Vector3) -> void:
 	_rockets.append({"owner": id, "team": p.team, "pos": p.eye_position(), "vel": dir.normalized() * float(rdef["rocket_speed"])})
 
 func _place_c4(id: int, p: Pawn, pos: Vector3) -> void:
-	if Loadout.gadget_for(int(_clients[id]["class"])) != Loadout.GADGET_C4: return
+	if Loadout.gadget_for_player(int(_clients[id]["class"]), id) != Loadout.GADGET_C4: return
 	var cdef: Dictionary = _gadgets.def_of_kind(Gadget.KIND_C4)
 	var owned: Array = _c4.get(id, [])
 	if owned.size() >= int(cdef["max_active"]): return
@@ -1190,7 +1193,7 @@ func _place_c4(id: int, p: Pawn, pos: Vector3) -> void:
 	_c4[id] = owned
 
 func _place_mine(id: int, p: Pawn, pos: Vector3, facing: Vector3) -> void:
-	if Loadout.gadget_for(int(_clients[id]["class"])) != Loadout.GADGET_MINE: return
+	if Loadout.gadget_for_player(int(_clients[id]["class"]), id) != Loadout.GADGET_MINE: return
 	var mdef: Dictionary = _gadgets.def_of_kind(Gadget.KIND_MINE)
 	var mine_count := 0
 	for m in _mines:

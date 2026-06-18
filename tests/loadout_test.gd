@@ -1,24 +1,29 @@
 extends TestCase
 
 func test_each_class_maps_to_a_weapon() -> void:
-	for c in [Loadout.ASSAULT, Loadout.MEDIC, Loadout.ENGINEER, Loadout.SUPPORT, Loadout.RECON]:
+	for c in [Loadout.ASSAULT, Loadout.MEDIC, Loadout.ENGINEER, Loadout.SUPPORT]:
 		var wid := Loadout.weapon_for(c)
-		assert_true(wid in [Weapon.AR, Weapon.SMG, Weapon.DMR], "valid weapon for class %d" % c)
+		assert_true(wid in [Weapon.AR, Weapon.SMG], "valid default weapon for class %d" % c)
 
 func test_human_class_roll_never_engineer() -> void:
-	# Humans must never be assigned ENGINEER (no click-fire gun on its RPG-primary variant).
 	for _i in 300:
 		var c := Loadout.random_class_no_engineer()
 		assert_true(c != Loadout.ENGINEER, "human roll never ENGINEER")
-		assert_true(c in [Loadout.ASSAULT, Loadout.MEDIC, Loadout.SUPPORT, Loadout.RECON], "valid non-engineer class")
+		assert_true(c in [Loadout.ASSAULT, Loadout.MEDIC, Loadout.SUPPORT], "valid non-engineer class")
 
-func test_recon_uses_dmr_engineer_uses_smg() -> void:
-	assert_eq(Loadout.weapon_for(Loadout.RECON), Weapon.DMR)
+func test_class_roll_in_range_no_recon() -> void:
+	for _i in 300:
+		var c := Loadout.random_class()
+		assert_true(c >= Loadout.ASSAULT and c <= Loadout.SUPPORT, "class in 0..3 (no Recon)")
+
+func test_default_weapons() -> void:
 	assert_eq(Loadout.weapon_for(Loadout.ENGINEER), Weapon.SMG)
+	assert_eq(Loadout.weapon_for(Loadout.ASSAULT), Weapon.AR)
+	assert_eq(Loadout.weapon_for(Loadout.MEDIC), Weapon.AR)
+	assert_eq(Loadout.weapon_for(Loadout.SUPPORT), Weapon.AR)
 
-func test_gadget_per_class() -> void:
-	assert_eq(Loadout.gadget_for(Loadout.ENGINEER), Loadout.GADGET_C4)
-	assert_eq(Loadout.gadget_for(Loadout.RECON), Loadout.GADGET_MINE)
+func test_gadget_per_class_default() -> void:
+	assert_eq(Loadout.gadget_for(Loadout.ENGINEER), Loadout.GADGET_C4)   # default option; claymore via gadget_for_player
 	assert_eq(Loadout.gadget_for(Loadout.MEDIC), Loadout.GADGET_HEAL)
 	assert_eq(Loadout.gadget_for(Loadout.SUPPORT), Loadout.GADGET_AMMO)
 	assert_eq(Loadout.gadget_for(Loadout.ASSAULT), Loadout.GADGET_NONE)
@@ -26,7 +31,7 @@ func test_gadget_per_class() -> void:
 func test_rpg_only_engineer_can_equip() -> void:
 	assert_true(Loadout.can_equip(Loadout.ENGINEER, Weapon.RPG))
 	assert_false(Loadout.can_equip(Loadout.ASSAULT, Weapon.RPG))
-	assert_false(Loadout.can_equip(Loadout.RECON, Weapon.RPG))
+	assert_true(Loadout.can_equip(Loadout.ASSAULT, Weapon.AR), "AR unrestricted")
 
 func test_non_rpg_non_dmr_weapons_unrestricted() -> void:
 	# AR / SMG / etc. have no class restriction (only RPG and DMR are gated).

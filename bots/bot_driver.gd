@@ -455,9 +455,10 @@ func _maybe_rpg(bot: Dictionary, me: EntityState) -> void:
 		Protocol.encode_gadget_action(Protocol.GA_RPG_FIRE, Vector3.ZERO, dir.normalized(), 0), 0)
 	bot["rpg_last_tick"] = now
 
-## Engineer C4: place one near a structure between us and the enemy, then detonate it next pass.
+## Engineer C4: an engineer who chose C4 (gadget_for_player → C4) places one near a structure
+## between us and the enemy, then detonates it next pass.
 func _maybe_c4(bot: Dictionary, me: EntityState, target: EntityState) -> void:
-	if bot["class"] != Loadout.ENGINEER: return
+	if Loadout.gadget_for_player(int(bot["class"]), int(bot["id"])) != Loadout.GADGET_C4: return
 	if not bool(bot["c4_placed"]):
 		if not _cover_between(bot, me.pos, target.pos): return
 		var place := me.pos + (target.pos - me.pos).normalized() * 2.0
@@ -469,12 +470,13 @@ func _maybe_c4(bot: Dictionary, me: EntityState, target: EntityState) -> void:
 			Protocol.encode_gadget_action(Protocol.GA_C4_DETONATE, Vector3.ZERO, Vector3.ZERO, 0), 0)
 		bot["c4_detonated"] = true
 
-## Recon claymore: drop one facing `toward` (the current enemy when fighting, else the contested
-## objective) — claymore sits between the Recon and where enemies advance from, so an attacker
-## (or the bot's own killer pushing in) crosses the 1.5 m trip cone. Re-placed each life (flags
-## reset on death), so claymores keep appearing along the front rather than one stale one per match.
+## Engineer claymore: an engineer who chose the claymore (gadget_for_player → MINE) drops one
+## facing `toward` (the current enemy when fighting, else the contested objective) — the claymore
+## sits between the engineer and where enemies advance from, so an attacker (or the bot's own
+## killer pushing in) crosses the 1.5 m trip cone. Re-placed each life (flags reset on death),
+## so claymores keep appearing along the front rather than one stale one per match.
 func _maybe_mine(bot: Dictionary, me: EntityState, toward: Vector3) -> void:
-	if bot["class"] != Loadout.RECON or bool(bot["mine_placed"]): return
+	if Loadout.gadget_for_player(int(bot["class"]), int(bot["id"])) != Loadout.GADGET_MINE or bool(bot["mine_placed"]): return
 	var to_t := Vector3(toward.x - me.pos.x, 0.0, toward.z - me.pos.z)
 	var face := to_t.normalized() if to_t.length() > 0.001 else Vector3(sin(me.yaw), 0.0, cos(me.yaw))
 	# Place toward `toward`, within the server's 2.0 m place_range.
