@@ -1,6 +1,6 @@
 # M9 — Online Services (Accounts, Anti-Cheat Detection, Matchmaking)
 
-**Status:** todo · **Blocked by:** M7 gate (needs Steam auth + rendered client)
+**Status:** **deferred — Beta / post-1.0** ([ADR-0007](../adr/0007-battlebit-divergences.md) §4, 2026-06-18) · **Blocked by:** M7 gate (needs Steam auth + rendered client) · **not considered until every other milestone is finished**
 
 **Objective:** Stand up the project's first persistent backend so players authenticate via Steam, get matched by skill into the right server tier, and cheaters are detected from server-side telemetry. Decision: [ADR-0004](../adr/0004-anti-cheat-and-skill-matchmaking.md). Design: [anti-cheat-matchmaking spec](../specs/anti-cheat-matchmaking.md).
 
