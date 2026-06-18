@@ -4,13 +4,7 @@ extends Node
 ## fights the nearest enemy. Many bots per process (load + playtest). See M2 spec.
 
 const Protocol := preload("res://shared/net/protocol.gd")
-const AIM_TOLERANCE := 0.05   # radians; fire when aim within this of target
-const ENGAGE_RANGE := 50.0   # only fire once within this range (else keep closing)
 const MAP_PATH := "res://maps/conquest_proving_grounds.json"   # default; override with --map=<name>
-const BURST_TICKS := 60   # server ticks (~2.0s @30Hz) of firing before reloading; shorter
-                          # than the fastest mag-empty time so no weapon runs dry mid-burst
-const RELOAD_TICKS := 84  # server ticks (~2.8s) to hold BTN_RELOAD; > the slowest weapon
-                          # reload (2.6s) so the mag is surely refilled before the next burst
 const BUILD_COOLDOWN_TICKS := 150   # match server StructureStore.BUILD_COOLDOWN_TICKS (5s)
 const BUILD_DIST := 3.0             # how far ahead (m) to drop cover; within server BUILD_RANGE
 const MAX_BOT_BUILDS := 1           # walls each bot drops before stopping. Keeps the contested
@@ -36,11 +30,16 @@ var _server_ip := "127.0.0.1"
 var _port := 27015
 var _bot_count := 1
 var _bots: Array[Dictionary] = []
+var _global_seed: int = 12345
+
+var _perf_us: float = 0.0
+var _perf_frames: int = 0
 
 func configure(args: Dictionary) -> void:
 	_server_ip = String(args.get("connect", _server_ip))
 	_port = int(args.get("port", _port))
 	_bot_count = maxi(1, int(args.get("bot-count", _bot_count)))
+	_global_seed = int(args.get("seed", _global_seed))
 	if args.has("map"):
 		_map_path = "res://maps/%s.json" % String(args["map"])
 
@@ -49,6 +48,9 @@ func _ready() -> void:
 	if _map == null:
 		push_error("[bots] failed to load map %s" % _map_path)
 	print("[bots] spawning %d bot(s) -> %s:%d" % [_bot_count, _server_ip, _port])
+	print("[bots] ai seed=%d" % _global_seed)
+	# Deterministic bot headings for reproducible gate runs (seed wired from --seed).
+	seed(hash(_global_seed))
 	for i in _bot_count:
 		_spawn_bot(i)
 
@@ -66,6 +68,7 @@ func _spawn_bot(index: int) -> void:
 		"mine_placed": false, "gave_until": 0,
 		"vview": {}, "in_vehicle": 0, "boarded_origin": Vector3.ZERO, "repairing": false,
 		"vveh_track": {},
+		"ai": AiDriver.new(_global_seed, index, "regular"),
 	}
 	net.peer_connected.connect(func(peer: ENetPacketPeer) -> void:
 		bot["peer"] = peer
@@ -76,11 +79,20 @@ func _spawn_bot(index: int) -> void:
 	_bots.append(bot)
 
 func _physics_process(delta: float) -> void:
+	var frame_us := 0.0
 	for bot in _bots:
 		(bot["net"] as NetHost).poll()
 		if not bot["connected"]: continue
 		bot["tick"] += 1
+		var t0 := Time.get_ticks_usec()
 		_drive(bot, delta)
+		frame_us += float(Time.get_ticks_usec() - t0)
+	_perf_us += frame_us
+	_perf_frames += 1
+	if _perf_frames >= 30:
+		print("[bot-perf] bots=%d ai_us_mean=%.1f" % [_bots.size(), _perf_us / float(_perf_frames)])
+		_perf_us = 0.0
+		_perf_frames = 0
 
 func _drive(bot: Dictionary, delta: float) -> void:
 	var view: Dictionary = bot["view"]
@@ -151,11 +163,11 @@ func _drive(bot: Dictionary, delta: float) -> void:
 				# falling back to the enemy spawn until contact. Staying mobile in combat is fine —
 				# no loiter hold, so the vehicle keeps pressing into the action where blast fire is.
 				var push := _hunt_pos(me, int(bot["id"]), view)
-				var cmd := BotDriver.drive_toward(v.heading, me.pos, push)
+				var cmd := AiVehicleCrew.drive_toward(v.heading, me.pos, push)
 				_send(bot, float(cmd["move_x"]), float(cmd["move_y"]), float(cmd["yaw"]), 0.0, 0)
 				return
 		else:
-			var vid := BotDriver.nearest_free_vehicle(bot["vview"], me.pos)
+			var vid := AiVehicleCrew.nearest_free_vehicle(bot["vview"], me.pos)
 			if vid != 0:
 				var v: VehicleState = bot["vview"][vid]
 				var d := me.pos.distance_to(v.pos)
@@ -209,86 +221,40 @@ func _drive(bot: Dictionary, delta: float) -> void:
 				best_sb = ds; _drill_sandbag = sbw; drill_geom_valid = true
 		drill_geom_valid = drill_geom_valid and not _drill_ladder.is_empty()
 
-	if target != null:
-		# Aim from our EYE at the target's CENTRE-MASS (capsule middle), not feet→feet — otherwise the
-		# eye-height ray sails over a standing target's head, and the tight capsule-sized fire cone
-		# (below) would be centred on the wrong point.
-		var d := (target.pos + Vector3(0.0, Stance.body_height(target.stance) * 0.5, 0.0)) \
-			- (me.pos + Vector3(0.0, Stance.eye_height(me.stance), 0.0))
-		var want_yaw := atan2(d.x, d.z)
-		var want_pitch := clampf(asin(clampf(d.y / maxf(d.length(), 0.001), -1.0, 1.0)), -Pawn.MAX_PITCH, Pawn.MAX_PITCH)
-		# Track fast enough to follow a close strafing target (0.5/tick lagged too far behind to ever
-		# align — bots tracked point-blank movers without shooting). Fire tolerance is the target's
-		# angular HALF-SIZE (~capsule radius), so the bot fires only when the shot would actually land
-		# — not the over-wide cone that made it spray and miss.
-		bot["yaw"] = lerp_angle(bot["yaw"], want_yaw, 0.85) + randf_range(-0.003, 0.003)
-		bot["pitch"] = lerpf(bot["pitch"], want_pitch, 0.85)
-		var aim_tol := maxf(AIM_TOLERANCE, atan2(Stance.BODY_RADIUS, maxf(best, 1.0)))
-		var yaw_ok := absf(angle_diff(bot["yaw"], want_yaw)) < aim_tol
-		var pitch_ok := absf(want_pitch - bot["pitch"]) < aim_tol
-		var fire := best <= ENGAGE_RANGE and yaw_ok and pitch_ok
-		# Drillers override movement to continue the drill; non-drillers use the normal enemy-chase.
-		if is_driller and drill_geom_valid:
-			var phase: int = int(bot.get("drill_phase", DRILL_CLIMB))
-			var dr := drill_step(phase, me.pos, _drill_ladder, _drill_sandbag)
-			var drill_target: Vector3 = dr["move_to"]
-			var flat_d := Vector2(drill_target.x - me.pos.x, drill_target.z - me.pos.z)
-			if flat_d.length() > 0.001: flat_d = flat_d.normalized()
-			move_x = flat_d.x
-			if bool(dr["force_climb"]):
-				move_y = absf(flat_d.y) + 1.0
-			else:
-				move_y = flat_d.y
-			bot["yaw"] = atan2(move_x, flat_d.y)
-			_update_drill_phase(bot, int(dr["next_phase"]))
+	if is_driller and drill_geom_valid:
+		# Driller exerciser (M4.5-P3 climbs/vaults gate): drill the ladder+sandbag course. No combat.
+		var phase: int = int(bot.get("drill_phase", AiDrill.DRILL_CLIMB))
+		var dr := AiDrill.drill_step(phase, me.pos, _drill_ladder, _drill_sandbag)
+		var drill_target: Vector3 = dr["move_to"]
+		var flat_d := Vector2(drill_target.x - me.pos.x, drill_target.z - me.pos.z)
+		if flat_d.length() > 0.001: flat_d = flat_d.normalized()
+		move_x = flat_d.x
+		if bool(dr["force_climb"]):
+			move_y = absf(flat_d.y) + 1.0
 		else:
-			# Hold still while shooting (the server adds movement spread, so a moving bot barely
-			# hits); otherwise close on the enemy in range, else advance on the objective.
-			if fire:
-				move_x = 0.0; move_y = 0.0
-			else:
-				var move_to: Vector3 = target.pos if best <= ENGAGE_RANGE else obj
-				var flat := Vector2(move_to.x - me.pos.x, move_to.z - me.pos.z)
-				if flat.length() > 0.001: flat = flat.normalized()
-				move_x = flat.x; move_y = flat.y
-		var cb := combat_button(fire, bot["server_tick"], bot["reload_until"], bot["burst_start"])
+			move_y = flat_d.y
+		bot["yaw"] = atan2(move_x, flat_d.y)
+		_update_drill_phase(bot, int(dr["next_phase"]))
+	else:
+		# AI brain drives normal infantry combat + movement (retires the reflex nearest-enemy logic).
+		var ai: AiDriver = bot["ai"]
+		ai.observe(int(bot["id"]), view, bot["vview"], bot["structs"], _match_points, int(bot["server_tick"]), obj)
+		var intent := ai.decide()
+		move_x = float(intent["move_x"]); move_y = float(intent["move_y"])
+		bot["yaw"] = float(intent["yaw"]); bot["pitch"] = float(intent["pitch"])
+		var want_fire: bool = (int(intent["buttons"]) & InputCommand.BTN_FIRE) != 0
+		var cb := AiCombat.combat_button(want_fire, bot["server_tick"], bot["reload_until"], bot["burst_start"])
 		buttons |= int(cb[0])
 		bot["reload_until"] = cb[1]
 		bot["burst_start"] = cb[2]
-		_maybe_grenade(bot, me, target)
-		_maybe_c4(bot, me, target)
-		_maybe_mine(bot, me, target.pos)   # face the claymore at the enemy we're fighting
-	else:
-		# no enemy in view
-		if is_driller and drill_geom_valid:
-			# Driller: march the obstacle course instead of toward the capture objective.
-			var phase: int = int(bot.get("drill_phase", DRILL_CLIMB))
-			var dr := drill_step(phase, me.pos, _drill_ladder, _drill_sandbag)
-			var drill_target: Vector3 = dr["move_to"]
-			var flat_d := Vector2(drill_target.x - me.pos.x, drill_target.z - me.pos.z)
-			if flat_d.length() > 0.001: flat_d = flat_d.normalized()
-			move_x = flat_d.x
-			if bool(dr["force_climb"]):
-				move_y = absf(flat_d.y) + 1.0
-			else:
-				move_y = flat_d.y
-			bot["yaw"] = atan2(move_x, flat_d.y)
-			_update_drill_phase(bot, int(dr["next_phase"]))
+		if int(intent["stance"]) == Stance.CROUCH:
+			buttons |= InputCommand.BTN_CROUCH
+		# Gadget gate-exercisers (frag/c4/mine need a nearest enemy; smoke advances toward objective).
+		if target != null:
+			_maybe_grenade(bot, me, target)
+			_maybe_c4(bot, me, target)
+			_maybe_mine(bot, me, target.pos)
 		else:
-			# Normal: march to the objective (capture/defend)
-			var seek := climb_seek(me.pos, obj, _map.ladders if _map != null else [])
-			if seek["seek"]:
-				var lb: Vector3 = seek["target"]
-				var flat2 := Vector2(lb.x - me.pos.x, lb.z - me.pos.z)
-				if flat2.length() > 0.001: flat2 = flat2.normalized()
-				move_x = flat2.x
-				move_y = absf(flat2.y) + 1.0   # bias forward/up so climb engages and continues
-				bot["yaw"] = atan2(move_x, flat2.y)
-			else:
-				var flat := Vector2(obj.x - me.pos.x, obj.z - me.pos.z)
-				if flat.length() > 0.001: flat = flat.normalized()
-				move_x = flat.x; move_y = flat.y
-				bot["yaw"] = atan2(move_x, move_y)
 			_maybe_smoke(bot, me, obj)
 
 	# Build cover only while stationary (holding a point or firing) — so the bot drops a wall
@@ -306,7 +272,7 @@ func _drive(bot: Dictionary, delta: float) -> void:
 ## has not changed but the tick counter exceeded DRILL_PHASE_TIMEOUT, force-advance to the next
 ## phase and reset — so a stuck driller (killed mid-traverse, geometry blocked) never stalls.
 func _update_drill_phase(bot: Dictionary, next_phase: int) -> void:
-	var cur_phase: int = int(bot.get("drill_phase", DRILL_CLIMB))
+	var cur_phase: int = int(bot.get("drill_phase", AiDrill.DRILL_CLIMB))
 	var ticks: int = int(bot.get("drill_phase_ticks", 0))
 	if next_phase != cur_phase:
 		# Phase transition from drill_step logic.
@@ -314,9 +280,9 @@ func _update_drill_phase(bot: Dictionary, next_phase: int) -> void:
 		bot["drill_phase_ticks"] = 0
 	else:
 		ticks += 1
-		if ticks >= DRILL_PHASE_TIMEOUT:
+		if ticks >= AiDrill.DRILL_PHASE_TIMEOUT:
 			# Stuck: force the other phase and reset.
-			bot["drill_phase"] = DRILL_VAULT if cur_phase == DRILL_CLIMB else DRILL_CLIMB
+			bot["drill_phase"] = AiDrill.DRILL_VAULT if cur_phase == AiDrill.DRILL_CLIMB else AiDrill.DRILL_CLIMB
 			bot["drill_phase_ticks"] = 0
 		else:
 			bot["drill_phase_ticks"] = ticks
@@ -421,7 +387,7 @@ func _maybe_smoke(bot: Dictionary, me: EntityState, obj: Vector3) -> void:
 ## (the server also enforces the real per-rocket cooldown + the 3-rocket reserve).
 func _maybe_rpg(bot: Dictionary, me: EntityState) -> void:
 	if bot["class"] != Loadout.ENGINEER: return
-	var vveh := BotDriver.nearest_enemy_vehicle(bot["vview"], bot["view"], me.pos, int(me.team), VEHICLE_RPG_RANGE)
+	var vveh := AiVehicleCrew.nearest_enemy_vehicle(bot["vview"], bot["view"], me.pos, int(me.team), VEHICLE_RPG_RANGE)
 	if vveh == 0: return
 	var vv: VehicleState = bot["vview"][vveh]
 	var now := int(bot["server_tick"])
@@ -530,204 +496,6 @@ func _cover_between(bot: Dictionary, a: Vector3, b: Vector3) -> bool:
 			return true
 	return false
 
-func angle_diff(a: float, b: float) -> float:
-	return wrapf(a - b, -PI, PI)
-
-## Pure objective selector (unit-tested). Among points NOT owned by `my_team`, pick the one
-## nearest `center` (tie-broken by distance from `from`); if the team owns every point,
-## defend the nearest point to `from`. `owners[i]` is the owner of points[i] (-1 neutral);
-## owners shorter than points defaults missing entries to neutral. Returns -1 iff points is
-## empty. Biasing toward the map center makes both teams contest the same points so the match
-## converges into combat. See docs/specs/m3-bot-convergence-fix.md.
-static func choose_objective_index(points: Array, owners: Array, my_team: int, from: Vector3, center: Vector3) -> int:
-	if points.is_empty():
-		return -1
-	var best := -1
-	var best_c := INF
-	var best_d := INF
-	for i in points.size():
-		var owner := -1
-		if i < owners.size():
-			owner = int(owners[i])
-		if owner == my_team:
-			continue   # already ours — skip while capturable points remain
-		var cd: float = center.distance_to(points[i])
-		var fd: float = from.distance_to(points[i])
-		if cd < best_c - 0.001 or (absf(cd - best_c) <= 0.001 and fd < best_d):
-			best_c = cd; best_d = fd; best = i
-	if best == -1:
-		# team owns every capturable point: defend the nearest one to `from`
-		for i in points.size():
-			var fd: float = from.distance_to(points[i])
-			if fd < best_d:
-				best_d = fd; best = i
-	return best
-
-const DRILL_CLIMB := 0   # drill phase: go climb the ladder
-const DRILL_VAULT := 1   # drill phase: go vault the sandbag
-const DRILL_PHASE_TIMEOUT := 1500   # ticks (~50 s @30Hz): reset stuck driller to next phase
-
-const CLIMB_SEEK_RANGE := 16.0   # m: consider a ladder only when this close to its base
-const CLIMB_TOP_MARGIN := 2.0    # m above the ladder bottom past which the bot is "up" already
-
-## Decide whether to steer onto a ladder. seek=true with a move target at the ladder base when the
-## bot is near a ladder (and still below it) and its objective is roughly across/beyond that ladder.
-## Pure + unit-tested. The height guard stops a bot that has reached the ledge from re-seeking the
-## same ladder and getting stuck pushing "up" at the top.
-static func climb_seek(my_pos: Vector3, objective: Vector3, ladders: Array) -> Dictionary:
-	for l in ladders:
-		var base: Vector3 = l["bottom"]
-		if my_pos.y > base.y + CLIMB_TOP_MARGIN:
-			continue   # already elevated (on/above the ledge) — don't re-seek this ladder
-		var to_base := Vector2(base.x - my_pos.x, base.z - my_pos.z)
-		if to_base.length() > CLIMB_SEEK_RANGE:
-			continue
-		var to_obj := Vector2(objective.x - my_pos.x, objective.z - my_pos.z)
-		# Objective is beyond the ladder (same general heading, farther away).
-		if to_obj.length() > to_base.length() and to_base.normalized().dot(to_obj.normalized()) > 0.3:
-			return {"seek": true, "target": base}
-	return {"seek": false, "target": my_pos}
-
-## Pure driller steering. phase 0 = go climb the ladder, phase 1 = go vault the sandbag.
-## Returns {"move_to": Vector3, "force_climb": bool, "next_phase": int}.
-## - CLIMB: steer toward the ladder base. force_climb=true once horizontally within (radius+0.5)
-##   of the base. next_phase flips to VAULT once my_pos.y >= top.y - 0.3 (reached the top).
-## - VAULT: steer toward the sandbag world point. next_phase flips back to CLIMB once
-##   horizontally within ~1.5 m of the sandbag (vaulted past it).
-static func drill_step(phase: int, my_pos: Vector3, ladder: Dictionary, sandbag_world: Vector3) -> Dictionary:
-	if phase == DRILL_CLIMB:
-		var base: Vector3 = ladder["bottom"]
-		var top: Vector3 = ladder["top"]
-		var radius: float = float(ladder["radius"])
-		# Check if we've reached the ladder top (done climbing).
-		if my_pos.y >= top.y - 0.3:
-			return {"move_to": base, "force_climb": true, "next_phase": DRILL_VAULT}
-		# Check horizontal distance to the base for force-climb engagement.
-		var horiz_dist := Vector2(my_pos.x - base.x, my_pos.z - base.z).length()
-		var force_climb := horiz_dist <= radius + 0.5
-		return {"move_to": base, "force_climb": force_climb, "next_phase": DRILL_CLIMB}
-	else:
-		# VAULT phase: steer toward the sandbag; once within 1.5 m (vaulted past it), reset.
-		var horiz_dist := Vector2(my_pos.x - sandbag_world.x, my_pos.z - sandbag_world.z).length()
-		if horiz_dist <= 1.5:
-			return {"move_to": sandbag_world, "force_climb": false, "next_phase": DRILL_CLIMB}
-		return {"move_to": sandbag_world, "force_climb": false, "next_phase": DRILL_VAULT}
-
-## Combat button for an ammo-blind bot, paced in SERVER game-time (`st` = server tick).
-## Returns [button, reload_until, burst_start]. Fires BURST_TICKS-long bursts then holds
-## BTN_RELOAD for RELOAD_TICKS before the next burst, so combat is sustained instead of dying
-## after one magazine. See docs/specs/m3-bot-convergence-fix.md.
-static func combat_button(fire: bool, st: int, reload_until: int, burst_start: int) -> Array:
-	if st < reload_until:
-		return [InputCommand.BTN_RELOAD, reload_until, burst_start]
-	if not fire:
-		return [0, reload_until, burst_start]
-	if burst_start < 0:
-		burst_start = st
-	if st - burst_start >= BURST_TICKS:
-		return [InputCommand.BTN_RELOAD, st + RELOAD_TICKS, -1]
-	return [InputCommand.BTN_FIRE, reload_until, burst_start]
-
-## Apply a decoded STRUCTURE_DELTA to a bot's local mirror (id->record). PLACE inserts, CHUNK
-## updates the record's chunk mask in place (must NOT remove), REMOVE erases. Pure + unit-tested;
-## the live path runs inside _on_packet. See docs/specs/destructible-buildings.md.
-static func apply_structure_delta(structs: Dictionary, d: Dictionary) -> void:
-	var op: int = d["op"]
-	if op == Protocol.OP_PLACE:
-		structs[d["rec"]["id"]] = d["rec"]
-	elif op == Protocol.OP_CHUNK:
-		var id: int = d["id"]
-		if structs.has(id):
-			structs[id]["chunks"] = d["mask"]
-	else:
-		structs.erase(d["id"])
-
-## A vehicle is "enemy" if any seated occupant is a pawn on the other team (per the pawn view).
-## Empty / friendly-crewed vehicles return false. view: pawn_id -> EntityState (must expose .team).
-static func vehicle_is_enemy(v: VehicleState, view: Dictionary, my_team: int) -> bool:
-	for occ in v.seats:
-		var oid := int(occ)
-		if oid == 0: continue
-		var e = view.get(oid)
-		if e != null and int(e.team) != my_team:
-			return true
-	return false
-
-## Nearest enemy-crewed vehicle within max_dist of my_pos. Returns vid or 0.
-static func nearest_enemy_vehicle(vview: Dictionary, view: Dictionary, my_pos: Vector3, my_team: int, max_dist: float) -> int:
-	var best := 0
-	var bestd := max_dist
-	for vid in vview:
-		var v: VehicleState = vview[vid]
-		if not vehicle_is_enemy(v, view, my_team): continue
-		var d := my_pos.distance_to(v.pos)
-		if d <= bestd:
-			bestd = d; best = vid
-	return best
-
-## Nearest own-vehicle (vehicles are team-locked so any replicated one is enterable) with a free
-## seat, within reason. Returns vid or 0. seats[*]==0 means empty.
-static func nearest_free_vehicle(vview: Dictionary, my_pos: Vector3) -> int:
-	var best := 0
-	var bestd := INF
-	for vid in vview:
-		var v: VehicleState = vview[vid]
-		var free := false
-		for occ in v.seats:
-			if int(occ) == 0: free = true; break
-		if not free: continue
-		var d := my_pos.distance_to(v.pos)
-		if d < bestd:
-			bestd = d; best = vid
-	return best
-
-## Vehicle driver command toward `objective` from `from`, given the vehicle's current `heading`.
-## move_x = steering (proportional to the heading error, so the hull turns to face the target),
-## move_y = throttle. yaw = bearing (pawn look). Forward convention matches Vehicle.step:
-## forward = (sin(heading), 0, cos(heading)); a positive steer increases heading (+Z -> +X).
-static func drive_toward(heading: float, from: Vector3, objective: Vector3) -> Dictionary:
-	var to := objective - from
-	var bearing := atan2(to.x, to.z)
-	var err := wrapf(bearing - heading, -PI, PI)
-	var steer := clampf(err * 2.0, -1.0, 1.0)
-	return {"move_x": steer, "move_y": 1.0, "yaw": bearing}
-
-## Index of the capture point nearest the map centre (origin) — the most contested objective, where
-## combat (and thus the blast fire that can damage a vehicle) concentrates. -1 for an empty list.
-static func central_point_index(positions: Array) -> int:
-	var best := -1
-	var bestd := INF
-	for i in positions.size():
-		var d: float = (positions[i] as Vector3).length()   # distance from origin
-		if d < bestd:
-			bestd = d; best = i
-	return best
-
-## Position of the nearest alive enemy pawn in `view` (pawn_id -> EntityState with .alive/.team/.pos),
-## excluding my own id. Returns {"found": bool, "pos": Vector3}. Used to drive a crewed transport into
-## the firefight so the vehicle draws blast fire.
-static func nearest_enemy_pos(view: Dictionary, my_id: int, my_team: int, my_pos: Vector3) -> Dictionary:
-	var best := INF
-	var bp := Vector3.ZERO
-	var found := false
-	for id in view:
-		if int(id) == my_id: continue
-		var e: EntityState = view[id]
-		if not e.alive or int(e.team) == my_team: continue
-		var d: float = my_pos.distance_to(e.pos)
-		if d < best:
-			best = d; bp = e.pos; found = true
-	return {"found": found, "pos": bp}
-
-## Position of the ENEMY team's vehicle spawn (a fixed deep-enemy-backfield point). Crewed transports
-## drive here to loiter in enemy fire so the vehicle takes blast damage (the only thing that hurts it).
-## spawns: Array of {team:int, pos:Vector3}. Returns `fallback` if no enemy spawn is listed.
-static func enemy_spawn_pos(spawns: Array, my_team: int, fallback: Vector3) -> Vector3:
-	for s in spawns:
-		if int(s["team"]) != my_team:
-			return s["pos"]
-	return fallback
-
 func _objective_pos(me: EntityState) -> Vector3:
 	if _map == null or _map.points.is_empty():
 		return me.pos
@@ -740,18 +508,18 @@ func _objective_pos(me: EntityState) -> Vector3:
 	# backfield then push to the middle; this yields real captures (and flag deficits ->
 	# ticket bleed). A map-centre bias was tried but funnelled both teams onto the single
 	# centre point, which stayed perpetually contested and never captured.
-	var idx := choose_objective_index(positions, owners, me.team, me.pos, me.pos)
+	var idx := AiObjective.choose_objective_index(positions, owners, me.team, me.pos, me.pos)
 	return positions[idx] if idx >= 0 else me.pos
 
 ## Where a crewed transport should drive: toward the nearest visible enemy (into the firefight),
 ## else advance on the enemy spawn until contact. Falls back to current pos if nothing is known.
 func _hunt_pos(me: EntityState, self_id: int, view: Dictionary) -> Vector3:
 	# EntityState carries no id (the id is the view dict key), so the caller passes bot["id"].
-	var r := BotDriver.nearest_enemy_pos(view, self_id, int(me.team), me.pos)
+	var r := AiVehicleCrew.nearest_enemy_pos(view, self_id, int(me.team), me.pos)
 	if bool(r["found"]):
 		return r["pos"]
 	if _map != null:
-		return BotDriver.enemy_spawn_pos(_map.vehicle_spawns, int(me.team), me.pos)
+		return AiVehicleCrew.enemy_spawn_pos(_map.vehicle_spawns, int(me.team), me.pos)
 	return me.pos
 
 func _send(bot: Dictionary, mx: float, my: float, yaw: float, pitch: float, buttons: int) -> void:
@@ -773,7 +541,7 @@ func _on_packet(bot: Dictionary, bytes: PackedByteArray) -> void:
 		Protocol.Msg.MATCH_STATE:
 			_match_points = Protocol.decode_match_state(bytes)["points"]
 		Protocol.Msg.STRUCTURE_DELTA:
-			apply_structure_delta(bot["structs"], Protocol.decode_structure_delta(bytes))
+			AiVehicleCrew.apply_structure_delta(bot["structs"], Protocol.decode_structure_delta(bytes))
 			_note_sync(bot)
 		Protocol.Msg.STRUCTURE_BASELINE:
 			for rec in Protocol.decode_structure_baseline(bytes)["records"]:
