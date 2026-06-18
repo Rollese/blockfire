@@ -18,8 +18,8 @@ const STRUCT_SPAWN_DUR := 0.18     # seconds for build pop scale-up
 const STRUCT_DESTROY_DUR := 0.14   # seconds for destroy pop scale-down before release
 
 # -- viewmodel placeholder dimensions -----------------------------------------
-const VM_SIZE := Vector3(0.08, 0.08, 0.35)
 const VM_OFFSET := Vector3(0.15, -0.12, -0.40)   # right / down / forward in camera space
+const VM_YAW := PI   # GlbWeaponKit aims the barrel +Z; camera-forward is -Z, so flip 180° to aim with the view
 
 # -- tracer (shot feedback) ---------------------------------------------------
 const TRACER_POOL := 16
@@ -64,7 +64,7 @@ const VEHICLE_SMOOTH_RATE := 16.0                # higher = snappier; ~1/e catch
 var _struct_dying: Dictionary = {}
 
 # viewmodel box (optional placeholder)
-var _viewmodel: MeshInstance3D = null
+var _viewmodel: Node3D = null
 
 
 # =============================================================================
@@ -141,12 +141,24 @@ func setup(map: MapDef, camera: Camera3D) -> void:
 		add_child(fn)
 		_flashes.append({"node": fn, "mat": fn.material_override, "die": 0.0})
 
-	# Viewmodel placeholder (parented to camera so it moves with it)
-	_viewmodel = _make_box_mesh(VM_SIZE, Color(0.5, 0.5, 0.5))
-	_viewmodel.position = VM_OFFSET
-	# NOTE: we parent it to camera later in _apply_camera() to keep transforms clean.
-	# For now it is not added; client_main can add it after setup() if desired.
-	# Kept as an optional hook — Task 25 can wire it.
+	# First-person weapon viewmodel — a default-AR GlbWeaponKit gun parented to the camera so it
+	# tracks the view. (Per-weapon viewmodel needs client_main to pass WeaponPredictor.weapon — a
+	# follow-up.) Placement/orientation (VM_OFFSET / VM_YAW) are playtest knobs.
+	_viewmodel = build_viewmodel(Weapon.AR)
+	_camera.add_child(_viewmodel)
+
+
+## First-person weapon viewmodel: a GlbWeaponKit weapon placed at the camera-space offset and yawed
+## to face the camera's forward (-Z). Wraps the weapon in a holder so the kit's own orientation
+## (MODEL_YAW) is preserved — placement composes, never clobbers. Static + geometry-only so it is
+## unit-testable; setup() parents the result to the camera. Presentation-only (AGENTS.md §7).
+static func build_viewmodel(weapon_id: int) -> Node3D:
+	var holder := Node3D.new()
+	holder.name = "Viewmodel"
+	holder.position = VM_OFFSET
+	holder.rotation = Vector3(0.0, VM_YAW, 0.0)
+	holder.add_child(GlbWeaponKit.build(weapon_id))
+	return holder
 
 
 ## Per-frame update. Safe to call with null world_view or predictor (early-returns).
