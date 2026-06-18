@@ -276,7 +276,7 @@ func _drive(bot: Dictionary, delta: float) -> void:
 			_update_drill_phase(bot, int(dr["next_phase"]))
 		else:
 			# Normal: march to the objective (capture/defend)
-			var seek := climb_seek(me.pos, obj, _map.ladders if _map != null else [])
+			var seek := AiObjective.climb_seek(me.pos, obj, _map.ladders if _map != null else [])
 			if seek["seek"]:
 				var lb: Vector3 = seek["target"]
 				var flat2 := Vector2(lb.x - me.pos.x, lb.z - me.pos.z)
@@ -533,60 +533,9 @@ func _cover_between(bot: Dictionary, a: Vector3, b: Vector3) -> bool:
 func angle_diff(a: float, b: float) -> float:
 	return wrapf(a - b, -PI, PI)
 
-## Pure objective selector (unit-tested). Among points NOT owned by `my_team`, pick the one
-## nearest `center` (tie-broken by distance from `from`); if the team owns every point,
-## defend the nearest point to `from`. `owners[i]` is the owner of points[i] (-1 neutral);
-## owners shorter than points defaults missing entries to neutral. Returns -1 iff points is
-## empty. Biasing toward the map center makes both teams contest the same points so the match
-## converges into combat. See docs/specs/m3-bot-convergence-fix.md.
-static func choose_objective_index(points: Array, owners: Array, my_team: int, from: Vector3, center: Vector3) -> int:
-	if points.is_empty():
-		return -1
-	var best := -1
-	var best_c := INF
-	var best_d := INF
-	for i in points.size():
-		var owner := -1
-		if i < owners.size():
-			owner = int(owners[i])
-		if owner == my_team:
-			continue   # already ours — skip while capturable points remain
-		var cd: float = center.distance_to(points[i])
-		var fd: float = from.distance_to(points[i])
-		if cd < best_c - 0.001 or (absf(cd - best_c) <= 0.001 and fd < best_d):
-			best_c = cd; best_d = fd; best = i
-	if best == -1:
-		# team owns every capturable point: defend the nearest one to `from`
-		for i in points.size():
-			var fd: float = from.distance_to(points[i])
-			if fd < best_d:
-				best_d = fd; best = i
-	return best
-
 const DRILL_CLIMB := 0   # drill phase: go climb the ladder
 const DRILL_VAULT := 1   # drill phase: go vault the sandbag
 const DRILL_PHASE_TIMEOUT := 1500   # ticks (~50 s @30Hz): reset stuck driller to next phase
-
-const CLIMB_SEEK_RANGE := 16.0   # m: consider a ladder only when this close to its base
-const CLIMB_TOP_MARGIN := 2.0    # m above the ladder bottom past which the bot is "up" already
-
-## Decide whether to steer onto a ladder. seek=true with a move target at the ladder base when the
-## bot is near a ladder (and still below it) and its objective is roughly across/beyond that ladder.
-## Pure + unit-tested. The height guard stops a bot that has reached the ledge from re-seeking the
-## same ladder and getting stuck pushing "up" at the top.
-static func climb_seek(my_pos: Vector3, objective: Vector3, ladders: Array) -> Dictionary:
-	for l in ladders:
-		var base: Vector3 = l["bottom"]
-		if my_pos.y > base.y + CLIMB_TOP_MARGIN:
-			continue   # already elevated (on/above the ledge) — don't re-seek this ladder
-		var to_base := Vector2(base.x - my_pos.x, base.z - my_pos.z)
-		if to_base.length() > CLIMB_SEEK_RANGE:
-			continue
-		var to_obj := Vector2(objective.x - my_pos.x, objective.z - my_pos.z)
-		# Objective is beyond the ladder (same general heading, farther away).
-		if to_obj.length() > to_base.length() and to_base.normalized().dot(to_obj.normalized()) > 0.3:
-			return {"seek": true, "target": base}
-	return {"seek": false, "target": my_pos}
 
 ## Pure driller steering. phase 0 = go climb the ladder, phase 1 = go vault the sandbag.
 ## Returns {"move_to": Vector3, "force_climb": bool, "next_phase": int}.
@@ -692,17 +641,6 @@ static func drive_toward(heading: float, from: Vector3, objective: Vector3) -> D
 	var steer := clampf(err * 2.0, -1.0, 1.0)
 	return {"move_x": steer, "move_y": 1.0, "yaw": bearing}
 
-## Index of the capture point nearest the map centre (origin) — the most contested objective, where
-## combat (and thus the blast fire that can damage a vehicle) concentrates. -1 for an empty list.
-static func central_point_index(positions: Array) -> int:
-	var best := -1
-	var bestd := INF
-	for i in positions.size():
-		var d: float = (positions[i] as Vector3).length()   # distance from origin
-		if d < bestd:
-			bestd = d; best = i
-	return best
-
 ## Position of the nearest alive enemy pawn in `view` (pawn_id -> EntityState with .alive/.team/.pos),
 ## excluding my own id. Returns {"found": bool, "pos": Vector3}. Used to drive a crewed transport into
 ## the firefight so the vehicle draws blast fire.
@@ -740,7 +678,7 @@ func _objective_pos(me: EntityState) -> Vector3:
 	# backfield then push to the middle; this yields real captures (and flag deficits ->
 	# ticket bleed). A map-centre bias was tried but funnelled both teams onto the single
 	# centre point, which stayed perpetually contested and never captured.
-	var idx := choose_objective_index(positions, owners, me.team, me.pos, me.pos)
+	var idx := AiObjective.choose_objective_index(positions, owners, me.team, me.pos, me.pos)
 	return positions[idx] if idx >= 0 else me.pos
 
 ## Where a crewed transport should drive: toward the nearest visible enemy (into the firefight),

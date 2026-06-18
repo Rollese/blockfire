@@ -1,5 +1,7 @@
 extends TestCase
 
+const Obj := preload("res://bots/ai/behaviors/objective.gd")
+
 func _vs(pos: Vector3, team_seat0: int) -> VehicleState:
 	var s := VehicleState.new(); s.pos = pos; s.hp = 1000; s.type = 0
 	s.seats = [team_seat0, 0, 0, 0, 0]; return s
@@ -77,10 +79,10 @@ func test_enemy_spawn_pos_falls_back_when_none() -> void:
 
 func test_central_point_index_picks_nearest_origin() -> void:
 	var pts := [Vector3(-600, 0, -400), Vector3(0, 0, 0), Vector3(600, 0, 400)]
-	assert_eq(BotDriver.central_point_index(pts), 1)
+	assert_eq(Obj.central_point_index(pts), 1)
 
 func test_central_point_index_empty_is_negative() -> void:
-	assert_eq(BotDriver.central_point_index([]), -1)
+	assert_eq(Obj.central_point_index([]), -1)
 
 func test_nearest_enemy_pos_picks_closest_enemy() -> void:
 	var near := EntityState.new(); near.team = 1; near.alive = true; near.pos = Vector3(5, 0, 0)
