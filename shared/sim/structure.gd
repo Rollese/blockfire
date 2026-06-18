@@ -4,7 +4,7 @@ extends RefCounted
 ## (cell -> id; this IS the spatial index, never rebuilt per tick), a per-owner FIFO (for cap
 ## recycle), and a region index keyed to InterestGrid cells (for replication baselines). All
 ## placement rules live here so server authority and future client prediction can't diverge.
-## Pieces are static and (Phase 1) indestructible. See docs/specs/building.md.
+## Pieces are placed statically; their chunks are destructible via damage_chunks(). See docs/specs/destructible-buildings.md.
 ##
 ## A record is: {id:int, type:int, cell:Vector3i, yaw:int, chunks:int, building_id:int, owner:int}
 
@@ -92,6 +92,7 @@ func _face_height(type: int) -> float:
 ## Clear chunks within `radius` of world `impact` on piece `id`, if the source can damage this
 ## piece type. Returns {hit, holed, destroyed, mask}; removes the piece when the mask empties.
 ## Pure over store state + catalog — unit-testable.
+## `holed` is true whenever chunks were cleared (currently equals `hit`); reserved for a future line-of-sight/penetration distinction.
 func damage_chunks(id: int, source_type: int, impact: Vector3, radius: float) -> Dictionary:
 	if not _by_id.has(id):
 		return {"hit": false, "holed": false, "destroyed": false, "mask": 0}
@@ -190,7 +191,7 @@ func march(origin: Vector3, dir: Vector3, max_dist: float) -> Dictionary:
 
 func _ray_piece(origin: Vector3, d: Vector3, rec: Dictionary) -> float:
 	var mn := BuildGrid.cell_min(rec["cell"])
-	var h := BuildGrid.CELL_SIZE * (0.5 if _catalog.is_half(rec["type"]) else 1.0)
+	var h := _face_height(int(rec["type"]))
 	var mx := Vector3(mn.x + BuildGrid.CELL_SIZE, mn.y + h, mn.z + BuildGrid.CELL_SIZE)
 	return _ray_aabb(origin, d, mn, mx)
 
@@ -241,4 +242,4 @@ func ground_blocker_top(p: Vector3) -> float:
 	if not _occupancy.has(cell):
 		return 0.0
 	var rec: Dictionary = _by_id[_occupancy[cell]]
-	return BuildGrid.CELL_SIZE * (0.5 if _catalog.is_half(int(rec["type"])) else 1.0)
+	return _face_height(int(rec["type"]))

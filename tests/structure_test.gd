@@ -1,7 +1,7 @@
 extends TestCase
 
 const CAT := '{"pieces":[{"id":"sandbag","height":"half","health":150,"blocks":"both","chunk_grid":8},{"id":"wall","height":"full","health":350,"blocks":"both","chunk_grid":8}]}'
-const CAT_IMMUNE := '{"pieces":[{"id":"bwall","height":"full","health":800,"chunk_grid":8,"damage":["explosive","melee"]}]}'
+const CAT_BULLET_IMMUNE := '{"pieces":[{"id":"bwall","height":"full","health":800,"chunk_grid":8,"damage":["explosive","melee"]}]}'
 
 func _store() -> StructureStore:
 	return StructureStore.new(PieceCatalog.from_json_string(CAT)["catalog"])
@@ -90,7 +90,7 @@ func test_oldest_id_peeks_without_removing() -> void:
 
 func test_damage_chunks_clears_and_destroys() -> void:
 	var s := _store()
-	s.place(1, 1, Vector3i(0, 0, 0), 0, 0)
+	s.place(1, 1, Vector3i(0, 0, 0), 0, 7)
 	var center := BuildGrid.cell_min(Vector3i(0, 0, 0)) + Vector3(1, 1, 0)
 	var r1 := s.damage_chunks(1, PieceCatalog.SRC_EXPLOSIVE, center, 0.4)
 	assert_eq(r1["hit"], true)
@@ -102,9 +102,10 @@ func test_damage_chunks_clears_and_destroys() -> void:
 	assert_eq(r2["mask"], 0)
 	assert_eq(s.count(), 0)
 	assert_eq(s.occupied(Vector3i(0, 0, 0)), false)
+	assert_eq(s.owner_count(7), 0)
 
 func test_damage_chunks_respects_immunity() -> void:
-	var s := StructureStore.new(PieceCatalog.from_json_string(CAT_IMMUNE)["catalog"])
+	var s := StructureStore.new(PieceCatalog.from_json_string(CAT_BULLET_IMMUNE)["catalog"])
 	s.place(1, 0, Vector3i(0, 0, 0), 0, 0)
 	var center := BuildGrid.cell_min(Vector3i(0, 0, 0)) + Vector3(1, 1, 0)
 	assert_eq(s.damage_chunks(1, PieceCatalog.SRC_BULLET, center, 100.0)["hit"], false)

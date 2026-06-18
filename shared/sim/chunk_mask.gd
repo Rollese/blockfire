@@ -54,11 +54,16 @@ static func is_alive_at(mask: int, cell: Vector3i, yaw: int, grid: int, height: 
 ## Clear every intact chunk whose centre is within `radius` (world) of `impact`. New mask.
 static func clear_in_radius(mask: int, cell: Vector3i, yaw: int, grid: int, height: float, impact: Vector3, radius: float) -> int:
 	var m := mask
+	var origin := BuildGrid.cell_min(cell)
+	var u := _u_axis(yaw)
+	var ustep := BuildGrid.CELL_SIZE / float(grid)
+	var vstep := height / float(grid)
 	for row in grid:
 		for col in grid:
 			var bit := row * grid + col
 			if (m & (1 << bit)) == 0:
 				continue
-			if chunk_center(cell, yaw, row, col, grid, height).distance_to(impact) <= radius:
+			var center := origin + u * ((float(col) + 0.5) * ustep) + Vector3(0.0, (float(row) + 0.5) * vstep, 0.0)
+			if center.distance_to(impact) <= radius:
 				m &= ~(1 << bit)
 	return m
