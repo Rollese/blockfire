@@ -38,18 +38,27 @@
   "prebuilt": [],
   "buildings": [
     {
-      "prefab": "house",
+      "prefab": "test_twostory",
       "origin_cell": [
-        5,
+        -2,
         0,
-        -2
+        9
       ],
       "yaw": 0
     },
     {
-      "prefab": "bunker",
+      "prefab": "house",
       "origin_cell": [
-        -8,
+        9,
+        0,
+        9
+      ],
+      "yaw": 0
+    },
+    {
+      "prefab": "family_a",
+      "origin_cell": [
+        12,
         0,
         -2
       ],
@@ -58,56 +67,47 @@
     {
       "prefab": "tower",
       "origin_cell": [
-        -1,
-        0,
-        5
-      ],
-      "yaw": 0
-    },
-    {
-      "prefab": "test_twostory",
-      "origin_cell": [
-        6,
-        0,
-        4
-      ],
-      "yaw": 0
-    },
-    {
-      "prefab": "test_twostory",
-      "origin_cell": [
         10,
         0,
-        10
+        -12
       ],
       "yaw": 0
     },
     {
-      "prefab": "test_twostory",
+      "prefab": "supermarket",
+      "origin_cell": [
+        -5,
+        0,
+        -18
+      ],
+      "yaw": 0
+    },
+    {
+      "prefab": "warehouse",
+      "origin_cell": [
+        -20,
+        0,
+        -9
+      ],
+      "yaw": 0
+    },
+    {
+      "prefab": "bunker",
+      "origin_cell": [
+        -14,
+        0,
+        1
+      ],
+      "yaw": 0
+    },
+    {
+      "prefab": "family_b",
       "origin_cell": [
         -13,
         0,
-        10
-      ],
-      "yaw": 2
-    },
-    {
-      "prefab": "test_twostory",
-      "origin_cell": [
-        10,
-        0,
-        -13
+        9
       ],
       "yaw": 0
-    },
-    {
-      "prefab": "test_twostory",
-      "origin_cell": [
-        -13,
-        0,
-        -13
-      ],
-      "yaw": 2
     }
   ],
   "vehicle_spawns": [
