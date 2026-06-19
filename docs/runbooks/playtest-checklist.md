@@ -29,3 +29,22 @@ working combat AI. Spec: `docs/specs/destructible-buildings.md`; milestone: `doc
 - [ ] **Melee does NOT affect structures yet.** Sledge/pickaxe wall-breaking is **not** in P1 (the melee gadget is M5.5-P3; M11 owns only the future hook). Confirm only bullets + explosives change structures right now.
 
 <!-- Other workstreams: append your section below this line. -->
+
+---
+
+## M14 — Walkable Multi-Floor Structures (implemented 2026-06-19)
+
+Verify on `conquest_arena_buildings` — the **`test_twostory`** building is the target (a 3×3 two-story
+box: south door → interior staircase → first-floor room ringed by windows → flat roof). Spec:
+`docs/specs/walkable-multifloor.md`; milestone: `docs/milestones/M14-walkable-multifloor.md`.
+
+- [ ] **Walk into the ground floor.** Enter through the door; confirm the ground-floor walls block but the doorway is passable.
+- [ ] **Climb the staircase.** Walk forward onto the interior stairs — you should ascend smoothly (ramp), not get stuck at the bottom and not teleport up. Arrive standing on the first floor.
+- [ ] **Stand on the first floor.** You're held at the upper level; you can move around the first-floor room and shoot out the windows.
+- [ ] **Per-floor wall collision.** On the first floor, the upper walls block you; standing on the ground floor directly below those same walls, you are NOT blocked (height-aware).
+- [ ] **Step off / drop down.** Walk off the first-floor edge (or out a window) → you fall to the ground.
+- [ ] **Fall damage curve.** A short drop (first floor, ~2–4 m) does little/no damage; a bigger drop hurts; jumping off the **roof** (~6 m) should be lethal or near-lethal (safe ≤ 4 m, lethal ~12 m — tune `Fall.SAFE_FALL`/`DMG_PER_M` if it feels off).
+- [ ] **Fall death reads right.** A lethal fall **kills outright** (not downed/DBNO) — confirm you die, not bleed out.
+- [ ] **Destruction still works on a multi-floor building.** RPG/frag the ground-floor walls/stairs; pieces above lose support and the building cascades/collapses as in M11. (Destroying the floor under you should drop you.)
+- [ ] **Stair direction.** Confirm the stairs ascend the way you walk in; if they run backwards, it's a one-line flip of `Stairs.run_dir`'s base case.
+- [ ] **No vertical jitter.** Standing on an upper floor should be stable (server-authoritative + reconciled). If you see rubber-banding/jitter on the upper floor, note it — a client-side floor-snap is the follow-up.
