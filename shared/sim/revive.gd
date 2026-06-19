@@ -23,7 +23,7 @@ enum Source { BULLET = 0, BLAST = 1, FALL = 2 }
 
 ## A lethal hit skips DOWNED and kills outright when it is a headshot or an explosive/blast hit.
 static func is_instant_kill(headshot: bool, source: int) -> bool:
-	return headshot or source == Source.BLAST
+	return headshot or source == Source.BLAST or source == Source.FALL
 
 ## Effective bleed_health after one tick (0 at down, floored at BLEEDOUT_FLOOR). Halted pawns hold.
 static func bleed_step(bleed_health: int, halted: bool) -> int:

@@ -319,6 +319,7 @@ func _step_movement() -> void:
 			else:
 				c["ammo"] = Weapon.get_def(c["weapon"])["mag_size"]
 	_sim.step(inputs, _map.world_half)
+	_apply_fall_damage()
 
 ## Build vid -> driver command from each vehicle's seat-0 (driver) occupant's last input. Also
 ## refreshes the gunner pawn's look so SimLoop.step_vehicles can mirror it to the turret.
@@ -618,6 +619,19 @@ func _kill_pawn(vid: int, victim: Pawn, killer_id: int, weapon_id: int, headshot
 	for cid in _clients:
 		_net.send_to(_clients[cid]["peer"], NetHost.CHANNEL_CONTROL, ev, ENetPacketPeer.FLAG_RELIABLE)
 
+## Apply height-based fall damage to any pawn that landed this tick (landed_fall set by SimLoop).
+## Routes through the normal damage pipeline; a lethal fall kills outright (Revive.Source.FALL).
+func _apply_fall_damage() -> void:
+	for id in _clients:
+		var p: Pawn = _sim.world.get_pawn(id)
+		if p == null or not p.alive or p.is_downed:
+			continue
+		if p.landed_fall <= 0.0:
+			continue
+		var dmg := Fall.damage_for(p.landed_fall)
+		if dmg > 0:
+			_apply_pawn_damage(id, p, dmg, false, Revive.Source.FALL, id, 0)
+
 ## Single routing path for all pawn damage. A standing pawn is killed outright by a headshot or
 ## blast (instant-kill bypass) and otherwise downed. DOWNED pawns are immune to weapon damage
 ## (no finishing, BattleBit-style) — they resolve only via passive bleed-out or a teammate revive.
@@ -826,6 +840,9 @@ func _handle_respawns() -> void:
 			p.vaulting = false   # doesn't resume the arc/ladder at its fresh spawn (ghost-vault fix)
 			p.bleed_halted = false
 			p.bandage_count = Revive.bandage_count_for(_is_medic(id))
+			p.grounded = true
+			p.fall_peak_y = p.pos.y
+			p.landed_fall = 0.0
 			c["respawn_tick"] = 0
 			c["ammo"] = Weapon.get_def(c["weapon"])["mag_size"]
 			c["reloading"] = false
@@ -1077,6 +1094,9 @@ func _handle_deploy_request(peer: ENetPacketPeer, bytes: PackedByteArray) -> voi
 	p.vaulting = false
 	p.in_vehicle = 0   # defensive: never deploy still bound to a seat
 	p.seat = -1
+	p.grounded = true
+	p.fall_peak_y = p.pos.y
+	p.landed_fall = 0.0
 	c["ammo"] = Weapon.get_def(c["weapon"])["mag_size"]
 	c["rockets"] = int(_gadgets.def_of_kind(Gadget.KIND_RPG)["ammo"]) if int(c["weapon"]) == Weapon.RPG else 0   # refill rockets on (re)deploy, not just respawn
 	c["reloading"] = false

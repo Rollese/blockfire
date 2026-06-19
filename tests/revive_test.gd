@@ -29,3 +29,7 @@ func test_medic_revives_at_double_speed() -> void:
 func test_medic_carries_extra_bandages() -> void:
 	assert_eq(Revive.bandage_count_for(true), Revive.BANDAGE_COUNT + Revive.MEDIC_EXTRA_BANDAGES)
 	assert_eq(Revive.bandage_count_for(false), Revive.BANDAGE_COUNT)
+
+func test_fall_is_instant_kill_not_downed() -> void:
+	assert_true(Revive.is_instant_kill(false, Revive.Source.FALL), "a lethal fall kills outright, not DBNO")
+	assert_false(Revive.is_instant_kill(false, Revive.Source.BULLET), "bullets still down")
