@@ -2,23 +2,134 @@
   "name": "arena_buildings",
   "world_half": 60.0,
   "points": [
-    {"id": "A", "pos": [0, 0, 0], "radius": 12.0, "start_owner": -1}
+    {
+      "id": "A",
+      "pos": [
+        0,
+        0,
+        0
+      ],
+      "radius": 12.0,
+      "start_owner": -1
+    }
   ],
   "bases": [
-    {"team": 0, "pos": [-40, 0, 0], "radius": 12.0},
-    {"team": 1, "pos": [ 40, 0, 0], "radius": 12.0}
+    {
+      "team": 0,
+      "pos": [
+        -40,
+        0,
+        0
+      ],
+      "radius": 12.0
+    },
+    {
+      "team": 1,
+      "pos": [
+        40,
+        0,
+        0
+      ],
+      "radius": 12.0
+    }
   ],
   "ladders": [],
   "platforms": [],
   "prebuilt": [],
   "buildings": [
-    {"prefab": "house",         "origin_cell": [5, 0, -2],  "yaw": 0},
-    {"prefab": "bunker",        "origin_cell": [-8, 0, -2], "yaw": 0},
-    {"prefab": "tower",         "origin_cell": [-1, 0, 5],  "yaw": 0},
-    {"prefab": "test_twostory", "origin_cell": [6, 0, 4],   "yaw": 0}
+    {
+      "prefab": "house",
+      "origin_cell": [
+        5,
+        0,
+        -2
+      ],
+      "yaw": 0
+    },
+    {
+      "prefab": "bunker",
+      "origin_cell": [
+        -8,
+        0,
+        -2
+      ],
+      "yaw": 0
+    },
+    {
+      "prefab": "tower",
+      "origin_cell": [
+        -1,
+        0,
+        5
+      ],
+      "yaw": 0
+    },
+    {
+      "prefab": "test_twostory",
+      "origin_cell": [
+        6,
+        0,
+        4
+      ],
+      "yaw": 0
+    },
+    {
+      "prefab": "test_twostory",
+      "origin_cell": [
+        10,
+        0,
+        10
+      ],
+      "yaw": 0
+    },
+    {
+      "prefab": "test_twostory",
+      "origin_cell": [
+        -13,
+        0,
+        10
+      ],
+      "yaw": 2
+    },
+    {
+      "prefab": "test_twostory",
+      "origin_cell": [
+        10,
+        0,
+        -13
+      ],
+      "yaw": 0
+    },
+    {
+      "prefab": "test_twostory",
+      "origin_cell": [
+        -13,
+        0,
+        -13
+      ],
+      "yaw": 2
+    }
   ],
   "vehicle_spawns": [
-    {"team": 0, "type": "transport", "pos": [-34, 0, 8], "heading": 1.5708},
-    {"team": 1, "type": "transport", "pos": [ 34, 0, 8], "heading": -1.5708}
+    {
+      "team": 0,
+      "type": "transport",
+      "pos": [
+        -34,
+        0,
+        8
+      ],
+      "heading": 1.5708
+    },
+    {
+      "team": 1,
+      "type": "transport",
+      "pos": [
+        34,
+        0,
+        8
+      ],
+      "heading": -1.5708
+    }
   ]
 }

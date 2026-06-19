@@ -279,24 +279,6 @@
         2
       ],
       "yaw": 0
-    },
-    {
-      "type": "bstair",
-      "offset": [
-        1,
-        0,
-        0
-      ],
-      "yaw": 0
-    },
-    {
-      "type": "bstair",
-      "offset": [
-        1,
-        0,
-        1
-      ],
-      "yaw": 0
     }
   ]
 }
