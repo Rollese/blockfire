@@ -280,11 +280,11 @@ func floor_height_at(x: float, z: float, y: float) -> float:
 		if _catalog.is_ramp(t):
 			surf = Stairs.surface_at(cell, int(rec["yaw"]), x, z)
 			reach = RAMP_REACH_EPS
-		elif _catalog.is_flat_surface(t):
+		else:
+			# Any solid piece provides a standable surface at its cell base, so a building level is a
+			# continuous floor (interior floors + the base of perimeter walls) — no edge fall/oscillation.
 			surf = float(cy) * BuildGrid.CELL_SIZE
 			reach = FLOOR_REACH_EPS
-		else:
-			continue
 		if surf <= y + reach and surf > best:
 			best = surf
 	return best

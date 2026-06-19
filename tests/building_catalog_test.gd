@@ -57,10 +57,11 @@ func test_shipped_prefabs_load() -> void:
 		assert_true(res["ok"], "%s loads: %s" % [name, res["error"]])
 		assert_true(res["prefab"]["pieces"].size() >= 4, "%s has pieces" % name)
 
-func test_tower_has_columns() -> void:
+func test_tower_loads_with_structural_walls() -> void:
+	# Tower redesign: a tall walled box (perimeter walls, no bare columns).
 	var res := BuildingCatalog.load_file("res://buildings/tower.json", _cat())
-	var n := 0
+	var walls := 0
 	for p in res["prefab"]["pieces"]:
-		if _cat().name_of(p["type"]) == "bcolumn":
-			n += 1
-	assert_true(n >= 4, "tower has >=4 columns (the collapse spine)")
+		if _cat().name_of(p["type"]) in ["bwall", "bwall_window", "bwall_door"]:
+			walls += 1
+	assert_true(walls >= 8, "tower is enclosed by structural walls")

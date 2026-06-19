@@ -26,7 +26,8 @@ func test_stair_cell_returns_ramped_height() -> void:
 	assert_almost_eq(s.floor_height_at(1.0, 0.0, 4.0), 2.0, 0.05, "stair low edge ~ base")
 	assert_almost_eq(s.floor_height_at(1.0, 1.0, 4.0), 3.0, 0.05, "stair mid ~ halfway")
 
-func test_wall_is_not_a_surface() -> void:
+func test_wall_provides_base_surface() -> void:
+	# A wall provides a standable surface at its cell base (so a building level is a continuous floor).
 	var s := _store()
-	s.place(1, 2, Vector3i(0, 1, 0), 0, 99)   # bwall (type 2) at cell y=1
-	assert_true(s.floor_height_at(1.0, 1.0, 3.0) == -INF, "a wall is not standable")
+	s.place(1, 2, Vector3i(0, 1, 0), 0, 99)   # bwall (type 2) at cell y=1 -> base surface 2.0
+	assert_almost_eq(s.floor_height_at(1.0, 1.0, 3.0), 2.0, 0.01, "wall base is standable at the cell-base plane")
