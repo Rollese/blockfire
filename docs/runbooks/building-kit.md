@@ -24,7 +24,7 @@ L-shapes). Regenerate/extend there.
 saves PNGs. It needs a real renderer (GPU + display), so run it on the desktop, not headless.
 
 The dev loop (from game2, helper at `/tmp/shot.sh <name>`): sync the building files to the desktop,
-render there, pull `/tmp/pv_<name>_{iso,front,side,eye}.png`, then view the images. Render buildings
+render there, pull `/tmp/pv_<name>_{iso,front,side,eye}.png`, then view the images. **Render host:** the desktop (`192.168.1.194`, RX 9070 XT) OR the laptop (`192.168.1.128`, thinkpad, integrated GPU) — both Wayland (`wayland-0`). The laptop is the reliable fallback when the desktop is asleep (`/tmp/shotlap.sh <name>` targets it; `/tmp/shot.sh` targets the desktop). Render buildings
 **sequentially** — parallel godot instances fight over the desktop GPU/window and produce blank frames.
 Always check multiple angles; a single iso view hides door/window height and interior detail.
 
