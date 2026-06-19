@@ -11,12 +11,12 @@ const NEUTRAL_COLOR := Color(0.6, 0.6, 0.6)
 # -- structure type -> PieceCatalog id (array order == wire `type` int; see pieces/pieces.json) -----
 # pieces.json order: 0 = sandbag, 1 = wall, 2+ = building pieces. Unknown/extra types fall back to "wall"
 # (StructureKit also falls back to "wall" for any id it doesn't know).
-const STRUCT_TYPE_ID := ["sandbag", "wall", "bwall", "bwall_window", "bwall_door", "bfloor", "bstair", "bcolumn", "brailing", "prop_crate", "bwall_half", "bwall_brick", "bwall_metal", "bwall_wood"]
+const STRUCT_TYPE_ID := ["sandbag", "wall", "bwall", "bwall_window", "bwall_door", "bfloor", "bstair", "bcolumn", "brailing", "prop_crate", "bwall_half", "bwall_brick", "bwall_metal", "bwall_wood", "bwall_garage", "bwall_glass"]
 
 # -- structure type -> chunk-grid (mirror of pieces/pieces.json `chunk_grid`) ----------
 # Needed to turn a piece's live chunk alive-mask into a damage tier. Keep aligned with STRUCT_TYPE_ID
 # order; unknown types fall back to the 8x8 fortification grid.
-const STRUCT_TYPE_GRID := [8, 8, 8, 8, 8, 8, 8, 8, 4, 1, 8, 8, 8, 8]
+const STRUCT_TYPE_GRID := [8, 8, 8, 8, 8, 8, 8, 8, 4, 1, 8, 8, 8, 8, 8, 8]
 
 # -- structure feedback timing ------------------------------------------------
 const STRUCT_SPAWN_DUR := 0.18     # seconds for build pop scale-up

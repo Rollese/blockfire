@@ -51,6 +51,19 @@ static func build(piece_id: String, bucket: int) -> Node3D:
 				var h := CELL * (float(s) + 1.0) / 4.0
 				var step_col := COL_STEP_A if s % 2 == 0 else COL_STEP_B
 				root.add_child(_box("Step%d" % s, Vector3(CELL, CELL * 0.25, CELL / 4.0), Vector3(0, h * 0.5, -CELL * 0.5 + (float(s) + 0.5) * CELL / 4.0), bucket, step_col))
+		"bwall_garage":
+			# wide bay/garage opening: side posts + header beam, open span (walk/drive through)
+			root.add_child(_box("BayL", Vector3(CELL * 0.16, CELL, 0.4), Vector3(-CELL * 0.42, CELL * 0.5, 0), bucket, COL_METALW, "metal"))
+			root.add_child(_box("BayR", Vector3(CELL * 0.16, CELL, 0.4), Vector3(CELL * 0.42, CELL * 0.5, 0), bucket, COL_METALW, "metal"))
+			root.add_child(_box("BayTop", Vector3(CELL, CELL * 0.2, 0.4), Vector3(0, CELL * 0.9, 0), bucket, COL_METALW, "metal"))
+		"bwall_glass":
+			# storefront/curtain glass: thin frame + a translucent pane
+			root.add_child(_box("GFrameB", Vector3(CELL, CELL * 0.14, 0.3), Vector3(0, CELL * 0.07, 0), bucket, COL_METALW, "metal"))
+			root.add_child(_box("GFrameT", Vector3(CELL, CELL * 0.1, 0.3), Vector3(0, CELL * 0.95, 0), bucket, COL_METALW, "metal"))
+			root.add_child(_box("GFrameL", Vector3(CELL * 0.1, CELL, 0.3), Vector3(-CELL * 0.45, CELL * 0.5, 0), bucket, COL_METALW, "metal"))
+			root.add_child(_box("GFrameR", Vector3(CELL * 0.1, CELL, 0.3), Vector3(CELL * 0.45, CELL * 0.5, 0), bucket, COL_METALW, "metal"))
+			root.add_child(_box("GMull", Vector3(0.08, CELL, 0.3), Vector3(0, CELL * 0.5, 0), bucket, COL_METALW, "metal"))
+			root.add_child(_glass(Vector3(CELL * 0.84, CELL * 0.78, 0.06), Vector3(0, CELL * 0.5, 0)))
 		"bwall_half":
 			# low / parapet / fence wall (half height)
 			root.add_child(_box("LowWall", Vector3(CELL, CELL * 0.5, 0.3), Vector3(0, CELL * 0.25, 0), bucket, COL_WALL, "concrete"))
@@ -89,5 +102,18 @@ static func _box(node_name: String, size: Vector3, pos: Vector3, bucket: int, ba
 		var d := [absf(size.x), absf(size.y), absf(size.z)]
 		d.sort()
 		mat.uv1_scale = Vector3(maxf(d[2], 0.5), maxf(d[1], 0.5), 1.0)
+	mi.material_override = mat
+	return mi
+
+static func _glass(size: Vector3, pos: Vector3) -> MeshInstance3D:
+	var mi := MeshInstance3D.new()
+	mi.name = "Glass"
+	var mesh := BoxMesh.new(); mesh.size = size; mi.mesh = mesh
+	mi.position = pos
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = Color(0.55, 0.72, 0.82, 0.35)
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mat.roughness = 0.1
+	mat.metallic = 0.3
 	mi.material_override = mat
 	return mi

@@ -29,35 +29,44 @@
       "yaw": 2
     },
     {
-      "type": "bwall_wood",
+      "type": "bwall_metal",
       "offset": [
         0,
         0,
         3
+      ],
+      "yaw": 2
+    },
+    {
+      "type": "bwall_wood",
+      "offset": [
+        0,
+        0,
+        4
+      ],
+      "yaw": 0
+    },
+    {
+      "type": "bwall_garage",
+      "offset": [
+        1,
+        0,
+        0
+      ],
+      "yaw": 0
+    },
+    {
+      "type": "bwall_wood",
+      "offset": [
+        1,
+        0,
+        4
       ],
       "yaw": 0
     },
     {
       "type": "bwall_door",
       "offset": [
-        1,
-        0,
-        0
-      ],
-      "yaw": 0
-    },
-    {
-      "type": "bwall_wood",
-      "offset": [
-        1,
-        0,
-        3
-      ],
-      "yaw": 0
-    },
-    {
-      "type": "bwall_brick",
-      "offset": [
         2,
         0,
         0
@@ -69,12 +78,12 @@
       "offset": [
         2,
         0,
-        3
+        4
       ],
       "yaw": 0
     },
     {
-      "type": "bwall_brick",
+      "type": "bwall_glass",
       "offset": [
         3,
         0,
@@ -83,9 +92,27 @@
       "yaw": 0
     },
     {
-      "type": "bwall_metal",
+      "type": "bwall_wood",
       "offset": [
         3,
+        0,
+        4
+      ],
+      "yaw": 0
+    },
+    {
+      "type": "bwall_metal",
+      "offset": [
+        4,
+        0,
+        0
+      ],
+      "yaw": 0
+    },
+    {
+      "type": "bwall_metal",
+      "offset": [
+        4,
         0,
         1
       ],
@@ -94,18 +121,27 @@
     {
       "type": "bwall_metal",
       "offset": [
-        3,
+        4,
         0,
         2
       ],
       "yaw": 2
     },
     {
-      "type": "bwall_wood",
+      "type": "bwall_metal",
       "offset": [
-        3,
+        4,
         0,
         3
+      ],
+      "yaw": 2
+    },
+    {
+      "type": "bwall_wood",
+      "offset": [
+        4,
+        0,
+        4
       ],
       "yaw": 0
     },
@@ -137,11 +173,20 @@
       "yaw": 2
     },
     {
-      "type": "bwall_wood",
+      "type": "bwall_metal",
       "offset": [
         0,
         1,
         3
+      ],
+      "yaw": 2
+    },
+    {
+      "type": "bwall_wood",
+      "offset": [
+        0,
+        1,
+        4
       ],
       "yaw": 0
     },
@@ -155,11 +200,11 @@
       "yaw": 0
     },
     {
-      "type": "bwall_window",
+      "type": "bwall_wood",
       "offset": [
         1,
         1,
-        3
+        4
       ],
       "yaw": 0
     },
@@ -173,47 +218,74 @@
       "yaw": 0
     },
     {
-      "type": "bwall_window",
+      "type": "bwall_wood",
       "offset": [
         2,
         1,
-        3
+        4
       ],
       "yaw": 0
     },
     {
-      "type": "bwall_brick",
+      "type": "bwall_window",
       "offset": [
         3,
         1,
         0
       ],
       "yaw": 0
-    },
-    {
-      "type": "bwall_metal",
-      "offset": [
-        3,
-        1,
-        1
-      ],
-      "yaw": 2
-    },
-    {
-      "type": "bwall_metal",
-      "offset": [
-        3,
-        1,
-        2
-      ],
-      "yaw": 2
     },
     {
       "type": "bwall_wood",
       "offset": [
         3,
         1,
+        4
+      ],
+      "yaw": 0
+    },
+    {
+      "type": "bwall_brick",
+      "offset": [
+        4,
+        1,
+        0
+      ],
+      "yaw": 0
+    },
+    {
+      "type": "bwall_metal",
+      "offset": [
+        4,
+        1,
+        1
+      ],
+      "yaw": 2
+    },
+    {
+      "type": "bwall_metal",
+      "offset": [
+        4,
+        1,
+        2
+      ],
+      "yaw": 2
+    },
+    {
+      "type": "bwall_metal",
+      "offset": [
+        4,
+        1,
         3
+      ],
+      "yaw": 2
+    },
+    {
+      "type": "bwall_wood",
+      "offset": [
+        4,
+        1,
+        4
       ],
       "yaw": 0
     },
@@ -256,6 +328,15 @@
     {
       "type": "bfloor",
       "offset": [
+        0,
+        2,
+        4
+      ],
+      "yaw": 0
+    },
+    {
+      "type": "bfloor",
+      "offset": [
         1,
         2,
         0
@@ -292,6 +373,15 @@
     {
       "type": "bfloor",
       "offset": [
+        1,
+        2,
+        4
+      ],
+      "yaw": 0
+    },
+    {
+      "type": "bfloor",
+      "offset": [
         2,
         2,
         0
@@ -328,6 +418,15 @@
     {
       "type": "bfloor",
       "offset": [
+        2,
+        2,
+        4
+      ],
+      "yaw": 0
+    },
+    {
+      "type": "bfloor",
+      "offset": [
         3,
         2,
         0
@@ -358,6 +457,60 @@
         3,
         2,
         3
+      ],
+      "yaw": 0
+    },
+    {
+      "type": "bfloor",
+      "offset": [
+        3,
+        2,
+        4
+      ],
+      "yaw": 0
+    },
+    {
+      "type": "bfloor",
+      "offset": [
+        4,
+        2,
+        0
+      ],
+      "yaw": 0
+    },
+    {
+      "type": "bfloor",
+      "offset": [
+        4,
+        2,
+        1
+      ],
+      "yaw": 0
+    },
+    {
+      "type": "bfloor",
+      "offset": [
+        4,
+        2,
+        2
+      ],
+      "yaw": 0
+    },
+    {
+      "type": "bfloor",
+      "offset": [
+        4,
+        2,
+        3
+      ],
+      "yaw": 0
+    },
+    {
+      "type": "bfloor",
+      "offset": [
+        4,
+        2,
+        4
       ],
       "yaw": 0
     },
@@ -410,6 +563,15 @@
       "type": "bwall_half",
       "offset": [
         4,
+        0,
+        -2
+      ],
+      "yaw": 0
+    },
+    {
+      "type": "bwall_half",
+      "offset": [
+        5,
         0,
         -2
       ],

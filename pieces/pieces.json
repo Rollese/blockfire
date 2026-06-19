@@ -186,6 +186,33 @@
         "explosive",
         "melee"
       ]
+    },
+    {
+      "id": "bwall_garage",
+      "height": "full",
+      "health": 300,
+      "blocks": "both",
+      "material": "METAL_THICK",
+      "chunk_grid": 8,
+      "structural": true,
+      "damage": [
+        "explosive",
+        "melee"
+      ],
+      "passable": true
+    },
+    {
+      "id": "bwall_glass",
+      "height": "full",
+      "health": 150,
+      "blocks": "both",
+      "material": "CONCRETE",
+      "chunk_grid": 8,
+      "structural": true,
+      "damage": [
+        "explosive",
+        "melee"
+      ]
     }
   ]
 }
