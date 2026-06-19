@@ -52,3 +52,26 @@ func test_no_landed_fall_when_already_grounded() -> void:
 	sim.world.pawns[1] = p
 	sim.step({1: {"move_x": 1.0}})
 	assert_almost_eq(p.landed_fall, 0.0, 0.001, "walking on the ground records no fall")
+
+func test_climb_test_twostory_reaches_upper_floor() -> void:
+	# End-to-end: stamp the test_twostory prefab, walk a pawn in the door + up the interior stair,
+	# and confirm it ends up standing on the upper floor (no climb glitch / fall-back).
+	var cat := PieceCatalog.load_file("res://pieces/pieces.json")
+	var store := StructureStore.new(cat)
+	var data = JSON.parse_string(FileAccess.get_file_as_string("res://buildings/test_twostory.json"))
+	var id := 1
+	for p in data["pieces"]:
+		var off = p["offset"]
+		store.place(id, cat.index_of(String(p["type"])), Vector3i(int(off[0]), int(off[1]), int(off[2])), int(p.get("yaw", 0)), -1, 1)
+		id += 1
+	var sim := SimLoop.new()
+	sim.structures = store
+	var pawn := Pawn.new(1)
+	pawn.pos = Vector3(5.0, 0.0, -1.0)   # just south of the door (cell (2,0,0) = world x[4,6], z[0,2])
+	sim.world.pawns[1] = pawn
+	var max_y := 0.0
+	for _i in 140:
+		sim.step({1: {"move_y": 1.0}})   # walk north: door -> interior -> stair -> up
+		max_y = maxf(max_y, pawn.pos.y)
+	assert_true(max_y > 1.7, "reached the upper floor while climbing (max_y=%f)" % max_y)
+	assert_true(pawn.pos.y > 1.5, "still on the upper floor at the end (y=%f, z=%f)" % [pawn.pos.y, pawn.pos.z])
