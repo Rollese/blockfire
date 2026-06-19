@@ -1,103 +1,145 @@
 #!/usr/bin/env python3
-"""Generate a coherent Conquest gameplay map: a small town with a road network,
-buildings laid out in districts beside the streets, 5 capture points, and 2 main bases.
+"""Generate a coherent, DENSE Conquest gameplay map: a town with a road grid (one N-S main
+avenue, two N-S side streets, five E-W cross-streets), buildings packed into continuous
+frontages along every street, 5 capture points, and 2 main bases.
 
-Buildings are placed by their *min world corner* (x0,z0). origin_cell = round(corner/CELL).
-We read each prefab's actual cell footprint so rows pack without overlapping the streets.
-All placements use yaw=0 (footprint stays axis-aligned -> simple, overlap-free packing).
+Buildings are placed by their min world corner (x0,z0); they extend toward +x and +z, so a row
+of them forms a clean south frontage (aligned min-z edge) facing the street to its south.
+fill_row() cycles a themed prefab list to fill a frontage across the map width, skipping the
+N-S street corridors so nothing blocks a road. A validator asserts no building overlaps and
+none sits on a street (must print 0 problems). All yaw=0 -> footprints stay axis-aligned.
 
 Run:  python3 tools/map_gen.py   ->  writes maps/conquest_town.json
 """
-import json, os, glob
+import json, os
 
 CELL = 2.0
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+_FP = {}
+
+def extent(name):
+    """True cell extent (minx, maxx, minz, maxz) of a prefab — offsets can be non-zero/negative."""
+    if name not in _FP:
+        data = json.load(open(os.path.join(ROOT, "buildings", name + ".json")))
+        xs = [p["offset"][0] for p in data["pieces"]]
+        zs = [p["offset"][2] for p in data["pieces"]]
+        _FP[name] = (min(xs), max(xs), min(zs), max(zs))
+    return _FP[name]
 
 def footprint(name):
-    """Return (nx, nz) cell footprint of a prefab from its piece offsets."""
-    data = json.load(open(os.path.join(ROOT, "buildings", name + ".json")))
-    xs = [p["offset"][0] for p in data["pieces"]]
-    zs = [p["offset"][2] for p in data["pieces"]]
-    return (max(xs) - min(xs) + 1, max(zs) - min(zs) + 1)
+    minx, maxx, minz, maxz = extent(name)
+    return (maxx - minx + 1, maxz - minz + 1)  # (nx, nz) in cells
 
 buildings = []
 def place(name, x0, z0):
-    """Place a building with its min corner at world (x0,z0). Returns world width,depth (m)."""
-    nx, nz = footprint(name)
-    cx = round(x0 / CELL)
-    cz = round(z0 / CELL)
+    """Place so the building's MIN world corner lands at (x0,z0), accounting for piece offsets."""
+    minx, _maxx, minz, _maxz = extent(name)
+    cx = round(x0 / CELL) - minx
+    cz = round(z0 / CELL) - minz
     buildings.append({"prefab": name, "origin_cell": [cx, 0, cz], "yaw": 0})
+    nx, nz = footprint(name)
     return nx * CELL, nz * CELL
 
-def row(names, x_start, z_corner, gap=6.0):
-    """Lay a row of buildings west->east, min-corner z = z_corner."""
-    x = x_start
-    for n in names:
-        w, _d = place(n, x, z_corner)
+# N-S street corridors buildings must not cross (avenue + two side streets), as (x_lo, x_hi).
+NS_STREETS = [(-81, -69), (-6, 6), (69, 81)]
+
+def in_skip(x):
+    for lo, hi in NS_STREETS:
+        if lo <= x < hi:
+            return hi
+    return None
+
+def crosses_skip(x, w):
+    for lo, hi in NS_STREETS:
+        if x < hi and x + w > lo:
+            return hi
+    return None
+
+def fill_row(names, x0, x1, z_corner, gap=7.0):
+    """Cycle `names` to fill a frontage from x0..x1 at min-corner z=z_corner, skipping streets.
+    All arithmetic is in metres (footprint nx is in cells -> * CELL)."""
+    x = x0
+    i = 0
+    guard = 0
+    while x < x1 and guard < 400:
+        guard += 1
+        hi = in_skip(x)
+        if hi is not None:
+            x = hi + gap
+            continue
+        name = names[i % len(names)]
+        w = footprint(name)[0] * CELL
+        if x + w > x1:
+            break
+        hi = crosses_skip(x, w)
+        if hi is not None:
+            x = hi + gap
+            continue
+        place(name, x, z_corner)
         x += w + gap
+        i += 1
 
 # ---------------------------------------------------------------- roads
-# N-S main avenue down the middle, three E-W cross streets (south/center/north).
-HALF = 11.0  # avenue half-width / street half-width band
 roads = [
-    {"min": [-6, 0, -170], "max": [6, 0, 170]},      # Main Avenue (N-S spine)
-    {"min": [-150, 0, -66], "max": [150, 0, -54]},   # South Street
-    {"min": [-150, 0, -6],  "max": [150, 0, 6]},     # Center Street
-    {"min": [-150, 0, 54],  "max": [150, 0, 66]},    # North Street
+    {"min": [-6, 0, -160], "max": [6, 0, 160]},      # Main Avenue (N-S spine)
+    {"min": [-81, 0, -112], "max": [-69, 0, 112]},   # West side street
+    {"min": [69, 0, -112], "max": [81, 0, 112]},     # East side street
+    {"min": [-152, 0, -106], "max": [152, 0, -94]},  # Cross St -100
+    {"min": [-152, 0, -56], "max": [152, 0, -44]},   # Cross St -50
+    {"min": [-152, 0, -6], "max": [152, 0, 6]},      # Center St 0
+    {"min": [-152, 0, 44], "max": [152, 0, 56]},     # Cross St +50
+    {"min": [-152, 0, 94], "max": [152, 0, 106]},    # Cross St +100
 ]
 
 # ---------------------------------------------------------------- districts
-# One row per inter-street band so footprints never collide and the streets stay clear.
-# Buildings extend toward +z from their min-corner z. West rows run from x=-150 toward the
-# avenue (x=-6); east rows start past the avenue (x>=20). z-bands (corner -> deepest end):
-#   A1 -145, A2 -100, B -52  (south of / flanking South St),  D 12  (flanking Center St),
-#   E1 72, E2 118 (flanking North St, toward team-1 base). Center square (point C) left open.
+# Themed prefab pools (cycled to fill). South=industrial, center=commercial/civic, north=residential.
+IND = ["warehouse", "factory", "hangar", "bunker", "silo", "parking", "supermarket"]
+CIV = ["office", "office_tower", "apartment", "supermarket", "gas_station", "guardhouse", "materials"]
+RES = ["house", "family_a", "family_b", "cottage", "townhouse", "villa", "lhouse", "barn", "shed", "barracks"]
 
-# SOUTH industrial depot (point A, SW) + commercial market (point B, SE).
-row(["bunker", "silo"],          x_start=-150, z_corner=-145); row(["hangar"], x_start=30, z_corner=-145)
-row(["warehouse", "factory"],    x_start=-150, z_corner=-100); row(["supermarket", "parking"], x_start=30, z_corner=-100)
-row(["barn", "shed"],            x_start=-150, z_corner=-52);  row(["gas_station", "materials"], x_start=30, z_corner=-52)
-
-# CENTER civic block, south side of Center Street (square itself kept open).
-row(["townhouse", "house", "villa", "guardhouse"], x_start=-150, z_corner=12)
-
-# NORTH residential + military (point D NW, point E NE), flanking North Street.
-row(["office_tower", "office", "apartment"], x_start=-150, z_corner=72); row(["barracks"], x_start=40, z_corner=72)
-row(["family_a", "family_b", "cottage"],     x_start=-150, z_corner=118); row(["lhouse", "tower", "props"], x_start=20, z_corner=118)
+# One frontage row per band, fronting the E-W street to its south (min-corner z = band bottom).
+# Bands south->north: between bases (z +-150) and the five cross-streets.
+fill_row(IND, -150, 150, z_corner=-124)  # B1: south outskirts (clear of team-0 base approach)
+fill_row(IND, -150, 150, z_corner=-90)   # B2: industrial, north of Cross -100
+fill_row(CIV, -150, 150, z_corner=-40)   # B3: commercial, north of Cross -50
+fill_row(CIV, -150, 150, z_corner=12)    # B4: civic, north of Center St
+fill_row(RES, -150, 150, z_corner=62)    # B5: residential, north of Cross +50
+fill_row(RES, -150, 150, z_corner=108)   # B6: north outskirts (clear of team-1 base approach)
 
 # ---------------------------------------------------------------- points + bases
 points = [
-    {"id": "A", "pos": [-80, 0, -60], "radius": 18, "start_owner": -1},  # SW depot
-    {"id": "B", "pos": [70,  0, -60], "radius": 18, "start_owner": -1},  # SE market
-    {"id": "C", "pos": [0,   0, 0],   "radius": 20, "start_owner": -1},  # central square
-    {"id": "D", "pos": [-80, 0, 60],  "radius": 18, "start_owner": -1},  # NW residential
-    {"id": "E", "pos": [80,  0, 60],  "radius": 18, "start_owner": -1},  # NE barracks
+    {"id": "A", "pos": [-90, 0, -70], "radius": 20, "start_owner": -1},  # SW industrial
+    {"id": "B", "pos": [90, 0, -70], "radius": 20, "start_owner": -1},   # SE industrial
+    {"id": "C", "pos": [0, 0, 0], "radius": 22, "start_owner": -1},      # central square
+    {"id": "D", "pos": [-90, 0, 75], "radius": 20, "start_owner": -1},   # NW residential
+    {"id": "E", "pos": [90, 0, 75], "radius": 20, "start_owner": -1},    # NE residential
 ]
 bases = [
-    {"team": 0, "pos": [0, 0, -150], "radius": 22},  # south
-    {"team": 1, "pos": [0, 0, 150],  "radius": 22},  # north
+    {"team": 0, "pos": [0, 0, -150], "radius": 22},
+    {"team": 1, "pos": [0, 0, 150], "radius": 22},
 ]
 vehicle_spawns = [
     {"team": 0, "type": "transport", "pos": [-14, 0, -150], "heading": 0.0},
-    {"team": 0, "type": "transport", "pos": [14,  0, -150], "heading": 0.0},
-    {"team": 1, "type": "transport", "pos": [-14, 0, 150],  "heading": 3.14159},
-    {"team": 1, "type": "transport", "pos": [14,  0, 150],  "heading": 3.14159},
+    {"team": 0, "type": "transport", "pos": [14, 0, -150], "heading": 0.0},
+    {"team": 1, "type": "transport", "pos": [-14, 0, 150], "heading": 3.14159},
+    {"team": 1, "type": "transport", "pos": [14, 0, 150], "heading": 3.14159},
 ]
 
 out = {
     "name": "Town",
-    "world_half": 180.0,
+    "world_half": 170.0,
     "roads": roads,
     "buildings": buildings,
     "points": points,
     "bases": bases,
     "vehicle_spawns": vehicle_spawns,
 }
+
 # ---------------------------------------------------------------- validation
 def aabb(b):
-    nx, nz = footprint(b["prefab"])
+    minx, maxx, minz, maxz = extent(b["prefab"])
     cx, _cy, cz = b["origin_cell"]
-    return (cx * CELL, cz * CELL, (cx + nx) * CELL, (cz + nz) * CELL)  # x0,z0,x1,z1
+    return ((cx + minx) * CELL, (cz + minz) * CELL, (cx + maxx + 1) * CELL, (cz + maxz + 1) * CELL)
 
 def overlap(a, b):
     return a[0] < b[2] and b[0] < a[2] and a[1] < b[3] and b[1] < a[3]
@@ -113,6 +155,11 @@ for nm, bx in boxes:
         rbx = (rd["min"][0], rd["min"][2], rd["max"][0], rd["max"][2])
         if overlap(bx, rbx):
             problems.append("ROAD OVERLAP: %s on a street" % nm)
+    for bs in bases:
+        bp = bs["pos"]; br = bs["radius"]
+        bbox = (bp[0] - br, bp[2] - br, bp[0] + br, bp[2] + br)
+        if overlap(bx, bbox):
+            problems.append("BASE OVERLAP: %s in team-%d spawn" % (nm, bs["team"]))
 for p in problems:
     print("  ! " + p)
 
