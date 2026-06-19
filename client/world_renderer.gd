@@ -99,6 +99,45 @@ func setup(map: MapDef, camera: Camera3D) -> void:
 	ground.material_override = gmat
 	add_child(ground)
 
+	# Roads — flat dark-grey asphalt strips laid just above the ground (cosmetic, no collision).
+	# A faint yellow centre-line is drawn down the long axis so the road network reads as a network.
+	for rd: Dictionary in map.roads:
+		var rmin: Vector3 = rd["min"] as Vector3
+		var rmax: Vector3 = rd["max"] as Vector3
+		var rw := absf(rmax.x - rmin.x)
+		var rl := absf(rmax.z - rmin.z)
+		var rcx := (rmin.x + rmax.x) * 0.5
+		var rcz := (rmin.z + rmax.z) * 0.5
+		var road := MeshInstance3D.new()
+		var rplane := PlaneMesh.new()
+		rplane.size = Vector2(rw, rl)
+		road.mesh = rplane
+		var rmat := StandardMaterial3D.new()
+		rmat.albedo_color = Color(0.16, 0.16, 0.17)
+		rmat.roughness = 1.0
+		road.material_override = rmat
+		road.position = Vector3(rcx, 0.04, rcz)
+		add_child(road)
+		# Dashed centre line down the longer axis.
+		var along_x := rw >= rl
+		var span := rw if along_x else rl
+		var dashes := int(span / 6.0)
+		for di in dashes:
+			var t := (float(di) + 0.5) / float(maxi(dashes, 1))
+			var line := MeshInstance3D.new()
+			var lmesh := BoxMesh.new()
+			lmesh.size = Vector3(2.0, 0.02, 0.25) if along_x else Vector3(0.25, 0.02, 2.0)
+			line.mesh = lmesh
+			var lmat := StandardMaterial3D.new()
+			lmat.albedo_color = Color(0.80, 0.72, 0.20)
+			line.material_override = lmat
+			if along_x:
+				line.position = Vector3(rmin.x + t * rw, 0.06, rcz)
+			else:
+				line.position = Vector3(rcx, 0.06, rmin.z + t * rl)
+			line.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			add_child(line)
+
 	# Capture point markers — ground cylinder + a tall beacon so the point is a visible
 	# landmark from across the map (flat terrain is otherwise impossible to navigate).
 	for pt: Dictionary in map.points:

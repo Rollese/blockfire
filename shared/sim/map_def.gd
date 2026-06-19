@@ -10,6 +10,7 @@ var points: Array = []   # [{id:String, pos:Vector3, radius:float, start_owner:i
 var bases: Array = []    # [{team:int, pos:Vector3, radius:float}]
 var ladders: Array = []   # [{bottom:Vector3, top:Vector3, radius:float}]
 var platforms: Array = [] # [{min:Vector3, max:Vector3}]
+var roads: Array = []     # [{min:Vector3, max:Vector3}] flat cosmetic ground strips (no collision; client-rendered)
 var prebuilt: Array = []  # [{type:String (piece id), cell:Vector3i}] pre-placed at server start
 var buildings: Array = []  # [{prefab:String, origin_cell:Vector3i, yaw:int}]
 var vehicle_spawns: Array = []  # [{team:int, type:String, pos:Vector3, heading:float}]
@@ -64,6 +65,10 @@ static func from_dict(data: Dictionary) -> Dictionary:
 		if not (pf is Dictionary) or not pf.has("min") or not pf.has("max"):
 			return {"ok": false, "map": null, "error": "each platform needs min + max"}
 		m.platforms.append({"min": _vec3(pf["min"]), "max": _vec3(pf["max"])})
+	for rd in data.get("roads", []):
+		if not (rd is Dictionary) or not rd.has("min") or not rd.has("max"):
+			return {"ok": false, "map": null, "error": "each road needs min + max"}
+		m.roads.append({"min": _vec3(rd["min"]), "max": _vec3(rd["max"])})
 	for pb in data.get("prebuilt", []):
 		if not (pb is Dictionary) or not pb.has("type") or not pb.has("cell") or pb["cell"].size() != 3:
 			return {"ok": false, "map": null, "error": "each prebuilt needs type + 3-int cell"}

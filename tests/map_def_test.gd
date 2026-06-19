@@ -56,6 +56,20 @@ func test_proving_grounds_loads_with_geometry() -> void:
 	assert_true(m.platforms.size() >= 1, "has a platform")
 	assert_true(m.prebuilt.size() >= 1, "has prebuilt geometry")
 
+func test_parses_roads() -> void:
+	var r := MapDef.from_json_string('{"name":"r","world_half":50,"points":[{"id":"A","pos":[0,0,0],"radius":5}],"bases":[{"team":0,"pos":[-10,0,0],"radius":5},{"team":1,"pos":[10,0,0],"radius":5}],"roads":[{"min":[-6,0,-40],"max":[6,0,40]}]}')
+	assert_true(r["ok"], r["error"])
+	assert_eq(r["map"].roads.size(), 1)
+	assert_eq(r["map"].roads[0]["max"], Vector3(6, 0, 40))
+
+func test_town_map_loads_with_full_layout() -> void:
+	var m := MapDef.load_file("res://maps/conquest_town.json")
+	assert_true(m != null, "town map loads")
+	assert_eq(m.points.size(), 5, "five capture points")
+	assert_eq(m.bases.size(), 2, "two main bases")
+	assert_true(m.roads.size() >= 4, "has a road network")
+	assert_true(m.buildings.size() >= 20, "has a town's worth of buildings")
+
 func test_parses_vehicle_spawns() -> void:
 	var m := MapDef.load_file("res://maps/conquest_proving_grounds.json")
 	assert_true(m != null)
