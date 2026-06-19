@@ -21,7 +21,9 @@ static func build(piece_id: String, bucket: int) -> Node3D:
 		"bcolumn":
 			root.add_child(_box("Col", Vector3(0.5, CELL, 0.5), Vector3(0, CELL * 0.5, 0), bucket, COL_STRUCT))
 		"bfloor":
-			root.add_child(_box("Floor", Vector3(CELL, 0.3, CELL), Vector3(0, 0.15, 0), bucket, COL_FLOOR))
+			# Walkable surface = cell base plane (M14). Hang the slab just below it so the pawn's feet
+			# rest on the visible top.
+			root.add_child(_box("Floor", Vector3(CELL, 0.3, CELL), Vector3(0, -0.15, 0), bucket, COL_FLOOR))
 		"brailing":
 			root.add_child(_box("Rail", Vector3(CELL, 0.1, 0.1), Vector3(0, CELL * 0.5, 0), bucket, COL_METAL))
 		"prop_crate":
