@@ -29,6 +29,23 @@ static func build(piece_id: String, bucket: int) -> Node3D:
 			root.add_child(_box("Floor", Vector3(CELL, 0.3, CELL), Vector3(0, -0.15, 0), bucket, COL_FLOOR, "wood"))
 		"brailing":
 			root.add_child(_box("Rail", Vector3(CELL, 0.1, 0.1), Vector3(0, CELL * 0.5, 0), bucket, COL_METAL))
+		"prop_table":
+			root.add_child(_box("TTop", Vector3(1.3, 0.1, 0.8), Vector3(0, 0.72, 0), bucket, COL_WOODW, "wood"))
+			for lx in [-0.55, 0.55]:
+				for lz in [-0.32, 0.32]:
+					root.add_child(_box("TLeg", Vector3(0.08, 0.7, 0.08), Vector3(lx, 0.36, lz), bucket, COL_WOODW, ""))
+		"prop_chair":
+			root.add_child(_box("CSeat", Vector3(0.45, 0.08, 0.45), Vector3(0, 0.45, 0), bucket, COL_WOODW, ""))
+			root.add_child(_box("CBack", Vector3(0.45, 0.5, 0.08), Vector3(0, 0.7, -0.18), bucket, COL_WOODW, ""))
+			for lx in [-0.18, 0.18]:
+				for lz in [-0.18, 0.18]:
+					root.add_child(_box("CLeg", Vector3(0.05, 0.45, 0.05), Vector3(lx, 0.22, lz), bucket, COL_WOODW, ""))
+		"prop_shelf":
+			root.add_child(_box("Shelf", Vector3(0.9, 1.7, 0.4), Vector3(0, 0.85, 0), bucket, COL_WOODW, "wood"))
+		"prop_locker":
+			root.add_child(_box("Locker", Vector3(0.5, 1.7, 0.5), Vector3(0, 0.85, 0), bucket, COL_METALW, "metal"))
+		"prop_barrel":
+			root.add_child(_cyl(0.28, 0.9, Vector3(0, 0.45, 0), bucket, COL_METALW))
 		"prop_crate":
 			root.add_child(_box("Crate", Vector3(0.9, 0.9, 0.9), Vector3(0, 0.45, 0), bucket, Color(0.45, 0.32, 0.18), "wood"))
 		"bwall_window":
@@ -115,5 +132,20 @@ static func _glass(size: Vector3, pos: Vector3) -> MeshInstance3D:
 	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	mat.roughness = 0.1
 	mat.metallic = 0.3
+	mi.material_override = mat
+	return mi
+
+static func _cyl(radius: float, height: float, pos: Vector3, bucket: int, base: Color) -> MeshInstance3D:
+	var mi := MeshInstance3D.new()
+	mi.name = "Cyl"
+	var mesh := CylinderMesh.new()
+	mesh.top_radius = radius; mesh.bottom_radius = radius; mesh.height = height; mesh.radial_segments = 10
+	mi.mesh = mesh
+	mi.position = pos
+	var mat := StandardMaterial3D.new()
+	var f := ArtPalette.damage_tint(Color.WHITE, bucket).r
+	mat.albedo_color = Color(base.r * f, base.g * f, base.b * f)
+	mat.albedo_texture = BuildingTextures.tex("metal")
+	mat.roughness = 0.7
 	mi.material_override = mat
 	return mi

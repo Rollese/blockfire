@@ -213,6 +213,81 @@
         "explosive",
         "melee"
       ]
+    },
+    {
+      "id": "prop_table",
+      "height": "half",
+      "health": 70,
+      "blocks": "both",
+      "material": "WOOD",
+      "chunk_grid": 1,
+      "structural": false,
+      "damage": [
+        "bullet",
+        "explosive",
+        "melee"
+      ],
+      "passable": true
+    },
+    {
+      "id": "prop_chair",
+      "height": "half",
+      "health": 50,
+      "blocks": "both",
+      "material": "WOOD",
+      "chunk_grid": 1,
+      "structural": false,
+      "damage": [
+        "bullet",
+        "explosive",
+        "melee"
+      ],
+      "passable": true
+    },
+    {
+      "id": "prop_shelf",
+      "height": "full",
+      "health": 80,
+      "blocks": "both",
+      "material": "WOOD",
+      "chunk_grid": 1,
+      "structural": false,
+      "damage": [
+        "bullet",
+        "explosive",
+        "melee"
+      ],
+      "passable": true
+    },
+    {
+      "id": "prop_locker",
+      "height": "full",
+      "health": 90,
+      "blocks": "both",
+      "material": "METAL_THIN",
+      "chunk_grid": 1,
+      "structural": false,
+      "damage": [
+        "bullet",
+        "explosive",
+        "melee"
+      ],
+      "passable": true
+    },
+    {
+      "id": "prop_barrel",
+      "height": "half",
+      "health": 60,
+      "blocks": "both",
+      "material": "METAL_THIN",
+      "chunk_grid": 1,
+      "structural": false,
+      "damage": [
+        "bullet",
+        "explosive",
+        "melee"
+      ],
+      "passable": true
     }
   ]
 }

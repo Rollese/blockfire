@@ -1,0 +1,77 @@
+{
+  "name": "props",
+  "pieces": [
+    {
+      "type": "prop_table",
+      "offset": [
+        0,
+        0,
+        0
+      ],
+      "yaw": 0
+    },
+    {
+      "type": "prop_chair",
+      "offset": [
+        1,
+        0,
+        0
+      ],
+      "yaw": 0
+    },
+    {
+      "type": "prop_chair",
+      "offset": [
+        1,
+        0,
+        1
+      ],
+      "yaw": 0
+    },
+    {
+      "type": "prop_shelf",
+      "offset": [
+        2,
+        0,
+        0
+      ],
+      "yaw": 0
+    },
+    {
+      "type": "prop_locker",
+      "offset": [
+        3,
+        0,
+        0
+      ],
+      "yaw": 0
+    },
+    {
+      "type": "prop_barrel",
+      "offset": [
+        4,
+        0,
+        0
+      ],
+      "yaw": 0
+    },
+    {
+      "type": "prop_barrel",
+      "offset": [
+        4,
+        0,
+        1
+      ],
+      "yaw": 0
+    },
+    {
+      "type": "prop_crate",
+      "offset": [
+        5,
+        0,
+        0
+      ],
+      "yaw": 0
+    }
+  ]
+}
