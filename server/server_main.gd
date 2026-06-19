@@ -58,6 +58,7 @@ var _lag := LagComp.new()
 var _tele := Telemetry.new()
 var _map: MapDef
 var _map_path: String = MAP_PATH   # --map=<name> overrides (must match client + bots)
+var _human_rpg := false   # --human-rpg: force human (manual-deploy) players to spawn Engineer + RPG (destruction testing)
 var _conquest: ConquestState
 var _squads := SquadManager.new()
 var _catalog: PieceCatalog
@@ -145,6 +146,7 @@ func configure(args: Dictionary) -> void:
 	_time_limit = float(args.get("time-limit", -1.0))
 	if args.has("map"):
 		_map_path = "res://maps/%s.json" % String(args["map"])
+	_human_rpg = args.has("human-rpg")
 
 func _ready() -> void:
 	_map = MapDef.load_file(_map_path)
@@ -983,6 +985,11 @@ func _handle_hello(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
 	# Hand a third of Assault bots the DMR so the fleet exercises the Assault-only marksman path.
 	if cls == Loadout.ASSAULT and id % 3 == 0 and auto_deploy:
 		wid = Weapon.DMR
+	# Destruction-testing convenience (--human-rpg): humans spawn Engineer + RPG so the owner can
+	# blow up buildings/structures with the rocket. Overrides the no-engineer-for-humans default.
+	if _human_rpg and not auto_deploy:
+		cls = Loadout.ENGINEER
+		wid = Weapon.RPG
 	if not Loadout.can_equip(cls, wid):   # authoritative guard (RPG -> Engineer, DMR -> Assault)
 		wid = Loadout.weapon_for(cls)
 	var attachments := Loadout.default_attachments()

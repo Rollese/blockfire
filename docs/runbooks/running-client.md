@@ -32,6 +32,11 @@ godot --headless --path . -- --bots --bot-count=8 --connect=127.0.0.1 --port=270
 Bots send `HELLO.auto_deploy=true` (the default), so they spawn and respawn automatically and keep a
 match running for you to drop into. A handful (6–8) is plenty for a feel pass.
 
+**Spawn the human with an RPG (destruction testing):** add **`--human-rpg`** to the **server**. By
+default humans never roll Engineer (the RPG-primary loadout has no click-fire gun); this flag forces
+every manual-deploy (human) player to spawn **Engineer + RPG** so you can blow up buildings/structures
+(LMB fires the rocket). Bots are unaffected. Engineers also carry C4 or a claymore by id parity.
+
 **Checkpoint-3 feel-pass tips (added 2026-06-17):**
 - Use the small **`--map=conquest_dev_arena`** (one objective, 60 m) for a tight infantry test instead
   of the sprawling default `conquest_proving_grounds` — pass `--map=conquest_dev_arena` to the **server,
