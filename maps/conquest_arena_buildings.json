@@ -12,9 +12,10 @@
   "platforms": [],
   "prebuilt": [],
   "buildings": [
-    {"prefab": "house",  "origin_cell": [5, 0, -2],  "yaw": 0},
-    {"prefab": "bunker", "origin_cell": [-8, 0, -2], "yaw": 0},
-    {"prefab": "tower",  "origin_cell": [-1, 0, 5],  "yaw": 0}
+    {"prefab": "house",         "origin_cell": [5, 0, -2],  "yaw": 0},
+    {"prefab": "bunker",        "origin_cell": [-8, 0, -2], "yaw": 0},
+    {"prefab": "tower",         "origin_cell": [-1, 0, 5],  "yaw": 0},
+    {"prefab": "test_twostory", "origin_cell": [6, 0, 4],   "yaw": 0}
   ],
   "vehicle_spawns": [
     {"team": 0, "type": "transport", "pos": [-34, 0, 8], "heading": 1.5708},
