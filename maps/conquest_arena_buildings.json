@@ -42,70 +42,70 @@
       "origin_cell": [
         -2,
         0,
-        9
+        13
       ],
       "yaw": 0
     },
     {
       "prefab": "house",
       "origin_cell": [
-        9,
+        11,
         0,
-        9
+        6
       ],
       "yaw": 0
     },
     {
       "prefab": "family_a",
       "origin_cell": [
-        12,
+        14,
         0,
-        -2
+        -6
       ],
       "yaw": 0
     },
     {
       "prefab": "tower",
       "origin_cell": [
-        10,
+        8,
         0,
-        -12
+        -15
       ],
       "yaw": 0
     },
     {
       "prefab": "supermarket",
       "origin_cell": [
-        -5,
+        -8,
         0,
-        -18
+        -16
       ],
       "yaw": 0
     },
     {
       "prefab": "warehouse",
       "origin_cell": [
-        -20,
+        -18,
         0,
-        -9
+        -7
       ],
       "yaw": 0
     },
     {
       "prefab": "bunker",
       "origin_cell": [
-        -14,
+        -16,
         0,
-        1
+        6
       ],
       "yaw": 0
     },
     {
       "prefab": "family_b",
       "origin_cell": [
-        -13,
+        -8,
         0,
-        9
+        13
       ],
       "yaw": 0
     }
