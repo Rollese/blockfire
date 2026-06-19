@@ -1,0 +1,186 @@
+{
+  "name": "showcase",
+  "world_half": 120.0,
+  "points": [
+    {
+      "id": "A",
+      "pos": [
+        0,
+        0,
+        0
+      ],
+      "radius": 20.0,
+      "start_owner": -1
+    }
+  ],
+  "bases": [
+    {
+      "team": 0,
+      "pos": [
+        -110,
+        0,
+        0
+      ],
+      "radius": 15.0
+    },
+    {
+      "team": 1,
+      "pos": [
+        110,
+        0,
+        0
+      ],
+      "radius": 15.0
+    }
+  ],
+  "ladders": [],
+  "platforms": [],
+  "prebuilt": [],
+  "buildings": [
+    {
+      "prefab": "house",
+      "origin_cell": [
+        -29,
+        0,
+        -29
+      ],
+      "yaw": 0
+    },
+    {
+      "prefab": "bunker",
+      "origin_cell": [
+        -11,
+        0,
+        -29
+      ],
+      "yaw": 0
+    },
+    {
+      "prefab": "tower",
+      "origin_cell": [
+        8,
+        0,
+        -28
+      ],
+      "yaw": 0
+    },
+    {
+      "prefab": "warehouse",
+      "origin_cell": [
+        23,
+        0,
+        -30
+      ],
+      "yaw": 0
+    },
+    {
+      "prefab": "family_a",
+      "origin_cell": [
+        -29,
+        0,
+        -11
+      ],
+      "yaw": 0
+    },
+    {
+      "prefab": "family_b",
+      "origin_cell": [
+        -11,
+        0,
+        -11
+      ],
+      "yaw": 0
+    },
+    {
+      "prefab": "supermarket",
+      "origin_cell": [
+        4,
+        0,
+        -12
+      ],
+      "yaw": 0
+    },
+    {
+      "prefab": "test_twostory",
+      "origin_cell": [
+        25,
+        0,
+        -11
+      ],
+      "yaw": 0
+    },
+    {
+      "prefab": "cottage",
+      "origin_cell": [
+        -28,
+        0,
+        7
+      ],
+      "yaw": 0
+    },
+    {
+      "prefab": "townhouse",
+      "origin_cell": [
+        -10,
+        0,
+        7
+      ],
+      "yaw": 0
+    },
+    {
+      "prefab": "villa",
+      "origin_cell": [
+        6,
+        0,
+        6
+      ],
+      "yaw": 0
+    },
+    {
+      "prefab": "office",
+      "origin_cell": [
+        25,
+        0,
+        7
+      ],
+      "yaw": 0
+    },
+    {
+      "prefab": "factory",
+      "origin_cell": [
+        -31,
+        0,
+        24
+      ],
+      "yaw": 0
+    },
+    {
+      "prefab": "hangar",
+      "origin_cell": [
+        -14,
+        0,
+        24
+      ],
+      "yaw": 0
+    },
+    {
+      "prefab": "shed",
+      "origin_cell": [
+        8,
+        0,
+        26
+      ],
+      "yaw": 0
+    },
+    {
+      "prefab": "lhouse",
+      "origin_cell": [
+        24,
+        0,
+        25
+      ],
+      "yaw": 0
+    }
+  ],
+  "vehicle_spawns": []
+}
