@@ -98,3 +98,14 @@ func test_catalog_index_order_is_stable() -> void:
 	assert_eq(cat.name_of(1), "wall", "index 1 stays wall (player fortification)")
 	assert_eq(cat.name_of(8), "brailing", "index 8 stays brailing (chunk_grid 4)")
 	assert_eq(cat.name_of(9), "prop_crate", "index 9 stays prop_crate (chunk_grid 1)")
+
+func test_surface_and_ramp_flags() -> void:
+	var cat: PieceCatalog = PieceCatalog.load_file("res://pieces/pieces.json")
+	var floor_t := cat.index_of("bfloor")
+	var stair_t := cat.index_of("bstair")
+	var wall_t := cat.index_of("bwall")
+	assert_true(cat.is_flat_surface(floor_t), "bfloor is a walkable flat surface")
+	assert_false(cat.is_ramp(floor_t), "bfloor is not a ramp")
+	assert_true(cat.is_ramp(stair_t), "bstair is a ramp")
+	assert_false(cat.is_flat_surface(wall_t), "bwall is neither surface nor ramp")
+	assert_false(cat.is_ramp(wall_t), "bwall is not a ramp")

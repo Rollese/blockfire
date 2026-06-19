@@ -65,6 +65,21 @@ func is_structural(type: int) -> bool:
 func passable_of(type: int) -> bool:
 	return bool(pieces[type].get("passable", false))
 
+## True if pawns stand on this piece's flat top (a floor). Surface = the cell base plane.
+func is_flat_surface(type: int) -> bool:
+	return bool(pieces[type].get("surface", false))
+
+## True if this piece is a walkable ramp (a staircase), surfaced via Stairs.surface_at.
+func is_ramp(type: int) -> bool:
+	return bool(pieces[type].get("ramp", false))
+
+## First piece type index whose id matches `name`, or -1.
+func index_of(name: String) -> int:
+	for i in pieces.size():
+		if String(pieces[i]["id"]) == name:
+			return i
+	return -1
+
 func takes_damage(type: int, source: int) -> bool:
 	return (int(pieces[type]["damage_types"]) & source) != 0
 
@@ -121,7 +136,8 @@ static func from_dict(data: Dictionary) -> Dictionary:
 		c.pieces.append({"id": id, "half": height == "half", "health": health,
 			"material": _MATERIALS[mat_str], "chunk_grid": grid,
 			"structural": bool(p.get("structural", false)), "damage_types": dmg,
-			"passable": bool(p.get("passable", false))})
+			"passable": bool(p.get("passable", false)),
+			"surface": bool(p.get("surface", false)), "ramp": bool(p.get("ramp", false))})
 	return {"ok": true, "catalog": c, "error": ""}
 
 static func load_file(path: String) -> PieceCatalog:

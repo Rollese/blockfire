@@ -76,6 +76,7 @@
       "material": "CONCRETE",
       "chunk_grid": 8,
       "structural": true,
+      "surface": true,
       "damage": [
         "explosive",
         "melee"
@@ -89,6 +90,7 @@
       "material": "CONCRETE",
       "chunk_grid": 8,
       "structural": true,
+      "ramp": true,
       "damage": [
         "explosive",
         "melee"
