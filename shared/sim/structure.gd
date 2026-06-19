@@ -252,13 +252,15 @@ func resolve_movement(from: Vector3, to: Vector3) -> Vector3:
 		return try_z
 	return Vector3(from.x, to.y, from.z)
 
+const FEET_EPS := 0.1   # m; lift the collision sample off the floor plane into the wall's cell band
+
 func _blocks_ground(p: Vector3) -> bool:
-	var cell := BuildGrid.cell_of(Vector3(p.x, 0.0, p.z))
+	var cell := BuildGrid.cell_of(Vector3(p.x, p.y + FEET_EPS, p.z))
 	if not _occupancy.has(cell):
 		return false
-	# A door piece has a walk-through aperture: a standing pawn passes the opening (the frame still
-	# blocks bullets/LOS via the whole-cell ray march until destroyed).
-	return not _catalog.passable_of(int(_by_id[_occupancy[cell]]["type"]))
+	# Walk-through pieces: doors (aperture), floors (you stand on them), stairs (you walk up them).
+	var t := int(_by_id[_occupancy[cell]]["type"])
+	return not (_catalog.passable_of(t) or _catalog.is_flat_surface(t) or _catalog.is_ramp(t))
 
 ## Highest walkable structure surface at or below `y` at column (x,z); -INF if none. Floors yield
 ## their cell-base plane; stairs yield a ramped height. Bounded by building height (a handful of cells).
