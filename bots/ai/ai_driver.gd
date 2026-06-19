@@ -42,7 +42,7 @@ func decide() -> Dictionary:
 		return default_intent
 	var scores := Utility.score(w, float(_profile.get("aggression", 1.0)), _current_behavior)
 	var behavior := Utility.choose(scores, _current_behavior, Utility.HYSTERESIS_BONUS)
-	var tgt := AiCombat.pick_target(w)
+	var tgt := AiCombat.pick_target(w, _aim_target_id)
 	# Reaction gate: if engage was chosen but no target has cleared the delay, re-pick the best
 	# non-engage behaviour (cannot re-select engage; always terminates over the fixed score list).
 	if behavior == "engage" and not (tgt != 0 and _perc.actionable(tgt, _now)):

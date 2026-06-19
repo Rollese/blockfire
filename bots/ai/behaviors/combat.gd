@@ -11,7 +11,8 @@ const RELOAD_TICKS := 84  # server ticks (~2.8s) to hold BTN_RELOAD; > the slowe
 ## Pick the highest-priority enemy id, or 0 if none. Priority blends closeness, low HP,
 ## and a per-enemy priority tag (reviving medic / flag-capper / actively-shooting-me),
 ## NOT nearest-only (§7). Higher score wins; tie-break by lower id.
-static func pick_target(w: WorldModel) -> int:
+const TARGET_HYSTERESIS := 0.25   # the current target keeps priority unless another beats it by this margin (stops per-tick thrash that prevents aim from settling)
+static func pick_target(w: WorldModel, current_id: int = 0) -> int:
 	var best := 0
 	var best_s := -INF
 	for e in w.enemies:
@@ -20,6 +21,8 @@ static func pick_target(w: WorldModel) -> int:
 		var pri: float = float(e.get("priority", 0.0))
 		var s: float = (1.0 - hp) * 2.0 + pri * 2.0 + (1.0 / maxf(dist, 1.0))
 		var id: int = int(e["id"])
+		if id == current_id:
+			s += TARGET_HYSTERESIS
 		if s > best_s or (is_equal_approx(s, best_s) and (best == 0 or id < best)):
 			best_s = s; best = id
 	return best

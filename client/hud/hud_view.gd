@@ -924,7 +924,7 @@ func _render_ammo(ammo: Dictionary) -> void:
 	var reloading: bool = bool(ammo.get("reloading", false))
 	var low: bool = bool(ammo.get("low", false))
 
-	_ammo_label.text = "%d /∞" % mag
+	_ammo_label.text = ("RPG  %d" % mag) if bool(ammo.get("is_rpg", false)) else ("%d /∞" % mag)
 	_ammo_label.modulate = Color(1.0, 0.4, 0.3) if low else Color(1, 1, 1)
 	_reload_label.visible = reloading
 

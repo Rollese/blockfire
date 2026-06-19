@@ -251,7 +251,12 @@ func resolve_movement(from: Vector3, to: Vector3) -> Vector3:
 	return Vector3(from.x, to.y, from.z)
 
 func _blocks_ground(p: Vector3) -> bool:
-	return _occupancy.has(BuildGrid.cell_of(Vector3(p.x, 0.0, p.z)))
+	var cell := BuildGrid.cell_of(Vector3(p.x, 0.0, p.z))
+	if not _occupancy.has(cell):
+		return false
+	# A door piece has a walk-through aperture: a standing pawn passes the opening (the frame still
+	# blocks bullets/LOS via the whole-cell ray march until destroyed).
+	return not _catalog.passable_of(int(_by_id[_occupancy[cell]]["type"]))
 
 ## Top height (m) of the piece occupying the ground cell at world point `p`, or 0.0 if none.
 ## Half pieces are 0.5*CELL_SIZE, full pieces CELL_SIZE. Used by the height-generic vault rule.

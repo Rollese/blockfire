@@ -60,6 +60,11 @@ func chunk_grid_of(type: int) -> int:
 func is_structural(type: int) -> bool:
 	return bool(pieces[type]["structural"])
 
+## Pawns can walk through this piece's cell (e.g. a door aperture). The frame still blocks bullets/LOS
+## (whole-cell ray march) until destroyed; only ground movement is allowed through.
+func passable_of(type: int) -> bool:
+	return bool(pieces[type].get("passable", false))
+
 func takes_damage(type: int, source: int) -> bool:
 	return (int(pieces[type]["damage_types"]) & source) != 0
 
@@ -115,7 +120,8 @@ static func from_dict(data: Dictionary) -> Dictionary:
 				dmg |= _SRC_NAMES[key]
 		c.pieces.append({"id": id, "half": height == "half", "health": health,
 			"material": _MATERIALS[mat_str], "chunk_grid": grid,
-			"structural": bool(p.get("structural", false)), "damage_types": dmg})
+			"structural": bool(p.get("structural", false)), "damage_types": dmg,
+			"passable": bool(p.get("passable", false))})
 	return {"ok": true, "catalog": c, "error": ""}
 
 static func load_file(path: String) -> PieceCatalog:

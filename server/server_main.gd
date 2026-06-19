@@ -22,6 +22,8 @@ const MAX_ENEMY_SNAPSHOT := 24      # max enemies per snapshot (nearest-first) o
                                     # Total snapshot ≈ (teammates in range) + ≤24 enemies.
 const RESPAWN_DELAY_TICKS := 150   # 5s @30Hz
 const FIRE_CONE_DOT := 0.985       # broad-phase: target within ~10deg of ray
+const FIRE_CONE_SKIP_RANGE := 8.0  # below this, skip the cone cull — feet/chest parallax exceeds the half-angle at point blank
+const RPG_RELOAD_SECS := 3.0       # reload refills the rocket pool (RPG has no hit-scan mag)
 const FIRE_RANGE_MARGIN := 20.0    # grid broad-phase slack for lag-comp movement
 const MAP_PATH := "res://maps/conquest_proving_grounds.json"   # default; override with --map=<name>
 const MATCH_STATE_INTERVAL := 15   # ticks between match-state broadcasts (2 Hz)
@@ -312,7 +314,10 @@ func _step_movement() -> void:
 			c["last_input_tick"] = inp["client_tick"]
 		if c["reloading"] and _sim.tick >= c["reload_done_tick"]:
 			c["reloading"] = false
-			c["ammo"] = Weapon.get_def(c["weapon"])["mag_size"]
+			if int(c["weapon"]) == Weapon.RPG:
+				c["rockets"] = int(_gadgets.def_of_kind(Gadget.KIND_RPG)["ammo"])
+			else:
+				c["ammo"] = Weapon.get_def(c["weapon"])["mag_size"]
 	_sim.step(inputs, _map.world_half)
 
 ## Build vid -> driver command from each vehicle's seat-0 (driver) occupant's last input. Also
@@ -392,9 +397,10 @@ func _resolve_vehicle_fires() -> void:
 			if not frame.has(tid): continue
 			var stt = frame[tid]
 			if not stt["alive"] or stt["team"] == v.team: continue
-			var to_target: Vector3 = stt["pos"] - origin
+			var vcenter: Vector3 = stt["pos"] + Vector3(0.0, Stance.body_height(stt["stance"]) * 0.5, 0.0)
+			var to_target: Vector3 = vcenter - origin
 			if to_target.length() > max_range: continue
-			if to_target.normalized().dot(dir) < FIRE_CONE_DOT: continue
+			if to_target.length() > FIRE_CONE_SKIP_RANGE and to_target.normalized().dot(dir) < FIRE_CONE_DOT: continue
 			var hit := Hitbox.raycast_pawn(origin, dir, stt["pos"], stt["stance"], max_range)
 			if hit["hit"] and hit["t"] < best_t:
 				best_t = hit["t"]; best_victim = tid; best_head = hit["headshot"]
@@ -413,7 +419,12 @@ func _resolve_fires() -> void:
 		if shooter == null or not shooter.alive or shooter.is_downed: continue   # downed = incapacitated, can't fire
 		if c["weapon"] == Weapon.RPG:
 			c["shot_index"] = 0
-			continue   # RPG fires via GADGET_ACTION(GA_RPG_FIRE), not the hit-scan path
+			# RPG fires via GADGET_ACTION(GA_RPG_FIRE), not the hit-scan path. RELOAD refills the rocket pool.
+			var rpg_max := int(_gadgets.def_of_kind(Gadget.KIND_RPG)["ammo"])
+			if (inp["buttons"] & InputCommand.BTN_RELOAD) and not c["reloading"] and int(c["rockets"]) < rpg_max:
+				c["reloading"] = true
+				c["reload_done_tick"] = _sim.tick + int(round(RPG_RELOAD_SECS * TICK_RATE))
+			continue
 		var firing: bool = (inp["buttons"] & InputCommand.BTN_FIRE) != 0
 		if not firing:
 			c["shot_index"] = 0
@@ -485,9 +496,12 @@ func _fire_shot(shooter_id: int, shooter: Pawn, inp: Dictionary, shot_index: int
 		# so the bullet passes through to anyone behind and no (false) hitmarker is sent.
 		var live_target: Pawn = _sim.world.get_pawn(tid)
 		if live_target != null and live_target.is_downed: continue
-		var to_target: Vector3 = st["pos"] - ray["origin"]
+		# Broad-phase cone test against the target CENTER (where shots aim), not the feet — else any
+		# standing enemy within ~5m is culled before the precise hitbox test (CQB misses).
+		var center: Vector3 = st["pos"] + Vector3(0.0, Stance.body_height(st["stance"]) * 0.5, 0.0)
+		var to_target: Vector3 = center - ray["origin"]
 		if to_target.length() > max_range: continue
-		if to_target.normalized().dot(ray["dir"]) < FIRE_CONE_DOT: continue
+		if to_target.length() > FIRE_CONE_SKIP_RANGE and to_target.normalized().dot(ray["dir"]) < FIRE_CONE_DOT: continue
 		var hit := Hitbox.raycast_pawn(ray["origin"], ray["dir"], st["pos"], st["stance"], max_range)
 		if hit["hit"] and hit["t"] < best_t:
 			best_t = hit["t"]; best_victim = tid; best_head = hit["headshot"]
@@ -1064,6 +1078,7 @@ func _handle_deploy_request(peer: ENetPacketPeer, bytes: PackedByteArray) -> voi
 	p.in_vehicle = 0   # defensive: never deploy still bound to a seat
 	p.seat = -1
 	c["ammo"] = Weapon.get_def(c["weapon"])["mag_size"]
+	c["rockets"] = int(_gadgets.def_of_kind(Gadget.KIND_RPG)["ammo"]) if int(c["weapon"]) == Weapon.RPG else 0   # refill rockets on (re)deploy, not just respawn
 	c["reloading"] = false
 	c["respawn_tick"] = 0
 	c["dmg_ledger"] = {}

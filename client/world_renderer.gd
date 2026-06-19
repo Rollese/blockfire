@@ -50,6 +50,7 @@ var _free_list: Array = []
 var use_models: bool = false
 # Per-id last position + AnimationPlayer, for the per-frame speed estimate that selects the clip.
 var _last_pos: Dictionary = {}        # id(int) -> Vector3
+var _last_speed: Dictionary = {}      # id(int) -> float (held between sim ticks; see _pose_entity)
 var _entity_ap: Dictionary = {}       # id(int) -> AnimationPlayer (only when use_models)
 
 # active structure nodes: id(int) -> Node3D (StructureKit piece)
@@ -72,6 +73,7 @@ var _building_centroid: Dictionary = {}
 
 # viewmodel box (optional placeholder)
 var _viewmodel: Node3D = null
+var _viewmodel_weapon: int = -1   # currently-built viewmodel weapon id; rebuild on change
 
 
 # =============================================================================
@@ -152,6 +154,19 @@ func setup(map: MapDef, camera: Camera3D) -> void:
 	# tracks the view. (Per-weapon viewmodel needs client_main to pass WeaponPredictor.weapon — a
 	# follow-up.) Placement/orientation (VM_OFFSET / VM_YAW) are playtest knobs.
 	_viewmodel = build_viewmodel(Weapon.AR)
+	_viewmodel_weapon = Weapon.AR
+	_camera.add_child(_viewmodel)
+
+
+## Swap the first-person viewmodel to match the equipped weapon. Rebuilds only when the weapon id
+## changes (so e.g. an RPG loadout shows the launcher, not the default AR). Call each frame.
+func set_viewmodel_weapon(weapon_id: int) -> void:
+	if weapon_id == _viewmodel_weapon or _camera == null:
+		return
+	_viewmodel_weapon = weapon_id
+	if _viewmodel != null:
+		_viewmodel.queue_free()
+	_viewmodel = build_viewmodel(weapon_id)
 	_camera.add_child(_viewmodel)
 
 
@@ -337,6 +352,7 @@ func _release_entity(id: int) -> void:
 	_active.erase(id)
 	_entity_ap.erase(id)
 	_last_pos.erase(id)
+	_last_speed.erase(id)
 	_free_list.append(node)
 
 
@@ -392,13 +408,17 @@ func _make_friend_marker() -> MeshInstance3D:
 func _pose_entity(id: int, node: Node3D, es: EntityState, render_delta: float) -> void:
 	if use_models:
 		# Horizontal speed estimate from frame-to-frame position (velocity isn't replicated).
+		# The interpolated position only advances on SIM ticks (`now` steps at 30 Hz), so dividing by
+		# the render delta read 0 on inter-tick frames and ~2x on tick frames — strobing the idle/walk
+		# clip ("4 hands"). Divide by the sim step (the real interval between position updates) and HOLD
+		# the last speed on frames where the position didn't change.
 		var last: Vector3 = _last_pos.get(id, es.pos)
-		var dt: float = maxf(render_delta, 0.001)   # 1 ms floor: avoid blowups from sub-ms deltas
 		var flat := Vector3(es.pos.x - last.x, 0.0, es.pos.z - last.z)
-		# Cap the estimate so a respawn/teleport jump can't read as a multi-frame sprint (one-frame
-		# pop at worst, recovers next frame). 20 m/s is well above SPRINT_SPEED.
-		var speed: float = minf(flat.length() / dt, 20.0)
-		_last_pos[id] = es.pos
+		var speed: float = _last_speed.get(id, 0.0)
+		if flat.length() > 0.0001:
+			speed = minf(flat.length() / SimLoop.DT, 20.0)   # 20 m/s cap: a respawn/teleport jump can't read as a sprint
+			_last_speed[id] = speed
+			_last_pos[id] = es.pos
 		var sel: Dictionary = CharacterAnim.clip_for(es.is_downed, speed, es.stance)
 		CharacterDriver.drive(_entity_ap.get(id) as AnimationPlayer, sel["clip"], sel["loop"])
 	var pose: Dictionary = StancePose.of(es.stance, es.lean, es.is_downed, es.climbing)

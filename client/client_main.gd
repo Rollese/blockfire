@@ -255,6 +255,8 @@ func _process(_dt: float) -> void:
 	if _audio != null:
 		_audio.set_listener_pos(eye)   # spatial-audio listener tracks the rendered camera/eye
 
+	if _wpred != null:
+		_renderer.set_viewmodel_weapon(_wpred.weapon)   # show the RPG launcher etc., not always the AR
 	var _t0 := Time.get_ticks_usec()
 	_renderer.update(_wv, _pred, _elapsed, _settings.fov, _input_ctrl.yaw, _input_ctrl.pitch, eye, _dt)
 	var _t1 := Time.get_ticks_usec()
