@@ -21,6 +21,7 @@ func step(inputs: Dictionary, world_half: float = Pawn.WORLD_HALF) -> void:
 			continue
 		var prev := p.pos
 		var prev_stance: int = p.stance
+		var prev_grounded: bool = p.grounded
 		var cmd: Dictionary = inputs.get(id, {})
 		p.step(DT, cmd, world_half)
 		if p.climbing:
@@ -33,6 +34,7 @@ func step(inputs: Dictionary, world_half: float = Pawn.WORLD_HALF) -> void:
 			_step_normal(p, prev, cmd)
 		if p.stance != prev_stance:
 			p.last_stance_change_tick = tick
+		_account_fall(p, prev_grounded)
 	tick += 1
 
 func _step_climb(p: Pawn, cmd: Dictionary) -> void:
@@ -88,6 +90,20 @@ func _apply_platform_floor(p: Pawn) -> void:
 		p.grounded = true
 	elif p.pos.y <= floor_y + Ladder.ANCHOR_EPS and floor_y > 0.0:
 		p.grounded = true
+
+## Track airborne peak height and emit landed_fall (distance) on the tick a pawn lands. Climbing pawns
+## are anchored to the ladder line (no fall). Server reads landed_fall to apply fall damage.
+func _account_fall(p: Pawn, prev_grounded: bool) -> void:
+	p.landed_fall = 0.0
+	if p.climbing:
+		p.fall_peak_y = p.pos.y
+		return
+	if p.grounded:
+		if not prev_grounded:
+			p.landed_fall = maxf(0.0, p.fall_peak_y - p.pos.y)
+		p.fall_peak_y = p.pos.y
+	else:
+		p.fall_peak_y = maxf(p.fall_peak_y, p.pos.y)
 
 ## Integrate vehicles (server authority). vinputs: vid -> driver command dict. Applies
 ## structure-stop + platform-floor (SimLoop owns the geometry arrays), then slaves seated
