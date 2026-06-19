@@ -26,7 +26,7 @@ static func begin(pawn: Pawn, from: Vector3, dir: Vector3) -> void:
 	pawn.vaulting = true
 	pawn.vault_tick = 0
 	pawn.vault_from = from
-	pawn.vault_to = Vector3(from.x + dir.x * VAULT_FORWARD, 0.0, from.z + dir.z * VAULT_FORWARD)
+	pawn.vault_to = Vector3(from.x + dir.x * VAULT_FORWARD, from.y, from.z + dir.z * VAULT_FORWARD)   # M14: land at the pawn's floor level, not the ground
 
 ## Advance the arc one tick; returns the new position. Clears `vaulting` and snaps to `vault_to`
 ## on the final tick.

@@ -27,3 +27,13 @@ func test_floor_and_stair_and_door_do_not_block_walking() -> void:
 	assert_eq(s.resolve_movement(Vector3(1,0,1), Vector3(3,0,1)), Vector3(3,0,1), "floor cell walkable")
 	assert_eq(s.resolve_movement(Vector3(5,0,1), Vector3(7,0,1)), Vector3(7,0,1), "stair cell walkable")
 	assert_eq(s.resolve_movement(Vector3(9,0,1), Vector3(11,0,1)), Vector3(11,0,1), "door cell walkable")
+
+const HALF_CAT := '{"pieces":[{"id":"sandbag","height":"half","health":100,"blocks":"both"}]}'
+
+func test_ground_blocker_top_is_height_relative() -> void:
+	# A half-piece on the GROUND below an upper floor must NOT register as a vaultable blocker for a
+	# pawn on the upper floor (else they'd vault-teleport down — M14 final-review fix).
+	var s := StructureStore.new(PieceCatalog.from_json_string(HALF_CAT)["catalog"])
+	s.place(1, 0, Vector3i(0, 0, 0), 0, 99)   # half sandbag at the GROUND cell (0,0,0)
+	assert_almost_eq(s.ground_blocker_top(Vector3(1.0, 2.0, 1.0)), 0.0, 0.01, "ground half-piece is not a blocker from the upper floor")
+	assert_almost_eq(s.ground_blocker_top(Vector3(1.0, 0.0, 1.0)), 1.0, 0.01, "same half-piece is a 1m vaultable blocker at ground level (unchanged)")

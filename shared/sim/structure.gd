@@ -292,8 +292,10 @@ func floor_height_at(x: float, z: float, y: float) -> float:
 ## Top height (m) of the piece occupying the ground cell at world point `p`, or 0.0 if none.
 ## Half pieces are 0.5*CELL_SIZE, full pieces CELL_SIZE. Used by the height-generic vault rule.
 func ground_blocker_top(p: Vector3) -> float:
-	var cell := BuildGrid.cell_of(Vector3(p.x, 0.0, p.z))
+	# Height-aware (M14): the blocker the pawn walked into is at their feet cell; return its top
+	# RELATIVE to the pawn's feet so the vault check works on any floor (ground stays identical at y=0).
+	var cell := BuildGrid.cell_of(Vector3(p.x, p.y + FEET_EPS, p.z))
 	if not _occupancy.has(cell):
 		return 0.0
 	var rec: Dictionary = _by_id[_occupancy[cell]]
-	return _face_height(int(rec["type"]))
+	return float(cell.y) * BuildGrid.CELL_SIZE + _face_height(int(rec["type"])) - p.y
