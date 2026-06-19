@@ -134,6 +134,58 @@
         "explosive",
         "melee"
       ]
+    },
+    {
+      "id": "bwall_half",
+      "height": "half",
+      "health": 220,
+      "blocks": "both",
+      "material": "CONCRETE",
+      "chunk_grid": 8,
+      "structural": true,
+      "damage": [
+        "explosive",
+        "melee"
+      ]
+    },
+    {
+      "id": "bwall_brick",
+      "height": "full",
+      "health": 400,
+      "blocks": "both",
+      "material": "CONCRETE",
+      "chunk_grid": 8,
+      "structural": true,
+      "damage": [
+        "explosive",
+        "melee"
+      ]
+    },
+    {
+      "id": "bwall_metal",
+      "height": "full",
+      "health": 460,
+      "blocks": "both",
+      "material": "METAL_THICK",
+      "chunk_grid": 8,
+      "structural": true,
+      "damage": [
+        "explosive",
+        "melee"
+      ]
+    },
+    {
+      "id": "bwall_wood",
+      "height": "full",
+      "health": 300,
+      "blocks": "both",
+      "material": "WOOD",
+      "chunk_grid": 8,
+      "structural": true,
+      "damage": [
+        "explosive",
+        "melee"
+      ]
     }
   ]
 }

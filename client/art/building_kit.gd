@@ -14,6 +14,9 @@ const COL_METAL := Color(0.24, 0.24, 0.26)   # dark metal railing
 const COL_TRIM := Color(0.40, 0.30, 0.22)    # brown door/window frame
 const COL_STEP_A := Color(0.54, 0.52, 0.49)  # stair step (alternating)
 const COL_STEP_B := Color(0.42, 0.40, 0.38)
+const COL_BRICK := Color(0.64, 0.34, 0.27)   # brick-red wall
+const COL_METALW := Color(0.56, 0.58, 0.62)  # industrial metal wall
+const COL_WOODW := Color(0.56, 0.43, 0.29)   # timber wall
 
 static func build(piece_id: String, bucket: int) -> Node3D:
 	var root := Node3D.new()
@@ -23,11 +26,11 @@ static func build(piece_id: String, bucket: int) -> Node3D:
 		"bfloor":
 			# Walkable surface = cell base plane (M14). Hang the slab just below it so the pawn's feet
 			# rest on the visible top.
-			root.add_child(_box("Floor", Vector3(CELL, 0.3, CELL), Vector3(0, -0.15, 0), bucket, COL_FLOOR))
+			root.add_child(_box("Floor", Vector3(CELL, 0.3, CELL), Vector3(0, -0.15, 0), bucket, COL_FLOOR, "wood"))
 		"brailing":
 			root.add_child(_box("Rail", Vector3(CELL, 0.1, 0.1), Vector3(0, CELL * 0.5, 0), bucket, COL_METAL))
 		"prop_crate":
-			root.add_child(_box("Crate", Vector3(0.9, 0.9, 0.9), Vector3(0, 0.45, 0), bucket, Color(0.45, 0.32, 0.18)))
+			root.add_child(_box("Crate", Vector3(0.9, 0.9, 0.9), Vector3(0, 0.45, 0), bucket, Color(0.45, 0.32, 0.18), "wood"))
 		"bwall_window":
 			# A ~1m square window set high on the wall: solid sill + header + side fills leave a square
 			# opening, with a thin trim frame around it.
@@ -48,6 +51,15 @@ static func build(piece_id: String, bucket: int) -> Node3D:
 				var h := CELL * (float(s) + 1.0) / 4.0
 				var step_col := COL_STEP_A if s % 2 == 0 else COL_STEP_B
 				root.add_child(_box("Step%d" % s, Vector3(CELL, CELL * 0.25, CELL / 4.0), Vector3(0, h * 0.5, -CELL * 0.5 + (float(s) + 0.5) * CELL / 4.0), bucket, step_col))
+		"bwall_half":
+			# low / parapet / fence wall (half height)
+			root.add_child(_box("LowWall", Vector3(CELL, CELL * 0.5, 0.3), Vector3(0, CELL * 0.25, 0), bucket, COL_WALL, "concrete"))
+		"bwall_brick":
+			root.add_child(_box("Brick", Vector3(CELL, CELL, 0.3), Vector3(0, CELL * 0.5, 0), bucket, COL_BRICK, "brick"))
+		"bwall_metal":
+			root.add_child(_box("MetalW", Vector3(CELL, CELL, 0.3), Vector3(0, CELL * 0.5, 0), bucket, COL_METALW, "metal"))
+		"bwall_wood":
+			root.add_child(_box("WoodW", Vector3(CELL, CELL, 0.3), Vector3(0, CELL * 0.5, 0), bucket, COL_WOODW, "wood"))
 		_:
 			# bwall and any unknown id -> solid full wall.
 			root.add_child(_box("Wall", Vector3(CELL, CELL, 0.3), Vector3(0, CELL * 0.5, 0), bucket, COL_WALL))
@@ -57,10 +69,10 @@ static func build(piece_id: String, bucket: int) -> Node3D:
 
 static func build_rubble() -> Node3D:
 	var root := Node3D.new()
-	root.add_child(_box("Rubble", Vector3(CELL * 1.6, CELL * 0.4, CELL * 1.6), Vector3(0, CELL * 0.2, 0), 0, Color(0.4, 0.38, 0.35)))
+	root.add_child(_box("Rubble", Vector3(CELL * 1.6, CELL * 0.4, CELL * 1.6), Vector3(0, CELL * 0.2, 0), 0, Color(0.4, 0.38, 0.35), ""))
 	return root
 
-static func _box(node_name: String, size: Vector3, pos: Vector3, bucket: int, base: Color) -> MeshInstance3D:
+static func _box(node_name: String, size: Vector3, pos: Vector3, bucket: int, base: Color, tex: String = "concrete") -> MeshInstance3D:
 	var mi := MeshInstance3D.new()
 	mi.name = node_name
 	var mesh := BoxMesh.new()
@@ -71,5 +83,11 @@ static func _box(node_name: String, size: Vector3, pos: Vector3, bucket: int, ba
 	var f := ArtPalette.damage_tint(Color.WHITE, bucket).r
 	mat.albedo_color = Color(base.r * f, base.g * f, base.b * f)
 	mat.roughness = 0.9
+	if tex != "":
+		mat.albedo_texture = BuildingTextures.tex(tex)
+		# Tile ~1 tile/m across the piece's dominant face (two largest dimensions).
+		var d := [absf(size.x), absf(size.y), absf(size.z)]
+		d.sort()
+		mat.uv1_scale = Vector3(maxf(d[2], 0.5), maxf(d[1], 0.5), 1.0)
 	mi.material_override = mat
 	return mi

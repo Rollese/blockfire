@@ -180,6 +180,15 @@
         25
       ],
       "yaw": 0
+    },
+    {
+      "prefab": "materials",
+      "origin_cell": [
+        0,
+        0,
+        40
+      ],
+      "yaw": 0
     }
   ],
   "vehicle_spawns": []
