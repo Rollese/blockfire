@@ -35,10 +35,10 @@ static func build(piece_id: String, bucket: int) -> Node3D:
 			root.add_child(_box("WinFrameL", Vector3(0.18, CELL * 0.5, 0.32), Vector3(-CELL * 0.4, CELL * 0.5, 0), bucket, COL_TRIM))
 			root.add_child(_box("WinFrameR", Vector3(0.18, CELL * 0.5, 0.32), Vector3(CELL * 0.4, CELL * 0.5, 0), bucket, COL_TRIM))
 		"bwall_door":
-			# brown door frame so the doorway reads as a door
-			root.add_child(_box("JambL", Vector3(CELL * 0.3, CELL, 0.3), Vector3(-CELL * 0.35, CELL * 0.5, 0), bucket, COL_TRIM))
-			root.add_child(_box("JambR", Vector3(CELL * 0.3, CELL, 0.3), Vector3(CELL * 0.35, CELL * 0.5, 0), bucket, COL_TRIM))
-			root.add_child(_box("Lintel", Vector3(CELL, CELL * 0.25, 0.3), Vector3(0, CELL * 0.88, 0), bucket, COL_TRIM))
+			# brown door frame with a tall opening (clears a standing pawn ~1.8m). Lintel sits near the top.
+			root.add_child(_box("JambL", Vector3(CELL * 0.22, CELL, 0.35), Vector3(-CELL * 0.39, CELL * 0.5, 0), bucket, COL_TRIM))
+			root.add_child(_box("JambR", Vector3(CELL * 0.22, CELL, 0.35), Vector3(CELL * 0.39, CELL * 0.5, 0), bucket, COL_TRIM))
+			root.add_child(_box("Lintel", Vector3(CELL, CELL * 0.12, 0.35), Vector3(0, CELL * 0.97, 0), bucket, COL_TRIM))
 		"bstair":
 			for s in range(4):
 				var h := CELL * (float(s) + 1.0) / 4.0
