@@ -2,5 +2,5 @@
 
 [ext_resource type="Script" path="res://client/art/preview/building_preview.gd" id="1"]
 
-[node name="BuildingPreview" type="Node3D"]
+[node name="BuildingPreview" type="Node"]
 script = ExtResource("1")
