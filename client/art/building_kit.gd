@@ -29,16 +29,20 @@ static func build(piece_id: String, bucket: int) -> Node3D:
 		"prop_crate":
 			root.add_child(_box("Crate", Vector3(0.9, 0.9, 0.9), Vector3(0, 0.45, 0), bucket, Color(0.45, 0.32, 0.18)))
 		"bwall_window":
-			# concrete wall with a darker framed opening so the window reads
-			root.add_child(_box("Sill", Vector3(CELL, CELL * 0.35, 0.3), Vector3(0, CELL * 0.18, 0), bucket, COL_WALL))
-			root.add_child(_box("Lintel", Vector3(CELL, CELL * 0.3, 0.3), Vector3(0, CELL * 0.85, 0), bucket, COL_WALL))
-			root.add_child(_box("WinFrameL", Vector3(0.18, CELL * 0.5, 0.32), Vector3(-CELL * 0.4, CELL * 0.5, 0), bucket, COL_TRIM))
-			root.add_child(_box("WinFrameR", Vector3(0.18, CELL * 0.5, 0.32), Vector3(CELL * 0.4, CELL * 0.5, 0), bucket, COL_TRIM))
+			# A ~1m square window set high on the wall: solid sill + header + side fills leave a square
+			# opening, with a thin trim frame around it.
+			root.add_child(_box("Sill", Vector3(CELL, CELL * 0.42, 0.3), Vector3(0, CELL * 0.21, 0), bucket, COL_WALL))
+			root.add_child(_box("Header", Vector3(CELL, CELL * 0.14, 0.3), Vector3(0, CELL * 0.93, 0), bucket, COL_WALL))
+			root.add_child(_box("WSideL", Vector3(CELL * 0.26, CELL * 0.52, 0.3), Vector3(-CELL * 0.37, CELL * 0.66, 0), bucket, COL_WALL))
+			root.add_child(_box("WSideR", Vector3(CELL * 0.26, CELL * 0.52, 0.3), Vector3(CELL * 0.37, CELL * 0.66, 0), bucket, COL_WALL))
+			root.add_child(_box("WTrimB", Vector3(CELL * 0.55, 0.08, 0.34), Vector3(0, CELL * 0.43, 0), bucket, COL_TRIM))
+			root.add_child(_box("WTrimT", Vector3(CELL * 0.55, 0.08, 0.34), Vector3(0, CELL * 0.89, 0), bucket, COL_TRIM))
 		"bwall_door":
-			# brown door frame with a tall opening (clears a standing pawn ~1.8m). Lintel sits near the top.
-			root.add_child(_box("JambL", Vector3(CELL * 0.22, CELL, 0.35), Vector3(-CELL * 0.39, CELL * 0.5, 0), bucket, COL_TRIM))
-			root.add_child(_box("JambR", Vector3(CELL * 0.22, CELL, 0.35), Vector3(CELL * 0.39, CELL * 0.5, 0), bucket, COL_TRIM))
-			root.add_child(_box("Lintel", Vector3(CELL, CELL * 0.12, 0.35), Vector3(0, CELL * 0.97, 0), bucket, COL_TRIM))
+			# Tall doorway: jambs + lintel reach ~2.3m (into the cell above) so a standing pawn clearly
+			# clears it; the wall in the cell above is the header.
+			root.add_child(_box("JambL", Vector3(CELL * 0.22, CELL * 1.15, 0.35), Vector3(-CELL * 0.39, CELL * 0.575, 0), bucket, COL_TRIM))
+			root.add_child(_box("JambR", Vector3(CELL * 0.22, CELL * 1.15, 0.35), Vector3(CELL * 0.39, CELL * 0.575, 0), bucket, COL_TRIM))
+			root.add_child(_box("Lintel", Vector3(CELL, CELL * 0.14, 0.35), Vector3(0, CELL * 1.12, 0), bucket, COL_TRIM))
 		"bstair":
 			for s in range(4):
 				var h := CELL * (float(s) + 1.0) / 4.0
