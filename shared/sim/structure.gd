@@ -181,7 +181,8 @@ func validate_place(cell: Vector3i, player_pos: Vector3, now_tick: int, last_bui
 		return {"ok": false, "reason": "support"}
 	return {"ok": true, "reason": ""}
 
-const FLOOR_REACH_EPS := 0.35   # m; a pawn within this distance below a surface "catches" it (small step-up)
+const FLOOR_REACH_EPS := 0.35   # m; a pawn within this distance below a flat surface "catches" it (small step-up)
+const RAMP_REACH_EPS := 0.6     # m; ramps need a larger catch = max per-tick climb at sprint (9.6 m/s * dt on a 1:1 slope ~0.32) + margin
 
 const MARCH_STEP := 0.5   # ray-march sampling step (m); < CELL_SIZE so no cell is skipped
 
@@ -266,7 +267,7 @@ func _blocks_ground(p: Vector3) -> bool:
 ## their cell-base plane; stairs yield a ramped height. Bounded by building height (a handful of cells).
 func floor_height_at(x: float, z: float, y: float) -> float:
 	var col := BuildGrid.cell_of(Vector3(x, 0.0, z))
-	var top := BuildGrid.cell_of(Vector3(x, y + FLOOR_REACH_EPS, z)).y
+	var top := BuildGrid.cell_of(Vector3(x, y + RAMP_REACH_EPS, z)).y
 	var best := -INF
 	for cy in range(top, -1, -1):
 		var cell := Vector3i(col.x, cy, col.z)
@@ -275,17 +276,17 @@ func floor_height_at(x: float, z: float, y: float) -> float:
 		var rec: Dictionary = _by_id[_occupancy[cell]]
 		var t := int(rec["type"])
 		var surf: float
+		var reach: float
 		if _catalog.is_ramp(t):
 			surf = Stairs.surface_at(cell, int(rec["yaw"]), x, z)
-			# Ramps allow a full-cell step-up so pawns can walk onto the low end from ground level.
-			if surf <= y + FLOOR_REACH_EPS + BuildGrid.CELL_SIZE and surf > best:
-				best = surf
+			reach = RAMP_REACH_EPS
 		elif _catalog.is_flat_surface(t):
 			surf = float(cy) * BuildGrid.CELL_SIZE
-			if surf <= y + FLOOR_REACH_EPS and surf > best:
-				best = surf
+			reach = FLOOR_REACH_EPS
 		else:
 			continue
+		if surf <= y + reach and surf > best:
+			best = surf
 	return best
 
 ## Top height (m) of the piece occupying the ground cell at world point `p`, or 0.0 if none.
