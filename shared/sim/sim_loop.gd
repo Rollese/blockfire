@@ -80,6 +80,8 @@ func _step_normal(p: Pawn, prev: Vector3, cmd: Dictionary) -> void:
 
 func _apply_platform_floor(p: Pawn) -> void:
 	var floor_y := Ladder.platform_floor(platforms, p.pos.x, p.pos.z, p.pos.y)
+	if structures != null:
+		floor_y = maxf(floor_y, structures.floor_height_at(p.pos.x, p.pos.z, p.pos.y))
 	if p.pos.y < floor_y:
 		p.pos.y = floor_y
 		p.velocity.y = 0.0

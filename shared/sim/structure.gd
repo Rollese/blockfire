@@ -277,12 +277,15 @@ func floor_height_at(x: float, z: float, y: float) -> float:
 		var surf: float
 		if _catalog.is_ramp(t):
 			surf = Stairs.surface_at(cell, int(rec["yaw"]), x, z)
+			# Ramps allow a full-cell step-up so pawns can walk onto the low end from ground level.
+			if surf <= y + FLOOR_REACH_EPS + BuildGrid.CELL_SIZE and surf > best:
+				best = surf
 		elif _catalog.is_flat_surface(t):
 			surf = float(cy) * BuildGrid.CELL_SIZE
+			if surf <= y + FLOOR_REACH_EPS and surf > best:
+				best = surf
 		else:
 			continue
-		if surf <= y + FLOOR_REACH_EPS and surf > best:
-			best = surf
 	return best
 
 ## Top height (m) of the piece occupying the ground cell at world point `p`, or 0.0 if none.
