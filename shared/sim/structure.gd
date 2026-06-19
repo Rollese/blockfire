@@ -181,6 +181,8 @@ func validate_place(cell: Vector3i, player_pos: Vector3, now_tick: int, last_bui
 		return {"ok": false, "reason": "support"}
 	return {"ok": true, "reason": ""}
 
+const FLOOR_REACH_EPS := 0.35   # m; a pawn within this distance below a surface "catches" it (small step-up)
+
 const MARCH_STEP := 0.5   # ray-march sampling step (m); < CELL_SIZE so no cell is skipped
 
 ## Walk a ray through the build grid up to max_dist. Returns {hit:bool, dist:float, id:int}.
@@ -257,6 +259,29 @@ func _blocks_ground(p: Vector3) -> bool:
 	# A door piece has a walk-through aperture: a standing pawn passes the opening (the frame still
 	# blocks bullets/LOS via the whole-cell ray march until destroyed).
 	return not _catalog.passable_of(int(_by_id[_occupancy[cell]]["type"]))
+
+## Highest walkable structure surface at or below `y` at column (x,z); -INF if none. Floors yield
+## their cell-base plane; stairs yield a ramped height. Bounded by building height (a handful of cells).
+func floor_height_at(x: float, z: float, y: float) -> float:
+	var col := BuildGrid.cell_of(Vector3(x, 0.0, z))
+	var top := BuildGrid.cell_of(Vector3(x, y + FLOOR_REACH_EPS, z)).y
+	var best := -INF
+	for cy in range(top, -1, -1):
+		var cell := Vector3i(col.x, cy, col.z)
+		if not _occupancy.has(cell):
+			continue
+		var rec: Dictionary = _by_id[_occupancy[cell]]
+		var t := int(rec["type"])
+		var surf: float
+		if _catalog.is_ramp(t):
+			surf = Stairs.surface_at(cell, int(rec["yaw"]), x, z)
+		elif _catalog.is_flat_surface(t):
+			surf = float(cy) * BuildGrid.CELL_SIZE
+		else:
+			continue
+		if surf <= y + FLOOR_REACH_EPS and surf > best:
+			best = surf
+	return best
 
 ## Top height (m) of the piece occupying the ground cell at world point `p`, or 0.0 if none.
 ## Half pieces are 0.5*CELL_SIZE, full pieces CELL_SIZE. Used by the height-generic vault rule.
