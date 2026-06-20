@@ -64,18 +64,24 @@ def correct_yaw(x, z, fp):
     open_ns = (x, z + 1) not in fp or (x, z - 1) not in fp
     return 0 if open_ns else 2
 
-def close_corners(pieces, fp):
-    """Replace solid-wall pieces on CORNER cells (exposed on two perpendicular faces) with
-    bwall_corner, which the kit renders as a cross that walls both faces — one piece per cell, so it
-    doesn't collide with the stamp's one-per-cell rule. Fixes the open-corner slits."""
-    def corner(x, z):
-        odx = (x + 1, z) not in fp or (x - 1, z) not in fp
-        odz = (x, z + 1) not in fp or (x, z - 1) not in fp
-        return odx and odz
+def close_corners(pieces, _fp):
+    """Replace solid-wall pieces on a building's OUTER corners with bwall_corner (kit renders a cross
+    walling both faces; one piece per cell so no stamp collision). Corner = a cell whose plan-neighbour
+    is missing on BOTH axes AND the diagonal between the two open faces is also missing (a convex outer
+    corner). Uses the full cell plan (not just the roof) so wings/canopies don't read as isolated."""
+    plan = {(p["offset"][0], p["offset"][2]) for p in pieces}
+    def convex_corner(x, z):
+        for dx in (1, -1):
+            if (x + dx, z) in plan:
+                continue
+            for dz in (1, -1):
+                if (x, z + dz) not in plan and (x + dx, z + dz) not in plan:
+                    return True   # open on -dx and -dz with the diagonal also empty = outer corner
+        return False
     n = 0
     for p in pieces:
         if p["type"] in ("bwall", "bwall_brick", "bwall_metal", "bwall_wood") \
-                and corner(p["offset"][0], p["offset"][2]):
+                and convex_corner(p["offset"][0], p["offset"][2]):
             p["type"] = "bwall_corner"
             n += 1
     return n
