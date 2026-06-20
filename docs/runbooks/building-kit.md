@@ -28,6 +28,30 @@ render there, pull `/tmp/pv_<name>_{iso,front,side,eye}.png`, then view the imag
 **sequentially** — parallel godot instances fight over the desktop GPU/window and produce blank frames.
 Always check multiple angles; a single iso view hides door/window height and interior detail.
 
+## MANDATORY QA: 9-direction + isometric sweep for every new block/template
+
+Whenever you author a **new building block (kit piece)** or a **new building template**, you MUST
+render and review a full sweep before considering it done — a single iso angle hides corner gaps,
+missing faces, floating geometry, and wrong-height joins (these are exactly the defects the
+2026-06-20 playtest surfaced). The sweep is **8 compass directions + top-down (9 directions) plus
+isometric** = 10 images.
+
+Run it: `/tmp/shotfull.sh <name>` (recreate from this runbook if gone — it mirrors `shotlap.sh` but
+passes `--full=true`, which makes `building_preview.tscn` render `{n,ne,e,se,s,sw,w,nw,top,iso}`).
+Pulls `/tmp/pf_<name>_<view>.png`. Then **Read every one** and check:
+
+- [ ] **Corners close** on all four sides (no see-through gap where two walls should meet).
+- [ ] **No missing faces** — every exterior wall cell carries a piece; no open backside.
+- [ ] **Ground floor present** — building sits on a floor slab, not floating over / sunk into grass.
+- [ ] **Roof seats on the walls** — no gap or overhang mismatch at the eave; no floating roof.
+- [ ] **Door/window heights** clear a standing pawn and read correctly from `front`/`eye`.
+- [ ] **Height/scale** reads like a real building from the compass views (not squat).
+- [ ] **Top-down** shows a solid footprint with no internal holes (except intended courtyards).
+- [ ] **Interior props** (if any) sit on the floor, upright, inside the walls.
+
+Only after all 10 views are clean is the asset done. For quick mid-iteration looks the default
+4-angle `shotlap.sh` is fine; the 10-view sweep is the gate.
+
 ## Showcase / playtest
 
 `maps/conquest_showcase.json` places all 16 templates on a 4×4 grid (world_half 120, central objective)

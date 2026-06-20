@@ -20,6 +20,9 @@ func _ready() -> void:
 			args[String(kv[0])] = String(kv[1]) if kv.size() > 1 else "true"
 	var bname := String(args.get("building", "house"))
 	var prefix := String(args.get("shot", "/tmp/prev"))
+	# --full renders the 9-direction + isometric review sweep (the standard QA pass for any NEW
+	# building block / template — see docs/runbooks/building-kit.md). Default stays the quick 4 angles.
+	var full := String(args.get("full", "false")) == "true"
 
 	_vp = SubViewport.new()
 	_vp.size = RES
@@ -32,14 +35,17 @@ func _ready() -> void:
 	_cam.fov = 50.0
 	_vp.add_child(_cam)
 
-	for view in ["iso", "front", "side", "eye"]:
+	# 9-direction + isometric QA sweep, or the quick default set.
+	var views: Array = ["n", "ne", "e", "se", "s", "sw", "w", "nw", "top", "iso"] if full \
+		else ["iso", "front", "side", "eye"]
+	for view in views:
 		_aim(bb, view)
 		for _i in 4:
 			await RenderingServer.frame_post_draw
 		var img := _vp.get_texture().get_image()
 		if img != null:
 			img.save_png("%s_%s.png" % [prefix, view])
-	print("[preview] saved %s_{iso,front,side,eye}.png building=%s @ %dx%d" % [prefix, bname, RES.x, RES.y])
+	print("[preview] saved %s_{%s}.png building=%s @ %dx%d" % [prefix, ",".join(views), bname, RES.x, RES.y])
 	get_tree().quit()
 
 func _setup_env() -> void:
@@ -80,17 +86,31 @@ func _build_building(name: String) -> AABB:
 		hi = Vector3(maxf(hi.x, wpos.x + CELL), maxf(hi.y, wpos.y + CELL), maxf(hi.z, wpos.z + CELL))
 	return AABB(lo, hi - lo)
 
+const _COMPASS := {
+	"n": Vector2(0, 1), "ne": Vector2(0.707, 0.707), "e": Vector2(1, 0), "se": Vector2(0.707, -0.707),
+	"s": Vector2(0, -1), "sw": Vector2(-0.707, -0.707), "w": Vector2(-1, 0), "nw": Vector2(-0.707, 0.707),
+}
+
 func _aim(bb: AABB, view: String) -> void:
 	var center := bb.position + bb.size * 0.5
 	var r := maxf(bb.size.length(), 8.0)
 	var pos: Vector3
-	match view:
-		"front":
-			pos = center + Vector3(0, bb.size.y * 0.6, r * 1.05)
-		"side":
-			pos = center + Vector3(r * 1.05, bb.size.y * 0.6, 0)
-		"eye":
-			pos = bb.position + Vector3(bb.size.x * 0.5, 1.6, -r * 0.55)
-		_:
-			pos = center + Vector3(r * 0.95, r * 0.85, r * 0.95)
-	_cam.look_at_from_position(pos, center if view != "eye" else center - Vector3(0, bb.size.y * 0.2, 0), Vector3.UP)
+	if _COMPASS.has(view):
+		# 3/4 horizontal view from a compass bearing — elevated enough to read roofline + wall faces,
+		# low enough to expose corner gaps and the ground-floor join.
+		var d: Vector2 = _COMPASS[view]
+		pos = center + Vector3(d.x * r * 1.05, bb.size.y * 0.5 + r * 0.30, d.y * r * 1.05)
+	else:
+		match view:
+			"top":
+				pos = center + Vector3(0.01, r * 1.7, 0.0)   # straight down (tiny x so look_at has a basis)
+			"front":
+				pos = center + Vector3(0, bb.size.y * 0.6, r * 1.05)
+			"side":
+				pos = center + Vector3(r * 1.05, bb.size.y * 0.6, 0)
+			"eye":
+				pos = bb.position + Vector3(bb.size.x * 0.5, 1.6, -r * 0.55)
+			_:
+				pos = center + Vector3(r * 0.95, r * 0.85, r * 0.95)
+	var target := center if view != "eye" else center - Vector3(0, bb.size.y * 0.2, 0)
+	_cam.look_at_from_position(pos, target, Vector3.UP)
