@@ -17,6 +17,9 @@ const COL_STEP_B := Color(0.42, 0.40, 0.38)
 const COL_BRICK := Color(0.64, 0.34, 0.27)   # brick-red wall
 const COL_METALW := Color(0.56, 0.58, 0.62)  # industrial metal wall
 const COL_WOODW := Color(0.56, 0.43, 0.29)   # timber wall
+const COL_RUBBLE_A := Color(0.55, 0.53, 0.49) # broken concrete (light)
+const COL_RUBBLE_B := Color(0.47, 0.45, 0.42) # broken concrete (mid)
+const COL_RUBBLE_C := Color(0.60, 0.58, 0.54) # broken concrete (pale)
 
 static func build(piece_id: String, bucket: int) -> Node3D:
 	var root := Node3D.new()
@@ -26,7 +29,9 @@ static func build(piece_id: String, bucket: int) -> Node3D:
 		"bfloor":
 			# Walkable surface = cell base plane (M14). Hang the slab just below it so the pawn's feet
 			# rest on the visible top.
-			root.add_child(_box("Floor", Vector3(CELL, 0.3, CELL), Vector3(0, -0.15, 0), bucket, COL_FLOOR, "wood"))
+			# Slab top sits a hair ABOVE the cell base so a roof slab swallows the wall top below it
+			# (was coplanar -> z-fight "walls clipping the roof"). Walkable surface stays ~cell base.
+			root.add_child(_box("Floor", Vector3(CELL, 0.32, CELL), Vector3(0, -0.12, 0), bucket, COL_FLOOR, "wood"))
 		"brailing":
 			root.add_child(_box("Rail", Vector3(CELL, 0.1, 0.1), Vector3(0, CELL * 0.5, 0), bucket, COL_METAL))
 		"prop_table":
@@ -94,15 +99,30 @@ static func build(piece_id: String, bucket: int) -> Node3D:
 			# bwall and any unknown id -> solid full wall.
 			root.add_child(_box("Wall", Vector3(CELL, CELL, 0.3), Vector3(0, CELL * 0.5, 0), bucket, COL_WALL))
 	if bucket <= 1:
-		# Heavy damage: a low rubble pile at the BASE of the piece (rests on the floor/ground). The old
-		# version was a dark box near the TOP of the wall, which read as black bricks floating over the
-		# roofline when upper-floor walls were hit (playtest 2026-06-20).
-		root.add_child(_box("Debris", Vector3(CELL * 0.78, CELL * 0.16, 0.55), Vector3(0, CELL * 0.08, 0), bucket, Color(0.34, 0.31, 0.28), ""))
+		# Heavy damage -> a small pile of broken-concrete chunks at the BASE of the piece (rests on the
+		# floor/ground). Several light, irregular, tilted blocks read as rubble, not a dark box.
+		root.add_child(_chunk(Vector3(0.5, 0.30, 0.46), Vector3(-0.26, 0.13, 0.10), 0.4, 0.12, COL_RUBBLE_A))
+		root.add_child(_chunk(Vector3(0.4, 0.24, 0.50), Vector3(0.28, 0.11, -0.16), -0.5, 0.0, COL_RUBBLE_B))
+		root.add_child(_chunk(Vector3(0.34, 0.38, 0.30), Vector3(0.06, 0.18, 0.30), 0.9, -0.15, COL_RUBBLE_C))
+		root.add_child(_chunk(Vector3(0.28, 0.22, 0.26), Vector3(-0.14, 0.11, -0.30), 1.2, 0.20, COL_RUBBLE_B))
+		root.add_child(_chunk(Vector3(0.22, 0.18, 0.22), Vector3(0.20, 0.09, 0.24), 0.2, 0.0, COL_RUBBLE_A))
 	return root
 
+## A single tilted rubble chunk. Always full-tint (bucket 3) so debris stays light grey instead of
+## being darkened by the damage tint (the old debris went near-black for that reason).
+static func _chunk(size: Vector3, pos: Vector3, rot_y: float, tilt: float, base: Color) -> MeshInstance3D:
+	var mi := _box("Rub", size, pos, 3, base, "concrete")
+	mi.rotation = Vector3(tilt, rot_y, tilt * 0.4)
+	return mi
+
 static func build_rubble() -> Node3D:
+	# Collapsed building (M11): a low mound of large broken slabs over the footprint, not a flat pad.
 	var root := Node3D.new()
-	root.add_child(_box("Rubble", Vector3(CELL * 1.6, CELL * 0.4, CELL * 1.6), Vector3(0, CELL * 0.2, 0), 0, Color(0.4, 0.38, 0.35), ""))
+	root.add_child(_chunk(Vector3(1.7, 0.5, 1.5), Vector3(-0.5, 0.25, -0.3), 0.3, 0.06, COL_RUBBLE_B))
+	root.add_child(_chunk(Vector3(1.5, 0.45, 1.6), Vector3(0.6, 0.22, 0.4), -0.4, 0.0, COL_RUBBLE_A))
+	root.add_child(_chunk(Vector3(1.2, 0.6, 1.1), Vector3(0.2, 0.3, -0.6), 0.8, 0.10, COL_RUBBLE_C))
+	root.add_child(_chunk(Vector3(1.0, 0.4, 1.3), Vector3(-0.6, 0.2, 0.6), 1.1, -0.08, COL_RUBBLE_B))
+	root.add_child(_chunk(Vector3(0.8, 0.35, 0.8), Vector3(0.0, 0.18, 0.1), 0.5, 0.0, COL_RUBBLE_A))
 	return root
 
 static func _box(node_name: String, size: Vector3, pos: Vector3, bucket: int, base: Color, tex: String = "concrete") -> MeshInstance3D:

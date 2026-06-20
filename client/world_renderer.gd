@@ -19,6 +19,7 @@ const STRUCT_TYPE_ID := ["sandbag", "wall", "bwall", "bwall_window", "bwall_door
 const STRUCT_TYPE_GRID := [8, 8, 8, 8, 8, 8, 8, 8, 4, 1, 8, 8, 8, 8, 8, 8, 1, 1, 1, 1, 1]
 
 # -- structure feedback timing ------------------------------------------------
+const STRUCT_LIFT := 0.06          # m: lift buildings onto a thin foundation (no grass z-fight)
 const STRUCT_SPAWN_DUR := 0.18     # seconds for build pop scale-up
 const STRUCT_DESTROY_DUR := 0.14   # seconds for destroy pop scale-down before release
 
@@ -743,8 +744,10 @@ func _pose_structure(node: Node3D, rec: Dictionary) -> void:
 	# and is centred horizontally in the cell. BuildGrid.CELL_SIZE = 2.0 m.
 	var cell: Vector3i = rec["cell"] as Vector3i
 	var half := BuildGrid.CELL_SIZE * 0.5
+	# Lift the whole building a hair onto a foundation so the ground-floor slab doesn't z-fight /
+	# poke through the grass plane (both were at y=0). Imperceptible step at the door.
 	node.position = Vector3(float(cell.x) * BuildGrid.CELL_SIZE + half,
-							float(cell.y) * BuildGrid.CELL_SIZE,
+							float(cell.y) * BuildGrid.CELL_SIZE + STRUCT_LIFT,
 							float(cell.z) * BuildGrid.CELL_SIZE + half)
 	# Yaw is a step index (0..YAW_STEPS-1); convert to radians and orient around Y.
 	var yaw_rad := BuildGrid.yaw_radians(int(rec.get("yaw", 0)))
