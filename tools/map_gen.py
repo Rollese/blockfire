@@ -106,6 +106,11 @@ fill_row(CIV, -150, 150, z_corner=12)    # B4: civic, north of Center St
 fill_row(RES, -150, 150, z_corner=62)    # B5: residential, north of Cross +50
 fill_row(RES, -150, 150, z_corner=108)   # B6: north outskirts (clear of team-1 base approach)
 
+# Landmark: a walkable two-story building at the central square (point C) so the M14 stair-climb /
+# per-floor collision / fall-damage loop is testable on this map. Sits in the clear band just SE of
+# the Center St x Main Ave intersection, inside point C's capture radius.
+place("test_twostory", 10, -22)
+
 # ---------------------------------------------------------------- points + bases
 points = [
     {"id": "A", "pos": [-90, 0, -70], "radius": 20, "start_owner": -1},  # SW industrial

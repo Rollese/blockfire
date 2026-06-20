@@ -783,6 +783,15 @@
         54
       ],
       "yaw": 0
+    },
+    {
+      "prefab": "test_twostory",
+      "origin_cell": [
+        5,
+        0,
+        -11
+      ],
+      "yaw": 0
     }
   ],
   "points": [
