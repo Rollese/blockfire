@@ -236,29 +236,38 @@ func _physics_process(delta: float) -> void:
 		_curr_eye = eye_now
 
 # ---- screenshot capture -----------------------------------------------------
-# F12 saves a PNG of exactly what's on screen (incl. HUD) to ~/bf-shots/ so issues can be shown,
-# not just described. The dev pulls them off the render host for analysis.
-func _unhandled_input(event: InputEvent) -> void:
-	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_F12:
+# F12 (or F9) saves a PNG of exactly what's on screen (incl. HUD) to ~/bf-shots/ so issues can be
+# shown, not just described. Polled in _process (NOT _unhandled_input — the HUD/menu can swallow the
+# key event), with edge detection so one press = one shot. The dev pulls them off the render host.
+var _shot_key_down := false
+
+func _poll_screenshot_key() -> void:
+	var down := Input.is_physical_key_pressed(KEY_F12) or Input.is_physical_key_pressed(KEY_F9)
+	if down and not _shot_key_down:
 		_save_screenshot()
+	_shot_key_down = down
 
 func _save_screenshot() -> void:
-	var img := get_viewport().get_texture().get_image()
+	var tex := get_viewport().get_texture()
+	var img: Image = tex.get_image() if tex != null else null
 	if img == null:
+		push_warning("[shot] could not grab viewport image")
 		return
 	var dir := "%s/bf-shots" % OS.get_environment("HOME")
 	DirAccess.make_dir_recursive_absolute(dir)
 	var stamp := Time.get_datetime_string_from_system().replace("T", "_").replace(":", "-")
 	var path := "%s/shot_%s.png" % [dir, stamp]
-	if img.save_png(path) == OK:
+	var err := img.save_png(path)
+	if err == OK:
 		print("[shot] saved %s" % path)
 		if _audio != null:
 			_audio.play_2d("ui_click")   # audible confirmation
 	else:
-		push_warning("[shot] failed to save %s" % path)
+		push_warning("[shot] save failed (err %d) -> %s" % [err, path])
 
 # ---- render frame -----------------------------------------------------------
 func _process(_dt: float) -> void:
+	_poll_screenshot_key()   # F12/F9 screenshot — works even before the scene is built
 	if not _scene_built:
 		return
 
