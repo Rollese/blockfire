@@ -2,7 +2,7 @@
   "name": "parking",
   "pieces": [
     {
-      "type": "bwall_garage",
+      "type": "bcolumn",
       "offset": [
         0,
         0,
@@ -47,29 +47,11 @@
       "yaw": 0
     },
     {
-      "type": "bwall_garage",
-      "offset": [
-        1,
-        0,
-        0
-      ],
-      "yaw": 0
-    },
-    {
       "type": "bwall",
       "offset": [
         1,
         0,
         4
-      ],
-      "yaw": 0
-    },
-    {
-      "type": "bwall_garage",
-      "offset": [
-        2,
-        0,
-        0
       ],
       "yaw": 0
     },
@@ -83,29 +65,11 @@
       "yaw": 0
     },
     {
-      "type": "bwall_garage",
-      "offset": [
-        3,
-        0,
-        0
-      ],
-      "yaw": 0
-    },
-    {
       "type": "bwall",
       "offset": [
         3,
         0,
         4
-      ],
-      "yaw": 0
-    },
-    {
-      "type": "bwall_garage",
-      "offset": [
-        4,
-        0,
-        0
       ],
       "yaw": 0
     },
@@ -119,15 +83,6 @@
       "yaw": 0
     },
     {
-      "type": "bwall_garage",
-      "offset": [
-        5,
-        0,
-        0
-      ],
-      "yaw": 0
-    },
-    {
       "type": "bwall",
       "offset": [
         5,
@@ -137,7 +92,7 @@
       "yaw": 0
     },
     {
-      "type": "bwall_garage",
+      "type": "bcolumn",
       "offset": [
         6,
         0,
@@ -182,7 +137,7 @@
       "yaw": 0
     },
     {
-      "type": "bwall",
+      "type": "bcolumn",
       "offset": [
         0,
         1,
@@ -231,25 +186,7 @@
       "offset": [
         1,
         1,
-        0
-      ],
-      "yaw": 0
-    },
-    {
-      "type": "bwall",
-      "offset": [
-        1,
-        1,
         4
-      ],
-      "yaw": 0
-    },
-    {
-      "type": "bwall",
-      "offset": [
-        2,
-        1,
-        0
       ],
       "yaw": 0
     },
@@ -267,25 +204,7 @@
       "offset": [
         3,
         1,
-        0
-      ],
-      "yaw": 0
-    },
-    {
-      "type": "bwall",
-      "offset": [
-        3,
-        1,
         4
-      ],
-      "yaw": 0
-    },
-    {
-      "type": "bwall",
-      "offset": [
-        4,
-        1,
-        0
       ],
       "yaw": 0
     },
@@ -303,21 +222,12 @@
       "offset": [
         5,
         1,
-        0
-      ],
-      "yaw": 0
-    },
-    {
-      "type": "bwall",
-      "offset": [
-        5,
-        1,
         4
       ],
       "yaw": 0
     },
     {
-      "type": "bwall",
+      "type": "bcolumn",
       "offset": [
         6,
         1,

@@ -34,13 +34,14 @@ def P(t, x, y, z, yaw=0):
 # (open vehicle access); a few high windows on the upper band; everything else solid wall.
 for y in range(4):
     for i, (x, z) in enumerate(PERIM):
+        # Front row, lower two cells (y=0,1) = an open 4 m drive-in entrance with only corner posts.
+        # The old garage-bay piece had a header beam at ~1.8 m that clipped a standing pawn's head.
+        if z == 0 and y <= 1:
+            if x in (0, NX - 1):
+                P("bcolumn", x, y, z)          # corner posts carry the front of the upper deck
+            continue                            # other front-ground cells stay fully open
         yaw = correct_yaw(x, z)
-        if y == 0 and z == 0:
-            t = "bwall_garage"                 # open bay front
-        elif y >= 2 and i % 3 == 0:
-            t = "bwall_window"
-        else:
-            t = "bwall"
+        t = "bwall_window" if (y >= 2 and i % 3 == 0) else "bwall"
         P(t, x, y, z, yaw)
 
 # Floor decks: ground (y=0) + mid deck (y=2) interior-only (perimeter holds walls), roof (y=4) full.
