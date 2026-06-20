@@ -1,6 +1,6 @@
 {
   "name": "Showcase",
-  "world_half": 271.0,
+  "world_half": 272.0,
   "buildings": [
     {
       "prefab": "apartment",
@@ -158,7 +158,7 @@
     {
       "prefab": "shed",
       "origin_cell": [
-        88,
+        89,
         0,
         0
       ],
@@ -167,7 +167,7 @@
     {
       "prefab": "silo",
       "origin_cell": [
-        95,
+        96,
         0,
         0
       ],
@@ -176,7 +176,7 @@
     {
       "prefab": "supermarket",
       "origin_cell": [
-        102,
+        103,
         0,
         0
       ],
@@ -185,7 +185,7 @@
     {
       "prefab": "test_twostory",
       "origin_cell": [
-        116,
+        117,
         0,
         0
       ],
@@ -194,7 +194,7 @@
     {
       "prefab": "tower",
       "origin_cell": [
-        125,
+        126,
         0,
         0
       ],
@@ -203,7 +203,7 @@
     {
       "prefab": "townhouse",
       "origin_cell": [
-        132,
+        133,
         0,
         0
       ],
@@ -212,7 +212,7 @@
     {
       "prefab": "villa",
       "origin_cell": [
-        139,
+        140,
         0,
         0
       ],
@@ -221,7 +221,7 @@
     {
       "prefab": "warehouse",
       "origin_cell": [
-        149,
+        150,
         0,
         0
       ],

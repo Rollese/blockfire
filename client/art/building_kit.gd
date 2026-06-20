@@ -94,7 +94,10 @@ static func build(piece_id: String, bucket: int) -> Node3D:
 			# bwall and any unknown id -> solid full wall.
 			root.add_child(_box("Wall", Vector3(CELL, CELL, 0.3), Vector3(0, CELL * 0.5, 0), bucket, COL_WALL))
 	if bucket <= 1:
-		root.add_child(_box("Chip", Vector3(CELL * 0.4, CELL * 0.3, 0.35), Vector3(CELL * 0.25, CELL * 0.75, 0), bucket, Color(0.3, 0.3, 0.3)))
+		# Heavy damage: a low rubble pile at the BASE of the piece (rests on the floor/ground). The old
+		# version was a dark box near the TOP of the wall, which read as black bricks floating over the
+		# roofline when upper-floor walls were hit (playtest 2026-06-20).
+		root.add_child(_box("Debris", Vector3(CELL * 0.78, CELL * 0.16, 0.55), Vector3(0, CELL * 0.08, 0), bucket, Color(0.34, 0.31, 0.28), ""))
 	return root
 
 static func build_rubble() -> Node3D:
