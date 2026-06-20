@@ -366,15 +366,6 @@
       "offset": [
         1,
         0,
-        1
-      ],
-      "yaw": 0
-    },
-    {
-      "type": "bfloor",
-      "offset": [
-        1,
-        0,
         2
       ],
       "yaw": 0
@@ -389,7 +380,16 @@
       "yaw": 0
     },
     {
-      "type": "bfloor",
+      "type": "prop_crate",
+      "offset": [
+        1,
+        0,
+        1
+      ],
+      "yaw": 0
+    },
+    {
+      "type": "prop_barrel",
       "offset": [
         2,
         0,

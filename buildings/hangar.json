@@ -1563,15 +1563,6 @@
       "offset": [
         1,
         0,
-        1
-      ],
-      "yaw": 0
-    },
-    {
-      "type": "bfloor",
-      "offset": [
-        1,
-        0,
         2
       ],
       "yaw": 0
@@ -1662,15 +1653,6 @@
       "offset": [
         3,
         0,
-        2
-      ],
-      "yaw": 0
-    },
-    {
-      "type": "bfloor",
-      "offset": [
-        3,
-        0,
         3
       ],
       "yaw": 0
@@ -1761,15 +1743,6 @@
       "offset": [
         5,
         0,
-        3
-      ],
-      "yaw": 0
-    },
-    {
-      "type": "bfloor",
-      "offset": [
-        5,
-        0,
         4
       ],
       "yaw": 0
@@ -1852,15 +1825,6 @@
         7,
         0,
         3
-      ],
-      "yaw": 0
-    },
-    {
-      "type": "bfloor",
-      "offset": [
-        7,
-        0,
-        4
       ],
       "yaw": 0
     },
@@ -1955,7 +1919,43 @@
       "yaw": 0
     },
     {
-      "type": "bfloor",
+      "type": "prop_crate",
+      "offset": [
+        1,
+        0,
+        1
+      ],
+      "yaw": 0
+    },
+    {
+      "type": "prop_barrel",
+      "offset": [
+        3,
+        0,
+        2
+      ],
+      "yaw": 0
+    },
+    {
+      "type": "prop_shelf",
+      "offset": [
+        5,
+        0,
+        3
+      ],
+      "yaw": 0
+    },
+    {
+      "type": "prop_table",
+      "offset": [
+        7,
+        0,
+        4
+      ],
+      "yaw": 0
+    },
+    {
+      "type": "prop_locker",
       "offset": [
         9,
         0,

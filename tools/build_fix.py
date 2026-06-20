@@ -46,9 +46,29 @@ def fix(path):
             pieces.append({"type": "bfloor", "offset": [x, 0, z], "yaw": 0})
             added_floor += 1
 
+    # Interior props — the playtest saw bare rooms. The cell model is one piece per cell, so a prop
+    # can't stack on a floor tile; instead convert a sparse subset of interior floor cells into props
+    # (the prop rests on the cell base; the missing slab under it is hidden by the prop). Idempotent:
+    # skip if any prop already placed.
+    PROPS = ["prop_crate", "prop_barrel", "prop_shelf", "prop_table", "prop_locker", "prop_chair"]
+    added_props = 0
+    has_props = any(p["type"].startswith("prop_") for p in pieces)
+    floor0 = sorted((p["offset"][0], p["offset"][2]) for p in pieces
+                    if p["type"] == "bfloor" and p["offset"][1] == 0)
+    if not has_props and len(floor0) >= 3:
+        every = max(3, len(floor0) // 4)          # ~a quarter of the room, min spacing 3 cells
+        prop_cells = {floor0[i] for i in range(0, len(floor0), every)}
+        kept = [p for p in pieces
+                if not (p["type"] == "bfloor" and p["offset"][1] == 0
+                        and (p["offset"][0], p["offset"][2]) in prop_cells)]
+        pieces = kept
+        for idx, (x, z) in enumerate(sorted(prop_cells)):
+            pieces.append({"type": PROPS[idx % len(PROPS)], "offset": [x, 0, z], "yaw": 0})
+            added_props += 1
+
     d["pieces"] = pieces
     json.dump(d, open(path, "w"), indent=2)
-    return f"{name}: +{added_floor} ground-floor -> {len(pieces)}p"
+    return f"{name}: +{added_floor} ground-floor, +{added_props} props -> {len(pieces)}p"
 
 if __name__ == "__main__":
     for path in sorted(glob.glob(os.path.join(ROOT, "buildings", "*.json"))):
