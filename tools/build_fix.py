@@ -64,24 +64,34 @@ def correct_yaw(x, z, fp):
     open_ns = (x, z + 1) not in fp or (x, z - 1) not in fp
     return 0 if open_ns else 2
 
+WALLISH = ("bwall", "bwall_window", "bwall_door", "bwall_brick", "bwall_metal", "bwall_wood",
+           "bwall_glass", "bwall_garage", "bwall_half", "bwall_corner")
+
 def close_corners(pieces, _fp):
-    """Replace solid-wall pieces on a building's OUTER corners with bwall_corner (kit renders a cross
-    walling both faces; one piece per cell so no stamp collision). Corner = a cell whose plan-neighbour
-    is missing on BOTH axes AND the diagonal between the two open faces is also missing (a convex outer
-    corner). Uses the full cell plan (not just the roof) so wings/canopies don't read as isolated."""
+    """Replace solid-wall pieces where two walls TURN (an outer corner) with bwall_corner (kit renders
+    a cross walling both faces; one piece per cell so no stamp collision). A turning corner must:
+      - have a wall neighbour on BOTH axes (so a free wall-END, which only has a neighbour on one axis,
+        does NOT get a cross sticking out), and
+      - be a CONVEX outer corner (open on two perpendicular faces with the diagonal also empty, so
+        concave/inner corners don't get a stub in the room)."""
     plan = {(p["offset"][0], p["offset"][2]) for p in pieces}
-    def convex_corner(x, z):
+    wallcells = {(p["offset"][0], p["offset"][2]) for p in pieces if p["type"] in WALLISH}
+    def turning_corner(x, z):
+        has_xn = (x + 1, z) in wallcells or (x - 1, z) in wallcells
+        has_zn = (x, z + 1) in wallcells or (x, z - 1) in wallcells
+        if not (has_xn and has_zn):
+            return False                      # straight wall or free end -> not a turning corner
         for dx in (1, -1):
             if (x + dx, z) in plan:
                 continue
             for dz in (1, -1):
                 if (x, z + dz) not in plan and (x + dx, z + dz) not in plan:
-                    return True   # open on -dx and -dz with the diagonal also empty = outer corner
+                    return True               # convex outer corner
         return False
     n = 0
     for p in pieces:
         if p["type"] in ("bwall", "bwall_brick", "bwall_metal", "bwall_wood") \
-                and convex_corner(p["offset"][0], p["offset"][2]):
+                and turning_corner(p["offset"][0], p["offset"][2]):
             p["type"] = "bwall_corner"
             n += 1
     return n
