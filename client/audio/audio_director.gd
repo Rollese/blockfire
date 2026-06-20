@@ -134,12 +134,29 @@ func play_event(event_type: String, world_pos: Vector3, listener_pos: Vector3, c
 # real .ogg/.wav assets at audio.md §10 Q4. Distinct pitch/length per event for legibility.
 const _TONE_SR := 22050
 
+const _SFX_DIR := "res://assets/audio/sfx/"
+
 func _stream_for(event_type: String) -> AudioStream:
 	if _streams.has(event_type):
 		return _streams[event_type]
-	var s := _gen_tone(event_type)
+	# Prefer a real CC0 .wav asset named after the def's `stream`; fall back to the synth tone for any
+	# event whose asset hasn't been authored yet (crack/whiz/impact/footstep/explosion/...).
+	var s: AudioStream = _load_asset(event_type)
+	if s == null:
+		s = _gen_tone(event_type)
 	_streams[event_type] = s
 	return s
+
+func _load_asset(event_type: String) -> AudioStream:
+	if _catalog == null:
+		return null
+	var stream_name := String(_catalog.def_for(event_type).get("stream", ""))
+	if stream_name == "":
+		return null
+	var path := _SFX_DIR + stream_name + ".wav"
+	if not ResourceLoader.exists(path):
+		return null
+	return ResourceLoader.load(path) as AudioStream
 
 static func _gen_tone(event_type: String) -> AudioStreamWAV:
 	var freq := 440.0

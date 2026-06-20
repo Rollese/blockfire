@@ -174,7 +174,7 @@ func _physics_process(delta: float) -> void:
 		if _wpred.step(_client_tick, firing, sprinting, false) and _renderer != null:
 			_renderer.fire_tracer(_elapsed)
 			if _audio != null:
-				_audio.play_at("gunfire", _pred.predicted.eye_position())
+				_audio.play_at(_fire_event_for(_wpred.weapon), _pred.predicted.eye_position())
 
 		if buttons & InputCommand.BTN_RELOAD:
 			var _was_reloading: bool = _wpred.reloading
@@ -753,6 +753,14 @@ func _vehicles_near() -> Array:
 			# Use seat 0 as default; server validates and assigns the actual free seat on VA_ENTER.
 			out.append({"vid": int(vid), "seat": 0, "dist": dist})
 	return out
+
+## Per-weapon gunfire cue, mapping the equipped weapon to its CC0 caliber sample. Unknown weapons
+## fall back to the AR report ("gunfire"). RPG fires via the gadget path, not here.
+func _fire_event_for(weapon_id: int) -> String:
+	match weapon_id:
+		Weapon.SMG: return "gunfire_smg"
+		Weapon.DMR: return "gunfire_dmr"
+		_: return "gunfire"
 
 ## True when the equipped weapon is the RPG — the server only includes the kind-100 throwable
 ## entry in SELF_STATE when c["weapon"] == Weapon.RPG, so its presence is the client's RPG signal.
