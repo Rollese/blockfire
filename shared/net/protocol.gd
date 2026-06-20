@@ -71,18 +71,24 @@ static func encode_hello(player_name: String, auto_deploy: bool = true) -> Packe
 	return buf.data_array
 
 
-static func encode_welcome(peer_id: int, tick_rate: int, cls: int = 0) -> PackedByteArray:
+static func encode_welcome(peer_id: int, tick_rate: int, cls: int = 0, map_name: String = "") -> PackedByteArray:
 	var buf := StreamPeerBuffer.new()
 	buf.put_u8(Msg.WELCOME)
 	buf.put_u32(peer_id)
 	buf.put_u16(tick_rate)
 	buf.put_u8(cls)
+	buf.put_utf8_string(map_name)   # server-authoritative map basename so the client loads the right one
 	return buf.data_array
 
 
 static func decode_welcome(bytes: PackedByteArray) -> Dictionary:
 	var r := body_reader(bytes)
-	return {"id": r.get_u32(), "tick_rate": r.get_u16(), "class": r.get_u8()}
+	var id := r.get_u32()
+	var tick_rate := r.get_u16()
+	var cls := r.get_u8()
+	# Map name is a trailing field — guard so a legacy welcome without it still decodes.
+	var map_name := r.get_utf8_string() if r.get_available_bytes() > 0 else ""
+	return {"id": id, "tick_rate": tick_rate, "class": cls, "map": map_name}
 
 
 static func encode_reject(reason: String) -> PackedByteArray:

@@ -1,5 +1,20 @@
 extends TestCase
 
+func test_welcome_carries_map_name() -> void:
+	var bytes := Protocol.encode_welcome(42, 30, 2, "conquest_town")
+	assert_eq(Protocol.msg_type(bytes), Protocol.Msg.WELCOME)
+	var d := Protocol.decode_welcome(bytes)
+	assert_eq(d["id"], 42)
+	assert_eq(d["tick_rate"], 30)
+	assert_eq(d["class"], 2)
+	assert_eq(d["map"], "conquest_town")
+
+func test_welcome_without_map_decodes_empty() -> void:
+	# Default map_name -> empty string; the client falls back to its locally loaded map.
+	var d := Protocol.decode_welcome(Protocol.encode_welcome(1, 30, 0))
+	assert_eq(d["id"], 1)
+	assert_eq(d["map"], "")
+
 func test_kill_event_round_trip() -> void:
 	var bytes := Protocol.encode_kill(7, 3, Weapon.DMR, true)
 	assert_eq(Protocol.msg_type(bytes), Protocol.Msg.KILL)

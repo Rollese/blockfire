@@ -485,7 +485,23 @@ func _handle_welcome(bytes: PackedByteArray) -> void:
 	_wv.set_local_id(my_id)
 	_wpred.set_weapon(Loadout.weapon_for(cls))
 
-	print("[client] WELCOME — id=%d tick_rate=%dHz class=%d" % [my_id, tick_rate, cls])
+	# Adopt the server's map (authoritative) so roads/points/bases match the match the server is
+	# running — no need to launch the client with a matching --map. Falls back to the locally loaded
+	# map if the server sent nothing or we don't have that file.
+	var server_map := String(w.get("map", ""))
+	if server_map != "":
+		var server_path := "res://maps/%s.json" % server_map
+		if server_path != _map_path:
+			var sm := MapDef.load_file(server_path)
+			if sm != null:
+				_map_path = server_path
+				_map = sm
+				_conquest = ConquestState.new(_map)
+				print("[client] adopting server map: %s" % server_map)
+			else:
+				push_warning("[client] server map '%s' not found locally; keeping %s" % [server_map, _map_path])
+
+	print("[client] WELCOME — id=%d tick_rate=%dHz class=%d map=%s" % [my_id, tick_rate, cls, _map_path.get_file().get_basename()])
 
 	# Build the 3D scene
 	_build_scene()

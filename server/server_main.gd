@@ -1046,7 +1046,9 @@ func _handle_hello(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
 	p.bandage_count = Revive.bandage_count_for(cls == Loadout.MEDIC)
 	if not auto_deploy:
 		p.alive = false   # held un-deployed until DEPLOY_REQUEST (respawn_tick stays 0)
-	_net.send_to(peer, NetHost.CHANNEL_CONTROL, Protocol.encode_welcome(id, TICK_RATE, cls), ENetPacketPeer.FLAG_RELIABLE)
+	# Tell the client which map to render (its roads/points/bases come from its local MapDef) so it
+	# never has to be launched with a matching --map. Send the file basename, not the display name.
+	_net.send_to(peer, NetHost.CHANNEL_CONTROL, Protocol.encode_welcome(id, TICK_RATE, cls, _map_path.get_file().get_basename()), ENetPacketPeer.FLAG_RELIABLE)
 	print("[server] welcomed peer %d ('%s') team=%d squad=%d class=%d — %d peers" % [id, pname, team, squad, cls, _clients.size()])
 
 func _squad_candidates(req_id: int, team: int, squad_id: int) -> Array:
