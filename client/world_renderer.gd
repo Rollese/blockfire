@@ -57,6 +57,12 @@ var _entity_ap: Dictionary = {}       # id(int) -> AnimationPlayer (only when us
 var _struct_active: Dictionary = {}
 # id(int) -> "type:bucket" key; a change means rebuild (kit geometry/tint is baked at build)
 var _struct_key_of: Dictionary = {}
+# last WorldView.structs_version() we synced; the per-frame pool walk is skipped while unchanged
+# (structures are static, so re-acquiring/re-posing ~thousands of pieces every frame was the
+# dominant client cost on dense maps — 35 ms/frame on conquest_town's 77 buildings).
+var _struct_synced_ver: int = -1
+# set by _acquire_structure when it (re)builds a node, so we only re-pose changed pieces
+var _struct_rebuilt: bool = false
 # friend markers: id(int) -> MeshInstance3D (blue triangle above teammates; BattleBit-style)
 var _friend_markers: Dictionary = {}
 var _marker_free_list: Array = []
@@ -491,8 +497,8 @@ func _pose_entity(id: int, node: Node3D, es: EntityState, render_delta: float) -
 # =============================================================================
 
 func _sync_structure_pool(world_view: WorldView, now: float) -> void:
-	var structs: Dictionary = world_view.structures()
-	# Tick dying pops — release when their tween has finished (tracked by die time)
+	# Tick dying pops — release when their tween has finished (tracked by die time). Cheap and
+	# tween-driven, so it runs every frame regardless of whether the structure set changed.
 	var to_finish: Array = []
 	for id: int in _struct_dying:
 		var entry: Dictionary = _struct_dying[id]
@@ -504,6 +510,20 @@ func _sync_structure_pool(world_view: WorldView, now: float) -> void:
 		_struct_dying.erase(id)
 		node.queue_free()
 
+	# M11: drain collapse events — each fully-collapsed building swaps to a rubble marker. Must run
+	# every frame (the queue is normally empty; a collapse also bumps the version below).
+	for bid_v: Variant in world_view.take_collapsed():
+		_spawn_rubble_for(int(bid_v))
+
+	# Structures are static once placed — only walk the (large) pool when the store actually changed
+	# (build/destroy/damage/collapse). The steady state is a no-op, which is what makes a 77-building
+	# map render at full rate instead of re-posing thousands of static pieces every frame.
+	var ver: int = world_view.structs_version()
+	if ver == _struct_synced_ver:
+		return
+	_struct_synced_ver = ver
+	var structs: Dictionary = world_view.structures()
+
 	# Release nodes for ids that have been removed from the store
 	var to_release: Array = []
 	for id: int in _struct_active:
@@ -512,31 +532,30 @@ func _sync_structure_pool(world_view: WorldView, now: float) -> void:
 	for id: int in to_release:
 		_start_destroy_pop(id, now)
 
-	# Acquire / update nodes for all known structures
+	# Acquire / update nodes for all known structures. _pose_structure only needs to run when a node
+	# is newly created or rebuilt (geometry/tint is baked at build) — static pieces keep their pose.
 	for id_v: Variant in structs:
 		var id: int = int(id_v)
 		var rec: Dictionary = structs[id_v]
 		var was_present := _struct_active.has(id)
 		var node: Node3D = _acquire_structure(id, rec)
-		_pose_structure(node, rec)
-		# M11: track a per-building centroid (last-posed piece position is fine for a placeholder
-		# rubble marker) so a COLLAPSE can drop rubble where the building stood.
-		var bid: int = int(rec.get("building_id", 0))
-		if bid != 0:
-			_building_centroid[bid] = node.position
+		if not was_present or _struct_rebuilt:
+			_pose_structure(node, rec)
+			# M11: track a per-building centroid (last-posed piece position is fine for a placeholder
+			# rubble marker) so a COLLAPSE can drop rubble where the building stood.
+			var bid: int = int(rec.get("building_id", 0))
+			if bid != 0:
+				_building_centroid[bid] = node.position
 		# Pop only on a genuinely new structure, not on a damage-driven rebuild (still present).
 		if not was_present:
 			_start_build_pop(node)
-
-	# M11: drain collapse events — each fully-collapsed building swaps to a rubble marker.
-	for bid_v: Variant in world_view.take_collapsed():
-		_spawn_rubble_for(int(bid_v))
 
 
 func _acquire_structure(id: int, rec: Dictionary) -> Node3D:
 	var key := _struct_key(rec)
 	if _struct_active.has(id):
 		if String(_struct_key_of.get(id, "")) == key:
+			_struct_rebuilt = false
 			return _struct_active[id] as Node3D
 		# Piece type or damage bucket changed — the kit bakes geometry + tint at build time, so
 		# rebuild rather than re-tint (a heavier bucket also adds a chip in silhouette).
@@ -547,6 +566,7 @@ func _acquire_structure(id: int, rec: Dictionary) -> Node3D:
 	add_child(node)
 	_struct_active[id] = node
 	_struct_key_of[id] = key
+	_struct_rebuilt = true
 	return node
 
 

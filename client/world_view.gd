@@ -10,6 +10,7 @@ var _view_v: Dictionary = {}    # vid -> VehicleState
 var _interp := Interpolation.new()
 var last_header: Dictionary = {}
 var _structs: Dictionary = {}
+var _structs_version: int = 0   # bumped on every structure mutation; renderer skips its O(N) pool sync when unchanged
 var _collapsed_buildings: Array = []   # M11: building_ids that COLLAPSED this window — drained by the renderer to spawn rubble
 var _roster: Array = []
 
@@ -37,18 +38,30 @@ func vehicles() -> Dictionary:
 func apply_structure_baseline(bytes: PackedByteArray) -> void:
 	for rec in Protocol.decode_structure_baseline(bytes)["records"]:
 		_structs[int(rec["id"])] = rec
+	_structs_version += 1
 
 func apply_structure_delta(bytes: PackedByteArray) -> void:
 	var d := Protocol.decode_structure_delta(bytes)
 	match int(d["op"]):
-		Protocol.OP_PLACE: _structs[int(d["rec"]["id"])] = d["rec"]
-		Protocol.OP_REMOVE: _structs.erase(int(d["id"]))
+		Protocol.OP_PLACE:
+			_structs[int(d["rec"]["id"])] = d["rec"]
+			_structs_version += 1
+		Protocol.OP_REMOVE:
+			if _structs.erase(int(d["id"])):
+				_structs_version += 1
 		Protocol.OP_CHUNK:
 			if _structs.has(int(d["id"])):
 				_structs[int(d["id"])]["chunks"] = int(d["mask"])
+				_structs_version += 1
 
 func structures() -> Dictionary:
 	return _structs
+
+## Monotonic counter incremented on every structure add/remove/damage/collapse. The renderer
+## caches the last value it synced and skips the full pool walk while this is unchanged (the
+## steady state — structures are static, so per-frame re-posing of every piece was pure waste).
+func structs_version() -> int:
+	return _structs_version
 
 ## M11: a building fully collapsed server-side — drop all its piece records (renderer swaps rubble).
 func apply_collapse(building_id: int) -> void:
@@ -60,6 +73,8 @@ func apply_collapse(building_id: int) -> void:
 			drop.append(id)
 	for id in drop:
 		_structs.erase(id)
+	if not drop.is_empty():
+		_structs_version += 1
 	_collapsed_buildings.append(building_id)
 
 ## Drain + clear the collapse queue (renderer calls this each frame to spawn rubble markers).
