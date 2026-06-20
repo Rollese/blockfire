@@ -384,6 +384,9 @@ func _process(_dt: float) -> void:
 			_net.send_to(_peer, NetHost.CHANNEL_CONTROL,
 				Protocol.encode_gadget_action(Protocol.GA_RPG_FIRE, _pred.predicted.pos, rad, 0),
 				ENetPacketPeer.FLAG_RELIABLE)
+			if _renderer != null:
+				# Instant shooter feedback (muzzle flash + flying rocket); the server replays it to others.
+				_renderer.fire_rocket(_pred.predicted.eye_position(), rad, _elapsed)
 
 		# Gadget: non-throwable gadget action. Defaulting to C4 detonate; owner must verify
 		# if their class uses a different primary gadget (e.g. repair, bag throw).
@@ -474,6 +477,10 @@ func _on_packet(_from: ENetPacketPeer, _channel: int, bytes: PackedByteArray) ->
 				_renderer.tracer_from(fx["origin"], fx["dir"], _elapsed)
 			if _audio != null:
 				_audio.play_at("gunfire", fx["origin"])   # spatial remote-pawn gunfire
+		Protocol.Msg.ROCKET_FX:
+			var rfx: Dictionary = Protocol.decode_rocket_fx(bytes)
+			if _renderer != null:
+				_renderer.fire_rocket(rfx["origin"], rfx["dir"], _elapsed)   # remote rocket flies + launch flash
 
 # ---- WELCOME ----------------------------------------------------------------
 func _handle_welcome(bytes: PackedByteArray) -> void:

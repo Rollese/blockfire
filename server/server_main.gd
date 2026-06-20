@@ -1264,6 +1264,19 @@ func _fire_rocket(id: int, p: Pawn, dir: Vector3) -> void:
 	c["last_rocket_tick"] = _sim.tick
 	c["rockets"] = int(c["rockets"]) - 1
 	_rockets.append({"owner": id, "team": p.team, "pos": p.eye_position(), "vel": dir.normalized() * float(rdef["rocket_speed"])})
+	# Cosmetic: tell other humans a rocket launched so they render it flying. The shooter renders
+	# its own immediately (client-side, no RTT wait) — mirrors the gunfire tracer split.
+	_broadcast_rocket_fx(id, p.eye_position(), dir.normalized())
+
+func _broadcast_rocket_fx(shooter_id: int, origin: Vector3, dir: Vector3) -> void:
+	var pkt := Protocol.encode_rocket_fx(origin, dir)
+	for cid in _clients:
+		if cid == shooter_id:
+			continue
+		var c = _clients[cid]
+		if bool(c.get("auto_deploy", true)):
+			continue   # bot client — does not render
+		_net.send_to(c["peer"], NetHost.CHANNEL_SNAPSHOT, pkt, 0)
 
 func _place_c4(id: int, p: Pawn, pos: Vector3) -> void:
 	if Loadout.gadget_for_player(int(_clients[id]["class"]), id) != Loadout.GADGET_C4: return

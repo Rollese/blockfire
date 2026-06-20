@@ -15,6 +15,13 @@ func test_welcome_without_map_decodes_empty() -> void:
 	assert_eq(d["id"], 1)
 	assert_eq(d["map"], "")
 
+func test_rocket_fx_round_trip() -> void:
+	var b := Protocol.encode_rocket_fx(Vector3(10.5, 1.8, -7.2), Vector3(0.0, 0.0, 1.0))
+	assert_eq(Protocol.msg_type(b), Protocol.Msg.ROCKET_FX)
+	var d := Protocol.decode_rocket_fx(b)
+	assert_almost_eq(d["origin"].x, 10.5)
+	assert_almost_eq(d["dir"].z, 1.0)
+
 func test_kill_event_round_trip() -> void:
 	var bytes := Protocol.encode_kill(7, 3, Weapon.DMR, true)
 	assert_eq(Protocol.msg_type(bytes), Protocol.Msg.KILL)

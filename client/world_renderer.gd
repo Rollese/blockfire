@@ -42,6 +42,15 @@ const FLASH_POOL := 16
 var _flashes: Array = []          # [{node: MeshInstance3D, mat: StandardMaterial3D, die: float}]
 var _flash_idx: int = 0
 
+# RPG rocket cosmetics — a launched rocket (local shooter feedback + replicated ROCKET_FX) flies the
+# shared Grenade ballistic arc so it tracks where the server's real rocket goes, trailing smoke and
+# popping a puff on impact. Presentation-only; the server owns the actual blast.
+const ROCKET_SPEED := 150.0       # MUST match data/gadgets.json rpg rocket_speed
+const ROCKET_LIFETIME := 5.0      # s safety cap before a cosmetic rocket self-despawns
+const ROCKET_TRAIL_DT := 0.03     # s between trail puffs
+var _rockets: Array = []          # [{node: Node3D, vel: Vector3, die: float, next_puff: float}]
+var _puffs: Array = []            # [{node, mat, die, ttl}] — smoke trail + impact puffs
+
 # active entity nodes: id(int) -> Node3D (CharacterKit soldier)
 var _active: Dictionary = {}
 # free list for recycled entity Node3D roots (all soldiers are identical — no per-team re-tint)
@@ -254,9 +263,10 @@ func update(world_view: WorldView, predictor: Prediction, now: float, fov: float
 	# 3. Camera from prediction (position) + client look (rotation)
 	_apply_camera(predictor, fov, look_yaw, look_pitch, eye)
 
-	# 4. Age out shot tracers
+	# 4. Age out shot tracers + integrate cosmetic rockets
 	_age_tracers(now)
 	_age_flashes(now)
+	_age_rockets(now, render_delta)
 
 
 ## Spawn a brief tracer beam along the camera's aim. Called when the weapon predictor reports a
@@ -335,6 +345,106 @@ func _age_flashes(now: float) -> void:
 			var c := MuzzleFlashKit.COLOR
 			c.a = MuzzleFlashKit.alpha_for(remaining, MuzzleFlashKit.TTL)
 			(f["mat"] as StandardMaterial3D).albedo_color = c
+
+
+## Launch a cosmetic RPG rocket from origin along dir: a muzzle flash + a flying rocket that arcs via
+## the shared Grenade ballistic model (matching the server) and trails smoke until it hits / expires.
+func fire_rocket(origin: Vector3, dir: Vector3, now: float) -> void:
+	var d := dir.normalized()
+	if d.length() < 0.001:
+		return
+	var node := _make_rocket()
+	var up := Vector3.UP if absf(d.dot(Vector3.UP)) < 0.99 else Vector3.RIGHT
+	node.global_transform = Transform3D(Basis.looking_at(d, up), origin)
+	add_child(node)
+	_spawn_flash(origin, d, now)   # launch flash
+	_rockets.append({"node": node, "vel": d * ROCKET_SPEED, "die": now + ROCKET_LIFETIME, "next_puff": now})
+
+
+func _age_rockets(now: float, delta: float) -> void:
+	if not _rockets.is_empty():
+		var live: Array = []
+		for r: Dictionary in _rockets:
+			var node: Node3D = r["node"]
+			var s := Grenade.integrate(node.position, r["vel"], delta)
+			var npos: Vector3 = s["pos"]
+			var nvel: Vector3 = s["vel"]
+			if now >= float(r["next_puff"]):
+				_spawn_puff(node.position, 0.4, 0.6, now)   # trail
+				r["next_puff"] = now + ROCKET_TRAIL_DT
+			if now >= float(r["die"]) or npos.y <= 0.0:
+				if npos.y < 0.0:
+					npos.y = 0.0
+				_spawn_puff(npos, 2.4, 0.55, now)           # impact puff
+				node.queue_free()
+				continue
+			var up := Vector3.UP if absf(nvel.normalized().dot(Vector3.UP)) < 0.99 else Vector3.RIGHT
+			node.global_transform = Transform3D(Basis.looking_at(nvel.normalized(), up), npos)
+			r["vel"] = nvel
+			live.append(r)
+		_rockets = live
+	_age_puffs(now)
+
+
+func _make_rocket() -> Node3D:
+	# Forward = local -Z (Basis.looking_at convention), so the warhead sits at -Z.
+	var root := Node3D.new()
+	root.name = "Rocket"
+	var dark := StandardMaterial3D.new()
+	dark.albedo_color = Color(0.15, 0.15, 0.17); dark.metallic = 0.3; dark.roughness = 0.6
+	var body := MeshInstance3D.new()
+	var bmesh := BoxMesh.new(); bmesh.size = Vector3(0.16, 0.16, 0.6)
+	body.mesh = bmesh; body.material_override = dark
+	body.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	root.add_child(body)
+	var nose := MeshInstance3D.new()
+	var nmesh := BoxMesh.new(); nmesh.size = Vector3(0.2, 0.2, 0.2)
+	nose.mesh = nmesh; nose.position = Vector3(0, 0, -0.36)
+	var nmat := StandardMaterial3D.new()
+	nmat.albedo_color = Color(0.7, 0.5, 0.18); nmat.emission_enabled = true
+	nmat.emission = Color(0.6, 0.35, 0.12); nmat.emission_energy_multiplier = 0.6
+	nose.material_override = nmat; nose.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	root.add_child(nose)
+	for ang in [0.0, PI * 0.5]:   # tail fins
+		var fin := MeshInstance3D.new()
+		var fmesh := BoxMesh.new(); fmesh.size = Vector3(0.36, 0.02, 0.16)
+		fin.mesh = fmesh; fin.position = Vector3(0, 0, 0.28); fin.rotation = Vector3(0, 0, ang)
+		fin.material_override = dark; fin.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		root.add_child(fin)
+	return root
+
+
+func _spawn_puff(pos: Vector3, size: float, ttl: float, now: float) -> void:
+	var node := MeshInstance3D.new()
+	var sm := SphereMesh.new(); sm.radius = size * 0.5; sm.height = size; sm.radial_segments = 6; sm.rings = 3
+	node.mesh = sm
+	node.position = pos
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = Color(0.55, 0.55, 0.55, 0.65)
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	node.material_override = mat
+	node.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	add_child(node)
+	_puffs.append({"node": node, "mat": mat, "die": now + ttl, "ttl": ttl})
+
+
+func _age_puffs(now: float) -> void:
+	if _puffs.is_empty():
+		return
+	var live: Array = []
+	for p: Dictionary in _puffs:
+		var remaining: float = float(p["die"]) - now
+		if remaining <= 0.0:
+			(p["node"] as Node3D).queue_free()
+			continue
+		var frac := remaining / float(p["ttl"])
+		var mat: StandardMaterial3D = p["mat"]
+		var c := mat.albedo_color; c.a = clampf(frac * 0.65, 0.0, 0.65); mat.albedo_color = c
+		var grow := 1.0 + (1.0 - frac) * 1.3
+		(p["node"] as Node3D).scale = Vector3(grow, grow, grow)
+		live.append(p)
+	_puffs = live
 
 
 # =============================================================================
