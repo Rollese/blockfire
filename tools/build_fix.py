@@ -21,12 +21,45 @@ def cells_at(pieces, y, typ=None):
     return {(p["offset"][0], p["offset"][2]) for p in pieces
             if p["offset"][1] == y and (typ is None or p["type"] == typ)}
 
+WALL_TYPES = {"bwall", "bwall_window", "bwall_door", "bwall_brick", "bwall_metal", "bwall_wood",
+              "bwall_glass", "bwall_garage", "bwall_half"}
+SOLID_FALLBACK = "bwall"
+
+def raise_height(pieces, name):
+    """Lift squat buildings: add solid wall levels under the roof so they read like real buildings.
+    Idempotent — target height is a fixed function of footprint, so a second run is a no-op. Skips
+    already-tall templates and the multi-floor test rig (handled separately)."""
+    if name in ("test_twostory", "office_tower", "tower", "silo", "apartment", "props"):
+        return 0
+    maxy = max(p["offset"][1] for p in pieces)
+    roof = [p for p in pieces if p["type"] == "bfloor" and p["offset"][1] == maxy]
+    footprint = {(p["offset"][0], p["offset"][2]) for p in roof}
+    if not footprint:
+        return 0
+    area = len(footprint)
+    target = 4 if area >= 48 else (3 if area >= 16 else maxy)   # big->8m, medium->6m, tiny->unchanged
+    if maxy >= target:
+        return 0
+    # dominant solid wall material for the added band
+    from collections import Counter
+    solids = Counter(p["type"] for p in pieces
+                     if p["type"] in ("bwall", "bwall_brick", "bwall_metal", "bwall_wood"))
+    mat = solids.most_common(1)[0][0] if solids else SOLID_FALLBACK
+    perim = {(p["offset"][0], p["offset"][2]) for p in pieces if p["type"] in WALL_TYPES}
+    for p in roof:                       # lift the roof slab
+        p["offset"][1] = target
+    for y in range(maxy, target):        # fill the new perimeter levels
+        for (x, z) in sorted(perim):
+            pieces.append({"type": mat, "offset": [x, y, z], "yaw": 0})
+    return target - maxy
+
 def fix(path):
     d = json.load(open(path))
     name = os.path.basename(path)[:-5]
     pieces = d.get("pieces", [])
     if not pieces:
         return f"{name}: empty, skipped"
+    raised = raise_height(pieces, name)
     maxy = max(p["offset"][1] for p in pieces)
     if maxy == 0:
         return f"{name}: flat, skipped"
@@ -68,7 +101,7 @@ def fix(path):
 
     d["pieces"] = pieces
     json.dump(d, open(path, "w"), indent=2)
-    return f"{name}: +{added_floor} ground-floor, +{added_props} props -> {len(pieces)}p"
+    return f"{name}: +{raised} levels, +{added_floor} ground-floor, +{added_props} props -> {len(pieces)}p"
 
 if __name__ == "__main__":
     for path in sorted(glob.glob(os.path.join(ROOT, "buildings", "*.json"))):

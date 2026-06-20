@@ -401,7 +401,7 @@
       "type": "bfloor",
       "offset": [
         4,
-        2,
+        3,
         0
       ],
       "yaw": 0
@@ -410,7 +410,7 @@
       "type": "bfloor",
       "offset": [
         4,
-        2,
+        3,
         3
       ],
       "yaw": 0
@@ -419,7 +419,7 @@
       "type": "bfloor",
       "offset": [
         3,
-        2,
+        3,
         1
       ],
       "yaw": 0
@@ -428,7 +428,7 @@
       "type": "bfloor",
       "offset": [
         5,
-        2,
+        3,
         1
       ],
       "yaw": 0
@@ -437,7 +437,7 @@
       "type": "bfloor",
       "offset": [
         8,
-        2,
+        3,
         0
       ],
       "yaw": 0
@@ -446,7 +446,7 @@
       "type": "bfloor",
       "offset": [
         0,
-        2,
+        3,
         2
       ],
       "yaw": 0
@@ -455,7 +455,7 @@
       "type": "bfloor",
       "offset": [
         8,
-        2,
+        3,
         3
       ],
       "yaw": 0
@@ -464,7 +464,7 @@
       "type": "bfloor",
       "offset": [
         2,
-        2,
+        3,
         2
       ],
       "yaw": 0
@@ -473,7 +473,7 @@
       "type": "bfloor",
       "offset": [
         1,
-        2,
+        3,
         0
       ],
       "yaw": 0
@@ -482,7 +482,7 @@
       "type": "bfloor",
       "offset": [
         1,
-        2,
+        3,
         3
       ],
       "yaw": 0
@@ -491,7 +491,7 @@
       "type": "bfloor",
       "offset": [
         6,
-        2,
+        3,
         2
       ],
       "yaw": 0
@@ -500,7 +500,7 @@
       "type": "bfloor",
       "offset": [
         7,
-        2,
+        3,
         1
       ],
       "yaw": 0
@@ -509,7 +509,7 @@
       "type": "bfloor",
       "offset": [
         4,
-        2,
+        3,
         2
       ],
       "yaw": 0
@@ -518,7 +518,7 @@
       "type": "bfloor",
       "offset": [
         3,
-        2,
+        3,
         0
       ],
       "yaw": 0
@@ -527,7 +527,7 @@
       "type": "bfloor",
       "offset": [
         3,
-        2,
+        3,
         3
       ],
       "yaw": 0
@@ -536,7 +536,7 @@
       "type": "bfloor",
       "offset": [
         5,
-        2,
+        3,
         0
       ],
       "yaw": 0
@@ -545,7 +545,7 @@
       "type": "bfloor",
       "offset": [
         5,
-        2,
+        3,
         3
       ],
       "yaw": 0
@@ -554,7 +554,7 @@
       "type": "bfloor",
       "offset": [
         8,
-        2,
+        3,
         2
       ],
       "yaw": 0
@@ -563,7 +563,7 @@
       "type": "bfloor",
       "offset": [
         0,
-        2,
+        3,
         1
       ],
       "yaw": 0
@@ -572,7 +572,7 @@
       "type": "bfloor",
       "offset": [
         1,
-        2,
+        3,
         2
       ],
       "yaw": 0
@@ -581,7 +581,7 @@
       "type": "bfloor",
       "offset": [
         2,
-        2,
+        3,
         1
       ],
       "yaw": 0
@@ -590,7 +590,7 @@
       "type": "bfloor",
       "offset": [
         6,
-        2,
+        3,
         1
       ],
       "yaw": 0
@@ -599,7 +599,7 @@
       "type": "bfloor",
       "offset": [
         7,
-        2,
+        3,
         0
       ],
       "yaw": 0
@@ -608,7 +608,7 @@
       "type": "bfloor",
       "offset": [
         7,
-        2,
+        3,
         3
       ],
       "yaw": 0
@@ -617,7 +617,7 @@
       "type": "bfloor",
       "offset": [
         3,
-        2,
+        3,
         2
       ],
       "yaw": 0
@@ -626,7 +626,7 @@
       "type": "bfloor",
       "offset": [
         4,
-        2,
+        3,
         1
       ],
       "yaw": 0
@@ -635,7 +635,7 @@
       "type": "bfloor",
       "offset": [
         5,
-        2,
+        3,
         2
       ],
       "yaw": 0
@@ -644,7 +644,7 @@
       "type": "bfloor",
       "offset": [
         0,
-        2,
+        3,
         0
       ],
       "yaw": 0
@@ -653,7 +653,7 @@
       "type": "bfloor",
       "offset": [
         8,
-        2,
+        3,
         1
       ],
       "yaw": 0
@@ -662,7 +662,7 @@
       "type": "bfloor",
       "offset": [
         1,
-        2,
+        3,
         1
       ],
       "yaw": 0
@@ -671,7 +671,7 @@
       "type": "bfloor",
       "offset": [
         0,
-        2,
+        3,
         3
       ],
       "yaw": 0
@@ -680,7 +680,7 @@
       "type": "bfloor",
       "offset": [
         2,
-        2,
+        3,
         0
       ],
       "yaw": 0
@@ -689,7 +689,7 @@
       "type": "bfloor",
       "offset": [
         2,
-        2,
+        3,
         3
       ],
       "yaw": 0
@@ -698,7 +698,7 @@
       "type": "bfloor",
       "offset": [
         7,
-        2,
+        3,
         2
       ],
       "yaw": 0
@@ -707,7 +707,7 @@
       "type": "bfloor",
       "offset": [
         6,
-        2,
+        3,
         0
       ],
       "yaw": 0
@@ -716,7 +716,7 @@
       "type": "bfloor",
       "offset": [
         6,
-        2,
+        3,
         3
       ],
       "yaw": 0
@@ -844,6 +844,204 @@
         7,
         0,
         1
+      ],
+      "yaw": 0
+    },
+    {
+      "type": "bwall",
+      "offset": [
+        0,
+        2,
+        0
+      ],
+      "yaw": 0
+    },
+    {
+      "type": "bwall",
+      "offset": [
+        0,
+        2,
+        1
+      ],
+      "yaw": 0
+    },
+    {
+      "type": "bwall",
+      "offset": [
+        0,
+        2,
+        2
+      ],
+      "yaw": 0
+    },
+    {
+      "type": "bwall",
+      "offset": [
+        0,
+        2,
+        3
+      ],
+      "yaw": 0
+    },
+    {
+      "type": "bwall",
+      "offset": [
+        1,
+        2,
+        0
+      ],
+      "yaw": 0
+    },
+    {
+      "type": "bwall",
+      "offset": [
+        1,
+        2,
+        3
+      ],
+      "yaw": 0
+    },
+    {
+      "type": "bwall",
+      "offset": [
+        2,
+        2,
+        0
+      ],
+      "yaw": 0
+    },
+    {
+      "type": "bwall",
+      "offset": [
+        2,
+        2,
+        3
+      ],
+      "yaw": 0
+    },
+    {
+      "type": "bwall",
+      "offset": [
+        3,
+        2,
+        0
+      ],
+      "yaw": 0
+    },
+    {
+      "type": "bwall",
+      "offset": [
+        3,
+        2,
+        3
+      ],
+      "yaw": 0
+    },
+    {
+      "type": "bwall",
+      "offset": [
+        4,
+        2,
+        0
+      ],
+      "yaw": 0
+    },
+    {
+      "type": "bwall",
+      "offset": [
+        4,
+        2,
+        3
+      ],
+      "yaw": 0
+    },
+    {
+      "type": "bwall",
+      "offset": [
+        5,
+        2,
+        0
+      ],
+      "yaw": 0
+    },
+    {
+      "type": "bwall",
+      "offset": [
+        5,
+        2,
+        3
+      ],
+      "yaw": 0
+    },
+    {
+      "type": "bwall",
+      "offset": [
+        6,
+        2,
+        0
+      ],
+      "yaw": 0
+    },
+    {
+      "type": "bwall",
+      "offset": [
+        6,
+        2,
+        3
+      ],
+      "yaw": 0
+    },
+    {
+      "type": "bwall",
+      "offset": [
+        7,
+        2,
+        0
+      ],
+      "yaw": 0
+    },
+    {
+      "type": "bwall",
+      "offset": [
+        7,
+        2,
+        3
+      ],
+      "yaw": 0
+    },
+    {
+      "type": "bwall",
+      "offset": [
+        8,
+        2,
+        0
+      ],
+      "yaw": 0
+    },
+    {
+      "type": "bwall",
+      "offset": [
+        8,
+        2,
+        1
+      ],
+      "yaw": 0
+    },
+    {
+      "type": "bwall",
+      "offset": [
+        8,
+        2,
+        2
+      ],
+      "yaw": 0
+    },
+    {
+      "type": "bwall",
+      "offset": [
+        8,
+        2,
+        3
       ],
       "yaw": 0
     }
