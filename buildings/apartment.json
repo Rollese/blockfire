@@ -918,6 +918,114 @@
         3
       ],
       "yaw": 0
+    },
+    {
+      "type": "bfloor",
+      "offset": [
+        1,
+        0,
+        1
+      ],
+      "yaw": 0
+    },
+    {
+      "type": "bfloor",
+      "offset": [
+        1,
+        0,
+        2
+      ],
+      "yaw": 0
+    },
+    {
+      "type": "bfloor",
+      "offset": [
+        1,
+        0,
+        3
+      ],
+      "yaw": 0
+    },
+    {
+      "type": "bfloor",
+      "offset": [
+        2,
+        0,
+        1
+      ],
+      "yaw": 0
+    },
+    {
+      "type": "bfloor",
+      "offset": [
+        2,
+        0,
+        2
+      ],
+      "yaw": 0
+    },
+    {
+      "type": "bfloor",
+      "offset": [
+        2,
+        0,
+        3
+      ],
+      "yaw": 0
+    },
+    {
+      "type": "bfloor",
+      "offset": [
+        3,
+        0,
+        1
+      ],
+      "yaw": 0
+    },
+    {
+      "type": "bfloor",
+      "offset": [
+        3,
+        0,
+        2
+      ],
+      "yaw": 0
+    },
+    {
+      "type": "bfloor",
+      "offset": [
+        3,
+        0,
+        3
+      ],
+      "yaw": 0
+    },
+    {
+      "type": "bfloor",
+      "offset": [
+        4,
+        0,
+        1
+      ],
+      "yaw": 0
+    },
+    {
+      "type": "bfloor",
+      "offset": [
+        4,
+        0,
+        2
+      ],
+      "yaw": 0
+    },
+    {
+      "type": "bfloor",
+      "offset": [
+        4,
+        0,
+        3
+      ],
+      "yaw": 0
     }
   ]
 }

@@ -459,6 +459,33 @@
         3
       ],
       "yaw": 0
+    },
+    {
+      "type": "bfloor",
+      "offset": [
+        1,
+        0,
+        1
+      ],
+      "yaw": 0
+    },
+    {
+      "type": "bfloor",
+      "offset": [
+        1,
+        0,
+        2
+      ],
+      "yaw": 0
+    },
+    {
+      "type": "bfloor",
+      "offset": [
+        1,
+        0,
+        3
+      ],
+      "yaw": 0
     }
   ]
 }

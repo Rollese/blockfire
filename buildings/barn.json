@@ -1080,6 +1080,222 @@
         6
       ],
       "yaw": 0
+    },
+    {
+      "type": "bfloor",
+      "offset": [
+        1,
+        0,
+        1
+      ],
+      "yaw": 0
+    },
+    {
+      "type": "bfloor",
+      "offset": [
+        1,
+        0,
+        2
+      ],
+      "yaw": 0
+    },
+    {
+      "type": "bfloor",
+      "offset": [
+        1,
+        0,
+        3
+      ],
+      "yaw": 0
+    },
+    {
+      "type": "bfloor",
+      "offset": [
+        1,
+        0,
+        4
+      ],
+      "yaw": 0
+    },
+    {
+      "type": "bfloor",
+      "offset": [
+        1,
+        0,
+        5
+      ],
+      "yaw": 0
+    },
+    {
+      "type": "bfloor",
+      "offset": [
+        1,
+        0,
+        6
+      ],
+      "yaw": 0
+    },
+    {
+      "type": "bfloor",
+      "offset": [
+        2,
+        0,
+        1
+      ],
+      "yaw": 0
+    },
+    {
+      "type": "bfloor",
+      "offset": [
+        2,
+        0,
+        2
+      ],
+      "yaw": 0
+    },
+    {
+      "type": "bfloor",
+      "offset": [
+        2,
+        0,
+        3
+      ],
+      "yaw": 0
+    },
+    {
+      "type": "bfloor",
+      "offset": [
+        2,
+        0,
+        4
+      ],
+      "yaw": 0
+    },
+    {
+      "type": "bfloor",
+      "offset": [
+        2,
+        0,
+        5
+      ],
+      "yaw": 0
+    },
+    {
+      "type": "bfloor",
+      "offset": [
+        2,
+        0,
+        6
+      ],
+      "yaw": 0
+    },
+    {
+      "type": "bfloor",
+      "offset": [
+        3,
+        0,
+        1
+      ],
+      "yaw": 0
+    },
+    {
+      "type": "bfloor",
+      "offset": [
+        3,
+        0,
+        2
+      ],
+      "yaw": 0
+    },
+    {
+      "type": "bfloor",
+      "offset": [
+        3,
+        0,
+        3
+      ],
+      "yaw": 0
+    },
+    {
+      "type": "bfloor",
+      "offset": [
+        3,
+        0,
+        4
+      ],
+      "yaw": 0
+    },
+    {
+      "type": "bfloor",
+      "offset": [
+        3,
+        0,
+        5
+      ],
+      "yaw": 0
+    },
+    {
+      "type": "bfloor",
+      "offset": [
+        3,
+        0,
+        6
+      ],
+      "yaw": 0
+    },
+    {
+      "type": "bfloor",
+      "offset": [
+        4,
+        0,
+        1
+      ],
+      "yaw": 0
+    },
+    {
+      "type": "bfloor",
+      "offset": [
+        4,
+        0,
+        2
+      ],
+      "yaw": 0
+    },
+    {
+      "type": "bfloor",
+      "offset": [
+        4,
+        0,
+        3
+      ],
+      "yaw": 0
+    },
+    {
+      "type": "bfloor",
+      "offset": [
+        4,
+        0,
+        4
+      ],
+      "yaw": 0
+    },
+    {
+      "type": "bfloor",
+      "offset": [
+        4,
+        0,
+        5
+      ],
+      "yaw": 0
+    },
+    {
+      "type": "bfloor",
+      "offset": [
+        4,
+        0,
+        6
+      ],
+      "yaw": 0
     }
   ]
 }

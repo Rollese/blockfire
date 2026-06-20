@@ -1,195 +1,263 @@
 {
-  "name": "showcase",
-  "world_half": 120.0,
-  "points": [
-    {
-      "id": "A",
-      "pos": [
-        0,
-        0,
-        0
-      ],
-      "radius": 20.0,
-      "start_owner": -1
-    }
-  ],
-  "bases": [
-    {
-      "team": 0,
-      "pos": [
-        -110,
-        0,
-        0
-      ],
-      "radius": 15.0
-    },
-    {
-      "team": 1,
-      "pos": [
-        110,
-        0,
-        0
-      ],
-      "radius": 15.0
-    }
-  ],
-  "ladders": [],
-  "platforms": [],
-  "prebuilt": [],
+  "name": "Showcase",
+  "world_half": 271.0,
   "buildings": [
     {
-      "prefab": "house",
+      "prefab": "apartment",
       "origin_cell": [
-        -29,
+        -80,
         0,
-        -29
+        0
+      ],
+      "yaw": 0
+    },
+    {
+      "prefab": "barn",
+      "origin_cell": [
+        -70,
+        0,
+        0
+      ],
+      "yaw": 0
+    },
+    {
+      "prefab": "barracks",
+      "origin_cell": [
+        -60,
+        0,
+        0
       ],
       "yaw": 0
     },
     {
       "prefab": "bunker",
       "origin_cell": [
-        -11,
+        -47,
         0,
-        -29
-      ],
-      "yaw": 0
-    },
-    {
-      "prefab": "tower",
-      "origin_cell": [
-        8,
-        0,
-        -28
-      ],
-      "yaw": 0
-    },
-    {
-      "prefab": "warehouse",
-      "origin_cell": [
-        23,
-        0,
-        -30
-      ],
-      "yaw": 0
-    },
-    {
-      "prefab": "family_a",
-      "origin_cell": [
-        -29,
-        0,
-        -11
-      ],
-      "yaw": 0
-    },
-    {
-      "prefab": "family_b",
-      "origin_cell": [
-        -11,
-        0,
-        -11
-      ],
-      "yaw": 0
-    },
-    {
-      "prefab": "supermarket",
-      "origin_cell": [
-        4,
-        0,
-        -12
-      ],
-      "yaw": 0
-    },
-    {
-      "prefab": "test_twostory",
-      "origin_cell": [
-        25,
-        0,
-        -11
+        0
       ],
       "yaw": 0
     },
     {
       "prefab": "cottage",
       "origin_cell": [
-        -28,
+        -39,
         0,
-        7
-      ],
-      "yaw": 0
-    },
-    {
-      "prefab": "townhouse",
-      "origin_cell": [
-        -10,
-        0,
-        7
-      ],
-      "yaw": 0
-    },
-    {
-      "prefab": "villa",
-      "origin_cell": [
-        6,
-        0,
-        6
-      ],
-      "yaw": 0
-    },
-    {
-      "prefab": "office",
-      "origin_cell": [
-        25,
-        0,
-        7
+        0
       ],
       "yaw": 0
     },
     {
       "prefab": "factory",
       "origin_cell": [
-        -31,
+        -32,
         0,
-        24
+        0
+      ],
+      "yaw": 0
+    },
+    {
+      "prefab": "family_a",
+      "origin_cell": [
+        -20,
+        0,
+        0
+      ],
+      "yaw": 0
+    },
+    {
+      "prefab": "family_b",
+      "origin_cell": [
+        -12,
+        0,
+        0
+      ],
+      "yaw": 0
+    },
+    {
+      "prefab": "gas_station",
+      "origin_cell": [
+        -3,
+        0,
+        0
+      ],
+      "yaw": 0
+    },
+    {
+      "prefab": "guardhouse",
+      "origin_cell": [
+        7,
+        0,
+        0
       ],
       "yaw": 0
     },
     {
       "prefab": "hangar",
       "origin_cell": [
-        -14,
+        14,
         0,
-        24
+        0
       ],
       "yaw": 0
     },
     {
-      "prefab": "shed",
+      "prefab": "house",
       "origin_cell": [
-        8,
+        29,
         0,
-        26
+        0
       ],
       "yaw": 0
     },
     {
       "prefab": "lhouse",
       "origin_cell": [
-        24,
+        38,
         0,
-        25
+        0
       ],
       "yaw": 0
     },
     {
       "prefab": "materials",
       "origin_cell": [
+        50,
         0,
+        2
+      ],
+      "yaw": 0
+    },
+    {
+      "prefab": "office",
+      "origin_cell": [
+        60,
         0,
-        40
+        0
+      ],
+      "yaw": 0
+    },
+    {
+      "prefab": "office_tower",
+      "origin_cell": [
+        69,
+        0,
+        0
+      ],
+      "yaw": 0
+    },
+    {
+      "prefab": "parking",
+      "origin_cell": [
+        78,
+        0,
+        0
+      ],
+      "yaw": 0
+    },
+    {
+      "prefab": "shed",
+      "origin_cell": [
+        88,
+        0,
+        0
+      ],
+      "yaw": 0
+    },
+    {
+      "prefab": "silo",
+      "origin_cell": [
+        95,
+        0,
+        0
+      ],
+      "yaw": 0
+    },
+    {
+      "prefab": "supermarket",
+      "origin_cell": [
+        102,
+        0,
+        0
+      ],
+      "yaw": 0
+    },
+    {
+      "prefab": "test_twostory",
+      "origin_cell": [
+        116,
+        0,
+        0
+      ],
+      "yaw": 0
+    },
+    {
+      "prefab": "tower",
+      "origin_cell": [
+        125,
+        0,
+        0
+      ],
+      "yaw": 0
+    },
+    {
+      "prefab": "townhouse",
+      "origin_cell": [
+        132,
+        0,
+        0
+      ],
+      "yaw": 0
+    },
+    {
+      "prefab": "villa",
+      "origin_cell": [
+        139,
+        0,
+        0
+      ],
+      "yaw": 0
+    },
+    {
+      "prefab": "warehouse",
+      "origin_cell": [
+        149,
+        0,
+        0
       ],
       "yaw": 0
     }
   ],
-  "vehicle_spawns": []
+  "points": [
+    {
+      "id": "C",
+      "pos": [
+        0,
+        0,
+        -30
+      ],
+      "radius": 18,
+      "start_owner": 0
+    }
+  ],
+  "bases": [
+    {
+      "team": 0,
+      "pos": [
+        0,
+        0,
+        -60
+      ],
+      "radius": 16
+    },
+    {
+      "team": 1,
+      "pos": [
+        0,
+        0,
+        60
+      ],
+      "radius": 16
+    }
+  ]
 }
