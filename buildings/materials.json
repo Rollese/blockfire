@@ -692,7 +692,7 @@
         2,
         1
       ],
-      "yaw": 0
+      "yaw": 2
     },
     {
       "type": "bwall_metal",
@@ -701,7 +701,7 @@
         2,
         2
       ],
-      "yaw": 0
+      "yaw": 2
     },
     {
       "type": "bwall_metal",
@@ -710,7 +710,7 @@
         2,
         3
       ],
-      "yaw": 0
+      "yaw": 2
     },
     {
       "type": "bwall_metal",
@@ -827,7 +827,7 @@
         2,
         1
       ],
-      "yaw": 0
+      "yaw": 2
     },
     {
       "type": "bwall_metal",
@@ -836,7 +836,7 @@
         2,
         2
       ],
-      "yaw": 0
+      "yaw": 2
     },
     {
       "type": "bwall_metal",
@@ -845,7 +845,7 @@
         2,
         3
       ],
-      "yaw": 0
+      "yaw": 2
     },
     {
       "type": "bwall_metal",

@@ -45,13 +45,35 @@ def raise_height(pieces, name):
     solids = Counter(p["type"] for p in pieces
                      if p["type"] in ("bwall", "bwall_brick", "bwall_metal", "bwall_wood"))
     mat = solids.most_common(1)[0][0] if solids else SOLID_FALLBACK
-    perim = {(p["offset"][0], p["offset"][2]) for p in pieces if p["type"] in WALL_TYPES}
+    # Inherit each perimeter cell's wall orientation (yaw) from the level below — a thin wall faces
+    # along its yaw, so a wrong yaw both rotates it 90 deg AND opens a gap on that face.
+    perim_yaw = {}
+    for p in pieces:
+        if p["type"] in WALL_TYPES:
+            perim_yaw[(p["offset"][0], p["offset"][2])] = int(p.get("yaw", 0))
     for p in roof:                       # lift the roof slab
         p["offset"][1] = target
     for y in range(maxy, target):        # fill the new perimeter levels
-        for (x, z) in sorted(perim):
-            pieces.append({"type": mat, "offset": [x, y, z], "yaw": 0})
+        for (x, z) in sorted(perim_yaw):
+            pieces.append({"type": mat, "offset": [x, y, z], "yaw": perim_yaw[(x, z)]})
     return target - maxy
+
+def correct_yaw(x, z, fp):
+    """The yaw a thin perimeter wall must have to cover its cell's open face(s). Mirrors build_gen:
+    a cell exposed N or S faces along the X axis (yaw 0); a cell exposed only E/W faces along Z (yaw 2)."""
+    open_ns = (x, z + 1) not in fp or (x, z - 1) not in fp
+    return 0 if open_ns else 2
+
+def validate_wall_yaw(pieces, fp):
+    """Deterministic QA: count perimeter walls whose yaw doesn't cover their open face. This is the
+    check that catches the 90-deg / gap class screenshots miss. Report-only — does NOT mutate (some
+    prefabs, e.g. the open parking garage, orient walls intentionally and must not be rewritten)."""
+    bad = 0
+    for p in pieces:
+        if p["type"] in WALL_TYPES:
+            if int(p.get("yaw", 0)) != correct_yaw(p["offset"][0], p["offset"][2], fp):
+                bad += 1
+    return bad
 
 def fix(path):
     d = json.load(open(path))
@@ -101,7 +123,10 @@ def fix(path):
 
     d["pieces"] = pieces
     json.dump(d, open(path, "w"), indent=2)
-    return f"{name}: +{raised} levels, +{added_floor} ground-floor, +{added_props} props -> {len(pieces)}p"
+    # Deterministic QA flag — walls whose yaw doesn't match their open face (90-deg / gap class).
+    yaw_bad = validate_wall_yaw(pieces, footprint)
+    flag = f"  !! {yaw_bad} mis-yawed walls (inspect)" if yaw_bad else ""
+    return f"{name}: +{raised} levels, +{added_floor} ground-floor, +{added_props} props -> {len(pieces)}p{flag}"
 
 if __name__ == "__main__":
     for path in sorted(glob.glob(os.path.join(ROOT, "buildings", "*.json"))):
