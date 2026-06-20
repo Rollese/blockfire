@@ -95,6 +95,12 @@ static func build(piece_id: String, bucket: int) -> Node3D:
 			root.add_child(_box("MetalW", Vector3(CELL, CELL, 0.3), Vector3(0, CELL * 0.5, 0), bucket, COL_METALW, "metal"))
 		"bwall_wood":
 			root.add_child(_box("WoodW", Vector3(CELL, CELL, 0.3), Vector3(0, CELL * 0.5, 0), bucket, COL_WOODW, "wood"))
+		"bwall_corner":
+			# Corner cell: two perpendicular full walls (a cross) so BOTH exposed faces are closed and
+			# each arm lines up with the neighbouring centre-walls. Fixes the open-corner slits that
+			# thin single-axis walls left (playtest 2026-06-20).
+			root.add_child(_box("CornX", Vector3(CELL, CELL, 0.3), Vector3(0, CELL * 0.5, 0), bucket, COL_WALL))
+			root.add_child(_box("CornZ", Vector3(0.3, CELL, CELL), Vector3(0, CELL * 0.5, 0), bucket, COL_WALL))
 		_:
 			# bwall and any unknown id -> solid full wall.
 			root.add_child(_box("Wall", Vector3(CELL, CELL, 0.3), Vector3(0, CELL * 0.5, 0), bucket, COL_WALL))

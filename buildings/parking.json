@@ -38,7 +38,7 @@
       "yaw": 2
     },
     {
-      "type": "bwall",
+      "type": "bwall_corner",
       "offset": [
         0,
         0,
@@ -128,7 +128,7 @@
       "yaw": 2
     },
     {
-      "type": "bwall",
+      "type": "bwall_corner",
       "offset": [
         6,
         0,
@@ -173,7 +173,7 @@
       "yaw": 2
     },
     {
-      "type": "bwall",
+      "type": "bwall_corner",
       "offset": [
         0,
         1,
@@ -263,7 +263,7 @@
       "yaw": 2
     },
     {
-      "type": "bwall",
+      "type": "bwall_corner",
       "offset": [
         6,
         1,
@@ -308,7 +308,7 @@
       "yaw": 2
     },
     {
-      "type": "bwall",
+      "type": "bwall_corner",
       "offset": [
         0,
         2,
@@ -443,7 +443,7 @@
       "yaw": 2
     },
     {
-      "type": "bwall",
+      "type": "bwall_corner",
       "offset": [
         6,
         2,
@@ -488,7 +488,7 @@
       "yaw": 2
     },
     {
-      "type": "bwall",
+      "type": "bwall_corner",
       "offset": [
         0,
         3,
@@ -623,7 +623,7 @@
       "yaw": 2
     },
     {
-      "type": "bwall",
+      "type": "bwall_corner",
       "offset": [
         6,
         3,

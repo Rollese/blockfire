@@ -2,7 +2,7 @@
   "name": "factory",
   "pieces": [
     {
-      "type": "bwall",
+      "type": "bwall_corner",
       "offset": [
         0,
         0,
@@ -56,7 +56,7 @@
       "yaw": 2
     },
     {
-      "type": "bwall",
+      "type": "bwall_corner",
       "offset": [
         0,
         0,
@@ -173,7 +173,7 @@
       "yaw": 0
     },
     {
-      "type": "bwall",
+      "type": "bwall_corner",
       "offset": [
         7,
         0,
@@ -227,7 +227,7 @@
       "yaw": 2
     },
     {
-      "type": "bwall",
+      "type": "bwall_corner",
       "offset": [
         7,
         0,
@@ -236,7 +236,7 @@
       "yaw": 0
     },
     {
-      "type": "bwall",
+      "type": "bwall_corner",
       "offset": [
         0,
         1,
@@ -290,7 +290,7 @@
       "yaw": 2
     },
     {
-      "type": "bwall",
+      "type": "bwall_corner",
       "offset": [
         0,
         1,
@@ -407,7 +407,7 @@
       "yaw": 0
     },
     {
-      "type": "bwall",
+      "type": "bwall_corner",
       "offset": [
         7,
         1,
@@ -461,7 +461,7 @@
       "yaw": 2
     },
     {
-      "type": "bwall",
+      "type": "bwall_corner",
       "offset": [
         7,
         1,
@@ -470,7 +470,7 @@
       "yaw": 0
     },
     {
-      "type": "bwall",
+      "type": "bwall_corner",
       "offset": [
         0,
         2,
@@ -524,7 +524,7 @@
       "yaw": 2
     },
     {
-      "type": "bwall",
+      "type": "bwall_corner",
       "offset": [
         0,
         2,
@@ -641,7 +641,7 @@
       "yaw": 0
     },
     {
-      "type": "bwall",
+      "type": "bwall_corner",
       "offset": [
         7,
         2,
@@ -695,7 +695,7 @@
       "yaw": 2
     },
     {
-      "type": "bwall",
+      "type": "bwall_corner",
       "offset": [
         7,
         2,
@@ -1478,7 +1478,7 @@
       "yaw": 0
     },
     {
-      "type": "bwall",
+      "type": "bwall_corner",
       "offset": [
         0,
         3,
@@ -1532,7 +1532,7 @@
       "yaw": 2
     },
     {
-      "type": "bwall",
+      "type": "bwall_corner",
       "offset": [
         0,
         3,
@@ -1649,7 +1649,7 @@
       "yaw": 0
     },
     {
-      "type": "bwall",
+      "type": "bwall_corner",
       "offset": [
         7,
         3,
@@ -1703,7 +1703,7 @@
       "yaw": 2
     },
     {
-      "type": "bwall",
+      "type": "bwall_corner",
       "offset": [
         7,
         3,

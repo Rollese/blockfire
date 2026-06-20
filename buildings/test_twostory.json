@@ -2,7 +2,7 @@
   "name": "test_twostory",
   "pieces": [
     {
-      "type": "bwall",
+      "type": "bwall_corner",
       "offset": [
         0,
         0,
@@ -38,7 +38,7 @@
       "yaw": 2
     },
     {
-      "type": "bwall",
+      "type": "bwall_corner",
       "offset": [
         0,
         0,
@@ -101,7 +101,7 @@
       "yaw": 0
     },
     {
-      "type": "bwall",
+      "type": "bwall_corner",
       "offset": [
         4,
         0,
@@ -137,7 +137,7 @@
       "yaw": 2
     },
     {
-      "type": "bwall",
+      "type": "bwall_corner",
       "offset": [
         4,
         0,
@@ -155,7 +155,7 @@
       "yaw": 0
     },
     {
-      "type": "bwall",
+      "type": "bwall_corner",
       "offset": [
         0,
         1,
@@ -191,7 +191,7 @@
       "yaw": 2
     },
     {
-      "type": "bwall",
+      "type": "bwall_corner",
       "offset": [
         0,
         1,
@@ -254,7 +254,7 @@
       "yaw": 0
     },
     {
-      "type": "bwall",
+      "type": "bwall_corner",
       "offset": [
         4,
         1,
@@ -290,7 +290,7 @@
       "yaw": 2
     },
     {
-      "type": "bwall",
+      "type": "bwall_corner",
       "offset": [
         4,
         1,

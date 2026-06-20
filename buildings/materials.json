@@ -2,7 +2,7 @@
   "name": "materials",
   "pieces": [
     {
-      "type": "bwall_brick",
+      "type": "bwall_corner",
       "offset": [
         0,
         0,
@@ -38,7 +38,7 @@
       "yaw": 2
     },
     {
-      "type": "bwall_wood",
+      "type": "bwall_corner",
       "offset": [
         0,
         0,
@@ -101,7 +101,7 @@
       "yaw": 0
     },
     {
-      "type": "bwall_metal",
+      "type": "bwall_corner",
       "offset": [
         4,
         0,
@@ -137,7 +137,7 @@
       "yaw": 2
     },
     {
-      "type": "bwall_wood",
+      "type": "bwall_corner",
       "offset": [
         4,
         0,
@@ -146,7 +146,7 @@
       "yaw": 0
     },
     {
-      "type": "bwall_brick",
+      "type": "bwall_corner",
       "offset": [
         0,
         1,
@@ -182,7 +182,7 @@
       "yaw": 2
     },
     {
-      "type": "bwall_wood",
+      "type": "bwall_corner",
       "offset": [
         0,
         1,
@@ -245,7 +245,7 @@
       "yaw": 0
     },
     {
-      "type": "bwall_brick",
+      "type": "bwall_corner",
       "offset": [
         4,
         1,
@@ -281,7 +281,7 @@
       "yaw": 2
     },
     {
-      "type": "bwall_wood",
+      "type": "bwall_corner",
       "offset": [
         4,
         1,
@@ -659,7 +659,7 @@
       "yaw": 0
     },
     {
-      "type": "bwall_metal",
+      "type": "bwall_corner",
       "offset": [
         -1,
         2,
@@ -668,7 +668,7 @@
       "yaw": 0
     },
     {
-      "type": "bwall_metal",
+      "type": "bwall_corner",
       "offset": [
         0,
         2,
@@ -677,7 +677,7 @@
       "yaw": 0
     },
     {
-      "type": "bwall_metal",
+      "type": "bwall_corner",
       "offset": [
         0,
         2,
@@ -713,7 +713,7 @@
       "yaw": 2
     },
     {
-      "type": "bwall_metal",
+      "type": "bwall_corner",
       "offset": [
         0,
         2,
@@ -722,7 +722,7 @@
       "yaw": 0
     },
     {
-      "type": "bwall_metal",
+      "type": "bwall_corner",
       "offset": [
         1,
         2,
@@ -749,7 +749,7 @@
       "yaw": 0
     },
     {
-      "type": "bwall_metal",
+      "type": "bwall_corner",
       "offset": [
         2,
         2,
@@ -776,7 +776,7 @@
       "yaw": 0
     },
     {
-      "type": "bwall_metal",
+      "type": "bwall_corner",
       "offset": [
         3,
         2,
@@ -803,7 +803,7 @@
       "yaw": 0
     },
     {
-      "type": "bwall_metal",
+      "type": "bwall_corner",
       "offset": [
         4,
         2,
@@ -812,7 +812,7 @@
       "yaw": 0
     },
     {
-      "type": "bwall_metal",
+      "type": "bwall_corner",
       "offset": [
         4,
         2,
@@ -848,7 +848,7 @@
       "yaw": 2
     },
     {
-      "type": "bwall_metal",
+      "type": "bwall_corner",
       "offset": [
         4,
         2,
@@ -857,7 +857,7 @@
       "yaw": 0
     },
     {
-      "type": "bwall_metal",
+      "type": "bwall_corner",
       "offset": [
         5,
         2,

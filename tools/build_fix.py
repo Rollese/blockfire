@@ -64,6 +64,22 @@ def correct_yaw(x, z, fp):
     open_ns = (x, z + 1) not in fp or (x, z - 1) not in fp
     return 0 if open_ns else 2
 
+def close_corners(pieces, fp):
+    """Replace solid-wall pieces on CORNER cells (exposed on two perpendicular faces) with
+    bwall_corner, which the kit renders as a cross that walls both faces — one piece per cell, so it
+    doesn't collide with the stamp's one-per-cell rule. Fixes the open-corner slits."""
+    def corner(x, z):
+        odx = (x + 1, z) not in fp or (x - 1, z) not in fp
+        odz = (x, z + 1) not in fp or (x, z - 1) not in fp
+        return odx and odz
+    n = 0
+    for p in pieces:
+        if p["type"] in ("bwall", "bwall_brick", "bwall_metal", "bwall_wood") \
+                and corner(p["offset"][0], p["offset"][2]):
+            p["type"] = "bwall_corner"
+            n += 1
+    return n
+
 def validate_wall_yaw(pieces, fp):
     """Deterministic QA: count perimeter walls whose yaw doesn't cover their open face. This is the
     check that catches the 90-deg / gap class screenshots miss. Report-only — does NOT mutate (some
@@ -121,12 +137,15 @@ def fix(path):
             pieces.append({"type": PROPS[idx % len(PROPS)], "offset": [x, 0, z], "yaw": 0})
             added_props += 1
 
+    # Close open corners (solid-wall corner cells -> cross piece). Run last so added levels are caught.
+    corners = close_corners(pieces, footprint)
+
     d["pieces"] = pieces
     json.dump(d, open(path, "w"), indent=2)
     # Deterministic QA flag — walls whose yaw doesn't match their open face (90-deg / gap class).
     yaw_bad = validate_wall_yaw(pieces, footprint)
     flag = f"  !! {yaw_bad} mis-yawed walls (inspect)" if yaw_bad else ""
-    return f"{name}: +{raised} levels, +{added_floor} ground-floor, +{added_props} props -> {len(pieces)}p{flag}"
+    return f"{name}: +{raised} levels, +{added_floor} floor, +{added_props} props, {corners} corners -> {len(pieces)}p{flag}"
 
 if __name__ == "__main__":
     for path in sorted(glob.glob(os.path.join(ROOT, "buildings", "*.json"))):

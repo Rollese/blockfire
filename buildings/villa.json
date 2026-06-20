@@ -2,7 +2,7 @@
   "name": "villa",
   "pieces": [
     {
-      "type": "bwall",
+      "type": "bwall_corner",
       "offset": [
         0,
         0,
@@ -56,7 +56,7 @@
       "yaw": 2
     },
     {
-      "type": "bwall",
+      "type": "bwall_corner",
       "offset": [
         0,
         0,
@@ -137,7 +137,7 @@
       "yaw": 0
     },
     {
-      "type": "bwall",
+      "type": "bwall_corner",
       "offset": [
         5,
         0,
@@ -191,7 +191,7 @@
       "yaw": 2
     },
     {
-      "type": "bwall",
+      "type": "bwall_corner",
       "offset": [
         5,
         0,
@@ -200,7 +200,7 @@
       "yaw": 0
     },
     {
-      "type": "bwall",
+      "type": "bwall_corner",
       "offset": [
         0,
         1,
@@ -254,7 +254,7 @@
       "yaw": 2
     },
     {
-      "type": "bwall",
+      "type": "bwall_corner",
       "offset": [
         0,
         1,
@@ -335,7 +335,7 @@
       "yaw": 0
     },
     {
-      "type": "bwall",
+      "type": "bwall_corner",
       "offset": [
         5,
         1,
@@ -389,7 +389,7 @@
       "yaw": 2
     },
     {
-      "type": "bwall",
+      "type": "bwall_corner",
       "offset": [
         5,
         1,
@@ -956,7 +956,7 @@
       "yaw": 0
     },
     {
-      "type": "bwall",
+      "type": "bwall_corner",
       "offset": [
         0,
         2,
@@ -1010,7 +1010,7 @@
       "yaw": 2
     },
     {
-      "type": "bwall",
+      "type": "bwall_corner",
       "offset": [
         0,
         2,
@@ -1091,7 +1091,7 @@
       "yaw": 0
     },
     {
-      "type": "bwall",
+      "type": "bwall_corner",
       "offset": [
         5,
         2,
@@ -1145,7 +1145,7 @@
       "yaw": 2
     },
     {
-      "type": "bwall",
+      "type": "bwall_corner",
       "offset": [
         5,
         2,

@@ -288,6 +288,19 @@
         "melee"
       ],
       "passable": true
+    },
+    {
+      "id": "bwall_corner",
+      "height": "full",
+      "health": 400,
+      "blocks": "both",
+      "material": "CONCRETE",
+      "chunk_grid": 8,
+      "structural": true,
+      "damage": [
+        "explosive",
+        "melee"
+      ]
     }
   ]
 }
