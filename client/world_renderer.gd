@@ -212,6 +212,11 @@ func setup(map: MapDef, camera: Camera3D) -> void:
 	_camera.add_child(_viewmodel)
 
 
+## Hide/show the first-person viewmodel (photo/free-fly mode wants a clean frame with no gun).
+func set_viewmodel_hidden(h: bool) -> void:
+	if _viewmodel != null:
+		_viewmodel.visible = not h
+
 ## Swap the first-person viewmodel to match the equipped weapon. Rebuilds only when the weapon id
 ## changes (so e.g. an RPG loadout shows the launcher, not the default AR). Call each frame.
 func set_viewmodel_weapon(weapon_id: int) -> void:

@@ -159,6 +159,12 @@ func _physics_process(delta: float) -> void:
 		_pred.predicted.is_downed = ss.is_downed
 		# Gather local input and run prediction
 		var cmd: Dictionary = _input_ctrl.gather(_settings)
+		if _photo_mode:
+			# Freeze the pawn while free-flying — WASD drives the camera, not the soldier. Keep
+			# yaw/pitch so look still works; zero movement + buttons so nothing is sent as intent.
+			cmd["move_x"] = 0.0
+			cmd["move_y"] = 0.0
+			cmd["buttons"] = 0
 		_pred.record_cmd(_client_tick, cmd)
 
 		var buttons: int = int(cmd["buttons"])
@@ -265,11 +271,44 @@ func _save_screenshot() -> void:
 	else:
 		push_warning("[shot] save failed (err %d) -> %s" % [err, path])
 
+# ---- photo / free-fly mode (admin) ------------------------------------------
+# F8 toggles a detached free-flying camera with the viewmodel + HUD hidden, for clean fast screenshots.
+# The pawn is frozen (movement/fire input zeroed) while active. WASD = fly, jump/crouch = up/down,
+# sprint = faster.
+var _photo_mode := false
+var _photo_pos := Vector3.ZERO
+var _photo_key_down := false
+
+func _poll_photo_mode() -> void:
+	var down := Input.is_physical_key_pressed(KEY_F8)
+	if down and not _photo_key_down:
+		_photo_mode = not _photo_mode
+		if _photo_mode and _camera != null:
+			_photo_pos = _camera.global_position
+		if _hud_view != null:
+			_hud_view.visible = not _photo_mode
+		if _renderer != null:
+			_renderer.set_viewmodel_hidden(_photo_mode)
+		print("[photo] free-fly mode = %s" % _photo_mode)
+	_photo_key_down = down
+
+func _fly_photo_camera(dt: float) -> void:
+	if _camera == null:
+		return
+	var b := _camera.global_transform.basis
+	var f := Input.get_action_strength("move_fwd") - Input.get_action_strength("move_back")
+	var s := Input.get_action_strength("move_right") - Input.get_action_strength("move_left")
+	var u := Input.get_action_strength("jump") - Input.get_action_strength("crouch")
+	var speed := (70.0 if Input.is_action_pressed("sprint") else 24.0) * dt
+	_photo_pos += (-b.z * f + b.x * s + Vector3.UP * u) * speed
+	_camera.global_position = _photo_pos
+
 # ---- render frame -----------------------------------------------------------
 func _process(_dt: float) -> void:
 	_poll_screenshot_key()   # F12/F9 screenshot — works even before the scene is built
 	if not _scene_built:
 		return
+	_poll_photo_mode()       # F8 free-fly toggle (camera exists once the scene is built)
 
 	# Render-rate look + camera-position interpolation, so a 30 Hz sim renders smoothly at 60 Hz.
 	var ss0: EntityState = _wv.self_state()
@@ -286,10 +325,12 @@ func _process(_dt: float) -> void:
 	if _audio != null:
 		_audio.set_listener_pos(eye)   # spatial-audio listener tracks the rendered camera/eye
 
-	if _wpred != null:
+	if _wpred != null and not _photo_mode:
 		_renderer.set_viewmodel_weapon(_wpred.weapon)   # show the RPG launcher etc., not always the AR
 	var _t0 := Time.get_ticks_usec()
 	_renderer.update(_wv, _pred, _elapsed, _settings.fov, _input_ctrl.yaw, _input_ctrl.pitch, eye, _dt)
+	if _photo_mode:
+		_fly_photo_camera(_dt)   # override the pawn-eye camera with the free-fly position
 	var _t1 := Time.get_ticks_usec()
 
 	var ctx: Dictionary = {
