@@ -52,6 +52,15 @@ Pulls `/tmp/pf_<name>_<view>.png`. Then **Read every one** and check:
 Only after all 10 views are clean is the asset done. For quick mid-iteration looks the default
 4-angle `shotlap.sh` is fine; the 10-view sweep is the gate.
 
+**Screenshots are necessary but NOT sufficient — also run the deterministic geometry check.** A
+90°-rotated wall on an *upper* level, or a gap on a face pointed away from the camera, is easy to
+miss in a thumbnail (this is exactly how the 2026-06-20 height-bump yaw regression shipped: every
+height-bumped building had its added top-level E/W walls flipped + gapped, and the montage review
+didn't catch it). `tools/build_fix.py` now prints `!! N mis-yawed walls (inspect)` for any building
+whose perimeter wall yaw doesn't cover its open face — **run it and treat any flag as a blocker**
+(the open `parking` garage is a known intentional exception). Deterministic checks catch the classes
+the eye misses; use both.
+
 ## Showcase / playtest
 
 `maps/conquest_showcase.json` places all 16 templates on a 4×4 grid (world_half 120, central objective)

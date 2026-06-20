@@ -235,6 +235,28 @@ func _physics_process(delta: float) -> void:
 			_prev_eye = _curr_eye
 		_curr_eye = eye_now
 
+# ---- screenshot capture -----------------------------------------------------
+# F12 saves a PNG of exactly what's on screen (incl. HUD) to ~/bf-shots/ so issues can be shown,
+# not just described. The dev pulls them off the render host for analysis.
+func _unhandled_input(event: InputEvent) -> void:
+	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_F12:
+		_save_screenshot()
+
+func _save_screenshot() -> void:
+	var img := get_viewport().get_texture().get_image()
+	if img == null:
+		return
+	var dir := "%s/bf-shots" % OS.get_environment("HOME")
+	DirAccess.make_dir_recursive_absolute(dir)
+	var stamp := Time.get_datetime_string_from_system().replace("T", "_").replace(":", "-")
+	var path := "%s/shot_%s.png" % [dir, stamp]
+	if img.save_png(path) == OK:
+		print("[shot] saved %s" % path)
+		if _audio != null:
+			_audio.play_2d("ui_click")   # audible confirmation
+	else:
+		push_warning("[shot] failed to save %s" % path)
+
 # ---- render frame -----------------------------------------------------------
 func _process(_dt: float) -> void:
 	if not _scene_built:
