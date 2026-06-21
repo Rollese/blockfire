@@ -20,9 +20,24 @@ const COL_WOODW := Color(0.56, 0.43, 0.29)   # timber wall
 const COL_RUBBLE_A := Color(0.55, 0.53, 0.49) # broken concrete (light)
 const COL_RUBBLE_B := Color(0.47, 0.45, 0.42) # broken concrete (mid)
 const COL_RUBBLE_C := Color(0.60, 0.58, 0.54) # broken concrete (pale)
+const COL_FOUND := Color(0.46, 0.45, 0.43)   # concrete foundation slab / floor-skirt under walls
 
-static func build(piece_id: String, bucket: int) -> Node3D:
+static func build(piece_id: String, bucket: int, floor_skirt: bool = false) -> Node3D:
 	var root := Node3D.new()
+	if floor_skirt:
+		# Ground-level perimeter walls/columns and interior prop cells hold a single centred piece but NO
+		# floor — the interior `bfloor` decks only cover bare interior cells (one-piece-per-cell), leaving a
+		# see-through strip inside every exterior wall + under every prop (playtest 2026-06-20 open item #1).
+		# Drop a deck slab in the piece's own cell so the floor reads continuous. Same slab as `bfloor`,
+		# posed at the same cell base -> coplanar with the interior decks (adjacent cells, no overlap/z-fight).
+		# Perimeter walls overhang the thin wall by ~0.85 m on the exterior side, so they use a CONCRETE
+		# foundation tone (reads as a base ledge, not a wooden pallet); interior props use the WOOD deck tone
+		# (always surrounded by interior, no overhang) so they match the floor. Full-tint (bucket 3) so a
+		# damaged piece doesn't darken the floor below it.
+		var is_prop := piece_id.begins_with("prop_")
+		var skirt_col := COL_FLOOR if is_prop else COL_FOUND
+		var skirt_tex := "wood" if is_prop else "concrete"
+		root.add_child(_box("Skirt", Vector3(CELL, 0.32, CELL), Vector3(0, -0.12, 0), 3, skirt_col, skirt_tex))
 	match piece_id:
 		"bcolumn":
 			root.add_child(_box("Col", Vector3(0.5, CELL, 0.5), Vector3(0, CELL * 0.5, 0), bucket, COL_STRUCT))

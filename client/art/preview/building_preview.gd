@@ -11,6 +11,8 @@ const CELL := 2.0
 const RES := Vector2i(1920, 1080)
 var _vp: SubViewport
 var _cam: Camera3D
+var _skirt := true    # mirror the game: ground perimeter walls/columns carry a floor-skirt deck
+var _noroof := false  # omit the top bfloor slab so a top/iso view sees the interior floor
 
 func _ready() -> void:
 	var args := {}
@@ -23,6 +25,11 @@ func _ready() -> void:
 	# --full renders the 9-direction + isometric review sweep (the standard QA pass for any NEW
 	# building block / template — see docs/runbooks/building-kit.md). Default stays the quick 4 angles.
 	var full := String(args.get("full", "false")) == "true"
+	# --skirt (default true, mirrors the game): ground perimeter walls/columns carry a floor-skirt slab
+	# so the deck reaches the walls. --noroof omits the top slab so a top/iso view exposes the interior
+	# floor coverage (the only way to inspect the floor-to-wall gap + its skirt fix; the roof hides it).
+	_skirt = String(args.get("skirt", "true")) == "true"
+	_noroof = String(args.get("noroof", "false")) == "true"
 
 	_vp = SubViewport.new()
 	_vp.size = RES
@@ -74,10 +81,19 @@ func _build_building(name: String) -> AABB:
 	var data = JSON.parse_string(text)
 	var lo := Vector3(INF, INF, INF)
 	var hi := Vector3(-INF, -INF, -INF)
+	var maxy := 0
+	for piece in data["pieces"]:
+		maxy = maxi(maxy, int(piece["offset"][1]))
 	for piece in data["pieces"]:
 		var off = piece["offset"]
 		var cell := Vector3i(int(off[0]), int(off[1]), int(off[2]))
-		var node: Node3D = BuildingKit.build(String(piece["type"]), 3)
+		var pid := String(piece["type"])
+		if _noroof and cell.y == maxy and pid == "bfloor":
+			continue   # drop the roof slab so the interior floor is visible from above
+		# Mirror world_renderer: ground-level (cell.y == 0) perimeter walls/columns + interior props skirt.
+		var skirt := _skirt and cell.y == 0 and (pid.begins_with("bwall") or pid == "bcolumn" \
+			or pid.begins_with("prop_"))
+		var node: Node3D = BuildingKit.build(pid, 3, skirt)
 		var wpos := Vector3((float(cell.x) + 0.5) * CELL, float(cell.y) * CELL, (float(cell.z) + 0.5) * CELL)
 		node.position = wpos
 		node.rotation = Vector3(0.0, BuildGrid.yaw_radians(int(piece.get("yaw", 0))), 0.0)
