@@ -1218,6 +1218,7 @@ func _load_active_slot(c: Dictionary) -> void:
 func _swap_weapon(id: int, target: int) -> void:
 	if not _clients.has(id): return
 	var c: Dictionary = _clients[id]
+	if not c.has("slots"): return   # slots built in _handle_hello; guard parity with _reset_weapon_loadout
 	if target < 0 or target > 1 or target == int(c["active_slot"]): return
 	if _sim.tick < int(c["swap_locked_until"]): return
 	_save_active_slot(c)               # freeze current slot's live state

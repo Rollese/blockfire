@@ -539,7 +539,7 @@ static func encode_set_fire_mode(mode: int) -> PackedByteArray:
 	return buf.data_array
 
 static func decode_set_fire_mode(bytes: PackedByteArray) -> int:
-	return bytes[1]
+	return body_reader(bytes).get_u8()
 
 static func encode_swap_weapon(slot: int) -> PackedByteArray:
 	var buf := StreamPeerBuffer.new()
@@ -548,4 +548,4 @@ static func encode_swap_weapon(slot: int) -> PackedByteArray:
 	return buf.data_array
 
 static func decode_swap_weapon(bytes: PackedByteArray) -> int:
-	return bytes[1]
+	return body_reader(bytes).get_u8()
