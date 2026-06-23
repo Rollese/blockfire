@@ -45,6 +45,9 @@ const GADGETS_PATH := "res://data/gadgets.json"
 const ATTACHMENTS_PATH := "res://data/attachments.json"
 const VEHICLES_PATH := "res://data/vehicles.json"
 const ENTER_RANGE := 3.0
+const WEAPON_SWAP_TICKS := 12   # equip lockout after a quick-swap (~0.4s @30Hz)
+# The flat per-weapon fields kept as the LIVE state of the active slot; frozen into c["slots"] on swap.
+const _SLOT_FIELDS := ["weapon", "weapon_def", "ammo", "reloading", "reload_done_tick", "last_fire_time", "shot_index", "fire_mode"]
 const RPG_VEHICLE_DMG := 800
 const C4_VEHICLE_DMG := 500
 const FRAG_VEHICLE_DMG := 80
@@ -117,6 +120,7 @@ var _transport_max := 0.0     # max carried distance observed this window
 var _bags_thrown := 0    # bags deployed this window
 var _bags_exhausted := 0 # bags that hit pool 0 and vanished this window
 var _rstruct := 0             # structures hit by rockets this window
+var _swaps := 0               # weapon quick-swaps this window
 var _veh_destroyed := 0
 var _rkt_vs_veh := 0
 var _pending_removes: Array = []   # [{id, cell}] removes awaiting send (degradation queue)
@@ -124,6 +128,13 @@ var _dmg_touched := {}             # id -> true: pieces holed (alive) this tick,
 var _buildings_to_cascade := {}    # building_id -> true; resolved at end of tick
 var _grenades: Array = []     # [{owner, team, type, pos, vel, detonate_tick}] — server-side, not replicated
 var _rockets: Array = []      # [{owner, team, pos, vel}] — server-side, not replicated
+const MAX_LIVE_PROJECTILES := 1024
+var _projectiles: Array = []  # [{owner, team, weapon_id, wdef, pos, vel, spawn_tick, dist, ttl}] — stepped bullets
+var _proj_fired := 0          # projectiles spawned this window
+var _proj_hits := 0           # projectiles that connected with a pawn this window
+var _proj_live_max := 0       # max concurrent live projectiles observed this window
+var _proj_dropped := 0        # spawns refused this window because the pool was at MAX_LIVE_PROJECTILES
+var _dbg_last_min_y := INF    # test seam only: lowest y any stepped projectile reached
 var _mines: Array = []        # [{owner, team, pos, facing, armed_after_tick}]
 var _giving: Dictionary = {}   # giver_id -> tick the give began (latched; cleared on STOP/invalid)
 var _repairing := {}        # engineer_id -> true (latched)
@@ -237,6 +248,7 @@ func _physics_process(delta: float) -> void:
 	var t_int := Time.get_ticks_usec()
 	_resolve_fires()
 	_resolve_vehicle_fires()
+	_step_projectiles()   # bullets spawned by _resolve_fires step in present time (M5.5-P1)
 	var t_fire := Time.get_ticks_usec()
 	_step_grenades()
 	_step_rockets()
@@ -437,7 +449,11 @@ func _resolve_fires() -> void:
 		var ready: bool = now - c["last_fire_time"] >= Weapon.fire_interval(c["weapon"])
 		var sprinting: bool = (inp["buttons"] & InputCommand.BTN_SPRINT) and shooter.stance == Stance.STAND
 		var drop_shoot: bool = Combat.drop_shoot_blocked(shooter.stance, _sim.tick, shooter.last_stance_change_tick)
-		if c["reloading"] or c["ammo"] <= 0 or not ready or sprinting or drop_shoot:
+		var mode: int = int(c.get("fire_mode", Weapon.default_mode(c["weapon"])))
+		var burst: int = int(Weapon.get_def(c["weapon"]).get("burst_count", Weapon.DEFAULT_BURST))
+		var mode_ok: bool = Weapon.fire_allowed(mode, c["shot_index"], burst)
+		var equipping: bool = _sim.tick < int(c.get("swap_locked_until", 0))
+		if c["reloading"] or c["ammo"] <= 0 or not ready or sprinting or drop_shoot or not mode_ok or equipping:
 			if drop_shoot:
 				_drop_shoot_blocked += 1
 			continue
@@ -475,89 +491,138 @@ func _fire_shot(shooter_id: int, shooter: Pawn, inp: Dictionary, shot_index: int
 	# Cosmetic: tell human clients (renderers) about this shot so remote pawns show a tracer.
 	_broadcast_shot_fx(shooter_id, ray["origin"], ray["dir"])
 
-	var view_tick: int = inp["view_server_tick"]
-	if view_tick < _sim.tick - LagComp.MAX_REWIND or view_tick > _sim.tick:
-		_rewind_clamped += 1
-	var frame := _lag.rewind(view_tick)
+	# M5.5-P1: bullets are stepped server-side projectiles. Spawn at the COMMAND tick, then step in
+	# PRESENT time (no per-shot lag-comp rewind for bullets — travel time masks latency). The hit is
+	# resolved later in _step_projectiles (broadphase + penetration + _apply_pawn_damage + hitmarker).
+	var wmv: float = float(wdef["muzzle_velocity"])
+	if _projectiles.size() < MAX_LIVE_PROJECTILES:
+		# Store the scalars _step_projectiles uses, not the wdef ref — the projectile is conceptually
+		# shared with the future M7 client tracer, which has no server def dict (self-contained).
+		_projectiles.append({
+			"owner": shooter_id, "team": shooter.team, "weapon_id": wid,
+			"gravity_scale": float(wdef["gravity_scale"]), "range_m": float(wdef["range_m"]),
+			"damage_body": int(wdef["damage_body"]), "headshot_mult": float(wdef["headshot_mult"]),
+			"pos": ray["origin"], "vel": Projectile.initial_velocity(ray["dir"], wmv),
+			"spawn_tick": _sim.tick, "dist": 0.0, "ttl": Weapon.projectile_ttl_ticks(wid),
+		})
+		_proj_fired += 1
+	else:
+		_proj_dropped += 1
 
-	var max_range: float = wdef["range_m"]
-	# Broad-phase: only candidates near the shooter (current positions + lag-comp margin),
-	# instead of scanning the whole rewound frame. Objective clustering raises density, so
-	# this keeps per-shot cost bounded. Precise test still uses the rewound state.
-	var candidates: Array = _grid.query(shooter.pos, max_range + FIRE_RANGE_MARGIN, _positions)
-	var best_t := max_range + 1.0
-	var best_victim := 0
-	var best_head := false
-	for tid in candidates:
-		if tid == shooter_id: continue
-		if not frame.has(tid): continue
-		var st = frame[tid]
-		if not st["alive"] or st["team"] == shooter.team: continue
-		# Downed pawns are immune (BattleBit-style no finishing): they aren't hittable targets,
-		# so the bullet passes through to anyone behind and no (false) hitmarker is sent.
-		var live_target: Pawn = _sim.world.get_pawn(tid)
-		if live_target != null and live_target.is_downed: continue
-		# Broad-phase cone test against the target CENTER (where shots aim), not the feet — else any
-		# standing enemy within ~5m is culled before the precise hitbox test (CQB misses).
-		var center: Vector3 = st["pos"] + Vector3(0.0, Stance.body_height(st["stance"]) * 0.5, 0.0)
-		var to_target: Vector3 = center - ray["origin"]
-		if to_target.length() > max_range: continue
-		if to_target.length() > FIRE_CONE_SKIP_RANGE and to_target.normalized().dot(ray["dir"]) < FIRE_CONE_DOT: continue
-		var hit := Hitbox.raycast_pawn(ray["origin"], ray["dir"], st["pos"], st["stance"], max_range)
-		if hit["hit"] and hit["t"] < best_t:
-			best_t = hit["t"]; best_victim = tid; best_head = hit["headshot"]
+# Test seam: spawn a projectile for a known owner/weapon/dir without going through input/loadout.
+# Used by tests/projectile_gate_test.gd; never called in production.
+func _spawn_projectile_for_test(owner: int, wid: int, pos: Vector3, dir: Vector3) -> void:
+	var p: Pawn = _sim.world.get_pawn(owner)
+	var wdef: Dictionary = Weapon.get_def(wid)
+	_projectiles.append({"owner": owner, "team": (p.team if p else 0), "weapon_id": wid,
+		"gravity_scale": float(wdef["gravity_scale"]), "range_m": float(wdef["range_m"]),
+		"damage_body": int(wdef["damage_body"]), "headshot_mult": float(wdef["headshot_mult"]),
+		"pos": pos, "vel": Projectile.initial_velocity(dir, float(wdef["muzzle_velocity"])),
+		"spawn_tick": _sim.tick, "dist": 0.0, "ttl": Weapon.projectile_ttl_ticks(wid)})
 
-	# Resolve the enemy hit damage up front (incl. headshot/range) — penetration scales it.
-	var enemy_dmg := 0
-	if best_victim != 0:
-		enemy_dmg = Combat.damage_for(wid, best_head, best_t, wdef)
-	var body_dmg := int(wdef["damage_body"])
-
-	# Cover / penetration: a structure strictly nearer than the enemy is in the way.
-	if _store.count() > 0:
-		# Only a structure NEARER than the resolved enemy hit can change the outcome, so bound
-		# the march by best_t (the enemy distance) when an enemy was hit — in combat that is the
-		# engagement range, far short of the full weapon range, cutting per-shot march cost.
-		# When no enemy was hit, march the full range to detect a pure cover absorb.
-		var march_max: float = best_t if best_victim != 0 else max_range
-		var blocked := _store.march(ray["origin"], ray["dir"], march_max)
-		if blocked["hit"] and float(blocked["dist"]) < best_t:
-			var block_id := int(blocked["id"])
-			var rec: Dictionary = _store.get_record(block_id)
-			if rec.is_empty():
-				return   # piece gone (defensive; matches the guard in _emit_structure_deltas)
-			var hit_pt: Vector3 = ray["origin"] + ray["dir"] * float(blocked["dist"])
-			var mat := _catalog.material_of(int(rec["type"]))
-			# `blk` counts every shot a piece was interposed on (pen OR stop); `pen` (below) counts
-			# only the subset that penetrated through. They overlap by design — blk is "intersected".
-			_shots_blocked += 1
-			if not PieceCatalog.is_penetrable(mat):
-				_damage_structure(block_id, PieceCatalog.SRC_BULLET, hit_pt, BULLET_CARVE_RADIUS)
-				return
-			# Penetrable: the bullet exits at *transmit (used below). The piece is carved
-			# geometrically (BULLET_CARVE_RADIUS), NOT scaled by caliber — split.piece_damage is
-			# intentionally unused (M11: structure damage is spatial, not scalar).
-			var split := Combat.apply_penetration(body_dmg, enemy_dmg,
-				PieceCatalog.absorption_of(mat), PieceCatalog.transmit_of(mat))
-			_damage_structure(block_id, PieceCatalog.SRC_BULLET, hit_pt, BULLET_CARVE_RADIUS)
-			if _store.get_record(block_id).is_empty():
-				return   # 1-pen: a piece destroyed this shot consumes the bullet
-			if best_victim == 0:
-				return   # nothing beyond to hit
-			_pen += 1
-			enemy_dmg = int(split["exit_damage"])
-
-	if best_victim == 0 or enemy_dmg <= 0:
+# Integrate each live bullet one tick, raycast its per-tick segment against enemy pawns (interest-grid
+# broadphase) + the structure store (penetration), and on a confirmed pawn hit apply damage. Models on
+# _step_rockets; per-shot `return`s from the old _fire_shot become `continue` (drop one projectile, keep
+# iterating the pool). PRESENT-time resolve — no lag-comp rewind for bullets.
+func _step_projectiles() -> void:
+	if _projectiles.is_empty():
 		return
-	_hits += 1
-	var victim: Pawn = _sim.world.get_pawn(best_victim)
-	if victim == null or not victim.alive: return
-	_apply_pawn_damage(best_victim, victim, enemy_dmg, best_head, Revive.Source.BULLET, shooter_id, wid)
-	# Hitmarker to the (human) shooter — confirm the hit; lethal = killed or downed by this shot.
-	var sc: Dictionary = _clients.get(shooter_id, {})
-	if not sc.is_empty() and not sc.get("auto_deploy", true):
-		var lethal: bool = (not victim.alive) or victim.is_downed
-		_net.send_to(sc["peer"], NetHost.CHANNEL_CONTROL, Protocol.encode_hitmarker(best_head, lethal), 0)
+	var still: Array = []
+	for pr in _projectiles:
+		var wid: int = int(pr["weapon_id"])
+		var max_range: float = float(pr["range_m"])
+		var gscale: float = float(pr["gravity_scale"])
+		var old_pos: Vector3 = pr["pos"]
+		var s := Projectile.integrate(old_pos, pr["vel"], gscale, SimLoop.DT)
+		var nxt: Vector3 = s["pos"]
+		var seg: Vector3 = nxt - old_pos
+		var seg_len := seg.length()
+		var seg_dir: Vector3 = seg / seg_len if seg_len > 0.0001 else Vector3.FORWARD
+
+		# Broad-phase: enemy pawns whose hitbox the segment could cross this tick (current positions
+		# + lag-comp margin). Bound the ray test to the segment length (PRESENT-time resolve).
+		var candidates: Array = _grid.query(old_pos, seg_len + FIRE_RANGE_MARGIN, _positions)
+		var best_t := seg_len + 1.0
+		var best_victim := 0
+		var best_head := false
+		for tid in candidates:
+			if tid == int(pr["owner"]): continue
+			var tgt: Pawn = _sim.world.get_pawn(tid)
+			if tgt == null or not tgt.alive: continue
+			if tgt.team == int(pr["team"]): continue
+			# Downed pawns are immune (BattleBit-style no finishing): bullet passes through, no hitmarker.
+			if tgt.is_downed: continue
+			# M5.5-P2 seam: near-miss suppression detection goes here (measure segment-to-pawn miss
+			# distance for enemies the bullet does NOT hit, before the hitbox raycast culls them).
+			var hit := Hitbox.raycast_pawn(old_pos, seg_dir, tgt.pos, tgt.stance, seg_len)
+			if hit["hit"] and hit["t"] < best_t:
+				best_t = hit["t"]; best_victim = tid; best_head = hit["headshot"]
+
+		# Enemy hit damage (incl. headshot/range over total distance flown). Penetration scales it.
+		# Reconstruct the minimal def from the projectile's captured scalars so attachment-modified
+		# falloff/headshot are preserved without holding a wdef ref.
+		var enemy_dmg := 0
+		if best_victim != 0:
+			# beyond weapon range -> 0 dmg -> bullet consumed silently (range falloff)
+			enemy_dmg = Combat.damage_for(wid, best_head, float(pr["dist"]) + best_t,
+				{"range_m": float(pr["range_m"]), "damage_body": int(pr["damage_body"]),
+				"headshot_mult": float(pr["headshot_mult"])})
+		var body_dmg := int(pr["damage_body"])
+
+		# Cover / penetration: a structure strictly nearer than the enemy along THIS segment.
+		if _store.count() > 0 and seg_len > 0.0001:
+			var march_max: float = best_t if best_victim != 0 else seg_len
+			var blocked := _store.march(old_pos, seg_dir, march_max)
+			if blocked["hit"] and float(blocked["dist"]) < best_t:
+				var block_id := int(blocked["id"])
+				var rec: Dictionary = _store.get_record(block_id)
+				if rec.is_empty():
+					continue   # piece gone (defensive)
+				var hit_pt: Vector3 = old_pos + seg_dir * float(blocked["dist"])
+				var mat := _catalog.material_of(int(rec["type"]))
+				_shots_blocked += 1
+				if not PieceCatalog.is_penetrable(mat):
+					_damage_structure(block_id, PieceCatalog.SRC_BULLET, hit_pt, BULLET_CARVE_RADIUS)
+					continue   # stopped by cover — consume the bullet
+				# Penetrable: bullet exits at *transmit. Piece is carved geometrically (M11).
+				var split := Combat.apply_penetration(body_dmg, enemy_dmg,
+					PieceCatalog.absorption_of(mat), PieceCatalog.transmit_of(mat))
+				_damage_structure(block_id, PieceCatalog.SRC_BULLET, hit_pt, BULLET_CARVE_RADIUS)
+				if _store.get_record(block_id).is_empty():
+					continue   # 1-pen: piece destroyed by this bullet consumes it
+				if best_victim == 0:
+					continue   # nothing beyond to hit; bullet passed through but found no pawn
+				_pen += 1
+				enemy_dmg = int(split["exit_damage"])
+
+		if best_victim != 0 and enemy_dmg > 0:
+			var victim: Pawn = _sim.world.get_pawn(best_victim)
+			if victim != null and victim.alive:
+				_hits += 1
+				_proj_hits += 1
+				_apply_pawn_damage(best_victim, victim, enemy_dmg, best_head, Revive.Source.BULLET,
+					int(pr["owner"]), wid)
+				# Hitmarker to the (human, manually-deployed) shooter — lethal = killed or downed.
+				var sc: Dictionary = _clients.get(int(pr["owner"]), {})
+				if not sc.is_empty() and not sc.get("auto_deploy", true):
+					var lethal: bool = (not victim.alive) or victim.is_downed
+					_net.send_to(sc["peer"], NetHost.CHANNEL_CONTROL,
+						Protocol.encode_hitmarker(best_head, lethal), 0)
+			continue   # bullet consumed on a pawn hit
+
+		# Miss this tick: advance state and decide whether the bullet lives on.
+		pr["pos"] = nxt
+		pr["vel"] = s["vel"]
+		pr["dist"] = float(pr["dist"]) + seg_len
+		_dbg_last_min_y = minf(_dbg_last_min_y, nxt.y)
+		if nxt.y <= 0.0:
+			continue   # hit the ground
+		if Projectile.expired(_sim.tick - int(pr["spawn_tick"]), int(pr["ttl"]),
+				float(pr["dist"]), max_range):
+			continue
+		still.append(pr)
+	_projectiles = still
+	_proj_live_max = maxi(_proj_live_max, _projectiles.size())
 
 func _is_medic(id: int) -> bool:
 	return _clients.has(id) and int(_clients[id]["class"]) == Loadout.MEDIC
@@ -844,8 +909,7 @@ func _handle_respawns() -> void:
 			p.fall_peak_y = p.pos.y
 			p.landed_fall = 0.0
 			c["respawn_tick"] = 0
-			c["ammo"] = Weapon.get_def(c["weapon"])["mag_size"]
-			c["reloading"] = false
+			_reset_weapon_loadout(c)   # both slots full, fire-mode defaults, back on primary
 			c["rockets"] = int(_gadgets.def_of_kind(Gadget.KIND_RPG)["ammo"]) if int(c["weapon"]) == Weapon.RPG else 0
 			c["dmg_ledger"] = {}
 
@@ -988,6 +1052,8 @@ func _on_packet(peer: ENetPacketPeer, _channel: int, bytes: PackedByteArray) -> 
 		Protocol.Msg.VEHICLE_ACTION: _handle_vehicle_action(peer, bytes)
 		Protocol.Msg.DEPLOY_REQUEST: _handle_deploy_request(peer, bytes)
 		Protocol.Msg.SET_SQUAD: _handle_set_squad(peer, bytes)
+		Protocol.Msg.SET_FIRE_MODE: _handle_set_fire_mode(peer, bytes)
+		Protocol.Msg.SWAP_WEAPON: _handle_swap_weapon(peer, bytes)
 		_: pass
 
 func _handle_hello(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
@@ -1035,10 +1101,12 @@ func _handle_hello(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
 		"rockets": start_rockets, "last_rocket_tick": -100000,
 		"ammo": Weapon.get_def(wid)["mag_size"],
 		"reloading": false, "reload_done_tick": 0, "last_fire_time": -999.0,
-		"shot_index": 0, "respawn_tick": 0, "auto_deploy": auto_deploy,
+		"shot_index": 0, "fire_mode": Weapon.default_mode(wid), "respawn_tick": 0, "auto_deploy": auto_deploy,
+		"active_slot": 0, "swap_locked_until": 0,
 		"last_build_tick": -100000, "last_grenade_tick": -100000, "known_regions": {},
 		"name": pname, "kills": 0, "deaths": 0, "score": 0, "dmg_ledger": {},
 	}
+	_build_weapon_slots(_clients[id])
 	var p := _sim.world.spawn(id)
 	p.team = team
 	p.squad = squad
@@ -1099,9 +1167,8 @@ func _handle_deploy_request(peer: ENetPacketPeer, bytes: PackedByteArray) -> voi
 	p.grounded = true
 	p.fall_peak_y = p.pos.y
 	p.landed_fall = 0.0
-	c["ammo"] = Weapon.get_def(c["weapon"])["mag_size"]
-	c["rockets"] = int(_gadgets.def_of_kind(Gadget.KIND_RPG)["ammo"]) if int(c["weapon"]) == Weapon.RPG else 0   # refill rockets on (re)deploy, not just respawn
-	c["reloading"] = false
+	_reset_weapon_loadout(c)   # both slots full, fire-mode defaults, back on primary
+	c["rockets"] = int(_gadgets.def_of_kind(Gadget.KIND_RPG)["ammo"]) if int(c["weapon"]) == Weapon.RPG else 0   # refill rockets on (re)deploy, not just respawn (reads restored primary weapon)
 	c["respawn_tick"] = 0
 	c["dmg_ledger"] = {}
 
@@ -1116,6 +1183,71 @@ func _handle_set_squad(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
 	var p: Pawn = _sim.world.get_pawn(id)
 	if p != null:
 		p.squad = target   # replicated via EntityState.squad -> roster/squad-list update next ROSTER
+
+func _handle_set_fire_mode(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
+	var id = _peer_to_id.get(peer, 0)
+	if id == 0 or not _clients.has(id): return
+	var m := Protocol.decode_set_fire_mode(bytes)
+	if Weapon.mode_allowed(int(_clients[id]["weapon"]), m):
+		_clients[id]["fire_mode"] = m
+
+## Build the two weapon slots. Slot 0 = snapshot of the current (primary) flat fields.
+## Slot 1 = a fresh secondary (sidearm) at full ammo, default fire-mode.
+func _build_weapon_slots(c: Dictionary) -> void:
+	var primary := {}
+	for f in _SLOT_FIELDS: primary[f] = c[f]
+	var swid: int = Loadout.secondary_for(int(c["class"]))
+	var sdef: Dictionary = Weapon.effective_def(swid, {})   # secondary has no attachments in v1
+	var secondary := {
+		"weapon": swid, "weapon_def": sdef,
+		"ammo": int(Weapon.get_def(swid)["mag_size"]),
+		"reloading": false, "reload_done_tick": 0, "last_fire_time": -999.0,
+		"shot_index": 0, "fire_mode": Weapon.default_mode(swid),
+	}
+	c["slots"] = [primary, secondary]
+	c["active_slot"] = 0
+
+func _save_active_slot(c: Dictionary) -> void:
+	var slot: Dictionary = c["slots"][int(c["active_slot"])]
+	for f in _SLOT_FIELDS: slot[f] = c[f]
+
+func _load_active_slot(c: Dictionary) -> void:
+	var slot: Dictionary = c["slots"][int(c["active_slot"])]
+	for f in _SLOT_FIELDS: c[f] = slot[f]
+
+func _swap_weapon(id: int, target: int) -> void:
+	if not _clients.has(id): return
+	var c: Dictionary = _clients[id]
+	if not c.has("slots"): return   # slots built in _handle_hello; guard parity with _reset_weapon_loadout
+	if target < 0 or target > 1 or target == int(c["active_slot"]): return
+	if _sim.tick < int(c["swap_locked_until"]): return
+	_save_active_slot(c)               # freeze current slot's live state
+	c["active_slot"] = target
+	_load_active_slot(c)               # hydrate flat fields from the target slot
+	c["swap_locked_until"] = _sim.tick + WEAPON_SWAP_TICKS
+	_swaps += 1
+
+## On (re)spawn/deploy: restore a fresh weapon loadout — both slots full ammo, fire-mode defaults,
+## back on the primary. Preserves each slot's weapon identity (set at connect; never changes after).
+func _reset_weapon_loadout(c: Dictionary) -> void:
+	if not c.has("slots"):
+		return  # safety: client without slots (shouldn't happen post-_build_weapon_slots)
+	for slot in c["slots"]:
+		var swid: int = int(slot["weapon"])
+		slot["ammo"] = int(Weapon.get_def(swid)["mag_size"])
+		slot["reloading"] = false
+		slot["reload_done_tick"] = 0
+		slot["last_fire_time"] = -999.0
+		slot["shot_index"] = 0
+		slot["fire_mode"] = Weapon.default_mode(swid)
+	c["active_slot"] = 0
+	c["swap_locked_until"] = 0
+	_load_active_slot(c)   # hydrate flat fields from the (now primary) active slot
+
+func _handle_swap_weapon(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
+	var id = _peer_to_id.get(peer, 0)
+	if id == 0 or not _clients.has(id): return
+	_swap_weapon(id, Protocol.decode_swap_weapon(bytes))
 
 func _handle_input(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
 	var id = _peer_to_id.get(peer, 0)
@@ -1699,8 +1831,8 @@ func _log_telemetry() -> void:
 	var pts := ""
 	for pt in _conquest.points:
 		pts += "." if pt["owner"] == -1 else str(pt["owner"])
-	print("[telemetry] players=%d alive=%d tick_mean=%.2fms tick_p99=%.2fms agg=%.1fMbit/s kills=%d shots=%d hit_rate=%.2f starv=%d rewind_clamped=%d t0=%d t1=%d pts=%s cap_events=%d struct=%d bld=%d rmv=%d blk=%d pen=%d dmg=%d destroyed=%d collapsed=%d nades=%d splash=%d smoke=%d rockets=%d rstruct=%d downed=%d bleedouts=%d revives=%d c4=%d mines=%d heals=%d ammo=%d bags=%d bagx=%d climbs=%d vaults=%d dropblk=%d enters=%d exits=%d veh_dead=%d repairs=%d repair_oh=%d rkt_veh=%d transport_m=%.1f ac_viol=%d"
-		% [n, alive, _tele.mean_tick_ms(), _tele.p99_tick_ms(), mbit, _kills, _shots, hit_rate, _tele.starvation, _rewind_clamped, _conquest.tickets_int(0), _conquest.tickets_int(1), pts, _cap_events, _store.count(), _builds, _removes, _shots_blocked, _pen, _dmg, _destroyed, _collapsed, _nades, _splash_kills, _smokes, _rockets_det, _rstruct, _downed, _bleedouts, _revives, _c4_det, _mine_trips, _heals, _ammo_gives, _bags_thrown, _bags_exhausted, _climbs, _vaults, _drop_shoot_blocked, _enters, _exits, _veh_destroyed, _repairs, _repair_overheats, _rkt_vs_veh, _transport_max, _ac_viol])
+	print("[telemetry] players=%d alive=%d tick_mean=%.2fms tick_p99=%.2fms agg=%.1fMbit/s kills=%d shots=%d hit_rate=%.2f starv=%d rewind_clamped=%d t0=%d t1=%d pts=%s cap_events=%d struct=%d bld=%d rmv=%d blk=%d pen=%d dmg=%d destroyed=%d collapsed=%d nades=%d splash=%d smoke=%d rockets=%d rstruct=%d proj=%d projhit=%d projlive=%d projdrop=%d downed=%d bleedouts=%d revives=%d c4=%d mines=%d heals=%d ammo=%d bags=%d bagx=%d climbs=%d vaults=%d dropblk=%d enters=%d exits=%d veh_dead=%d repairs=%d repair_oh=%d rkt_veh=%d transport_m=%.1f ac_viol=%d swaps=%d"
+		% [n, alive, _tele.mean_tick_ms(), _tele.p99_tick_ms(), mbit, _kills, _shots, hit_rate, _tele.starvation, _rewind_clamped, _conquest.tickets_int(0), _conquest.tickets_int(1), pts, _cap_events, _store.count(), _builds, _removes, _shots_blocked, _pen, _dmg, _destroyed, _collapsed, _nades, _splash_kills, _smokes, _rockets_det, _rstruct, _proj_fired, _proj_hits, _proj_live_max, _proj_dropped, _downed, _bleedouts, _revives, _c4_det, _mine_trips, _heals, _ammo_gives, _bags_thrown, _bags_exhausted, _climbs, _vaults, _drop_shoot_blocked, _enters, _exits, _veh_destroyed, _repairs, _repair_overheats, _rkt_vs_veh, _transport_max, _ac_viol, _swaps])
 	var pt := maxi(_phase_ticks, 1)
 	print("[perf] us/tick: poll=%d move=%d veh=%d lag=%d interest=%d fire=%d respawn=%d conquest=%d match=%d snap=%d (ticks=%d)"
 		% [_phase_us["poll"] / pt, _phase_us["move"] / pt, _phase_us["veh"] / pt, _phase_us["lag"] / pt, _phase_us["interest"] / pt, _phase_us["fire"] / pt, _phase_us["respawn"] / pt, _phase_us["conquest"] / pt, _phase_us["match"] / pt, _phase_us["snap"] / pt, _phase_ticks])
@@ -1709,6 +1841,7 @@ func _log_telemetry() -> void:
 	_tele.reset_window()
 	_kills = 0; _shots = 0; _hits = 0; _rewind_clamped = 0; _cap_events = 0
 	_builds = 0; _removes = 0; _shots_blocked = 0; _pen = 0
-	_dmg = 0; _destroyed = 0; _collapsed = 0; _nades = 0; _splash_kills = 0; _smokes = 0; _rockets_det = 0; _rstruct = 0; _downed = 0; _bleedouts = 0; _revives = 0; _c4_det = 0; _mine_trips = 0; _heals = 0; _ammo_gives = 0; _bags_thrown = 0; _bags_exhausted = 0; _climbs = 0; _vaults = 0; _drop_shoot_blocked = 0
+	_dmg = 0; _destroyed = 0; _collapsed = 0; _nades = 0; _splash_kills = 0; _smokes = 0; _rockets_det = 0; _rstruct = 0; _proj_fired = 0; _proj_hits = 0; _proj_live_max = 0; _proj_dropped = 0; _dbg_last_min_y = INF; _downed = 0; _bleedouts = 0; _revives = 0; _c4_det = 0; _mine_trips = 0; _heals = 0; _ammo_gives = 0; _bags_thrown = 0; _bags_exhausted = 0; _climbs = 0; _vaults = 0; _drop_shoot_blocked = 0
 	_enters = 0; _exits = 0; _veh_destroyed = 0; _repairs = 0; _repair_overheats = 0; _rkt_vs_veh = 0; _transport_max = 0.0
 	_ac_viol = 0
+	_swaps = 0

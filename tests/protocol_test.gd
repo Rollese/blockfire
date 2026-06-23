@@ -273,3 +273,13 @@ func test_self_state_carries_being_revived() -> void:
 	var d := Protocol.decode_self_state(b)
 	assert_eq(d["being_revived"], true, "being_revived round-trips")
 	assert_eq(d["throwables"].size(), 1, "throwables still decode after being_revived byte")
+
+func test_set_fire_mode_roundtrip() -> void:
+	var b := Protocol.encode_set_fire_mode(Weapon.MODE_BURST)
+	assert_eq(b[0], Protocol.Msg.SET_FIRE_MODE)
+	assert_eq(Protocol.decode_set_fire_mode(b), Weapon.MODE_BURST)
+
+func test_swap_weapon_roundtrip() -> void:
+	var b := Protocol.encode_swap_weapon(1)
+	assert_eq(b[0], Protocol.Msg.SWAP_WEAPON)
+	assert_eq(Protocol.decode_swap_weapon(b), 1)

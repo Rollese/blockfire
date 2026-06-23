@@ -48,6 +48,9 @@ static func gadget_for_player(cls: int, id: int) -> int:
 
 ## Server-authoritative loadout validation: only Engineer may equip the RPG; DMR is Assault-only;
 ## all other weapons are unrestricted. Loadout-time only (spec §"RPG", §"DMR").
+static func secondary_for(_cls: int) -> int:
+	return Weapon.PISTOL   # v1: universal sidearm
+
 static func can_equip(cls: int, weapon_id: int) -> bool:
 	if weapon_id == Weapon.RPG:
 		return cls == ENGINEER

@@ -66,3 +66,11 @@ func test_gadget_for_player_engineer_splits_by_id() -> void:
 	# Non-engineers ignore id and use their single gadget.
 	assert_eq(Loadout.gadget_for_player(Loadout.MEDIC, 3), Loadout.GADGET_HEAL)
 	assert_eq(Loadout.gadget_for_player(Loadout.ASSAULT, 7), Loadout.GADGET_NONE)
+
+func test_secondary_is_pistol_for_all_classes() -> void:
+	for cls in [Loadout.ASSAULT, Loadout.MEDIC, Loadout.ENGINEER, Loadout.SUPPORT]:
+		assert_eq(Loadout.secondary_for(cls), Weapon.PISTOL)
+
+func test_can_equip_pistol_any_class() -> void:
+	assert_true(Loadout.can_equip(Loadout.ASSAULT, Weapon.PISTOL))
+	assert_true(Loadout.can_equip(Loadout.SUPPORT, Weapon.PISTOL))
