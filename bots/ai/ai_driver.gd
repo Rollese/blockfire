@@ -13,8 +13,10 @@ var _aim_ticks: int = 0
 var _world: WorldModel = null
 var _now: int = 0
 var _objective: Vector3 = Vector3.ZERO
+var _enemy_track := {}  # id -> {pos: Vector3, tick: int, vel: Vector3}
 
 const ENGAGE_RANGE := 50.0
+const LEAD_PROJECTILE_SPEED := 250.0  # nominal muzzle speed (AR) for bot aim lead; per-weapon precision not worth threading weapon data into the AI brain
 const STANDOFF_RANGE := 10.0   # inside this, hold ground and strafe-fire instead of charging in
 const STRAFE_PERIOD := 18      # ticks per strafe direction (~0.6s at 30Hz) — lateral juking while firing
 
@@ -31,6 +33,23 @@ func observe(my_id: int, view: Dictionary, vview: Dictionary, structs: Dictionar
 	_world = _perc.build(my_id, view, vview, structs, match_points, now)
 	_now = now
 	_objective = objective_pos
+	# Update per-enemy velocity estimates from the new snapshot.
+	var self_state: EntityState = view.get(my_id)
+	var self_team: int = int(self_state.team) if self_state != null else -1
+	for eid in view:
+		var e: EntityState = view[eid]
+		if not e.alive or int(e.team) == self_team:
+			continue
+		var cur_pos: Vector3 = e.pos
+		var prev = _enemy_track.get(eid)
+		var vel := Vector3.ZERO
+		if prev != null:
+			vel = prev["vel"]  # persist last good estimate if no new movement
+			var dt_ticks: int = now - int(prev["tick"])
+			var moved: Vector3 = cur_pos - (prev["pos"] as Vector3)
+			if dt_ticks > 0 and moved.length() > 0.01:
+				vel = moved / (float(dt_ticks) * SimLoop.DT)
+		_enemy_track[eid] = {"pos": cur_pos, "tick": now, "vel": vel}
 
 ## Produce the input intent for this tick from the last observed world.
 ## {move_x, move_y, yaw, pitch, buttons, stance, behavior}.
@@ -70,16 +89,19 @@ func decide() -> Dictionary:
 					_aim_ticks = 0
 				var settle := Humanize.settle_frac(_aim_ticks, int(_profile.get("aim_settle_ticks", 6)))
 				var jit := _human.aim_jitter(float(_profile.get("aim_error_deg", 3.0))) * settle
-				var tpos: Vector3 = e["pos"]
+				var raw_pos: Vector3 = e["pos"]
+				var evel: Vector3 = _enemy_track.get(tgt, {}).get("vel", Vector3.ZERO)
+				var flight: float = me.pos.distance_to(raw_pos) / LEAD_PROJECTILE_SPEED
+				var tpos: Vector3 = raw_pos + evel * flight
 				var aim := tpos + Vector3(0.0, Stance.body_height(int(e["stance"])) * 0.5, 0.0)
 				var eye := me.pos + Vector3(0.0, Stance.eye_height(me.stance), 0.0)
 				var to := aim - eye
 				intent["yaw"] = atan2(to.x, to.z) + jit
 				intent["pitch"] = clampf(asin(clampf(to.y / maxf(to.length(), 0.001), -1.0, 1.0)), -Pawn.MAX_PITCH, Pawn.MAX_PITCH)
-				var dist := me.pos.distance_to(tpos)
+				var dist := me.pos.distance_to(raw_pos)
 				if dist <= ENGAGE_RANGE:
 					intent["buttons"] = InputCommand.BTN_FIRE
-					var fwd := _flat_dir(me.pos, tpos)
+					var fwd := _flat_dir(me.pos, raw_pos)
 					if dist > STANDOFF_RANGE:
 						# advance into the fight while firing — don't root at max range
 						intent["move_x"] = fwd.x; intent["move_y"] = fwd.y
@@ -91,7 +113,7 @@ func decide() -> Dictionary:
 							strafe = -strafe
 						intent["move_x"] = strafe.x; intent["move_y"] = strafe.y
 				else:
-					var mv := _flat_dir(me.pos, tpos)
+					var mv := _flat_dir(me.pos, raw_pos)
 					intent["move_x"] = mv.x; intent["move_y"] = mv.y
 		"take_cover":
 			var c := AiCover.pick_cover(w)

@@ -111,6 +111,7 @@ func _drive(bot: Dictionary, delta: float) -> void:
 		bot["c4_detonated"] = false
 		bot["mine_placed"] = false
 		bot["in_vehicle"] = 0
+		bot["fire_mode_set"] = false
 		_send(bot, 0.0, 0.0, bot["yaw"], 0.0, 0)
 		return
 
@@ -266,6 +267,7 @@ func _drive(bot: Dictionary, delta: float) -> void:
 
 	_maybe_rpg(bot, me)
 	_maybe_give(bot, me)
+	_maybe_weapon_handling(bot, me)
 	_send(bot, move_x, move_y, bot["yaw"], bot["pitch"], buttons)
 
 ## Advance a driller's phase state. If the phase changed, reset the tick counter. If the phase
@@ -381,6 +383,30 @@ func _maybe_smoke(bot: Dictionary, me: EntityState, obj: Vector3) -> void:
 		Protocol.encode_grenade_throw(dir.normalized(), Grenade.SMOKE), 0)
 	bot["last_grenade_tick"] = st
 	bot["smokes_thrown"] = int(bot["smokes_thrown"]) + 1
+
+## Exercise fire-mode cycling and secondary weapon swap for a deterministic subset of bots.
+## Fire-mode: bots where index % 5 == 0 (and not Engineer, which uses SMG that lacks BURST)
+## send MODE_BURST once per bot life (on first invocation after spawn, gated by fire_mode_set).
+## Swap: bots where index % 4 == 0 swap to secondary at server_tick % 600 == 120 and back at
+## server_tick % 600 == 240 — guaranteed within the first ~10s of any match.
+func _maybe_weapon_handling(bot: Dictionary, me: EntityState) -> void:
+	# Reset per-life flag when bot is not alive (called only when alive, but fire_mode_set
+	# is also reset in the dead-bot branch via the respawn reset block, mirroring other flags).
+	# Fire-mode: index % 5 == 0, non-Engineer only (AR supports BURST; SMG does not).
+	if int(bot["index"]) % 5 == 0 and int(bot["class"]) != Loadout.ENGINEER:
+		if not bool(bot.get("fire_mode_set", false)):
+			(bot["net"] as NetHost).send_to(bot["peer"], NetHost.CHANNEL_INPUT,
+				Protocol.encode_set_fire_mode(Weapon.MODE_BURST), 0)
+			bot["fire_mode_set"] = true
+	# Periodic secondary swap: index % 4 == 0.
+	if int(bot["index"]) % 4 == 0:
+		var phase: int = int(bot["server_tick"]) % 600
+		if phase == 120:
+			(bot["net"] as NetHost).send_to(bot["peer"], NetHost.CHANNEL_INPUT,
+				Protocol.encode_swap_weapon(1), 0)
+		elif phase == 240:
+			(bot["net"] as NetHost).send_to(bot["peer"], NetHost.CHANNEL_INPUT,
+				Protocol.encode_swap_weapon(0), 0)
 
 ## Engineer RPG is anti-vehicle first; falls back to targeting nearby structural building pieces
 ## (building_id != 0) near the bot's current objective when no enemy vehicle is in range.
