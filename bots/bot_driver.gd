@@ -112,6 +112,7 @@ func _drive(bot: Dictionary, delta: float) -> void:
 		bot["mine_placed"] = false
 		bot["in_vehicle"] = 0
 		bot["fire_mode_set"] = false
+		bot["cur_swap_slot"] = 0   # server resets active_slot to 0 on (re)spawn; mirror it
 		_send(bot, 0.0, 0.0, bot["yaw"], 0.0, 0)
 		return
 
@@ -398,15 +399,16 @@ func _maybe_weapon_handling(bot: Dictionary, me: EntityState) -> void:
 			(bot["net"] as NetHost).send_to(bot["peer"], NetHost.CHANNEL_INPUT,
 				Protocol.encode_set_fire_mode(Weapon.MODE_BURST), 0)
 			bot["fire_mode_set"] = true
-	# Periodic secondary swap: index % 4 == 0.
+	# Periodic secondary swap: index % 4 == 0. Transition-based (send only on a slot change) so it is
+	# robust to the bot's server_tick advancing by SNAPSHOT_STRIDE (an exact `== N` tick match would be
+	# skipped). Cycle: secondary for one ~4s quarter of a ~16s loop, primary otherwise.
 	if int(bot["index"]) % 4 == 0:
-		var phase: int = int(bot["server_tick"]) % 600
-		if phase == 120:
+		var cycle: int = (int(bot["server_tick"]) / 120) % 4
+		var want_slot: int = 1 if cycle == 1 else 0
+		if want_slot != int(bot.get("cur_swap_slot", 0)):
 			(bot["net"] as NetHost).send_to(bot["peer"], NetHost.CHANNEL_INPUT,
-				Protocol.encode_swap_weapon(1), 0)
-		elif phase == 240:
-			(bot["net"] as NetHost).send_to(bot["peer"], NetHost.CHANNEL_INPUT,
-				Protocol.encode_swap_weapon(0), 0)
+				Protocol.encode_swap_weapon(want_slot), 0)
+			bot["cur_swap_slot"] = want_slot
 
 ## Engineer RPG is anti-vehicle first; falls back to targeting nearby structural building pieces
 ## (building_id != 0) near the bot's current objective when no enemy vehicle is in range.
