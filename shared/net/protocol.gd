@@ -436,7 +436,7 @@ static func decode_damage_event(bytes: PackedByteArray) -> Dictionary:
 	return {"bearing": Quantize.dec_angle(r.get_u16()), "amount": r.get_u8()}
 
 
-static func encode_self_state(mag: int, reloading: bool, reload_remaining: int, weapon: int, throwables: Array = [], being_revived: bool = false) -> PackedByteArray:
+static func encode_self_state(mag: int, reloading: bool, reload_remaining: int, weapon: int, throwables: Array = [], being_revived: bool = false, suppression: float = 0.0) -> PackedByteArray:
 	var buf := StreamPeerBuffer.new()
 	buf.put_u8(Msg.SELF_STATE)
 	buf.put_u8(clampi(mag, 0, 255))
@@ -449,6 +449,10 @@ static func encode_self_state(mag: int, reloading: bool, reload_remaining: int, 
 		var t: Dictionary = throwables[i]
 		buf.put_u8(int(t["kind"]) & 0xFF)
 		buf.put_u8(clampi(int(t["count"]), 0, 255))
+	# M5.5-P2: own suppression scalar quantized to 1 byte for the M7 screen FX (blur/shake/muffle).
+	# Rides SELF_STATE (the local player's own state) rather than the per-pawn snapshot, whose
+	# field-mask is a full u8 — and remote suppression need not be replicated (spec §2).
+	buf.put_u8(int(round(clampf(suppression, 0.0, 1.0) * 255.0)))
 	return buf.data_array
 
 static func decode_self_state(bytes: PackedByteArray) -> Dictionary:
@@ -459,13 +463,16 @@ static func decode_self_state(bytes: PackedByteArray) -> Dictionary:
 	var weapon := r.get_u8()
 	var being_revived := false
 	var throwables: Array = []
+	var suppression := 0.0
 	if r.get_available_bytes() > 0:
 		being_revived = r.get_u8() == 1
 	if r.get_available_bytes() > 0:
 		var n := r.get_u8()
 		for _i in n:
 			throwables.append({"kind": r.get_u8(), "count": r.get_u8()})
-	return {"mag": mag, "reloading": reloading, "reload_remaining": reload_remaining, "weapon": weapon, "throwables": throwables, "being_revived": being_revived}
+	if r.get_available_bytes() > 0:
+		suppression = float(r.get_u8()) / 255.0
+	return {"mag": mag, "reloading": reloading, "reload_remaining": reload_remaining, "weapon": weapon, "throwables": throwables, "being_revived": being_revived, "suppression": suppression}
 
 
 static func encode_roster(rows: Array) -> PackedByteArray:
