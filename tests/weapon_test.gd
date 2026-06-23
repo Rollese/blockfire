@@ -30,3 +30,34 @@ func test_effective_def_neutral_matches_base_stats() -> void:
 
 func test_rpg_is_a_weapon_id() -> void:
 	assert_true(Weapon.RPG != Weapon.AR and Weapon.RPG != Weapon.SMG and Weapon.RPG != Weapon.DMR)
+
+func test_ballistics_fields_present() -> void:
+	var d := Weapon.get_def(Weapon.AR)
+	assert_true(d.has("muzzle_velocity") and float(d["muzzle_velocity"]) > 0.0)
+	assert_true(d.has("gravity_scale") and float(d["gravity_scale"]) > 0.0)
+	assert_true(int(Weapon.projectile_ttl_ticks(Weapon.AR)) > 0)
+
+func test_pistol_exists_and_is_weaker_faster() -> void:
+	var p := Weapon.get_def(Weapon.PISTOL)
+	assert_eq(p["name"], "PISTOL")
+	assert_true(int(p["damage_body"]) < int(Weapon.get_def(Weapon.AR)["damage_body"]))
+
+func test_fire_allowed_semi() -> void:
+	assert_true(Weapon.fire_allowed(Weapon.MODE_SEMI, 0, 3))
+	assert_false(Weapon.fire_allowed(Weapon.MODE_SEMI, 1, 3))
+
+func test_fire_allowed_burst() -> void:
+	assert_true(Weapon.fire_allowed(Weapon.MODE_BURST, 0, 3))
+	assert_true(Weapon.fire_allowed(Weapon.MODE_BURST, 2, 3))
+	assert_false(Weapon.fire_allowed(Weapon.MODE_BURST, 3, 3))
+
+func test_fire_allowed_auto() -> void:
+	assert_true(Weapon.fire_allowed(Weapon.MODE_AUTO, 99, 3))
+
+func test_default_mode_is_first_available() -> void:
+	assert_eq(Weapon.default_mode(Weapon.AR), Weapon.MODE_AUTO)
+	assert_eq(Weapon.default_mode(Weapon.DMR), Weapon.MODE_SEMI)
+
+func test_mode_allowed_rejects_unlisted() -> void:
+	assert_false(Weapon.mode_allowed(Weapon.DMR, Weapon.MODE_AUTO))
+	assert_true(Weapon.mode_allowed(Weapon.AR, Weapon.MODE_SEMI))
