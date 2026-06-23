@@ -909,8 +909,7 @@ func _handle_respawns() -> void:
 			p.fall_peak_y = p.pos.y
 			p.landed_fall = 0.0
 			c["respawn_tick"] = 0
-			c["ammo"] = Weapon.get_def(c["weapon"])["mag_size"]
-			c["reloading"] = false
+			_reset_weapon_loadout(c)   # both slots full, fire-mode defaults, back on primary
 			c["rockets"] = int(_gadgets.def_of_kind(Gadget.KIND_RPG)["ammo"]) if int(c["weapon"]) == Weapon.RPG else 0
 			c["dmg_ledger"] = {}
 
@@ -1168,9 +1167,8 @@ func _handle_deploy_request(peer: ENetPacketPeer, bytes: PackedByteArray) -> voi
 	p.grounded = true
 	p.fall_peak_y = p.pos.y
 	p.landed_fall = 0.0
-	c["ammo"] = Weapon.get_def(c["weapon"])["mag_size"]
-	c["rockets"] = int(_gadgets.def_of_kind(Gadget.KIND_RPG)["ammo"]) if int(c["weapon"]) == Weapon.RPG else 0   # refill rockets on (re)deploy, not just respawn
-	c["reloading"] = false
+	_reset_weapon_loadout(c)   # both slots full, fire-mode defaults, back on primary
+	c["rockets"] = int(_gadgets.def_of_kind(Gadget.KIND_RPG)["ammo"]) if int(c["weapon"]) == Weapon.RPG else 0   # refill rockets on (re)deploy, not just respawn (reads restored primary weapon)
 	c["respawn_tick"] = 0
 	c["dmg_ledger"] = {}
 
@@ -1227,6 +1225,23 @@ func _swap_weapon(id: int, target: int) -> void:
 	_load_active_slot(c)               # hydrate flat fields from the target slot
 	c["swap_locked_until"] = _sim.tick + WEAPON_SWAP_TICKS
 	_swaps += 1
+
+## On (re)spawn/deploy: restore a fresh weapon loadout — both slots full ammo, fire-mode defaults,
+## back on the primary. Preserves each slot's weapon identity (set at connect; never changes after).
+func _reset_weapon_loadout(c: Dictionary) -> void:
+	if not c.has("slots"):
+		return  # safety: client without slots (shouldn't happen post-_build_weapon_slots)
+	for slot in c["slots"]:
+		var swid: int = int(slot["weapon"])
+		slot["ammo"] = int(Weapon.get_def(swid)["mag_size"])
+		slot["reloading"] = false
+		slot["reload_done_tick"] = 0
+		slot["last_fire_time"] = -999.0
+		slot["shot_index"] = 0
+		slot["fire_mode"] = Weapon.default_mode(swid)
+	c["active_slot"] = 0
+	c["swap_locked_until"] = 0
+	_load_active_slot(c)   # hydrate flat fields from the (now primary) active slot
 
 func _handle_swap_weapon(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
 	var id = _peer_to_id.get(peer, 0)

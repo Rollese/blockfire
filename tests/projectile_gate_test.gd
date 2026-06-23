@@ -96,3 +96,25 @@ func test_swap_lockout_blocks_immediate_reswap() -> void:
 	srv._swap_weapon(1, 0)                           # same tick -> blocked by lockout
 	assert_eq(int(c["active_slot"]), 1, "re-swap blocked during equip lockout")
 	srv.free()
+
+func test_respawn_resets_both_slots_to_full_on_primary() -> void:
+	var srv := _make_server()
+	var c := {
+		"weapon": Weapon.AR, "weapon_def": Weapon.effective_def(Weapon.AR, {}), "class": Loadout.ASSAULT,
+		"ammo": int(Weapon.get_def(Weapon.AR)["mag_size"]), "reloading": false, "reload_done_tick": 0,
+		"last_fire_time": -999.0, "shot_index": 0, "fire_mode": Weapon.default_mode(Weapon.AR),
+		"active_slot": 0, "swap_locked_until": 0,
+	}
+	srv._clients[1] = c
+	srv._build_weapon_slots(c)
+	srv._sim.tick = 100
+	srv._swap_weapon(1, 1)            # to secondary
+	c["ammo"] = 2                     # deplete secondary (active)
+	c["slots"][0]["ammo"] = 5         # primary slot left depleted
+	srv._reset_weapon_loadout(c)
+	assert_eq(int(c["active_slot"]), 0)
+	assert_eq(int(c["weapon"]), Weapon.AR)
+	assert_eq(int(c["ammo"]), int(Weapon.get_def(Weapon.AR)["mag_size"]), "primary full after respawn")
+	assert_eq(int(c["slots"][1]["ammo"]), int(Weapon.get_def(Weapon.PISTOL)["mag_size"]), "secondary full after respawn")
+	assert_eq(int(c["swap_locked_until"]), 0)
+	srv.free()
