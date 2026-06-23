@@ -102,3 +102,15 @@ func test_climb_vault_fields_default() -> void:
 	assert_false(p.climbing)
 	assert_false(p.vaulting)
 	assert_eq(p.last_stance_change_tick, -1000)
+
+func test_armor_class_defaults_light() -> void:
+	assert_eq(Pawn.new(1).armor_class, Armor.LIGHT)
+	assert_almost_eq(Pawn.new(1).suppression, 0.0)
+
+func test_heavy_armor_moves_slower_than_light() -> void:
+	var light := Pawn.new(1); light.armor_class = Armor.LIGHT
+	var heavy := Pawn.new(2); heavy.armor_class = Armor.HEAVY
+	light.step(1.0, _cmd(1.0, 0.0))
+	heavy.step(1.0, _cmd(1.0, 0.0))
+	assert_true(absf(heavy.pos.x) < absf(light.pos.x), "heavy armor reduces move speed")
+	assert_almost_eq(light.pos.x, Stance.speed(Stance.STAND), 0.001, "light armor = unmodified stance speed")

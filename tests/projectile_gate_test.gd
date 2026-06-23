@@ -57,6 +57,51 @@ func test_projectile_drops_under_muzzle_line() -> void:
 	assert_true(srv._dbg_last_min_y < muzzle.y, "horizontal shot dropped below muzzle line under gravity")
 	srv.free()
 
+func test_heavy_takes_less_body_damage_than_light() -> void:
+	# M5.5-P2: the same body hit drops a HEAVY pawn less than a LIGHT pawn.
+	var srv := _make_server()
+	var heavy := _add_pawn(srv, 2, Vector3(0, 0, 5), 1); heavy.armor_class = Armor.HEAVY
+	var light := _add_pawn(srv, 1, Vector3(0, 0, 0), 1); light.armor_class = Armor.LIGHT
+	var hp_h0 := heavy.health
+	srv._apply_pawn_damage(2, heavy, 50, false, Revive.Source.BULLET, 0, Weapon.AR)
+	var heavy_loss := hp_h0 - heavy.health
+	var hp_l0 := light.health
+	srv._apply_pawn_damage(1, light, 50, false, Revive.Source.BULLET, 0, Weapon.AR)
+	var light_loss := hp_l0 - light.health
+	assert_eq(light_loss, 50, "LIGHT takes full body damage")
+	assert_eq(heavy_loss, int(round(50 * 0.7)), "HEAVY body damage scaled by 0.7")
+	assert_true(heavy_loss < light_loss, "HEAVY takes less body damage than LIGHT")
+	srv.free()
+
+func test_heavy_helmet_saves_from_finishing_headshot() -> void:
+	# A finishing headshot (~50) that would true-kill a 40-HP pawn is downgraded to body damage
+	# by the HEAVY helmet (35 < 40), so the pawn survives; a LIGHT pawn dies to the same shot.
+	var srv := _make_server()
+	var heavy := _add_pawn(srv, 2, Vector3(0, 0, 5), 1); heavy.armor_class = Armor.HEAVY; heavy.health = 40
+	srv._apply_pawn_damage(2, heavy, 50, true, Revive.Source.BULLET, 0, Weapon.AR)
+	assert_true(heavy.alive and not heavy.is_downed, "HEAVY survives a finishing headshot (helmet)")
+	assert_eq(heavy.health, 40 - int(round(50 * 0.7)), "downgraded to 0.7x body damage")
+	var light := _add_pawn(srv, 1, Vector3(0, 0, 0), 1); light.armor_class = Armor.LIGHT; light.health = 40
+	srv._apply_pawn_damage(1, light, 50, true, Revive.Source.BULLET, 0, Weapon.AR)
+	assert_false(light.alive, "LIGHT is true-killed by the same finishing headshot")
+	srv.free()
+
+func test_near_miss_accrues_suppression() -> void:
+	# A bullet that passes within SUPPRESS_RADIUS of an enemy (but does NOT hit) raises its
+	# suppression; a clean miss far away does not.
+	var srv := _make_server()
+	_add_pawn(srv, 1, Vector3(2.0, 0, 0), 0)         # owner (team 0)
+	var victim := _add_pawn(srv, 2, Vector3(0, 0, 40), 1)   # enemy ~2 m off the flight line
+	_rebuild_grid(srv)
+	assert_almost_eq(victim.suppression, 0.0)
+	# Fire parallel to +z, offset 2 m in x and ~1 m up: passes beside the victim, never hits it.
+	srv._spawn_projectile_for_test(1, Weapon.AR, Vector3(2.0, 1.0, 0), Vector3(0, 0, 1))
+	for _i in 12:
+		srv._step_projectiles()
+	assert_true(victim.suppression > 0.0, "near-miss raised suppression")
+	assert_true(victim.alive and not victim.is_downed, "near-miss did not damage the victim")
+	srv.free()
+
 func test_per_slot_ammo_persists_across_swap() -> void:
 	var srv := _make_server()
 	var c := {

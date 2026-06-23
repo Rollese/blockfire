@@ -274,6 +274,19 @@ func test_self_state_carries_being_revived() -> void:
 	assert_eq(d["being_revived"], true, "being_revived round-trips")
 	assert_eq(d["throwables"].size(), 1, "throwables still decode after being_revived byte")
 
+func test_self_state_carries_suppression() -> void:
+	# M5.5-P2: own suppression scalar round-trips as a quantized byte (within 1/255).
+	var thr := [{"kind": 0, "count": 1}]
+	var b := Protocol.encode_self_state(20, false, 0, Weapon.AR, thr, false, 0.5)
+	var d := Protocol.decode_self_state(b)
+	assert_almost_eq(d["suppression"], 0.5, 1.0 / 255.0 + 0.001, "suppression round-trips")
+	assert_eq(d["throwables"].size(), 1, "throwables still decode before the suppression byte")
+
+func test_self_state_suppression_defaults_zero_for_old_senders() -> void:
+	var b := Protocol.encode_self_state(30, false, 0, Weapon.AR)   # pre-P2 sender: no suppression byte
+	var d := Protocol.decode_self_state(b)
+	assert_almost_eq(d["suppression"], 0.0, 0.001, "absent suppression byte decodes as 0")
+
 func test_set_fire_mode_roundtrip() -> void:
 	var b := Protocol.encode_set_fire_mode(Weapon.MODE_BURST)
 	assert_eq(b[0], Protocol.Msg.SET_FIRE_MODE)

@@ -82,6 +82,7 @@ var _map_path: String = MAP_PATH  # --map=<name> overrides (must match server + 
 # ---- C3 state ---------------------------------------------------------------
 var _throwables: Array = []        # latest throwable list from SELF_STATE
 var _being_revived: bool = false   # latest "a teammate is reviving me" flag from SELF_STATE
+var _suppression: float = 0.0      # latest own-suppression scalar from SELF_STATE (M5.5-P2; M7 screen FX)
 var _revive_hold: float = 0.0      # seconds the interact key has been held on a revive target
 
 # ---- configure (called by bootstrap before add_child) -----------------------
@@ -660,6 +661,7 @@ func _handle_self_state(bytes: PackedByteArray) -> void:
 	# Store throwable list for HUD ctx (C3: SELF_STATE now carries per-kind counts)
 	_throwables = d.get("throwables", [])
 	_being_revived = bool(d.get("being_revived", false))   # downed-screen "being revived" indicator
+	_suppression = float(d.get("suppression", 0.0))        # M5.5-P2: own suppression (M7 renders screen FX)
 
 # ---- MATCH_STATE ------------------------------------------------------------
 func _handle_match_state(bytes: PackedByteArray) -> void:
