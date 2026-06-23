@@ -1,6 +1,6 @@
 # M11 — Destructible Buildings
 
-**Status:** todo (spec ratified 2026-06-18; not started) · **Blocked by:** M7 rendered client (cosmetic layer + feel gate) · **Coordinates with:** M5.5-P3 (melee sledge/pickaxe)
+**Status:** P1+P2+P3 implemented & merged (2026-06-18) · **Gate A (128-bot sim) PASS ✅ 2026-06-23** · **Remaining:** Gate B (feel) + P4 client cosmetics — **blocked by M7 rendered client** · **Coordinates with:** M5.5-P3 (melee sledge/pickaxe)
 
 **Objective:** BattleBit-style destructible **map buildings** — almost all walls, interiors, and stairs can be destroyed, with chain-reacting structural collapse — on the existing M4 `BuildGrid`/`StructureStore`/`PieceCatalog` substrate, networked within the M4 event/interest/cap discipline.
 
@@ -71,5 +71,20 @@ Highest netcode/physics-cost feature class (same family as M4). The tick is snap
 **Verification:** full unit suite **536 run / 0 failed**; deterministic functional test of the destruction→cascade→orphan loop (`tests/server_buildings_functional_test.gd`); headless server boots clean stamping `struct=50` on `conquest_proving_grounds`. No owner playtest at this stage (the project-wide playtest runs after all parallel agents finish + headless-test); 128-bot Gate A deferred while combat AI is mid-rewrite.
 
 **Design/plan refs:** `docs/specs/m11-p2-p3-buildings-design.md`, `docs/plans/2026-06-18-m11-p2-p3-buildings.md`.
+
+## Gate A (128-bot sim fleet) — PASS ✅ 2026-06-23
+
+The 128-bot Gate A was deferred in 2026-06 while the combat AI was inert. The AI now fires (see the M5.5-P1/P2 fleet gates 2026-06-23), so Gate A was run on game2 (Docker `full` profile, server pinned P-cores 0-3, bots 4-31). Scripts: `docker/run-m11-gate.sh` (fleet) + `ci/m11_buildings_test.sh` (≤48 smoke), both `--map`-parameterised (compose now plumbs `MAP`).
+
+**PASS on `conquest_proving_grounds` (canonical Conquest map, struct=177, TICKETS=80):**
+`winner=1 t0=0 t1=43 elapsed=447s < 900 (ticket exhaustion, not the time fail-safe) cap_events=4`, **peak tick=24.65 ms < 33.3** (comfortable headroom), **destroyed=17** (chunks→0 piece removals), **rstruct=25** (removals incl. cascade orphans replicated), **collapsed=1** (a whole-building support-cascade COLLAPSE fired *emergently* under bot load — the spec's "≥1 building collapses" criterion), dmg=22 nades=24 rockets=4, peak agg=15.7 Mbit/s, **0 script errors**. Evidence: `docker/srvlog-m11-20260623-191111.log` (on-host; `.log` gitignored).
+
+Every Gate A criterion met: chunks destroyed + pieces removed + **cascade + collapse fired** + destruction replicated to bots + Conquest reaches a winner + tick & bandwidth budget held. **M4 re-gate (no-regression after the P1 chunked-store unify):** the green unit suite (M4 building/destruction tests) + this fleet holding budget with **zero script errors** (one destruction codepath) is the no-regression basis (a dedicated M4 smoke still can't run combat until the AI is fully validated, but the AI now fires and destruction is exercised here).
+
+**Mechanic proof remains authoritative regardless of emergent staging (AGENTS.md §10):** `tests/server_buildings_functional_test.gd` (damage→cascade→orphan→collapse loop), `tests/support_test.gd`, `tests/protocol_collapse_test.gd`.
+
+**Map-scale finding (separate from M11 logic):** buildings-dense maps push the snapshot-baseline cost toward the ceiling — `conquest_arena_buildings` (768 pieces) gates with destruction firing hard (destroyed≈51–70) but peak tick rides the edge (**33.10 ms**, just under budget); `conquest_showcase` (2463 pieces) and `conquest_town` (8324 pieces) exceed it. This is replication cost from piece count, not the cascade/collapse path. Tracked as a follow-up (snapshot-cost optimisation) if those richer maps are wanted at 128p.
+
+**Gate B (feel — owner playtest of holes/debris/collapse cinematic) + P4 client cosmetics still pending the M7 client.**
 
 **Known deferrals (P4 / later):** hole-aware march (pieces block until fully removed); GPU brick-debris particles + far-LOD; collapse cinematic is light (rubble swap only); 3 cosmetic BuildingKit geometry tweaks (lintel 1 cm clip, railing height, stair height) to eyeball in-engine; rubble nodes untracked (bounded, freed on renderer teardown).
