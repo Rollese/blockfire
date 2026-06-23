@@ -445,7 +445,10 @@ func _resolve_fires() -> void:
 		var ready: bool = now - c["last_fire_time"] >= Weapon.fire_interval(c["weapon"])
 		var sprinting: bool = (inp["buttons"] & InputCommand.BTN_SPRINT) and shooter.stance == Stance.STAND
 		var drop_shoot: bool = Combat.drop_shoot_blocked(shooter.stance, _sim.tick, shooter.last_stance_change_tick)
-		if c["reloading"] or c["ammo"] <= 0 or not ready or sprinting or drop_shoot:
+		var mode: int = int(c.get("fire_mode", Weapon.default_mode(c["weapon"])))
+		var burst: int = int(Weapon.get_def(c["weapon"]).get("burst_count", Weapon.DEFAULT_BURST))
+		var mode_ok: bool = Weapon.fire_allowed(mode, c["shot_index"], burst)
+		if c["reloading"] or c["ammo"] <= 0 or not ready or sprinting or drop_shoot or not mode_ok:
 			if drop_shoot:
 				_drop_shoot_blocked += 1
 			continue
@@ -1045,6 +1048,7 @@ func _on_packet(peer: ENetPacketPeer, _channel: int, bytes: PackedByteArray) -> 
 		Protocol.Msg.VEHICLE_ACTION: _handle_vehicle_action(peer, bytes)
 		Protocol.Msg.DEPLOY_REQUEST: _handle_deploy_request(peer, bytes)
 		Protocol.Msg.SET_SQUAD: _handle_set_squad(peer, bytes)
+		Protocol.Msg.SET_FIRE_MODE: _handle_set_fire_mode(peer, bytes)
 		_: pass
 
 func _handle_hello(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
@@ -1092,7 +1096,7 @@ func _handle_hello(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
 		"rockets": start_rockets, "last_rocket_tick": -100000,
 		"ammo": Weapon.get_def(wid)["mag_size"],
 		"reloading": false, "reload_done_tick": 0, "last_fire_time": -999.0,
-		"shot_index": 0, "respawn_tick": 0, "auto_deploy": auto_deploy,
+		"shot_index": 0, "fire_mode": Weapon.default_mode(wid), "respawn_tick": 0, "auto_deploy": auto_deploy,
 		"last_build_tick": -100000, "last_grenade_tick": -100000, "known_regions": {},
 		"name": pname, "kills": 0, "deaths": 0, "score": 0, "dmg_ledger": {},
 	}
@@ -1173,6 +1177,13 @@ func _handle_set_squad(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
 	var p: Pawn = _sim.world.get_pawn(id)
 	if p != null:
 		p.squad = target   # replicated via EntityState.squad -> roster/squad-list update next ROSTER
+
+func _handle_set_fire_mode(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
+	var id = _peer_to_id.get(peer, 0)
+	if id == 0 or not _clients.has(id): return
+	var m := Protocol.decode_set_fire_mode(bytes)
+	if Weapon.mode_allowed(int(_clients[id]["weapon"]), m):
+		_clients[id]["fire_mode"] = m
 
 func _handle_input(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
 	var id = _peer_to_id.get(peer, 0)

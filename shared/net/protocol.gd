@@ -41,6 +41,7 @@ enum Msg {
 	SHOT_FX = 28,           ## server -> human clients: cosmetic tracer for a remote pawn's shot (origin+dir)
 	COLLAPSE = 29,          ## server -> clients: a building fully collapsed (building_id) -> rubble swap
 	ROCKET_FX = 30,         ## server -> human clients: an RPG rocket was launched (origin+dir) -> cosmetic flying rocket
+	SET_FIRE_MODE = 31,     ## client -> server: select fire mode (AUTO/SEMI/BURST) for current weapon
 }
 
 const OP_PLACE := 0
@@ -528,3 +529,13 @@ static func decode_death_info(bytes: PackedByteArray) -> Dictionary:
 	for _i in n:
 		attackers.append({"id": r.get_u32(), "dmg": r.get_u16()})
 	return {"killer": killer, "weapon": weapon, "distance": distance, "killer_hp": killer_hp, "attackers": attackers}
+
+
+static func encode_set_fire_mode(mode: int) -> PackedByteArray:
+	var buf := StreamPeerBuffer.new()
+	buf.put_u8(Msg.SET_FIRE_MODE)
+	buf.put_u8(mode & 0xFF)
+	return buf.data_array
+
+static func decode_set_fire_mode(bytes: PackedByteArray) -> int:
+	return bytes[1]
