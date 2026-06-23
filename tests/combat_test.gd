@@ -49,6 +49,19 @@ func test_bipod_prone_zeroes_spread() -> void:
 	var r := Combat.reconstruct_ray(Weapon.AR, Vector3.ZERO, 0.0, 0.0, 0, 1, 1, 0, true, true, _eff(1.0, 1.0, true))
 	assert_almost_eq(r["dir"].dot(Vector3(0, 0, 1)), 1.0, 0.0001, "bipod prone = zero spread, dead-on")
 
+func test_suppression_widens_spread() -> void:
+	# Same seed: a positive suppression spread term must not pull the ray *closer* to forward.
+	var eye := Vector3.ZERO
+	var base_ray := Combat.reconstruct_ray(Weapon.AR, eye, 0.0, 0.0, 0, 7, 11, 3, false, false, {}, 0.0)
+	var supp_ray := Combat.reconstruct_ray(Weapon.AR, eye, 0.0, 0.0, 0, 7, 11, 3, false, false, {}, 2.0)
+	var fwd := Vector3(0, 0, 1)
+	assert_true(supp_ray["dir"].dot(fwd) <= base_ray["dir"].dot(fwd) + 0.0001, "suppression widens (never tightens) spread")
+
+func test_suppression_overridden_by_bipod() -> void:
+	# A deployed bipod zeroes spread even under heavy suppression (bipod wins by design).
+	var r := Combat.reconstruct_ray(Weapon.AR, Vector3.ZERO, 0.0, 0.0, 0, 1, 1, 0, true, true, _eff(1.0, 1.0, true), 2.5)
+	assert_almost_eq(r["dir"].dot(Vector3(0, 0, 1)), 1.0, 0.0001, "bipod overrides suppression")
+
 func test_damage_for_uses_override_range() -> void:
 	# Override range to 10 m; a shot at 50 m should now do 0.
 	var eff := Weapon.effective_def(Weapon.AR, {"spread_mult": 1.0, "recoil_mult": 1.0, "range_mult": 10.0 / float(Weapon.get_def(Weapon.AR)["range_m"]), "move_spread_mult": 1.0, "prone_spread_zero": false})

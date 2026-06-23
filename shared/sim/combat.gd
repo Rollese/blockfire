@@ -15,7 +15,7 @@ static func _seed(shooter_id: int, fire_tick: int, shot_index: int) -> int:
 ## instead of the base when non-empty — this is how loadout attachments reach the shot.
 static func reconstruct_ray(weapon_id: int, eye: Vector3, yaw: float, pitch: float,
 		lean: int, shooter_id: int, fire_tick: int, shot_index: int, moving: bool,
-		prone: bool = false, def: Dictionary = {}) -> Dictionary:
+		prone: bool = false, def: Dictionary = {}, suppression_spread_deg: float = 0.0) -> Dictionary:
 	var w: Dictionary = def if not def.is_empty() else Weapon.get_def(weapon_id)
 	var rng := RandomNumberGenerator.new()
 	rng.seed = _seed(shooter_id, fire_tick, shot_index)
@@ -26,6 +26,9 @@ static func reconstruct_ray(weapon_id: int, eye: Vector3, yaw: float, pitch: flo
 	var spread := deg_to_rad(w["spread_base_deg"] + w["spread_bloom_deg"] * minf(float(shot_index), 6.0))
 	if moving:
 		spread += deg_to_rad(1.5) * float(w.get("move_spread_mult", 1.0))
+	# M5.5-P2: incoming-fire suppression widens spread (gameplay-affecting). A deployed bipod
+	# (prone_spread_zero) still zeroes everything below, so it overrides suppression by design.
+	spread += deg_to_rad(suppression_spread_deg)
 	if prone and bool(w.get("prone_spread_zero", false)):
 		spread = 0.0
 	var ang := rng.randf_range(0.0, TAU)

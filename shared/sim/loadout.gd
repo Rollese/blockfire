@@ -61,6 +61,16 @@ static func can_equip(cls: int, weapon_id: int) -> bool:
 static func default_attachments() -> Dictionary:
 	return {"optic": "iron", "barrel": "standard", "underbarrel": "none_ub"}
 
+## Default armor tier per class (M5.5-P2). Recon was removed (M12-P1), so the four live classes
+## span all three tiers: the mobile Medic runs LIGHT to reach downed teammates, frontline Assault
+## takes MEDIUM, and the durable Engineer/Support take HEAVY. Armor is conceptually its own loadout
+## choice (spec §2); v1 derives it from class so the fleet exercises every tier.
+static func armor_for(cls: int) -> int:
+	match cls:
+		MEDIC: return Armor.LIGHT
+		ENGINEER, SUPPORT: return Armor.HEAVY
+		_: return Armor.MEDIUM   # assault (and any unknown)
+
 static func random_class() -> int:
 	return randi() % 4
 

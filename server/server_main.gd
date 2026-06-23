@@ -134,6 +134,7 @@ var _proj_fired := 0          # projectiles spawned this window
 var _proj_hits := 0           # projectiles that connected with a pawn this window
 var _proj_live_max := 0       # max concurrent live projectiles observed this window
 var _proj_dropped := 0        # spawns refused this window because the pool was at MAX_LIVE_PROJECTILES
+var _suppress_events := 0     # near-miss suppression accruals this window (M5.5-P2)
 var _dbg_last_min_y := INF    # test seam only: lowest y any stepped projectile reached
 var _mines: Array = []        # [{owner, team, pos, facing, armed_after_tick}]
 var _giving: Dictionary = {}   # giver_id -> tick the give began (latched; cleared on STOP/invalid)
@@ -249,6 +250,11 @@ func _physics_process(delta: float) -> void:
 	_resolve_fires()
 	_resolve_vehicle_fires()
 	_step_projectiles()   # bullets spawned by _resolve_fires step in present time (M5.5-P1)
+	# M5.5-P2: decay suppression once per tick, after accrual in _step_projectiles (accrue-then-decay).
+	for sid in _sim.world.pawns:
+		var sp: Pawn = _sim.world.pawns[sid]
+		if sp.suppression > 0.0:
+			sp.suppression = Suppress.decay(sp.suppression)
 	var t_fire := Time.get_ticks_usec()
 	_step_grenades()
 	_step_rockets()
@@ -485,8 +491,9 @@ func _fire_shot(shooter_id: int, shooter: Pawn, inp: Dictionary, shot_index: int
 	var wid: int = _clients[shooter_id]["weapon"]
 	var wdef: Dictionary = _clients[shooter_id]["weapon_def"]
 	var prone: bool = shooter.stance == Stance.PRONE
+	var supp_deg := Suppress.spread_penalty_deg(shooter.suppression)   # M5.5-P2: incoming fire widens our spread
 	var ray := Combat.reconstruct_ray(wid, shooter.eye_position(),
-		inp["yaw"], inp["pitch"], lean_sign, shooter_id, _sim.tick, shot_index, moving, prone, wdef)
+		inp["yaw"], inp["pitch"], lean_sign, shooter_id, _sim.tick, shot_index, moving, prone, wdef, supp_deg)
 
 	# Cosmetic: tell human clients (renderers) about this shot so remote pawns show a tracer.
 	_broadcast_shot_fx(shooter_id, ray["origin"], ray["dir"])
@@ -524,6 +531,13 @@ func _spawn_projectile_for_test(owner: int, wid: int, pos: Vector3, dir: Vector3
 # broadphase) + the structure store (penetration), and on a confirmed pawn hit apply damage. Models on
 # _step_rockets; per-shot `return`s from the old _fire_shot become `continue` (drop one projectile, keep
 # iterating the pool). PRESENT-time resolve — no lag-comp rewind for bullets.
+## Shortest distance from point `p` to segment a→b (for near-miss suppression).
+func _point_seg_dist(p: Vector3, a: Vector3, b: Vector3) -> float:
+	var ab := b - a
+	var denom := ab.length_squared()
+	var t := clampf((p - a).dot(ab) / denom, 0.0, 1.0) if denom > 0.0 else 0.0
+	return p.distance_to(a + ab * t)
+
 func _step_projectiles() -> void:
 	if _projectiles.is_empty():
 		return
@@ -552,8 +566,13 @@ func _step_projectiles() -> void:
 			if tgt.team == int(pr["team"]): continue
 			# Downed pawns are immune (BattleBit-style no finishing): bullet passes through, no hitmarker.
 			if tgt.is_downed: continue
-			# M5.5-P2 seam: near-miss suppression detection goes here (measure segment-to-pawn miss
-			# distance for enemies the bullet does NOT hit, before the hitbox raycast culls them).
+			# M5.5-P2 suppression: a live enemy bullet whose segment passes within SUPPRESS_RADIUS of
+			# the pawn raises its suppression (closer = more), whether or not it lands. Measured against
+			# the segment (point-to-segment distance) so a fast bullet still suppresses across one tick.
+			var miss := _point_seg_dist(tgt.pos, old_pos, nxt)
+			if miss < Suppress.SUPPRESS_RADIUS:
+				tgt.suppression = Suppress.accrue(tgt.suppression, miss)
+				_suppress_events += 1
 			var hit := Hitbox.raycast_pawn(old_pos, seg_dir, tgt.pos, tgt.stance, seg_len)
 			if hit["hit"] and hit["t"] < best_t:
 				best_t = hit["t"]; best_victim = tid; best_head = hit["headshot"]
@@ -704,6 +723,15 @@ func _apply_pawn_damage(vid: int, victim: Pawn, dmg: int, headshot: bool, source
 		killer_id: int, weapon_id: int) -> void:
 	if victim.is_downed:
 		return  # immune to damage while downed
+	# M5.5-P2 armor: scale body damage by the victim's tier; a HEAVY helmet can downgrade a
+	# sub-threshold (finishing) headshot off the instant-kill, routing it through as body damage
+	# (DBNO-eligible). Runs before the HP reduction + is_instant_kill routing below.
+	if headshot:
+		if not Armor.headshot_lethal(victim.armor_class, dmg, victim.health):
+			headshot = false
+			dmg = int(round(float(dmg) * Armor.body_mult(victim.armor_class)))
+	else:
+		dmg = int(round(float(dmg) * Armor.body_mult(victim.armor_class)))
 	victim.health -= dmg
 	if _clients.has(vid):
 		var src: Pawn = _sim.world.get_pawn(killer_id)
@@ -1111,6 +1139,7 @@ func _handle_hello(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
 	p.team = team
 	p.squad = squad
 	p.pos = _select_spawn(id)
+	p.armor_class = Loadout.armor_for(cls)   # M5.5-P2: tier is class-derived, immutable per life
 	p.bandage_count = Revive.bandage_count_for(cls == Loadout.MEDIC)
 	if not auto_deploy:
 		p.alive = false   # held un-deployed until DEPLOY_REQUEST (respawn_tick stays 0)
@@ -1831,8 +1860,8 @@ func _log_telemetry() -> void:
 	var pts := ""
 	for pt in _conquest.points:
 		pts += "." if pt["owner"] == -1 else str(pt["owner"])
-	print("[telemetry] players=%d alive=%d tick_mean=%.2fms tick_p99=%.2fms agg=%.1fMbit/s kills=%d shots=%d hit_rate=%.2f starv=%d rewind_clamped=%d t0=%d t1=%d pts=%s cap_events=%d struct=%d bld=%d rmv=%d blk=%d pen=%d dmg=%d destroyed=%d collapsed=%d nades=%d splash=%d smoke=%d rockets=%d rstruct=%d proj=%d projhit=%d projlive=%d projdrop=%d downed=%d bleedouts=%d revives=%d c4=%d mines=%d heals=%d ammo=%d bags=%d bagx=%d climbs=%d vaults=%d dropblk=%d enters=%d exits=%d veh_dead=%d repairs=%d repair_oh=%d rkt_veh=%d transport_m=%.1f ac_viol=%d swaps=%d"
-		% [n, alive, _tele.mean_tick_ms(), _tele.p99_tick_ms(), mbit, _kills, _shots, hit_rate, _tele.starvation, _rewind_clamped, _conquest.tickets_int(0), _conquest.tickets_int(1), pts, _cap_events, _store.count(), _builds, _removes, _shots_blocked, _pen, _dmg, _destroyed, _collapsed, _nades, _splash_kills, _smokes, _rockets_det, _rstruct, _proj_fired, _proj_hits, _proj_live_max, _proj_dropped, _downed, _bleedouts, _revives, _c4_det, _mine_trips, _heals, _ammo_gives, _bags_thrown, _bags_exhausted, _climbs, _vaults, _drop_shoot_blocked, _enters, _exits, _veh_destroyed, _repairs, _repair_overheats, _rkt_vs_veh, _transport_max, _ac_viol, _swaps])
+	print("[telemetry] players=%d alive=%d tick_mean=%.2fms tick_p99=%.2fms agg=%.1fMbit/s kills=%d shots=%d hit_rate=%.2f starv=%d rewind_clamped=%d t0=%d t1=%d pts=%s cap_events=%d struct=%d bld=%d rmv=%d blk=%d pen=%d dmg=%d destroyed=%d collapsed=%d nades=%d splash=%d smoke=%d rockets=%d rstruct=%d proj=%d projhit=%d projlive=%d projdrop=%d downed=%d bleedouts=%d revives=%d c4=%d mines=%d heals=%d ammo=%d bags=%d bagx=%d climbs=%d vaults=%d dropblk=%d enters=%d exits=%d veh_dead=%d repairs=%d repair_oh=%d rkt_veh=%d transport_m=%.1f ac_viol=%d swaps=%d supp=%d"
+		% [n, alive, _tele.mean_tick_ms(), _tele.p99_tick_ms(), mbit, _kills, _shots, hit_rate, _tele.starvation, _rewind_clamped, _conquest.tickets_int(0), _conquest.tickets_int(1), pts, _cap_events, _store.count(), _builds, _removes, _shots_blocked, _pen, _dmg, _destroyed, _collapsed, _nades, _splash_kills, _smokes, _rockets_det, _rstruct, _proj_fired, _proj_hits, _proj_live_max, _proj_dropped, _downed, _bleedouts, _revives, _c4_det, _mine_trips, _heals, _ammo_gives, _bags_thrown, _bags_exhausted, _climbs, _vaults, _drop_shoot_blocked, _enters, _exits, _veh_destroyed, _repairs, _repair_overheats, _rkt_vs_veh, _transport_max, _ac_viol, _swaps, _suppress_events])
 	var pt := maxi(_phase_ticks, 1)
 	print("[perf] us/tick: poll=%d move=%d veh=%d lag=%d interest=%d fire=%d respawn=%d conquest=%d match=%d snap=%d (ticks=%d)"
 		% [_phase_us["poll"] / pt, _phase_us["move"] / pt, _phase_us["veh"] / pt, _phase_us["lag"] / pt, _phase_us["interest"] / pt, _phase_us["fire"] / pt, _phase_us["respawn"] / pt, _phase_us["conquest"] / pt, _phase_us["match"] / pt, _phase_us["snap"] / pt, _phase_ticks])
@@ -1845,3 +1874,4 @@ func _log_telemetry() -> void:
 	_enters = 0; _exits = 0; _veh_destroyed = 0; _repairs = 0; _repair_overheats = 0; _rkt_vs_veh = 0; _transport_max = 0.0
 	_ac_viol = 0
 	_swaps = 0
+	_suppress_events = 0

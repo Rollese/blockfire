@@ -44,6 +44,8 @@ var vault_from: Vector3 = Vector3.ZERO
 var vault_to: Vector3 = Vector3.ZERO
 var in_vehicle: int = 0    # vehicle id the pawn is seated in (0 = on foot)
 var seat: int = -1         # seat index when in_vehicle != 0
+var armor_class: int = Armor.LIGHT   # M5.5-P2: body-damage + move-speed tier (set from class at spawn)
+var suppression: float = 0.0         # M5.5-P2: 0..1 incoming-fire scalar; widens own spread, decays per tick
 
 func _init(p_id: int = 0) -> void:
 	id = p_id
@@ -81,7 +83,7 @@ func step(dt: float, cmd: Dictionary, world_half: float = WORLD_HALF) -> void:
 	var has_move := move.length() > 0.01
 
 	var sprinting := bool(buttons & InputCommand.BTN_SPRINT) and stance == Stance.STAND and stamina > 0.0 and has_move
-	var speed := Stance.speed(stance) * (SPRINT_MULT if sprinting else 1.0)
+	var speed := Stance.speed(stance) * (SPRINT_MULT if sprinting else 1.0) * Armor.speed_mult(armor_class)
 	velocity.x = move.x * speed
 	velocity.z = move.z * speed
 
