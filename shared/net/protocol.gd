@@ -42,6 +42,7 @@ enum Msg {
 	COLLAPSE = 29,          ## server -> clients: a building fully collapsed (building_id) -> rubble swap
 	ROCKET_FX = 30,         ## server -> human clients: an RPG rocket was launched (origin+dir) -> cosmetic flying rocket
 	SET_FIRE_MODE = 31,     ## client -> server: select fire mode (AUTO/SEMI/BURST) for current weapon
+	SWAP_WEAPON = 32,       ## client -> server: quick-swap to weapon slot (0=primary, 1=secondary)
 }
 
 const OP_PLACE := 0
@@ -538,4 +539,13 @@ static func encode_set_fire_mode(mode: int) -> PackedByteArray:
 	return buf.data_array
 
 static func decode_set_fire_mode(bytes: PackedByteArray) -> int:
+	return bytes[1]
+
+static func encode_swap_weapon(slot: int) -> PackedByteArray:
+	var buf := StreamPeerBuffer.new()
+	buf.put_u8(Msg.SWAP_WEAPON)
+	buf.put_u8(slot & 0xFF)
+	return buf.data_array
+
+static func decode_swap_weapon(bytes: PackedByteArray) -> int:
 	return bytes[1]

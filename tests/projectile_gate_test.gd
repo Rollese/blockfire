@@ -56,3 +56,43 @@ func test_projectile_drops_under_muzzle_line() -> void:
 		srv._step_projectiles()
 	assert_true(srv._dbg_last_min_y < muzzle.y, "horizontal shot dropped below muzzle line under gravity")
 	srv.free()
+
+func test_per_slot_ammo_persists_across_swap() -> void:
+	var srv := _make_server()
+	var c := {
+		"weapon": Weapon.AR, "weapon_def": Weapon.effective_def(Weapon.AR, {}), "class": Loadout.ASSAULT,
+		"ammo": int(Weapon.get_def(Weapon.AR)["mag_size"]), "reloading": false, "reload_done_tick": 0,
+		"last_fire_time": -999.0, "shot_index": 0, "fire_mode": Weapon.default_mode(Weapon.AR),
+		"active_slot": 0, "swap_locked_until": 0,
+	}
+	srv._clients[1] = c
+	srv._build_weapon_slots(c)
+	c["ammo"] = 7                                   # deplete primary
+	srv._sim.tick = 100
+	srv._swap_weapon(1, 1)                           # -> secondary
+	assert_eq(int(c["active_slot"]), 1)
+	assert_eq(int(c["weapon"]), Weapon.PISTOL)
+	assert_eq(int(c["ammo"]), int(Weapon.get_def(Weapon.PISTOL)["mag_size"]), "secondary starts full")
+	c["ammo"] = 3                                   # deplete secondary
+	srv._sim.tick = 200                              # past lockout
+	srv._swap_weapon(1, 0)                           # -> back to primary
+	assert_eq(int(c["weapon"]), Weapon.AR)
+	assert_eq(int(c["ammo"]), 7, "primary ammo preserved across swaps (not refilled)")
+	srv.free()
+
+func test_swap_lockout_blocks_immediate_reswap() -> void:
+	var srv := _make_server()
+	var c := {
+		"weapon": Weapon.AR, "weapon_def": Weapon.effective_def(Weapon.AR, {}), "class": Loadout.ASSAULT,
+		"ammo": 30, "reloading": false, "reload_done_tick": 0, "last_fire_time": -999.0,
+		"shot_index": 0, "fire_mode": Weapon.default_mode(Weapon.AR),
+		"active_slot": 0, "swap_locked_until": 0,
+	}
+	srv._clients[1] = c
+	srv._build_weapon_slots(c)
+	srv._sim.tick = 50
+	srv._swap_weapon(1, 1)
+	assert_eq(int(c["active_slot"]), 1)
+	srv._swap_weapon(1, 0)                           # same tick -> blocked by lockout
+	assert_eq(int(c["active_slot"]), 1, "re-swap blocked during equip lockout")
+	srv.free()

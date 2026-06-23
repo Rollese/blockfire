@@ -45,6 +45,9 @@ const GADGETS_PATH := "res://data/gadgets.json"
 const ATTACHMENTS_PATH := "res://data/attachments.json"
 const VEHICLES_PATH := "res://data/vehicles.json"
 const ENTER_RANGE := 3.0
+const WEAPON_SWAP_TICKS := 12   # equip lockout after a quick-swap (~0.4s @30Hz)
+# The flat per-weapon fields kept as the LIVE state of the active slot; frozen into c["slots"] on swap.
+const _SLOT_FIELDS := ["weapon", "weapon_def", "ammo", "reloading", "reload_done_tick", "last_fire_time", "shot_index", "fire_mode"]
 const RPG_VEHICLE_DMG := 800
 const C4_VEHICLE_DMG := 500
 const FRAG_VEHICLE_DMG := 80
@@ -117,6 +120,7 @@ var _transport_max := 0.0     # max carried distance observed this window
 var _bags_thrown := 0    # bags deployed this window
 var _bags_exhausted := 0 # bags that hit pool 0 and vanished this window
 var _rstruct := 0             # structures hit by rockets this window
+var _swaps := 0               # weapon quick-swaps this window
 var _veh_destroyed := 0
 var _rkt_vs_veh := 0
 var _pending_removes: Array = []   # [{id, cell}] removes awaiting send (degradation queue)
@@ -448,7 +452,8 @@ func _resolve_fires() -> void:
 		var mode: int = int(c.get("fire_mode", Weapon.default_mode(c["weapon"])))
 		var burst: int = int(Weapon.get_def(c["weapon"]).get("burst_count", Weapon.DEFAULT_BURST))
 		var mode_ok: bool = Weapon.fire_allowed(mode, c["shot_index"], burst)
-		if c["reloading"] or c["ammo"] <= 0 or not ready or sprinting or drop_shoot or not mode_ok:
+		var equipping: bool = _sim.tick < int(c.get("swap_locked_until", 0))
+		if c["reloading"] or c["ammo"] <= 0 or not ready or sprinting or drop_shoot or not mode_ok or equipping:
 			if drop_shoot:
 				_drop_shoot_blocked += 1
 			continue
@@ -1049,6 +1054,7 @@ func _on_packet(peer: ENetPacketPeer, _channel: int, bytes: PackedByteArray) -> 
 		Protocol.Msg.DEPLOY_REQUEST: _handle_deploy_request(peer, bytes)
 		Protocol.Msg.SET_SQUAD: _handle_set_squad(peer, bytes)
 		Protocol.Msg.SET_FIRE_MODE: _handle_set_fire_mode(peer, bytes)
+		Protocol.Msg.SWAP_WEAPON: _handle_swap_weapon(peer, bytes)
 		_: pass
 
 func _handle_hello(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
@@ -1097,9 +1103,11 @@ func _handle_hello(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
 		"ammo": Weapon.get_def(wid)["mag_size"],
 		"reloading": false, "reload_done_tick": 0, "last_fire_time": -999.0,
 		"shot_index": 0, "fire_mode": Weapon.default_mode(wid), "respawn_tick": 0, "auto_deploy": auto_deploy,
+		"active_slot": 0, "swap_locked_until": 0,
 		"last_build_tick": -100000, "last_grenade_tick": -100000, "known_regions": {},
 		"name": pname, "kills": 0, "deaths": 0, "score": 0, "dmg_ledger": {},
 	}
+	_build_weapon_slots(_clients[id])
 	var p := _sim.world.spawn(id)
 	p.team = team
 	p.squad = squad
@@ -1184,6 +1192,46 @@ func _handle_set_fire_mode(peer: ENetPacketPeer, bytes: PackedByteArray) -> void
 	var m := Protocol.decode_set_fire_mode(bytes)
 	if Weapon.mode_allowed(int(_clients[id]["weapon"]), m):
 		_clients[id]["fire_mode"] = m
+
+## Build the two weapon slots. Slot 0 = snapshot of the current (primary) flat fields.
+## Slot 1 = a fresh secondary (sidearm) at full ammo, default fire-mode.
+func _build_weapon_slots(c: Dictionary) -> void:
+	var primary := {}
+	for f in _SLOT_FIELDS: primary[f] = c[f]
+	var swid: int = Loadout.secondary_for(int(c["class"]))
+	var sdef: Dictionary = Weapon.effective_def(swid, {})   # secondary has no attachments in v1
+	var secondary := {
+		"weapon": swid, "weapon_def": sdef,
+		"ammo": int(Weapon.get_def(swid)["mag_size"]),
+		"reloading": false, "reload_done_tick": 0, "last_fire_time": -999.0,
+		"shot_index": 0, "fire_mode": Weapon.default_mode(swid),
+	}
+	c["slots"] = [primary, secondary]
+	c["active_slot"] = 0
+
+func _save_active_slot(c: Dictionary) -> void:
+	var slot: Dictionary = c["slots"][int(c["active_slot"])]
+	for f in _SLOT_FIELDS: slot[f] = c[f]
+
+func _load_active_slot(c: Dictionary) -> void:
+	var slot: Dictionary = c["slots"][int(c["active_slot"])]
+	for f in _SLOT_FIELDS: c[f] = slot[f]
+
+func _swap_weapon(id: int, target: int) -> void:
+	if not _clients.has(id): return
+	var c: Dictionary = _clients[id]
+	if target < 0 or target > 1 or target == int(c["active_slot"]): return
+	if _sim.tick < int(c["swap_locked_until"]): return
+	_save_active_slot(c)               # freeze current slot's live state
+	c["active_slot"] = target
+	_load_active_slot(c)               # hydrate flat fields from the target slot
+	c["swap_locked_until"] = _sim.tick + WEAPON_SWAP_TICKS
+	_swaps += 1
+
+func _handle_swap_weapon(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
+	var id = _peer_to_id.get(peer, 0)
+	if id == 0 or not _clients.has(id): return
+	_swap_weapon(id, Protocol.decode_swap_weapon(bytes))
 
 func _handle_input(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
 	var id = _peer_to_id.get(peer, 0)
@@ -1767,8 +1815,8 @@ func _log_telemetry() -> void:
 	var pts := ""
 	for pt in _conquest.points:
 		pts += "." if pt["owner"] == -1 else str(pt["owner"])
-	print("[telemetry] players=%d alive=%d tick_mean=%.2fms tick_p99=%.2fms agg=%.1fMbit/s kills=%d shots=%d hit_rate=%.2f starv=%d rewind_clamped=%d t0=%d t1=%d pts=%s cap_events=%d struct=%d bld=%d rmv=%d blk=%d pen=%d dmg=%d destroyed=%d collapsed=%d nades=%d splash=%d smoke=%d rockets=%d rstruct=%d proj=%d projhit=%d projlive=%d projdrop=%d downed=%d bleedouts=%d revives=%d c4=%d mines=%d heals=%d ammo=%d bags=%d bagx=%d climbs=%d vaults=%d dropblk=%d enters=%d exits=%d veh_dead=%d repairs=%d repair_oh=%d rkt_veh=%d transport_m=%.1f ac_viol=%d"
-		% [n, alive, _tele.mean_tick_ms(), _tele.p99_tick_ms(), mbit, _kills, _shots, hit_rate, _tele.starvation, _rewind_clamped, _conquest.tickets_int(0), _conquest.tickets_int(1), pts, _cap_events, _store.count(), _builds, _removes, _shots_blocked, _pen, _dmg, _destroyed, _collapsed, _nades, _splash_kills, _smokes, _rockets_det, _rstruct, _proj_fired, _proj_hits, _proj_live_max, _proj_dropped, _downed, _bleedouts, _revives, _c4_det, _mine_trips, _heals, _ammo_gives, _bags_thrown, _bags_exhausted, _climbs, _vaults, _drop_shoot_blocked, _enters, _exits, _veh_destroyed, _repairs, _repair_overheats, _rkt_vs_veh, _transport_max, _ac_viol])
+	print("[telemetry] players=%d alive=%d tick_mean=%.2fms tick_p99=%.2fms agg=%.1fMbit/s kills=%d shots=%d hit_rate=%.2f starv=%d rewind_clamped=%d t0=%d t1=%d pts=%s cap_events=%d struct=%d bld=%d rmv=%d blk=%d pen=%d dmg=%d destroyed=%d collapsed=%d nades=%d splash=%d smoke=%d rockets=%d rstruct=%d proj=%d projhit=%d projlive=%d projdrop=%d downed=%d bleedouts=%d revives=%d c4=%d mines=%d heals=%d ammo=%d bags=%d bagx=%d climbs=%d vaults=%d dropblk=%d enters=%d exits=%d veh_dead=%d repairs=%d repair_oh=%d rkt_veh=%d transport_m=%.1f ac_viol=%d swaps=%d"
+		% [n, alive, _tele.mean_tick_ms(), _tele.p99_tick_ms(), mbit, _kills, _shots, hit_rate, _tele.starvation, _rewind_clamped, _conquest.tickets_int(0), _conquest.tickets_int(1), pts, _cap_events, _store.count(), _builds, _removes, _shots_blocked, _pen, _dmg, _destroyed, _collapsed, _nades, _splash_kills, _smokes, _rockets_det, _rstruct, _proj_fired, _proj_hits, _proj_live_max, _proj_dropped, _downed, _bleedouts, _revives, _c4_det, _mine_trips, _heals, _ammo_gives, _bags_thrown, _bags_exhausted, _climbs, _vaults, _drop_shoot_blocked, _enters, _exits, _veh_destroyed, _repairs, _repair_overheats, _rkt_vs_veh, _transport_max, _ac_viol, _swaps])
 	var pt := maxi(_phase_ticks, 1)
 	print("[perf] us/tick: poll=%d move=%d veh=%d lag=%d interest=%d fire=%d respawn=%d conquest=%d match=%d snap=%d (ticks=%d)"
 		% [_phase_us["poll"] / pt, _phase_us["move"] / pt, _phase_us["veh"] / pt, _phase_us["lag"] / pt, _phase_us["interest"] / pt, _phase_us["fire"] / pt, _phase_us["respawn"] / pt, _phase_us["conquest"] / pt, _phase_us["match"] / pt, _phase_us["snap"] / pt, _phase_ticks])
@@ -1780,3 +1828,4 @@ func _log_telemetry() -> void:
 	_dmg = 0; _destroyed = 0; _collapsed = 0; _nades = 0; _splash_kills = 0; _smokes = 0; _rockets_det = 0; _rstruct = 0; _proj_fired = 0; _proj_hits = 0; _proj_live_max = 0; _proj_dropped = 0; _dbg_last_min_y = INF; _downed = 0; _bleedouts = 0; _revives = 0; _c4_det = 0; _mine_trips = 0; _heals = 0; _ammo_gives = 0; _bags_thrown = 0; _bags_exhausted = 0; _climbs = 0; _vaults = 0; _drop_shoot_blocked = 0
 	_enters = 0; _exits = 0; _veh_destroyed = 0; _repairs = 0; _repair_overheats = 0; _rkt_vs_veh = 0; _transport_max = 0.0
 	_ac_viol = 0
+	_swaps = 0
