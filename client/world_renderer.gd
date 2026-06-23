@@ -793,9 +793,18 @@ func _make_entity_mesh() -> Node3D:
 func _make_structure_node(rec: Dictionary) -> Node3D:
 	var type_idx: int = int(rec.get("type", 0))
 	var piece_id: String = STRUCT_TYPE_ID[type_idx] if type_idx < STRUCT_TYPE_ID.size() else "wall"
-	# M11: building piece ids ("b*" + prop_crate) come from BuildingKit; fortifications from StructureKit.
-	if piece_id.begins_with("b") or piece_id == "prop_crate":
-		return BuildingKit.build(piece_id, _bucket_of(rec))
+	# M11: building piece ids ("b*") + interior props ("prop_*") come from BuildingKit; player-built
+	# fortifications (wall/sandbag) from StructureKit. NOTE: StructureKit only knows wall/sandbag, so
+	# every prop except prop_crate used to fall through to a 2.4 m concrete WALL — route all prop_* here.
+	if piece_id.begins_with("b") or piece_id.begins_with("prop_"):
+		# Ground-floor perimeter walls/columns + interior props carry a floor-skirt slab so the deck
+		# reaches the walls and props sit on a floor (closes the floor-to-wall gap + the under-prop gap).
+		# Only at the ground deck (cell.y == 0) — upper solid-wall bands have no walkable deck, so a skirt
+		# there would float inside the building.
+		var cell: Vector3i = rec["cell"] as Vector3i
+		var skirt := cell.y == 0 and (piece_id.begins_with("bwall") or piece_id == "bcolumn" \
+			or piece_id.begins_with("prop_"))
+		return BuildingKit.build(piece_id, _bucket_of(rec), skirt)
 	return StructureKit.build(piece_id, _bucket_of(rec))
 
 

@@ -40,6 +40,14 @@ Run it: `/tmp/shotfull.sh <name>` (recreate from this runbook if gone — it mir
 passes `--full=true`, which makes `building_preview.tscn` render `{n,ne,e,se,s,sw,w,nw,top,iso}`).
 Pulls `/tmp/pf_<name>_<view>.png`. Then **Read every one** and check:
 
+**Inspecting the interior floor:** the roof slab hides the ground floor from a top/iso view. Add
+`--noroof=true` to drop the top `bfloor` slab so `top`/`iso` expose the interior floor coverage —
+this is how you verify the floor reaches the walls and props sit on a deck. `--skirt=true` (default,
+mirrors the game) adds the floor-skirt slab the renderer puts under ground-level perimeter
+walls/columns + interior props (concrete foundation tone under walls, wood under props); pass
+`--skirt=false` to see the raw per-cell floor (the grass ring inside the walls = the gap the skirt
+closes).
+
 - [ ] **Corners close** on all four sides (no see-through gap where two walls should meet).
 - [ ] **No missing faces** — every exterior wall cell carries a piece; no open backside.
 - [ ] **Ground floor present** — building sits on a floor slab, not floating over / sunk into grass.
