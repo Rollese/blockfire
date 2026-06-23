@@ -129,6 +129,7 @@ var _projectiles: Array = []  # [{owner, team, weapon_id, wdef, pos, vel, spawn_
 var _proj_fired := 0          # projectiles spawned this window
 var _proj_hits := 0           # projectiles that connected with a pawn this window
 var _proj_live_max := 0       # max concurrent live projectiles observed this window
+var _proj_dropped := 0        # spawns refused this window because the pool was at MAX_LIVE_PROJECTILES
 var _dbg_last_min_y := INF    # test seam only: lowest y any stepped projectile reached
 var _mines: Array = []        # [{owner, team, pos, facing, armed_after_tick}]
 var _giving: Dictionary = {}   # giver_id -> tick the give began (latched; cleared on STOP/invalid)
@@ -487,20 +488,28 @@ func _fire_shot(shooter_id: int, shooter: Pawn, inp: Dictionary, shot_index: int
 	# resolved later in _step_projectiles (broadphase + penetration + _apply_pawn_damage + hitmarker).
 	var wmv: float = float(wdef["muzzle_velocity"])
 	if _projectiles.size() < MAX_LIVE_PROJECTILES:
+		# Store the scalars _step_projectiles uses, not the wdef ref — the projectile is conceptually
+		# shared with the future M7 client tracer, which has no server def dict (self-contained).
 		_projectiles.append({
-			"owner": shooter_id, "team": shooter.team, "weapon_id": wid, "wdef": wdef,
+			"owner": shooter_id, "team": shooter.team, "weapon_id": wid,
+			"gravity_scale": float(wdef["gravity_scale"]), "range_m": float(wdef["range_m"]),
+			"damage_body": int(wdef["damage_body"]), "headshot_mult": float(wdef["headshot_mult"]),
 			"pos": ray["origin"], "vel": Projectile.initial_velocity(ray["dir"], wmv),
 			"spawn_tick": _sim.tick, "dist": 0.0, "ttl": Weapon.projectile_ttl_ticks(wid),
 		})
 		_proj_fired += 1
+	else:
+		_proj_dropped += 1
 
 # Test seam: spawn a projectile for a known owner/weapon/dir without going through input/loadout.
 # Used by tests/projectile_gate_test.gd; never called in production.
 func _spawn_projectile_for_test(owner: int, wid: int, pos: Vector3, dir: Vector3) -> void:
 	var p: Pawn = _sim.world.get_pawn(owner)
+	var wdef: Dictionary = Weapon.get_def(wid)
 	_projectiles.append({"owner": owner, "team": (p.team if p else 0), "weapon_id": wid,
-		"wdef": Weapon.get_def(wid), "pos": pos,
-		"vel": Projectile.initial_velocity(dir, float(Weapon.get_def(wid)["muzzle_velocity"])),
+		"gravity_scale": float(wdef["gravity_scale"]), "range_m": float(wdef["range_m"]),
+		"damage_body": int(wdef["damage_body"]), "headshot_mult": float(wdef["headshot_mult"]),
+		"pos": pos, "vel": Projectile.initial_velocity(dir, float(wdef["muzzle_velocity"])),
 		"spawn_tick": _sim.tick, "dist": 0.0, "ttl": Weapon.projectile_ttl_ticks(wid)})
 
 # Integrate each live bullet one tick, raycast its per-tick segment against enemy pawns (interest-grid
@@ -513,9 +522,8 @@ func _step_projectiles() -> void:
 	var still: Array = []
 	for pr in _projectiles:
 		var wid: int = int(pr["weapon_id"])
-		var wdef: Dictionary = pr["wdef"]
-		var max_range: float = float(wdef["range_m"])
-		var gscale: float = float(wdef["gravity_scale"])
+		var max_range: float = float(pr["range_m"])
+		var gscale: float = float(pr["gravity_scale"])
 		var old_pos: Vector3 = pr["pos"]
 		var s := Projectile.integrate(old_pos, pr["vel"], gscale, SimLoop.DT)
 		var nxt: Vector3 = s["pos"]
@@ -543,10 +551,15 @@ func _step_projectiles() -> void:
 				best_t = hit["t"]; best_victim = tid; best_head = hit["headshot"]
 
 		# Enemy hit damage (incl. headshot/range over total distance flown). Penetration scales it.
+		# Reconstruct the minimal def from the projectile's captured scalars so attachment-modified
+		# falloff/headshot are preserved without holding a wdef ref.
 		var enemy_dmg := 0
 		if best_victim != 0:
-			enemy_dmg = Combat.damage_for(wid, best_head, float(pr["dist"]) + best_t, wdef)
-		var body_dmg := int(wdef["damage_body"])
+			# beyond weapon range -> 0 dmg -> bullet consumed silently (range falloff)
+			enemy_dmg = Combat.damage_for(wid, best_head, float(pr["dist"]) + best_t,
+				{"range_m": float(pr["range_m"]), "damage_body": int(pr["damage_body"]),
+				"headshot_mult": float(pr["headshot_mult"])})
+		var body_dmg := int(pr["damage_body"])
 
 		# Cover / penetration: a structure strictly nearer than the enemy along THIS segment.
 		if _store.count() > 0 and seg_len > 0.0001:
@@ -1743,8 +1756,8 @@ func _log_telemetry() -> void:
 	var pts := ""
 	for pt in _conquest.points:
 		pts += "." if pt["owner"] == -1 else str(pt["owner"])
-	print("[telemetry] players=%d alive=%d tick_mean=%.2fms tick_p99=%.2fms agg=%.1fMbit/s kills=%d shots=%d hit_rate=%.2f starv=%d rewind_clamped=%d t0=%d t1=%d pts=%s cap_events=%d struct=%d bld=%d rmv=%d blk=%d pen=%d dmg=%d destroyed=%d collapsed=%d nades=%d splash=%d smoke=%d rockets=%d rstruct=%d proj=%d projhit=%d projlive=%d downed=%d bleedouts=%d revives=%d c4=%d mines=%d heals=%d ammo=%d bags=%d bagx=%d climbs=%d vaults=%d dropblk=%d enters=%d exits=%d veh_dead=%d repairs=%d repair_oh=%d rkt_veh=%d transport_m=%.1f ac_viol=%d"
-		% [n, alive, _tele.mean_tick_ms(), _tele.p99_tick_ms(), mbit, _kills, _shots, hit_rate, _tele.starvation, _rewind_clamped, _conquest.tickets_int(0), _conquest.tickets_int(1), pts, _cap_events, _store.count(), _builds, _removes, _shots_blocked, _pen, _dmg, _destroyed, _collapsed, _nades, _splash_kills, _smokes, _rockets_det, _rstruct, _proj_fired, _proj_hits, _proj_live_max, _downed, _bleedouts, _revives, _c4_det, _mine_trips, _heals, _ammo_gives, _bags_thrown, _bags_exhausted, _climbs, _vaults, _drop_shoot_blocked, _enters, _exits, _veh_destroyed, _repairs, _repair_overheats, _rkt_vs_veh, _transport_max, _ac_viol])
+	print("[telemetry] players=%d alive=%d tick_mean=%.2fms tick_p99=%.2fms agg=%.1fMbit/s kills=%d shots=%d hit_rate=%.2f starv=%d rewind_clamped=%d t0=%d t1=%d pts=%s cap_events=%d struct=%d bld=%d rmv=%d blk=%d pen=%d dmg=%d destroyed=%d collapsed=%d nades=%d splash=%d smoke=%d rockets=%d rstruct=%d proj=%d projhit=%d projlive=%d projdrop=%d downed=%d bleedouts=%d revives=%d c4=%d mines=%d heals=%d ammo=%d bags=%d bagx=%d climbs=%d vaults=%d dropblk=%d enters=%d exits=%d veh_dead=%d repairs=%d repair_oh=%d rkt_veh=%d transport_m=%.1f ac_viol=%d"
+		% [n, alive, _tele.mean_tick_ms(), _tele.p99_tick_ms(), mbit, _kills, _shots, hit_rate, _tele.starvation, _rewind_clamped, _conquest.tickets_int(0), _conquest.tickets_int(1), pts, _cap_events, _store.count(), _builds, _removes, _shots_blocked, _pen, _dmg, _destroyed, _collapsed, _nades, _splash_kills, _smokes, _rockets_det, _rstruct, _proj_fired, _proj_hits, _proj_live_max, _proj_dropped, _downed, _bleedouts, _revives, _c4_det, _mine_trips, _heals, _ammo_gives, _bags_thrown, _bags_exhausted, _climbs, _vaults, _drop_shoot_blocked, _enters, _exits, _veh_destroyed, _repairs, _repair_overheats, _rkt_vs_veh, _transport_max, _ac_viol])
 	var pt := maxi(_phase_ticks, 1)
 	print("[perf] us/tick: poll=%d move=%d veh=%d lag=%d interest=%d fire=%d respawn=%d conquest=%d match=%d snap=%d (ticks=%d)"
 		% [_phase_us["poll"] / pt, _phase_us["move"] / pt, _phase_us["veh"] / pt, _phase_us["lag"] / pt, _phase_us["interest"] / pt, _phase_us["fire"] / pt, _phase_us["respawn"] / pt, _phase_us["conquest"] / pt, _phase_us["match"] / pt, _phase_us["snap"] / pt, _phase_ticks])
@@ -1753,6 +1766,6 @@ func _log_telemetry() -> void:
 	_tele.reset_window()
 	_kills = 0; _shots = 0; _hits = 0; _rewind_clamped = 0; _cap_events = 0
 	_builds = 0; _removes = 0; _shots_blocked = 0; _pen = 0
-	_dmg = 0; _destroyed = 0; _collapsed = 0; _nades = 0; _splash_kills = 0; _smokes = 0; _rockets_det = 0; _rstruct = 0; _proj_fired = 0; _proj_hits = 0; _proj_live_max = 0; _downed = 0; _bleedouts = 0; _revives = 0; _c4_det = 0; _mine_trips = 0; _heals = 0; _ammo_gives = 0; _bags_thrown = 0; _bags_exhausted = 0; _climbs = 0; _vaults = 0; _drop_shoot_blocked = 0
+	_dmg = 0; _destroyed = 0; _collapsed = 0; _nades = 0; _splash_kills = 0; _smokes = 0; _rockets_det = 0; _rstruct = 0; _proj_fired = 0; _proj_hits = 0; _proj_live_max = 0; _proj_dropped = 0; _dbg_last_min_y = INF; _downed = 0; _bleedouts = 0; _revives = 0; _c4_det = 0; _mine_trips = 0; _heals = 0; _ammo_gives = 0; _bags_thrown = 0; _bags_exhausted = 0; _climbs = 0; _vaults = 0; _drop_shoot_blocked = 0
 	_enters = 0; _exits = 0; _veh_destroyed = 0; _repairs = 0; _repair_overheats = 0; _rkt_vs_veh = 0; _transport_max = 0.0
 	_ac_viol = 0
