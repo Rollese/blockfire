@@ -25,6 +25,13 @@ static func projectile_ttl_ticks(weapon_id: int) -> int:
 	var secs := float(d["range_m"]) / maxf(1.0, float(d["muzzle_velocity"]))
 	return clampi(int(ceil(secs * 30.0)) + 4, 1, 150)
 
+## Short display label for a fire mode (HUD indicator). Unknown -> "SEMI".
+static func mode_name(mode: int) -> String:
+	match mode:
+		MODE_AUTO: return "AUTO"
+		MODE_BURST: return "BURST"
+		_: return "SEMI"
+
 static func default_mode(weapon_id: int) -> int:
 	var modes: Array = get_def(weapon_id)["fire_modes"]
 	return int(modes[0]) if not modes.is_empty() else MODE_SEMI

@@ -7,6 +7,10 @@ func test_ammo_from_weapon_predictor() -> void:
 	assert_eq(out["ammo"]["mag"], 7)
 	assert_false(out["ammo"]["reloading"])
 	assert_true(out["ammo"]["low"], "7 of 30 is low ammo")
+	assert_eq(out["ammo"]["fire_mode"], Weapon.mode_name(wp.fire_mode), "ammo block surfaces the fire-mode glyph")
+	wp.cycle_fire_mode()
+	var out2 := m.build({"weapon_predictor": wp, "tick": 0})
+	assert_eq(out2["ammo"]["fire_mode"], Weapon.mode_name(wp.fire_mode), "glyph tracks the cycled mode")
 
 func test_compass_relative_bearing_to_objective() -> void:
 	var m := HudModel.new()

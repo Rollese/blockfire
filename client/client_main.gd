@@ -462,6 +462,12 @@ func _process(_dt: float) -> void:
 		if Input.is_action_just_pressed("throwable_cycle"):
 			_hud_model.cycle_throwable(_throwables.size())
 
+		# Fire-mode select (V): cycle the predicted mode + tell the server so its gating matches.
+		if Input.is_action_just_pressed("fire_select"):
+			var new_mode: int = _wpred.cycle_fire_mode()
+			_net.send_to(_peer, NetHost.CHANNEL_CONTROL,
+				Protocol.encode_set_fire_mode(new_mode), ENetPacketPeer.FLAG_RELIABLE)
+
 		# Throw: send grenade or RPG based on active throwable kind
 		if Input.is_action_just_pressed("throw"):
 			var throwables_model: Dictionary = _model.get("throwables", {})
