@@ -81,6 +81,8 @@ var _suppress_qa_on := true         # in suppress-test, gates the forced FX (A/B
 var _armor_demo := false            # --armor-demo: pin 3 armor-tier dummy soldiers in front of the camera
 var _boom_test := false             # --boom-test: pump frag explosions in front of the camera (visual QA)
 var _corpse_test := false           # --corpse-test: lay a few corpses in front of the camera (visual QA)
+var _swing_test := false            # --swing-test: hold the viewmodel mid-swing for a visual QA shot
+var _active_slot := 0               # client-tracked weapon slot (0=primary/1=secondary) for quick-swap toggle
 var _shot_after := -1.0           # --shot-after=N: auto-save a screenshot N secs after launch, then quit
 var _shot_done := false
 var _shot_count := 0              # makes auto-screenshot filenames unique within the same second
@@ -110,6 +112,7 @@ func configure(args: Dictionary) -> void:
 	_armor_demo = args.has("armor-demo")            # visual QA: pin LIGHT/MEDIUM/HEAVY dummies in view
 	_boom_test = args.has("boom-test")              # visual QA: pump frag explosions in front of camera
 	_corpse_test = args.has("corpse-test")          # visual QA: lay corpses in front of camera
+	_swing_test = args.has("swing-test")            # visual QA: hold the viewmodel mid-swing
 	_shot_after = float(args.get("shot-after", -1.0))  # automated screenshot then quit
 
 # ---- _ready -----------------------------------------------------------------
@@ -474,6 +477,19 @@ func _process(_dt: float) -> void:
 			_net.send_to(_peer, NetHost.CHANNEL_CONTROL,
 				Protocol.encode_set_fire_mode(new_mode), ENetPacketPeer.FLAG_RELIABLE)
 
+		# Quick melee (C): send the swing + play the viewmodel swing. Server resolves the hit.
+		if Input.is_action_just_pressed("melee"):
+			_net.send_to(_peer, NetHost.CHANNEL_CONTROL, Protocol.encode_melee(), ENetPacketPeer.FLAG_RELIABLE)
+			if _renderer != null:
+				_renderer.play_viewmodel_swing(_elapsed)
+
+		# Quick-swap primary/secondary (mouse wheel): toggle the slot; the swap anim plays when the
+		# weapon actually changes (SELF_STATE → set_viewmodel_weapon), so client and server stay in step.
+		if Input.is_action_just_pressed("swap_weapon"):
+			_active_slot = 1 - _active_slot
+			_net.send_to(_peer, NetHost.CHANNEL_CONTROL,
+				Protocol.encode_swap_weapon(_active_slot), ENetPacketPeer.FLAG_RELIABLE)
+
 		# Throw: send grenade or RPG based on active throwable kind
 		if Input.is_action_just_pressed("throw"):
 			var throwables_model: Dictionary = _model.get("throwables", {})
@@ -750,6 +766,7 @@ func _build_scene() -> void:
 	_renderer.armor_demo = _armor_demo   # --armor-demo: pin armor-tier dummies for a QA screenshot
 	_renderer.boom_demo = _boom_test     # --boom-test: pump explosions for a QA screenshot
 	_renderer.corpse_demo = _corpse_test # --corpse-test: lay corpses for a QA screenshot
+	_renderer.vm_swing_test = _swing_test # --swing-test: freeze the viewmodel mid-swing
 
 	# HUD layer
 	var hud_layer: CanvasLayer = world_node.get_node("HUD") as CanvasLayer

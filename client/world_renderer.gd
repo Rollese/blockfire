@@ -105,6 +105,12 @@ var _building_centroid: Dictionary = {}
 # viewmodel box (optional placeholder)
 var _viewmodel: Node3D = null
 var _viewmodel_weapon: int = -1   # currently-built viewmodel weapon id; rebuild on change
+# first-person viewmodel animation (M7): swing (melee) + swap (weapon change), procedural offsets.
+var _vm_anim_kind: int = -1       # -1 = none; else ViewmodelAnim.SWING/SWAP
+var _vm_anim_start: float = 0.0
+var _vm_anim_dur: float = 0.0
+var _now: float = 0.0             # cached update() time, so set_viewmodel_weapon can start an anim
+var vm_swing_test := false        # --swing-test: hold the viewmodel mid-swing for a QA screenshot
 
 
 # =============================================================================
@@ -238,11 +244,45 @@ func set_viewmodel_hidden(h: bool) -> void:
 func set_viewmodel_weapon(weapon_id: int) -> void:
 	if weapon_id == _viewmodel_weapon or _camera == null:
 		return
+	var had_prev := _viewmodel != null
 	_viewmodel_weapon = weapon_id
 	if _viewmodel != null:
 		_viewmodel.queue_free()
 	_viewmodel = build_viewmodel(weapon_id)
 	_camera.add_child(_viewmodel)
+	if had_prev:
+		play_viewmodel_swap(_now)   # the new weapon rises into view (skip the very first build)
+
+
+## Start a melee-swing viewmodel animation (a quick forward bash/slash). Called when the player melees.
+func play_viewmodel_swing(now: float) -> void:
+	_vm_anim_kind = ViewmodelAnim.SWING
+	_vm_anim_start = now
+	_vm_anim_dur = ViewmodelAnim.SWING_DUR
+
+
+## Start a weapon-swap viewmodel animation (the gun rises into view from lowered).
+func play_viewmodel_swap(now: float) -> void:
+	_vm_anim_kind = ViewmodelAnim.SWAP
+	_vm_anim_start = now
+	_vm_anim_dur = ViewmodelAnim.SWAP_DUR
+
+
+## Apply the active viewmodel animation offset on top of the base placement, each frame.
+func _pose_viewmodel(now: float) -> void:
+	if _viewmodel == null:
+		return
+	var off := {"pos": Vector3.ZERO, "rot": Vector3.ZERO}
+	if vm_swing_test:
+		off = ViewmodelAnim.sample(ViewmodelAnim.SWING, 0.45)   # frozen mid-slash for the screenshot
+	elif _vm_anim_kind >= 0:
+		var t := (now - _vm_anim_start) / _vm_anim_dur
+		if t >= 1.0:
+			_vm_anim_kind = -1   # done → back to rest
+		else:
+			off = ViewmodelAnim.sample(_vm_anim_kind, t)
+	_viewmodel.position = VM_OFFSET + (off["pos"] as Vector3)
+	_viewmodel.rotation = Vector3(0.0, VM_YAW, 0.0) + (off["rot"] as Vector3)
 
 
 ## First-person weapon viewmodel: a GlbWeaponKit weapon placed at the camera-space offset and yawed
@@ -264,6 +304,7 @@ func update(world_view: WorldView, predictor: Prediction, now: float, fov: float
 		render_delta: float = 0.0) -> void:
 	if world_view == null or predictor == null:
 		return
+	_now = now
 
 	# 1. Entity pool update. Friend/foe is shown by a marker above friendlies (BattleBit-style),
 	# not by body colour — so we need the local player's team. self_state() is the local pawn's
@@ -283,6 +324,7 @@ func update(world_view: WorldView, predictor: Prediction, now: float, fov: float
 
 	# 3. Camera from prediction (position) + client look (rotation)
 	_apply_camera(predictor, fov, look_yaw, look_pitch, eye)
+	_pose_viewmodel(now)   # apply any active swing/swap animation on top of the base placement
 
 	# 4. Age out shot tracers + integrate cosmetic rockets + explosions
 	_age_tracers(now)
