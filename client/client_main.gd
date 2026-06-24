@@ -75,6 +75,9 @@ const RESPAWN_COOLDOWN_S := 5.0             # mirrors server RESPAWN_DELAY_TICKS
 var _match_state: Dictionary = {}
 var _auto_deploy_ref: int = -1    # --deploy=N arg; -1 = not set
 var _auto_deploy_sent := false    # only send once
+var _flash_test := false          # --flash-test: force the flashbang white-out on (visual QA)
+var _shot_after := -1.0           # --shot-after=N: auto-save a screenshot N secs after launch, then quit
+var _shot_done := false
 var _dbg_accum := 0.0             # 1 Hz input/deploy diagnostic accumulator
 var _novsync := false             # --novsync: disable vsync (perf diagnostic)
 var _map_path: String = MAP_PATH  # --map=<name> overrides (must match server + bots)
@@ -83,6 +86,7 @@ var _map_path: String = MAP_PATH  # --map=<name> overrides (must match server + 
 var _throwables: Array = []        # latest throwable list from SELF_STATE
 var _being_revived: bool = false   # latest "a teammate is reviving me" flag from SELF_STATE
 var _suppression: float = 0.0      # latest own-suppression scalar from SELF_STATE (M5.5-P2; M7 screen FX)
+var _blind_ticks: int = 0          # latest remaining flashbang-blind ticks from SELF_STATE (M5.5-P3 white-out)
 var _revive_hold: float = 0.0      # seconds the interact key has been held on a revive target
 
 # ---- configure (called by bootstrap before add_child) -----------------------
@@ -95,6 +99,8 @@ func configure(args: Dictionary) -> void:
 	_novsync = args.has("novsync")
 	if args.has("map"):
 		_map_path = "res://maps/%s.json" % String(args["map"])
+	_flash_test = args.has("flash-test")            # visual QA: force the flashbang white-out
+	_shot_after = float(args.get("shot-after", -1.0))  # automated screenshot then quit
 
 # ---- _ready -----------------------------------------------------------------
 func _ready() -> void:
@@ -307,6 +313,11 @@ func _fly_photo_camera(dt: float) -> void:
 # ---- render frame -----------------------------------------------------------
 func _process(_dt: float) -> void:
 	_poll_screenshot_key()   # F12/F9 screenshot — works even before the scene is built
+	# --shot-after=N: automated visual QA — save one screenshot N secs after launch, then quit.
+	if _shot_after >= 0.0 and not _shot_done and _scene_built and _elapsed >= _shot_after:
+		_shot_done = true
+		_save_screenshot()
+		get_tree().create_timer(0.5).timeout.connect(func() -> void: get_tree().quit())
 	if not _scene_built:
 		return
 	_poll_photo_mode()       # F8 free-fly toggle (camera exists once the scene is built)
@@ -387,6 +398,13 @@ func _process(_dt: float) -> void:
 		# Hide the alive-only combat HUD (ammo + throwable selector) while downed/dead/deploying.
 		var hs: EntityState = _wv.self_state()
 		_hud_view.set_alive_hud(hs != null and hs.alive and not hs.is_downed)
+		# M5.5-P3 flashbang white-out from the SELF_STATE blind byte (cleared on death/deploy).
+		# --flash-test forces a strong-but-translucent veil so the world shows through (visual QA).
+		var blinded := hs != null and hs.alive and not hs.is_downed
+		if _flash_test:
+			_hud_view.set_blind(0.75)
+		else:
+			_hud_view.set_blind(HudModel.blind_intensity(_blind_ticks) if blinded else 0.0)
 
 	# ---- C3: revive intent (no self-recovery — a teammate must revive you, BattleBit-style) ----
 	var sss: EntityState = _wv.self_state()
@@ -662,6 +680,7 @@ func _handle_self_state(bytes: PackedByteArray) -> void:
 	_throwables = d.get("throwables", [])
 	_being_revived = bool(d.get("being_revived", false))   # downed-screen "being revived" indicator
 	_suppression = float(d.get("suppression", 0.0))        # M5.5-P2: own suppression (M7 renders screen FX)
+	_blind_ticks = int(d.get("blind_ticks", 0))            # M5.5-P3: remaining flashbang-blind ticks (white-out)
 
 # ---- MATCH_STATE ------------------------------------------------------------
 func _handle_match_state(bytes: PackedByteArray) -> void:

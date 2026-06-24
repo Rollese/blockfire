@@ -6,6 +6,13 @@ extends RefCounted
 const LOW_AMMO_FRAC := 0.34
 const KILLFEED_TTL := 6.0
 const DAMAGE_TTL := 1.5
+const BLIND_FULL_TICKS := 45.0   # remaining-blind ticks at/above which the flash white-out is opaque
+
+## Flashbang white-out opacity (0..1) from the SELF_STATE remaining-blind-ticks byte (M5.5-P3).
+## Saturated white while ≥ BLIND_FULL_TICKS remain, then a linear fade over the final tail — so a
+## flash holds full white for ~1.5s and clears over ~1.5s (FLASH_BLIND_TICKS=90 @30Hz).
+static func blind_intensity(blind_ticks: int) -> float:
+	return clampf(float(blind_ticks) / BLIND_FULL_TICKS, 0.0, 1.0)
 var _killfeed: Array = []   # [{killer,victim,headshot,weapon,t}]
 var _damages: Array = []   # [{bearing,amount,t}]
 var _throwable_active: int = 0

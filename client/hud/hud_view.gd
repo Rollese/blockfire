@@ -30,6 +30,7 @@ var _cap_bar: ColorRect           # capture progress bar background
 var _cap_fill: ColorRect          # capture progress fill
 var _killfeed_labels: Array[Label] = []
 var _vignette: ColorRect
+var _blind_overlay: ColorRect     # M5.5-P3 flashbang white-out (topmost; alpha = blind intensity)
 var _arc_pool: Array[Control] = []
 var _prompt_label: Label          # placeholder interaction hook
 var _hitmarker: _Hitmarker        # brief crosshair flash when your shot lands
@@ -148,6 +149,7 @@ func _build_tree() -> void:
 	_build_squad_menu()
 	_build_scoreboard()   # last: highest z-order so it overlays everything
 	_build_perf()
+	_build_blind()        # truly last: a flashbang white-out covers even the HUD/scoreboard
 
 
 func _build_crosshair() -> void:
@@ -315,6 +317,23 @@ func _build_vignette() -> void:
 	_vignette.color = Color(0.9, 0.05, 0.05, 0.0)
 	_vignette.mouse_filter = MOUSE_FILTER_IGNORE
 	add_child(_vignette)
+
+
+func _build_blind() -> void:
+	# Full-screen white overlay whose alpha encodes flashbang blind intensity (M5.5-P3). Built last
+	# so it covers everything, including the HUD, when you are fully flashed.
+	_blind_overlay = ColorRect.new()
+	_blind_overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_blind_overlay.color = Color(1, 1, 1, 0.0)
+	_blind_overlay.mouse_filter = MOUSE_FILTER_IGNORE
+	add_child(_blind_overlay)
+
+
+## Set the flashbang white-out opacity (0..1). Safe before _ready() (lazy-inits the tree).
+func set_blind(intensity: float) -> void:
+	if _blind_overlay == null:
+		_build_tree()
+	_blind_overlay.color.a = clampf(intensity, 0.0, 1.0)
 
 
 func _build_damage_arcs() -> void:
