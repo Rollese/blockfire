@@ -123,6 +123,10 @@ The green fps/draws/vram perf readout was always on screen with no way to hide i
 
 Capture points and bases rendered as a big **solid-color filled cylinder disc** (`_make_cylinder_marker`, base = `b_radius*0.4` wide), so deploying at HQ filled the lower half of the screen with a flat blue blob and markers read as blobs, not zones. Replaced with a flat ground **ring** (`_make_ring_marker`, `TorusMesh` lies in XZ) at the **true** capture/base radius — BattleBit zone read — emissive + semi-transparent + unshaded so it glows at any range without dominating the view. Tall colored beacons (unchanged) stay the across-map nav landmark; the HUD capture bar stays the authoritative "in the zone" feedback. Client-only cosmetic (`world_renderer`), no wire/gameplay change. Tests `world_renderer_ring_marker_test.gd`; suite **749/0**; visual-validated on .128 (HQ A/B — blue blob gone; in-town — ring lies flat, beacon intact).
 
+#### Increment — Procedural two-tone ground — visual-validated ✅ 2026-06-24
+
+The ground was one flat muted-green `PlaneMesh` (an infinite uniform floor, no depth cue). Gave it an in-engine procedural noise albedo (`FastNoiseLite` simplex → `NoiseTexture2D`, seamless, two-tone green `color_ramp`, ~70 m tiling via `uv1_scale`) so open areas show low-frequency grassy patches — a subtle depth cue, not a loud pattern; roads/buildings sit on top so only open terrain shows it. No asset file, client-only cosmetic (`world_renderer`), no wire/gameplay change. Suite **749/0**; visual-validated on .128 (open-field shots show mottled terrain).
+
 #### P2 increment — Fire-mode indicator + armor visual diffs — visual-validated ✅ 2026-06-24
 
 Two more M5.5 → M7 presentation deferrals. Design: [`docs/superpowers/specs/2026-06-24-firemode-armor-fx-design.md`](../superpowers/specs/2026-06-24-firemode-armor-fx-design.md). Branch `m7-firemode-armor-fx`.
