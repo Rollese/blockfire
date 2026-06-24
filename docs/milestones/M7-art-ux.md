@@ -85,14 +85,18 @@ click-fire gun); prone is a toggle; no self-revive (teammate-only).
 damage/deploy) two-stage read-only reviewed → SPEC-COMPLIANT + APPROVE. Owner ran the full loop
 desktop→game2 and signed off.
 
-**Deferred (P2 / separate vehicle-netcode pass — not C3 blockers):** ~~grenade explosion VFX~~ *(done 2026-06-24)*, corpse
-remains on death, and vehicle riding-jitter / exit / friendly-only enter (needs `in_vehicle` + vehicle
+**Deferred (P2 / separate vehicle-netcode pass — not C3 blockers):** ~~grenade explosion VFX~~ *(done 2026-06-24)*, ~~corpse
+remains on death~~ *(done 2026-06-24)*, and vehicle riding-jitter / exit / friendly-only enter (needs `in_vehicle` + vehicle
 `team` on the wire + seated-prediction suppression). This closes the **M7-P1 build order (C1→C2→C3)**;
 next is the P1 gate (full-match human playtest with complete HUD).
 
 #### P2 increment — Grenade explosion VFX — visual-validated ✅ 2026-06-24
 
 Thrown grenades had no detonation visual (only the RPG rocket had a client-side cosmetic arc). The reserved `DETONATION` wire message (slot 13, "M7 frag VFX") is now used: the server `_detonate` funnel broadcasts `DETONATION(pos, kind)` to all human clients (frag/impact → `DET_EXPLOSION`, flashbang → `DET_FLASH`; bots skipped), and the client spawns `WorldRenderer.spawn_explosion` — an emissive expanding fireball core + smoke puff + scattered debris (frag), or a bright white pop (flash). Server-event (not client-predicted) so it fires for **other** players' grenades too. `--boom-test` QA flag pumps explosions in front of the camera. Suite **731/0** (protocol round-trip + renderer pool/age tests); visual-validated on .128 (iGPU). Presentation-only — the server still owns the blast.
+
+#### P2 increment — Corpse-on-death — visual-validated ✅ 2026-06-24
+
+Dead pawns used to just vanish. The server keeps a dead pawn in snapshots (`alive=false`) for ~5s before respawn, so `world_renderer._sync_entity_pool` reliably sees the alive→false transition: when it releases an entity because it **died in view** (vs. left interest), it drops a corpse at the last pose (face-down, armor-tiered) before releasing — fires exactly once (the id leaves `_active` and dead ids are skipped on acquire). Corpses linger `CORPSE_TTL` (14s) then sink into the ground; pool capped at `CORPSE_MAX=40` (oldest recycled) to bound cost. Client-only, no wire change. Corpses always use the **procedural CharacterKit** (a static GLB has no AnimationPlayer driving a clip → renders collapsed) and skip LOD (the proxy/range cull hid them). `--corpse-test` QA flag lays a few in front of the camera. Suite **735/0** (spawn/age/cap/finite tests); visual-validated on .128.
 
 ### P2 — Art kit + LOD
 Swap placeholder primitives for the low-poly blocky kit (characters, weapons, vehicles, environment) behind the same node interfaces, LOD pipeline, and audio/visual feedback polish (richer hit markers, animated damage indicators, SFX). Pure presentation on top of a proven-playable P1.
