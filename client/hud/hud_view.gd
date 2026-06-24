@@ -156,20 +156,66 @@ func _build_tree() -> void:
 	_build_blind()        # truly last: a flashbang white-out covers even the HUD/scoreboard
 
 
+const CH_TICK_LEN := 7.0       # px length of each reticle tick
+const CH_TICK_THICK := 2.0     # px thickness
+const CH_BASE_GAP := 4.0       # px from centre to the inner end of a tick at rest
+var _ch_ticks: Array = []      # 4 ColorRects: top, bottom, left, right
+var _ch_dot: ColorRect
+
 func _build_crosshair() -> void:
-	# Simple "+" drawn as a label at screen centre.
-	var ch := Label.new()
-	ch.text = "+"
-	ch.add_theme_font_size_override("font_size", 20)
-	ch.anchor_left = 0.5
-	ch.anchor_top = 0.5
-	ch.anchor_right = 0.5
-	ch.anchor_bottom = 0.5
-	ch.offset_left = -8.0
-	ch.offset_top = -12.0
-	ch.modulate = Color(1, 1, 1, 0.85)
-	ch.mouse_filter = MOUSE_FILTER_IGNORE
-	add_child(ch)
+	# Dynamic 4-tick reticle: the gap between the ticks blooms with movement/airborne/fire and
+	# tightens when still/crouched/prone (honest client-side spread feedback). Repositioned each
+	# frame by update_crosshair(); built once here.
+	var col := Color(1, 1, 1, 0.85)
+	for _i in 4:
+		var tick := ColorRect.new()
+		tick.color = col
+		tick.anchor_left = 0.5
+		tick.anchor_top = 0.5
+		tick.anchor_right = 0.5
+		tick.anchor_bottom = 0.5
+		tick.mouse_filter = MOUSE_FILTER_IGNORE
+		add_child(tick)
+		_ch_ticks.append(tick)
+	_ch_dot = ColorRect.new()
+	_ch_dot.color = col
+	_ch_dot.anchor_left = 0.5
+	_ch_dot.anchor_top = 0.5
+	_ch_dot.anchor_right = 0.5
+	_ch_dot.anchor_bottom = 0.5
+	_ch_dot.offset_left = -1.0
+	_ch_dot.offset_top = -1.0
+	_ch_dot.offset_right = 1.0
+	_ch_dot.offset_bottom = 1.0
+	_ch_dot.mouse_filter = MOUSE_FILTER_IGNORE
+	add_child(_ch_dot)
+	update_crosshair(0.0, false)
+
+## Reposition the reticle ticks for the given spread (px added to the resting gap). `hidden` pulls
+## the whole reticle (e.g. while dead / on the deploy screen / in a menu).
+func update_crosshair(spread_px: float, hidden: bool) -> void:
+	if _ch_ticks.is_empty():
+		return
+	var gap := CH_BASE_GAP + maxf(spread_px, 0.0)
+	var h := CH_TICK_THICK * 0.5
+	# top
+	_set_rect(_ch_ticks[0], -h, -(gap + CH_TICK_LEN), h, -gap)
+	# bottom
+	_set_rect(_ch_ticks[1], -h, gap, h, gap + CH_TICK_LEN)
+	# left
+	_set_rect(_ch_ticks[2], -(gap + CH_TICK_LEN), -h, -gap, h)
+	# right
+	_set_rect(_ch_ticks[3], gap, -h, gap + CH_TICK_LEN, h)
+	for t: ColorRect in _ch_ticks:
+		t.visible = not hidden
+	if _ch_dot != null:
+		_ch_dot.visible = not hidden
+
+func _set_rect(r: ColorRect, l: float, t: float, rt: float, b: float) -> void:
+	r.offset_left = l
+	r.offset_top = t
+	r.offset_right = rt
+	r.offset_bottom = b
 
 
 func _build_ammo() -> void:
