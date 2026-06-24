@@ -111,6 +111,7 @@ var _vm_anim_start: float = 0.0
 var _vm_anim_dur: float = 0.0
 var _now: float = 0.0             # cached update() time, so set_viewmodel_weapon can start an anim
 var vm_swing_test := false        # --swing-test: hold the viewmodel mid-swing for a QA screenshot
+var vm_recoil_test := false       # --recoil-test: hold the viewmodel mid-recoil-kick for a QA screenshot
 
 
 # =============================================================================
@@ -268,6 +269,14 @@ func play_viewmodel_swap(now: float) -> void:
 	_vm_anim_dur = ViewmodelAnim.SWAP_DUR
 
 
+## Start a recoil kick on the viewmodel (a sharp up/back jolt). Called on every shot fired; on
+## full-auto each call restarts it from t=0 so the kick reads as a sustained jolt.
+func play_viewmodel_recoil(now: float) -> void:
+	_vm_anim_kind = ViewmodelAnim.RECOIL
+	_vm_anim_start = now
+	_vm_anim_dur = ViewmodelAnim.RECOIL_DUR
+
+
 ## Apply the active viewmodel animation offset on top of the base placement, each frame.
 func _pose_viewmodel(now: float) -> void:
 	if _viewmodel == null:
@@ -275,6 +284,8 @@ func _pose_viewmodel(now: float) -> void:
 	var off := {"pos": Vector3.ZERO, "rot": Vector3.ZERO}
 	if vm_swing_test:
 		off = ViewmodelAnim.sample(ViewmodelAnim.SWING, 0.45)   # frozen mid-slash for the screenshot
+	elif vm_recoil_test:
+		off = ViewmodelAnim.sample(ViewmodelAnim.RECOIL, 0.1)    # frozen near the recoil peak for the screenshot
 	elif _vm_anim_kind >= 0:
 		var t := (now - _vm_anim_start) / _vm_anim_dur
 		if t >= 1.0:
