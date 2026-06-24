@@ -176,26 +176,27 @@ func setup(map: MapDef, camera: Camera3D) -> void:
 			line.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 			add_child(line)
 
-	# Capture point markers — ground cylinder + a tall beacon so the point is a visible
+	# Capture point markers — a flat ground RING at the true capture radius (BattleBit zone read,
+	# not a big solid disc that fills the screen at spawn) + a tall beacon so the point is a visible
 	# landmark from across the map (flat terrain is otherwise impossible to navigate).
 	for pt: Dictionary in map.points:
 		var pt_pos: Vector3 = pt["pos"] as Vector3
 		var pt_radius: float = pt["radius"] as float
-		var marker := _make_cylinder_marker(pt_radius * 0.5, 0.4, NEUTRAL_COLOR)
-		marker.position = Vector3(pt_pos.x, 0.2, pt_pos.z)
+		var marker := _make_ring_marker(pt_radius, 0.6, NEUTRAL_COLOR)
+		marker.position = Vector3(pt_pos.x, 0.12, pt_pos.z)
 		add_child(marker)
 		var beacon := _make_box_mesh(Vector3(1.2, 30.0, 1.2), Color(0.95, 0.85, 0.25))
 		beacon.position = Vector3(pt_pos.x, 15.0, pt_pos.z)
 		add_child(beacon)
 
-	# Base markers — team-coloured larger cylinders
+	# Base markers — team-coloured ground ring at the true base radius + a tall beacon.
 	for b: Dictionary in map.bases:
 		var b_team: int = b["team"] as int
 		var b_pos: Vector3 = b["pos"] as Vector3
 		var b_radius: float = b["radius"] as float
 		var col: Color = TEAM_COLOR[b_team] if b_team < TEAM_COLOR.size() else NEUTRAL_COLOR
-		var base_marker := _make_cylinder_marker(b_radius * 0.4, 0.8, col)
-		base_marker.position = Vector3(b_pos.x, 0.4, b_pos.z)
+		var base_marker := _make_ring_marker(b_radius, 0.8, col)
+		base_marker.position = Vector3(b_pos.x, 0.12, b_pos.z)
 		add_child(base_marker)
 		# Tall team-coloured beacon at each base — a navigation landmark.
 		var base_beacon := _make_box_mesh(Vector3(2.0, 40.0, 2.0), col)
@@ -1096,17 +1097,26 @@ func _spawn_rubble_for(building_id: int) -> void:
 	_building_centroid.erase(building_id)
 
 
-func _make_cylinder_marker(radius: float, height: float, color: Color) -> MeshInstance3D:
+## A flat ground ring (TorusMesh lies in the XZ plane) marking a zone boundary at `radius`, with a
+## `tube`-thick band. Emissive + semi-transparent + unshaded so it glows as a marker at any range and
+## reads cleanly over the terrain without filling the view like the old solid disc did.
+func _make_ring_marker(radius: float, tube: float, color: Color) -> MeshInstance3D:
 	var mi := MeshInstance3D.new()
-	var mesh := CylinderMesh.new()
-	mesh.top_radius = radius
-	mesh.bottom_radius = radius
-	mesh.height = height
+	var mesh := TorusMesh.new()
+	mesh.inner_radius = maxf(radius - tube, 0.1)
+	mesh.outer_radius = radius + tube
+	mesh.rings = 48          # smooth circle around the zone
+	mesh.ring_segments = 6   # cheap tube cross-section (it's flat on the ground)
 	mi.mesh = mesh
 	var mat := StandardMaterial3D.new()
-	mat.albedo_color = color
-	mat.roughness = 0.8
+	mat.albedo_color = Color(color.r, color.g, color.b, 0.55)
+	mat.emission_enabled = true
+	mat.emission = color
+	mat.emission_energy_multiplier = 1.3
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	mi.material_override = mat
+	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	return mi
 
 
