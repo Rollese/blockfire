@@ -85,6 +85,7 @@ var _swing_test := false            # --swing-test: hold the viewmodel mid-swing
 var _recoil_test := false           # --recoil-test: hold the viewmodel mid-recoil-kick for a visual QA shot
 var _crosshair_test := false        # --crosshair-test: force a bloomed crosshair for a visual QA shot
 var _sprint_test := false           # --sprint-test: freeze the viewmodel sprint-lowered for a visual QA shot
+var _reload_test := false           # --reload-test: freeze the viewmodel mid-reload for a visual QA shot
 var _active_slot := 0               # client-tracked weapon slot (0=primary/1=secondary) for quick-swap toggle
 var _shot_after := -1.0           # --shot-after=N: auto-save a screenshot N secs after launch, then quit
 var _shot_done := false
@@ -120,6 +121,7 @@ func configure(args: Dictionary) -> void:
 	_recoil_test = args.has("recoil-test")          # visual QA: hold the viewmodel mid-recoil-kick
 	_crosshair_test = args.has("crosshair-test")    # visual QA: force a bloomed crosshair
 	_sprint_test = args.has("sprint-test")          # visual QA: freeze the viewmodel sprint-lowered
+	_reload_test = args.has("reload-test")          # visual QA: freeze the viewmodel mid-reload
 	_shot_after = float(args.get("shot-after", -1.0))  # automated screenshot then quit
 
 # ---- _ready -----------------------------------------------------------------
@@ -214,8 +216,12 @@ func _physics_process(delta: float) -> void:
 		if buttons & InputCommand.BTN_RELOAD:
 			var _was_reloading: bool = _wpred.reloading
 			_wpred.begin_reload(_client_tick)
-			if not _was_reloading and _wpred.reloading and _audio != null:
-				_audio.play_2d("reload")   # only on the actual reload-start transition
+			if not _was_reloading and _wpred.reloading:
+				# Reload-start transition: play the reload viewmodel anim over the real reload time + sfx.
+				if _renderer != null:
+					_renderer.play_viewmodel_reload(_elapsed, _wpred.reload_remaining(_client_tick) * SimLoop.DT)
+				if _audio != null:
+					_audio.play_2d("reload")   # only on the actual reload-start transition
 
 		# Send input to server. The server rebuilds the shot ray from Combat._forward(yaw,pitch),
 		# which points opposite the Godot camera, so send yaw+PI to make the authoritative aim
@@ -810,6 +816,7 @@ func _build_scene() -> void:
 	_renderer.vm_swing_test = _swing_test # --swing-test: freeze the viewmodel mid-swing
 	_renderer.vm_recoil_test = _recoil_test # --recoil-test: freeze the viewmodel mid-recoil-kick
 	_renderer.vm_sprint_test = _sprint_test # --sprint-test: freeze the viewmodel sprint-lowered
+	_renderer.vm_reload_test = _reload_test # --reload-test: freeze the viewmodel mid-reload
 
 	# HUD layer
 	var hud_layer: CanvasLayer = world_node.get_node("HUD") as CanvasLayer

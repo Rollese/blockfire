@@ -112,6 +112,7 @@ var _vm_anim_dur: float = 0.0
 var _now: float = 0.0             # cached update() time, so set_viewmodel_weapon can start an anim
 var vm_swing_test := false        # --swing-test: hold the viewmodel mid-swing for a QA screenshot
 var vm_recoil_test := false       # --recoil-test: hold the viewmodel mid-recoil-kick for a QA screenshot
+var vm_reload_test := false       # --reload-test: hold the viewmodel mid-reload for a QA screenshot
 
 
 # =============================================================================
@@ -288,6 +289,14 @@ func play_viewmodel_swap(now: float) -> void:
 	_vm_anim_dur = ViewmodelAnim.SWAP_DUR
 
 
+## Start a reload viewmodel animation stretched over the actual per-weapon reload time (`dur` secs)
+## so the gesture lasts exactly as long as the predicted reload.
+func play_viewmodel_reload(now: float, dur: float) -> void:
+	_vm_anim_kind = ViewmodelAnim.RELOAD
+	_vm_anim_start = now
+	_vm_anim_dur = maxf(dur, 0.2)
+
+
 ## Start a recoil kick on the viewmodel (a sharp up/back jolt). Called on every shot fired; on
 ## full-auto each call restarts it from t=0 so the kick reads as a sustained jolt.
 func play_viewmodel_recoil(now: float) -> void:
@@ -327,6 +336,8 @@ func _pose_viewmodel(now: float) -> void:
 		off = ViewmodelAnim.sample(ViewmodelAnim.SWING, 0.45)   # frozen mid-slash for the screenshot
 	elif vm_recoil_test:
 		off = ViewmodelAnim.sample(ViewmodelAnim.RECOIL, 0.1)    # frozen near the recoil peak for the screenshot
+	elif vm_reload_test:
+		off = ViewmodelAnim.sample(ViewmodelAnim.RELOAD, 0.5)    # frozen mid-reload for the screenshot
 	elif _vm_anim_kind >= 0:
 		var t := (now - _vm_anim_start) / _vm_anim_dur
 		if t >= 1.0:

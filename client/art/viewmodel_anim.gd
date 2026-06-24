@@ -8,10 +8,12 @@ extends Object
 const SWING := 0   # melee: a quick forward slash/bash of the held weapon
 const SWAP := 1    # weapon change: the gun rises into view from a lowered position
 const RECOIL := 2  # firing: a sharp up/back kick that snaps in and settles back
+const RELOAD := 3  # reload: cant the gun inward/down to work the mag, then return
 
 const SWING_DUR := 0.34   # seconds
 const SWAP_DUR := 0.40
 const RECOIL_DUR := 0.11  # short + snappy; on full-auto each shot restarts it → a sustained jolt
+const RELOAD_DUR := 2.0   # fallback; the renderer drives the real per-weapon reload_secs
 
 ## Offset for an animation at phase t. Outside [0,1) → rest (zero), so a finished/!started anim is a
 ## no-op. SWING returns to rest at both ends (sin envelope); SWAP starts lowered and rises to rest.
@@ -22,6 +24,7 @@ static func sample(kind: int, t: float) -> Dictionary:
 		SWING: return _swing(t)
 		SWAP: return _swap(t)
 		RECOIL: return _recoil(t)
+		RELOAD: return _reload(t)
 		_: return {"pos": Vector3.ZERO, "rot": Vector3.ZERO}
 
 static func _swing(t: float) -> Dictionary:
@@ -61,6 +64,17 @@ const BOB_ROLL := 0.025  # rad roll sway at full speed
 ## Subtle weapon bob while moving — a gentle step cadence so the held weapon reads as alive, not
 ## frozen. `speed_norm` (0..1) scales the amplitude (0 at a standstill); `phase` (rad) is the step
 ## cycle. Down-weighted on Y so each step dips (a footfall), not floats.
+static func _reload(t: float) -> Dictionary:
+	# Cant the gun inward + down to work the magazine (you'd look at the magwell), hold through the
+	# middle with a couple of taps (mag out / seat / slap), then return to rest. Trapezoid envelope:
+	# ramp in over the first ~18%, hold, ramp out over the last ~18% — so it reads over the whole
+	# (variable) reload duration the renderer passes in.
+	var env := clampf(t / 0.18, 0.0, 1.0) * clampf((1.0 - t) / 0.18, 0.0, 1.0)
+	var tap := maxf(sin(t * PI * 3.0), 0.0)   # downward taps during the mag work
+	var pos := Vector3(-0.05 * env, (-0.09 - 0.04 * tap) * env, 0.04 * env)
+	var rot := Vector3(0.20 * env, 0.32 * env, -0.55 * env)   # roll inward (-Z) to show the magwell + yaw/pitch in
+	return {"pos": pos, "rot": rot}
+
 static func walk_bob(speed_norm: float, phase: float) -> Dictionary:
 	var amp := clampf(speed_norm, 0.0, 1.0)
 	var pos := Vector3(sin(phase) * BOB_X * amp, -absf(sin(phase)) * BOB_Y * amp, 0.0)
