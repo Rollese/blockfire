@@ -507,6 +507,13 @@ func _build_perf() -> void:
 	add_child(_perf_label)
 
 
+## Toggle the debug perf overlay (the green fps/draws/vram readout). Default on; hiding it gives a
+## clean HUD for normal play / screenshots without entering free-fly photo mode (F8). Wired to F3.
+func set_perf_visible(v: bool) -> void:
+	if _perf_label != null:
+		_perf_label.visible = v
+
+
 ## Show/hide the alive-only combat HUD (ammo + throwable selector). Call each frame with
 ## `true` only when the local player is alive and standing — hides them while downed, dead,
 ## or on the deploy screen.
@@ -964,6 +971,8 @@ func _process(delta: float) -> void:
 	# Refresh the perf overlay ~4x/sec so the numbers are readable, not a blur.
 	if _perf_label == null:
 		return
+	if not _perf_label.visible:
+		return   # hidden (F3) — skip the Performance-monitor reads entirely
 	_perf_accum += delta
 	if _perf_accum < 0.25:
 		return
