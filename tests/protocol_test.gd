@@ -287,6 +287,18 @@ func test_self_state_suppression_defaults_zero_for_old_senders() -> void:
 	var d := Protocol.decode_self_state(b)
 	assert_almost_eq(d["suppression"], 0.0, 0.001, "absent suppression byte decodes as 0")
 
+func test_self_state_carries_blind_ticks() -> void:
+	# M5.5-P3: remaining flashbang-blind ticks round-trip as a byte after suppression.
+	var b := Protocol.encode_self_state(20, false, 0, Weapon.AR, [], false, 0.5, 72)
+	var d := Protocol.decode_self_state(b)
+	assert_eq(d["blind_ticks"], 72, "blind_ticks round-trips")
+	assert_almost_eq(d["suppression"], 0.5, 1.0 / 255.0 + 0.001, "suppression still decodes before blind byte")
+
+func test_self_state_blind_defaults_zero_for_old_senders() -> void:
+	var b := Protocol.encode_self_state(30, false, 0, Weapon.AR)   # pre-P3 sender: no blind byte
+	var d := Protocol.decode_self_state(b)
+	assert_eq(d["blind_ticks"], 0, "absent blind byte decodes as 0")
+
 func test_set_fire_mode_roundtrip() -> void:
 	var b := Protocol.encode_set_fire_mode(Weapon.MODE_BURST)
 	assert_eq(b[0], Protocol.Msg.SET_FIRE_MODE)
