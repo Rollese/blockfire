@@ -33,3 +33,12 @@ func test_jitter_within_bounds_and_grounded() -> void:
 	var pos := SpawnSelect.select(0, m, ConquestState.new(m), [], Vector3(-900, 0, 0))
 	assert_almost_eq(pos.y, 0.0, 0.001, "spawns grounded")
 	assert_true(absf(pos.x - (-900.0)) <= SpawnSelect.JITTER, "x jitter bounded")
+
+func test_skips_owned_point_contested_by_enemy() -> void:
+	var m := _map()                     # point A at (100,0,0); home base at (-900,0,0)
+	var c := ConquestState.new(m)
+	c.points[0]["owner"] = 0            # team 0 owns A
+	c.points[0]["n1"] = 1              # ...but an enemy is on it (as step() would cache)
+	var pos := SpawnSelect.select(0, m, c, [], Vector3(100, 0, 0))
+	assert_true(pos.distance_to(Vector3(-900, 0, 0)) <= SpawnSelect.JITTER * 1.5,
+		"contested owned point is skipped -> falls back to home base (no spawning on a contested flag)")

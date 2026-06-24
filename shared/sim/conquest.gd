@@ -29,6 +29,7 @@ func _init(map: MapDef = null) -> void:
 		points.append({
 			"id": pt["id"], "pos": pt["pos"], "radius": pt["radius"],
 			"owner": int(pt["start_owner"]), "attacker": -1, "cap": 0.0,
+			"n0": 0, "n1": 0,   # team presence counts, refreshed each step() (for spawn-contest checks)
 		})
 
 func owned_count(team: int) -> int:
@@ -37,6 +38,15 @@ func owned_count(team: int) -> int:
 		if pt["owner"] == team:
 			n += 1
 	return n
+
+## True if an enemy of `team` currently occupies capture point `idx`. BattleBit rule: a team may
+## not spawn on a point with enemies on it. Reads the presence counts cached by step().
+func point_contested_by_enemy(team: int, idx: int) -> bool:
+	if idx < 0 or idx >= points.size():
+		return false
+	var pt: Dictionary = points[idx]
+	var enemy_n: int = int(pt.get("n1", 0)) if team == 0 else int(pt.get("n0", 0))
+	return enemy_n > 0
 
 func tickets_int(team: int) -> int:
 	return int(ceil(tickets[team]))
@@ -70,6 +80,8 @@ func step(dt: float, world: World) -> void:
 			if dx * dx + dz * dz <= pt["radius"] * pt["radius"]:
 				if p.team == 0: n0 += 1
 				else: n1 += 1
+		pt["n0"] = n0
+		pt["n1"] = n1
 		_resolve_point(pt, n0, n1, dt)
 	for team in [0, 1]:
 		var deficit := maxi(0, owned_count(1 - team) - owned_count(team))

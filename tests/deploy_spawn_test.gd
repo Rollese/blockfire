@@ -11,6 +11,16 @@ func _conquest(owner0_pt: int) -> ConquestState:
 		c.points[owner0_pt]["owner"] = 0
 	return c
 
+func test_contested_owned_point_not_valid_or_offered() -> void:
+	var m := _map()
+	var c := _conquest(0)            # team 0 owns point A (ref 1)
+	assert_true(DeploySpawn.is_valid(0, 1, m, c), "owned + uncontested point is valid")
+	assert_true(DeploySpawn.enumerate(0, m, c).has(1), "and offered in the deploy menu")
+	c.points[0]["n1"] = 1            # an enemy steps onto A (as step() caches)
+	assert_false(DeploySpawn.is_valid(0, 1, m, c), "can't deploy on a contested point")
+	assert_false(DeploySpawn.enumerate(0, m, c).has(1), "contested point dropped from the deploy menu")
+	assert_true(DeploySpawn.enumerate(0, m, c).has(0), "HQ still offered as a fallback")
+
 func test_hq_ref_is_always_valid_and_resolves_to_base() -> void:
 	var m := _map()
 	var c := _conquest(-1)
