@@ -21,6 +21,7 @@ const _THROWABLE_LABELS: Dictionary = {
 # ---- node references --------------------------------------------------
 var _ammo_label: Label
 var _reload_label: Label
+var _firemode_label: Label   # AUTO/SEMI/BURST glyph above the ammo count (M5.5-P1 fire-mode)
 var _ammo_panel: Control   # ammo readout container — hidden while downed/dead
 var _compass_label: Label
 var _compass_container: Control   # holds marker labels; children are reused per render
@@ -201,6 +202,14 @@ func _build_ammo() -> void:
 	_reload_label.visible = false
 	_reload_label.mouse_filter = MOUSE_FILTER_IGNORE
 	panel.add_child(_reload_label)
+
+	_firemode_label = Label.new()
+	_firemode_label.text = "AUTO"
+	_firemode_label.add_theme_font_size_override("font_size", 15)
+	_firemode_label.modulate = Color(0.7, 0.85, 1.0)
+	_firemode_label.position = Vector2(0, -22)   # just above the ammo count
+	_firemode_label.mouse_filter = MOUSE_FILTER_IGNORE
+	panel.add_child(_firemode_label)
 
 
 func _build_compass() -> void:
@@ -998,6 +1007,9 @@ func _render_ammo(ammo: Dictionary) -> void:
 	_ammo_label.text = ("RPG  %d" % mag) if bool(ammo.get("is_rpg", false)) else ("%d /∞" % mag)
 	_ammo_label.modulate = Color(1.0, 0.4, 0.3) if low else Color(1, 1, 1)
 	_reload_label.visible = reloading
+	var fm: String = String(ammo.get("fire_mode", ""))
+	_firemode_label.text = fm
+	_firemode_label.visible = fm != ""
 
 
 func _render_compass(compass: Dictionary) -> void:

@@ -13,6 +13,7 @@ var health: int = 100
 var is_downed: bool = false
 var climbing: bool = false
 var squad: int = 0
+var armor_class: int = 0   # M5.5-P2 tier (LIGHT/MEDIUM/HEAVY); immutable per life, replicated on ENTER
 
 func clone() -> EntityState:
 	var e := EntityState.new()
@@ -27,4 +28,5 @@ func clone() -> EntityState:
 	e.is_downed = is_downed
 	e.climbing = climbing
 	e.squad = squad
+	e.armor_class = armor_class
 	return e

@@ -45,3 +45,64 @@ func test_reconcile_to_reloading_sets_remaining() -> void:
 	# at/after completion it finishes
 	wp.step(130, false, false, false)
 	assert_false(wp.reloading, "reload completes at its authoritative done tick")
+
+
+func test_fire_mode_defaults_to_weapon_default_and_resets_on_swap() -> void:
+	var wp := _wp()
+	assert_eq(wp.fire_mode, Weapon.default_mode(Weapon.AR), "AR starts in its default mode")
+	wp.cycle_fire_mode()
+	assert_true(wp.fire_mode != Weapon.default_mode(Weapon.AR), "cycled away from default")
+	wp.set_weapon(Weapon.SMG)
+	assert_eq(wp.fire_mode, Weapon.default_mode(Weapon.SMG), "weapon swap resets to the new default")
+
+
+func test_cycle_fire_mode_walks_allowed_modes_and_wraps() -> void:
+	var wp := _wp()   # AR fire_modes = [AUTO, SEMI, BURST]
+	var modes: Array = Weapon.get_def(Weapon.AR)["fire_modes"]
+	var start: int = wp.fire_mode
+	var seen: Array = [start]
+	for _i in range(modes.size() - 1):
+		seen.append(wp.cycle_fire_mode())
+	assert_eq(wp.cycle_fire_mode(), start, "wraps back to the starting mode after a full cycle")
+	for m in modes:
+		assert_true(m in seen, "every allowed mode is reachable by cycling")
+
+
+func test_single_mode_weapon_cycle_is_noop() -> void:
+	var wp := WeaponPredictor.new(); wp.set_weapon(Weapon.DMR)   # fire_modes = [SEMI]
+	assert_eq(wp.fire_mode, Weapon.MODE_SEMI)
+	assert_eq(wp.cycle_fire_mode(), Weapon.MODE_SEMI, "single-mode weapon stays put")
+
+
+func test_semi_fires_once_per_trigger_press() -> void:
+	var wp := _wp(); wp.fire_mode = Weapon.MODE_SEMI
+	# Hold the trigger across many cadence-spaced ticks: SEMI fires only the first.
+	assert_true(wp.step(0, true, false, false), "first SEMI shot fires")
+	assert_false(wp.step(3, true, false, false), "held SEMI does not auto-repeat")
+	assert_false(wp.step(6, true, false, false), "still gated while held")
+	# Release, then press again -> fires once more.
+	wp.step(7, false, false, false)
+	assert_true(wp.step(9, true, false, false), "re-press fires the next SEMI shot")
+
+
+func test_burst_fires_burst_count_then_stops_until_release() -> void:
+	var wp := _wp(); wp.fire_mode = Weapon.MODE_BURST
+	var burst: int = int(Weapon.get_def(Weapon.AR)["burst_count"])
+	var fired := 0
+	var tick := 0
+	for _i in range(burst + 3):   # hold well past the burst length
+		if wp.step(tick, true, false, false):
+			fired += 1
+		tick += 3   # space beyond the RPM cadence so only the mode gates
+	assert_eq(fired, burst, "a held burst fires exactly burst_count shots")
+
+
+func test_auto_fires_continuously_at_cadence() -> void:
+	var wp := _wp(); wp.fire_mode = Weapon.MODE_AUTO
+	var fired := 0
+	var tick := 0
+	for _i in range(4):
+		if wp.step(tick, true, false, false):
+			fired += 1
+		tick += 3
+	assert_eq(fired, 4, "AUTO keeps firing while held (cadence permitting)")

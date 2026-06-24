@@ -93,7 +93,15 @@ next is the P1 gate (full-match human playtest with complete HUD).
 ### P2 — Art kit + LOD
 Swap placeholder primitives for the low-poly blocky kit (characters, weapons, vehicles, environment) behind the same node interfaces, LOD pipeline, and audio/visual feedback polish (richer hit markers, animated damage indicators, SFX). Pure presentation on top of a proven-playable P1.
 
-Also lands the **M5.5 presentation/feel deferrals** (the VFX/audio pieces of Combat Depth II — [combat-depth-2](../specs/combat-depth-2.md)): projectile **tracers** + muzzle flash *(done)*, **suppression** screen blur/desaturate/vignette + muffle *(screen FX done 2026-06-24; muffle done with audio)*, **flashbang** white-out + deafen *(white-out done 2026-06-24)*, melee/sledge/weapon-swap animations, fire-mode HUD indicator, armor visual diffs.
+Also lands the **M5.5 presentation/feel deferrals** (the VFX/audio pieces of Combat Depth II — [combat-depth-2](../specs/combat-depth-2.md)): projectile **tracers** + muzzle flash *(done)*, **suppression** screen blur/desaturate/vignette + muffle *(screen FX done 2026-06-24; muffle done with audio)*, **flashbang** white-out + deafen *(white-out done 2026-06-24)*, melee/sledge/weapon-swap animations, fire-mode HUD indicator *(done 2026-06-24)*, armor visual diffs *(done 2026-06-24)*.
+
+#### P2 increment — Fire-mode indicator + armor visual diffs — visual-validated ✅ 2026-06-24
+
+Two more M5.5 → M7 presentation deferrals. Design: [`docs/superpowers/specs/2026-06-24-firemode-armor-fx-design.md`](../superpowers/specs/2026-06-24-firemode-armor-fx-design.md). Branch `m7-firemode-armor-fx`.
+
+- **Fire-mode (client-only):** fire modes existed in the sim + wire (`SET_FIRE_MODE`) but nothing client-side selected or showed them — so the server always used the default (modes were inert end-to-end). Now `WeaponPredictor` tracks `fire_mode` (resets to the weapon default on swap), `cycle_fire_mode()`, and `step()` respects the mode (SEMI=one/press, BURST=burst_count/press, AUTO=continuous) so the local tracer matches authority. New `fire_select` input (**V**) cycles + sends `SET_FIRE_MODE`. HUD shows an `AUTO/SEMI/BURST` glyph above the ammo (hidden for RPG).
+- **Armor diffs (1 immutable replicated byte):** armor tier is class-derived + immutable per life but wasn't replicated. Added `EntityState.armor_class` + `Pawn.to_state()`; `Snapshot` carries it as a **byte on ENTER records only** (no field-mask growth, zero per-tick cost; retained across CHANGED via the cached view entry). `ArmorVisual.apply()` tints the procedural soldier's torso vest (tan/olive/slate) + scales the helmet by tier — **not** team identity (friend/foe stays the blue triangle). `--armor-demo` QA flag pins LIGHT/MEDIUM/HEAVY dummies in front of the camera.
+- **Validation:** full suite **726/0** (6 predictor + 2 snapshot-codec + 3 ArmorVisual tests). Visual-validated on .128 (iGPU): the three armor tiers render clearly distinct and the `AUTO` glyph shows in the HUD. GLB-character armor visual + exact shades/key are owner follow-ups (AGENTS.md §10).
 
 #### P2 increment — Suppression screen FX — visual-validated ✅ 2026-06-24
 

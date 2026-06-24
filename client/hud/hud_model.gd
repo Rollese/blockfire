@@ -116,7 +116,7 @@ func _ammo(ctx: Dictionary) -> Dictionary:
 		for t in ctx.get("throwables", []):
 			if int(t.get("kind", -1)) == 100:
 				rockets = int(t.get("count", 0)); break
-		return {"mag": rockets, "reloading": wp.reloading, "reload_remaining": wp.reload_remaining(int(ctx.get("tick", 0))), "low": rockets <= 1, "is_rpg": true}
+		return {"mag": rockets, "reloading": wp.reloading, "reload_remaining": wp.reload_remaining(int(ctx.get("tick", 0))), "low": rockets <= 1, "is_rpg": true, "fire_mode": ""}
 	var mag_size := int(Weapon.get_def(wp.weapon)["mag_size"])
 	return {
 		"mag": wp.mag,
@@ -124,6 +124,7 @@ func _ammo(ctx: Dictionary) -> Dictionary:
 		"reload_remaining": wp.reload_remaining(int(ctx.get("tick", 0))),
 		"low": wp.mag <= int(ceil(mag_size * LOW_AMMO_FRAC)),
 		"is_rpg": false,
+		"fire_mode": Weapon.mode_name(wp.fire_mode),   # AUTO/SEMI/BURST glyph for the HUD
 	}
 
 func _interaction_prompt(ctx: Dictionary):
