@@ -399,12 +399,11 @@ func _process(_dt: float) -> void:
 		var hs: EntityState = _wv.self_state()
 		_hud_view.set_alive_hud(hs != null and hs.alive and not hs.is_downed)
 		# M5.5-P3 flashbang white-out from the SELF_STATE blind byte (cleared on death/deploy).
-		# --flash-test forces a strong-but-translucent veil so the world shows through (visual QA).
+		# --flash-test forces a strong-but-translucent veil so the world shows through (visual QA);
+		# it still routes through blind_intensity so the real render chain is exercised.
 		var blinded := hs != null and hs.alive and not hs.is_downed
-		if _flash_test:
-			_hud_view.set_blind(0.75)
-		else:
-			_hud_view.set_blind(HudModel.blind_intensity(_blind_ticks) if blinded else 0.0)
+		var blind_ticks := 34 if _flash_test else (_blind_ticks if blinded else 0)
+		_hud_view.set_blind(HudModel.blind_intensity(blind_ticks))
 
 	# ---- C3: revive intent (no self-recovery — a teammate must revive you, BattleBit-style) ----
 	var sss: EntityState = _wv.self_state()
