@@ -127,6 +127,10 @@ Capture points and bases rendered as a big **solid-color filled cylinder disc** 
 
 The ground was one flat muted-green `PlaneMesh` (an infinite uniform floor, no depth cue). Gave it an in-engine procedural noise albedo (`FastNoiseLite` simplex → `NoiseTexture2D`, seamless, two-tone green `color_ramp`, ~70 m tiling via `uv1_scale`) so open areas show low-frequency grassy patches — a subtle depth cue, not a loud pattern; roads/buildings sit on top so only open terrain shows it. No asset file, client-only cosmetic (`world_renderer`), no wire/gameplay change. Suite **749/0**; visual-validated on .128 (open-field shots show mottled terrain).
 
+#### Increment — Dynamic spread crosshair — visual-validated ✅ 2026-06-24
+
+The crosshair was a static `"+"` label. Replaced with a **4-tick reticle + centre dot** whose gap blooms with honest client-side spread — movement speed, airborne, and each shot widen it; crouch/prone tighten it; it returns to a small resting gap when still. Pure client feedback off the predicted pawn's `velocity`/`stance`/`grounded` + a per-shot `_ch_fire_bloom` that decays each frame (kicked at the same predicted-shot hook that fires the tracer/recoil). `HudView.update_crosshair(spread, hidden)` repositions the ticks each frame (and pulls the reticle while dead/downed/deploying). `--crosshair-test` QA flag forces a bloomed reticle. No wire/gameplay change (AGENTS.md §7). Tests `hud_view_crosshair_test.gd`; suite **753/0**; visual-validated on .128 (resting-tight vs `--crosshair-test`-wide A/B).
+
 #### P2 increment — Fire-mode indicator + armor visual diffs — visual-validated ✅ 2026-06-24
 
 Two more M5.5 → M7 presentation deferrals. Design: [`docs/superpowers/specs/2026-06-24-firemode-armor-fx-design.md`](../superpowers/specs/2026-06-24-firemode-armor-fx-design.md). Branch `m7-firemode-armor-fx`.
