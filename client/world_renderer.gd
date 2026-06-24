@@ -302,6 +302,7 @@ var _vm_loco_rot := Vector3.ZERO
 var _vm_sprint_t := 0.0            # 0..1 eased sprint-lower amount
 var _vm_bob_phase := 0.0           # step cycle phase, advanced by distance travelled
 var vm_sprint_test := false        # QA: force the sprint-lowered viewmodel for a screenshot
+const SPRINT_FOV_ADD := 8.0        # degrees of FOV widening at full sprint (eased via _vm_sprint_t)
 
 ## Continuous viewmodel locomotion: a subtle walk bob + an eased sprint-lower, from the predicted
 ## pawn's motion. Composed in _pose_viewmodel on top of the base placement + any one-shot anim.
@@ -374,8 +375,8 @@ func update(world_view: WorldView, predictor: Prediction, now: float, fov: float
 	_sync_vehicle_pool(world_view.vehicles(), render_delta)
 
 	# 3. Camera from prediction (position) + client look (rotation)
+	_update_viewmodel_locomotion(predictor.predicted, render_delta)   # eases _vm_sprint_t (camera FOV + pose read it)
 	_apply_camera(predictor, fov, look_yaw, look_pitch, eye)
-	_update_viewmodel_locomotion(predictor.predicted, render_delta)
 	_pose_viewmodel(now)   # apply any active swing/swap animation on top of the base placement
 
 	# 4. Age out shot tracers + integrate cosmetic rockets + explosions
@@ -1088,7 +1089,9 @@ func _apply_camera(predictor: Prediction, fov: float, look_yaw: float, look_pitc
 	# pawn yaw. That lets the wire carry a flipped aim yaw (yaw+PI, to match Combat._forward to
 	# where the camera points) without the reconciled value rotating the view 180°.
 	_camera.transform.basis = Basis.from_euler(Vector3(look_pitch, look_yaw, 0.0))
-	_camera.fov = fov
+	# Sprint FOV kick — widen the view a touch while sprinting (eased via _vm_sprint_t) for a
+	# sense of speed. Composes with the sprint-lower viewmodel; settles back when not sprinting.
+	_camera.fov = fov + _vm_sprint_t * SPRINT_FOV_ADD
 
 
 # =============================================================================
