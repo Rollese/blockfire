@@ -46,6 +46,7 @@ var in_vehicle: int = 0    # vehicle id the pawn is seated in (0 = on foot)
 var seat: int = -1         # seat index when in_vehicle != 0
 var armor_class: int = Armor.LIGHT   # M5.5-P2: body-damage + move-speed tier (set from class at spawn)
 var suppression: float = 0.0         # M5.5-P2: 0..1 incoming-fire scalar; widens own spread, decays per tick
+var blind_until_tick: int = 0        # M5.5-P3: flashbang white-out persists until this tick (0 = not blinded)
 
 func _init(p_id: int = 0) -> void:
 	id = p_id
@@ -135,6 +136,10 @@ func _step_downed(dt: float, cmd: Dictionary, world_half: float = WORLD_HALF) ->
 
 func eye_position() -> Vector3:
 	return pos + Vector3(0.0, Stance.eye_height(stance), 0.0)
+
+## M5.5-P3: true while a flashbang white-out is still active at `tick`.
+func is_blinded(tick: int) -> bool:
+	return tick < blind_until_tick
 
 func to_state() -> EntityState:
 	var e := EntityState.new()

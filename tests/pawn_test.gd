@@ -114,3 +114,11 @@ func test_heavy_armor_moves_slower_than_light() -> void:
 	heavy.step(1.0, _cmd(1.0, 0.0))
 	assert_true(absf(heavy.pos.x) < absf(light.pos.x), "heavy armor reduces move speed")
 	assert_almost_eq(light.pos.x, Stance.speed(Stance.STAND), 0.001, "light armor = unmodified stance speed")
+
+func test_blind_state() -> void:
+	var p := Pawn.new(1)
+	assert_false(p.is_blinded(100))
+	p.blind_until_tick = 130
+	assert_true(p.is_blinded(100))
+	assert_false(p.is_blinded(130))
+	assert_false(p.is_blinded(131))

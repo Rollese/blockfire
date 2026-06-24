@@ -43,6 +43,8 @@ const MELEE_DAMAGE := 50              # knife body-hit damage (M5.5-P3); rear-ar
 const MELEE_COOLDOWN_TICKS := 24      # ~0.8s @30Hz between melee swings
 const SLEDGE_PAWN_DAMAGE := 35        # Engineer sledgehammer pawn-bonk (no structure in reach)
 const SLEDGE_STRUCT_RADIUS := 1.5     # m — carve radius of one sledge swing on a structure cell
+const FLASH_RADIUS := 8.0             # m — flashbang blinds exposed pawns within this radius (any team)
+const FLASH_BLIND_TICKS := 90         # 3s @30Hz of white-out at the centre
 const SMOKE_DURATION_TICKS := 150     # 5s @30Hz — smoke zone lifetime
 const SMOKE_RADIUS := 6.0             # m — smoke zone radius (matches blast radius)
 const PIECES_PATH := "res://pieces/pieces.json"
@@ -1763,8 +1765,31 @@ func _detonate(g: Dictionary) -> void:
 	if int(g["type"]) == Grenade.SMOKE:
 		_deploy_smoke(g)
 		return
+	if int(g["type"]) == Grenade.FLASHBANG:
+		_detonate_flash(g)
+		return
 	_nades += 1
 	_blast_at(g["pos"], int(g["owner"]), int(g["team"]), GRENADE_DAMAGE_PAWN, BLAST_PAWN_RADIUS, GRENADE_DAMAGE_STRUCT, BLAST_STRUCT_RADIUS, FRAG_VEHICLE_DMG)
+
+## Flashbang detonation (M5.5-P3): no damage. Blinds every LIVING pawn (any team — flashes are
+## indiscriminate, BattleBit-style) within FLASH_RADIUS that has line-of-sight to the blast (a solid
+## structure strictly between the blast and the eye blocks it). Blind is replicated as one byte for
+## the M7 white-out (Task 6).
+func _detonate_flash(g: Dictionary) -> void:
+	_flashes += 1
+	var center: Vector3 = g["pos"]
+	for pid in _sim.world.pawns:
+		var p: Pawn = _sim.world.pawns[pid]
+		if not p.alive:
+			continue
+		var to: Vector3 = p.eye_position() - center
+		var d := to.length()
+		if d > FLASH_RADIUS or d < 0.001:
+			continue
+		if _store != null and _store.count() > 0 and bool(_store.march(center, to / d, d)["hit"]):
+			continue   # LOS blocked by a structure
+		p.blind_until_tick = maxi(p.blind_until_tick, _sim.tick + FLASH_BLIND_TICKS)
+		_flash_blinds += 1
 
 ## Smoke detonation: no damage. Record a server-side zone and broadcast it (low-frequency, like
 ## KILL — bounded by the throw cooldown). M7 LOS culling will read _smoke_zones; here it just

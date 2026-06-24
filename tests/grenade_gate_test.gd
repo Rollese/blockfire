@@ -149,3 +149,35 @@ func test_assault_knife_does_not_demolish_wall() -> void:
 	assert_eq(srv._sledge_hits, 0, "assault has no sledge")
 	assert_eq(srv._dmg, 0, "knife does not carve a building wall")
 	srv.free()
+
+# --- Task 5: flashbang LOS-gated blind ---------------------------------------------------------
+
+func test_flash_blinds_exposed_pawn() -> void:
+	var srv := _make_server()
+	var p := _add_pawn(srv, 2, Vector3(3, 0, 0), 1)   # 3m from blast, no cover
+	srv._sim.tick = 100
+	srv._detonate({"type": Grenade.FLASHBANG, "pos": Vector3(0, 1.0, 0), "owner": 1, "team": 0})
+	assert_true(p.is_blinded(srv._sim.tick), "exposed pawn blinded by flash")
+	assert_true(p.blind_until_tick >= 100 + srv.FLASH_BLIND_TICKS - 1, "blind lasts ~FLASH_BLIND_TICKS")
+	assert_eq(srv._flashes, 1)
+	assert_eq(srv._flash_blinds, 1)
+	srv.free()
+
+func test_flash_does_not_blind_through_wall() -> void:
+	var srv := _make_server()
+	# Wall cell (0,0,1) => world z in [2,4]; pawn beyond it at z=6, blast at z=0 => LOS blocked.
+	var bwall := _idx(srv._catalog, "bwall")
+	srv._store.place(1, bwall, Vector3i(0, 0, 1), 0, -1, 1)
+	var p := _add_pawn(srv, 2, Vector3(0, 0, 6), 1)
+	srv._sim.tick = 100
+	srv._detonate({"type": Grenade.FLASHBANG, "pos": Vector3(0, 1.0, 0), "owner": 1, "team": 0})
+	assert_false(p.is_blinded(srv._sim.tick), "wall blocks the flash (LOS)")
+	srv.free()
+
+func test_flash_out_of_radius_not_blinded() -> void:
+	var srv := _make_server()
+	var p := _add_pawn(srv, 2, Vector3(20, 0, 0), 1)   # well beyond FLASH_RADIUS
+	srv._sim.tick = 100
+	srv._detonate({"type": Grenade.FLASHBANG, "pos": Vector3(0, 1.0, 0), "owner": 1, "team": 0})
+	assert_false(p.is_blinded(srv._sim.tick), "pawn outside FLASH_RADIUS not blinded")
+	srv.free()
