@@ -14,6 +14,9 @@ const MAX_BOT_BUILDS := 1           # walls each bot drops before stopping. Keep
 const GRENADE_COOLDOWN_TICKS := 300   # match server GRENADE_COOLDOWN_TICKS (10s, shared frag/smoke)
 const MAX_BOT_GRENADES := 1           # per-bot lifetime FRAG cap (convergence/over-destruction knob)
 const MAX_BOT_SMOKES := 1             # per-bot lifetime SMOKE cap (exercises the smoke path)
+const MAX_BOT_SPECIAL_THROWS := 3     # per-bot lifetime FLASHBANG/IMPACT cap (M5.5-P3 gate exerciser)
+const MELEE_COOLDOWN_TICKS := 24      # match server MELEE_COOLDOWN_TICKS (~0.8s)
+const SLEDGE_SEEK_RANGE := 10.0       # m — engineer sledgers steer to a structure within this range
 const MAX_VEHICLE_BOTS := 6   # crew bots per process; minority so the win-convergence holds
 const VEHICLE_FULL_HP := 600       # transport max (v1 single vehicle type); used to detect a damaged ridden vehicle
 const VEHICLE_RPG_RANGE := 120.0   # fire an RPG at an enemy vehicle within this many metres
@@ -64,6 +67,7 @@ func _spawn_bot(index: int) -> void:
 		"reload_until": 0, "burst_start": -1,
 		"last_build_tick": -100000, "structs": {}, "builds_made": 0,
 		"last_grenade_tick": -100000, "nades_thrown": 0, "smokes_thrown": 0,
+		"flashes_thrown": 0, "impacts_thrown": 0, "last_melee_tick": -100000,
 		"class": 0, "rpg_last_tick": -100000, "c4_placed": false, "c4_detonated": false,
 		"mine_placed": false, "gave_until": 0,
 		"vview": {}, "in_vehicle": 0, "boarded_origin": Vector3.ZERO, "repairing": false,
@@ -251,9 +255,19 @@ func _drive(bot: Dictionary, delta: float) -> void:
 		bot["burst_start"] = cb[2]
 		if int(intent["stance"]) == Stance.CROUCH:
 			buttons |= InputCommand.BTN_CROUCH
-		# Gadget gate-exercisers (frag/c4/mine need a nearest enemy; smoke advances toward objective).
-		if target != null:
-			_maybe_grenade(bot, me, target)
+		# M5.5-P3 sledger override: a subset of engineers steer to a nearby structure and demolish it
+		# (guarantees the fleet sees sledge hits). When sledging, skip the normal throw/gadget passes.
+		var sledge_mv := _maybe_sledge(bot, me)
+		if not sledge_mv.is_empty():
+			move_x = sledge_mv[0]; move_y = sledge_mv[1]
+		# Gadget gate-exercisers (frag/flash/impact/c4/mine need a nearest enemy; smoke advances).
+		elif target != null:
+			# Throwable variety by index so the fleet exercises every type (server shares one cooldown).
+			match int(bot["index"]) % 6:
+				2: _maybe_throwable(bot, me, target, Grenade.FLASHBANG, "flashes_thrown")
+				5: _maybe_throwable(bot, me, target, Grenade.IMPACT, "impacts_thrown")
+				_: _maybe_grenade(bot, me, target)
+			_maybe_melee(bot, me, target)
 			_maybe_c4(bot, me, target)
 			_maybe_mine(bot, me, target.pos)
 		else:
@@ -384,6 +398,68 @@ func _maybe_smoke(bot: Dictionary, me: EntityState, obj: Vector3) -> void:
 		Protocol.encode_grenade_throw(dir.normalized(), Grenade.SMOKE), 0)
 	bot["last_grenade_tick"] = st
 	bot["smokes_thrown"] = int(bot["smokes_thrown"]) + 1
+
+## Throw a FLASHBANG/IMPACT at a visible nearby enemy (M5.5-P3 gate exerciser). Shares the server
+## throw cooldown + has a per-bot lifetime cap; aims directly at the target (flash blinds; impact
+## detonates on contact).
+func _maybe_throwable(bot: Dictionary, me: EntityState, target: EntityState, type: int, count_key: String) -> void:
+	if int(bot.get(count_key, 0)) >= MAX_BOT_SPECIAL_THROWS:
+		return
+	var st: int = bot["server_tick"]
+	if st - int(bot["last_grenade_tick"]) < GRENADE_COOLDOWN_TICKS:
+		return
+	var dir := target.pos - me.pos
+	var dist := dir.length()
+	if dist < 0.001 or dist > 30.0:
+		return
+	(bot["net"] as NetHost).send_to(bot["peer"], NetHost.CHANNEL_INPUT,
+		Protocol.encode_grenade_throw(dir.normalized(), type), 0)
+	bot["last_grenade_tick"] = st
+	bot[count_key] = int(bot.get(count_key, 0)) + 1
+
+## Quick-knife when an enemy is at point-blank (M5.5-P3). Face the target so the server's
+## frontal-cone selection picks it up; server cooldown-gates and resolves back-stab vs body damage.
+func _maybe_melee(bot: Dictionary, me: EntityState, target: EntityState) -> void:
+	if me.pos.distance_to(target.pos) > Melee.MELEE_RANGE + 0.4:
+		return
+	var st: int = bot["server_tick"]
+	if st - int(bot.get("last_melee_tick", -100000)) < MELEE_COOLDOWN_TICKS:
+		return
+	var to := target.pos - me.pos
+	bot["yaw"] = atan2(to.x, to.z)
+	(bot["net"] as NetHost).send_to(bot["peer"], NetHost.CHANNEL_INPUT, Protocol.encode_melee(), 0)
+	bot["last_melee_tick"] = st
+
+## Engineer sledgehammer exerciser: a subset of engineers (id % 4 == 0) steer to the nearest known
+## structure and melee it in reach (the server demolishes the struck cell). Returns a [mx,my]
+## movement override, or [] for bots that should drive normally. Best-effort — the deterministic
+## gate proves the mechanic; this guarantees the fleet exercises it on building-dense maps.
+func _maybe_sledge(bot: Dictionary, me: EntityState) -> Array:
+	if int(bot["class"]) != Loadout.ENGINEER or int(bot["id"]) % 4 != 0:
+		return []
+	var structs: Dictionary = bot["structs"]
+	if structs.is_empty():
+		return []
+	var best_id := 0
+	var best_d := SLEDGE_SEEK_RANGE
+	for sid in structs:
+		var wp: Vector3 = BuildGrid.world_of(structs[sid]["cell"] as Vector3i)
+		var d := me.pos.distance_to(wp)
+		if d < best_d:
+			best_d = d; best_id = sid
+	if best_id == 0:
+		return []
+	var to: Vector3 = BuildGrid.world_of(structs[best_id]["cell"] as Vector3i) - me.pos
+	if to.length() <= Melee.MELEE_RANGE + 0.3:
+		var st: int = bot["server_tick"]
+		if st - int(bot.get("last_melee_tick", -100000)) >= MELEE_COOLDOWN_TICKS:
+			bot["yaw"] = atan2(to.x, to.z); bot["pitch"] = 0.0
+			(bot["net"] as NetHost).send_to(bot["peer"], NetHost.CHANNEL_INPUT, Protocol.encode_melee(), 0)
+			bot["last_melee_tick"] = st
+		return [0.0, 0.0]   # hold position while demolishing
+	var f := Vector2(to.x, to.z).normalized()
+	bot["yaw"] = atan2(f.x, f.y)
+	return [f.x, f.y]
 
 ## Exercise fire-mode cycling and secondary weapon swap for a deterministic subset of bots.
 ## Fire-mode: bots where index % 5 == 0 (and not Engineer, which uses SMG that lacks BURST)
