@@ -56,6 +56,13 @@ var _debris: Array = []           # [{node, vel, die}] — explosion debris chun
 var boom_demo := false            # --boom-test: pump frag explosions in front of the camera (QA)
 var _boom_next := 0.0
 var _boom_i := 0
+# corpse-on-death: a body left where a pawn died (alive->false in view), lingering then despawning.
+const CORPSE_TTL := 14.0          # seconds a corpse lingers before despawn
+const CORPSE_FADE := 1.0          # seconds of sink-into-ground at the end of life
+const CORPSE_MAX := 40            # cap; oldest is removed when exceeded (bounds cost at fleet density)
+var _corpses: Array = []          # [{node: Node3D, die: float, y0: float}]
+var corpse_demo := false          # --corpse-test: lay a few corpses in front of the camera (QA)
+var _corpse_demo_done := false
 
 # active entity nodes: id(int) -> Node3D (CharacterKit soldier)
 var _active: Dictionary = {}
@@ -264,7 +271,7 @@ func update(world_view: WorldView, predictor: Prediction, now: float, fov: float
 	var remotes: Dictionary = world_view.remotes_at(now)
 	var self_es: EntityState = world_view.self_state()
 	var local_team: int = self_es.team if self_es != null else -1
-	_sync_entity_pool(remotes, local_team, render_delta)
+	_sync_entity_pool(remotes, local_team, render_delta, now)
 
 	# 2. Structure pool update (pass world_view so the sync can drain COLLAPSE events for rubble)
 	_sync_structure_pool(world_view, now)
@@ -283,10 +290,12 @@ func update(world_view: WorldView, predictor: Prediction, now: float, fov: float
 	_age_rockets(now, render_delta)
 	_age_blasts(now)
 	_age_debris(now, render_delta)
+	_age_corpses(now)
 
-	# 5. QA: armor-tier dummies (--armor-demo) + explosion pump (--boom-test)
+	# 5. QA: armor-tier dummies (--armor-demo) + explosion pump (--boom-test) + corpses (--corpse-test)
 	_ensure_armor_demo()
 	_ensure_boom_demo(now)
+	_ensure_corpse_demo(now)
 
 
 ## Visual QA (--armor-demo): once the camera exists, pin LIGHT/MEDIUM/HEAVY dummy soldiers in front
@@ -601,8 +610,11 @@ func _ensure_boom_demo(now: float) -> void:
 #  Entity pool helpers (CharacterKit soldiers)
 # =============================================================================
 
-func _sync_entity_pool(remotes: Dictionary, local_team: int, render_delta: float) -> void:
-	# Release nodes for ids that are gone or dead (and their friend markers)
+func _sync_entity_pool(remotes: Dictionary, local_team: int, render_delta: float, now: float) -> void:
+	# Release nodes for ids that are gone or dead (and their friend markers). An entity that is still
+	# in view but just went `not alive` DIED here (vs. one that simply left interest) — drop a corpse
+	# at its last pose before releasing. This fires exactly once: _release_entity drops it from _active
+	# and the acquire loop skips dead ids, so a dead-but-in-view pawn is never re-processed.
 	var to_release: Array = []
 	for id: int in _active:
 		if not remotes.has(id):
@@ -610,6 +622,7 @@ func _sync_entity_pool(remotes: Dictionary, local_team: int, render_delta: float
 		else:
 			var es: EntityState = remotes[id] as EntityState
 			if not es.alive:
+				_spawn_corpse(es, now)
 				to_release.append(id)
 	for id: int in to_release:
 		_release_entity(id)
@@ -627,6 +640,62 @@ func _sync_entity_pool(remotes: Dictionary, local_team: int, render_delta: float
 			marker.position = Vector3(es.pos.x, es.pos.y + FRIEND_MARKER_Y, es.pos.z)
 		else:
 			_release_marker(int(id))
+
+
+## Lay a dead body at a pawn's last pose (face-DOWN, so a corpse reads differently from a face-UP
+## downed/DBNO teammate). Honors the armor tier so the corpse matches how the pawn looked alive.
+func _spawn_corpse(es: EntityState, now: float) -> void:
+	if not es.pos.is_finite():
+		return
+	var node := _make_entity_mesh()
+	ArmorVisual.apply(node, es.armor_class)
+	var b := Basis.IDENTITY.rotated(Vector3.UP, es.yaw)
+	b = b.rotated(b.x, PI * 0.5)   # face-down on the ground (downed bodies lie face-up; corpses don't)
+	node.transform.basis = b
+	node.scale = Vector3.ONE
+	node.position = Vector3(es.pos.x, es.pos.y + PRONE_LIFT, es.pos.z)
+	add_child(node)
+	_corpses.append({"node": node, "die": now + CORPSE_TTL, "y0": node.position.y})
+	if _corpses.size() > CORPSE_MAX:
+		var oldest: Dictionary = _corpses.pop_front()
+		(oldest["node"] as Node3D).queue_free()
+
+
+func _age_corpses(now: float) -> void:
+	if _corpses.is_empty():
+		return
+	var live: Array = []
+	for cps: Dictionary in _corpses:
+		var remaining: float = float(cps["die"]) - now
+		var node: Node3D = cps["node"]
+		if remaining <= 0.0:
+			node.queue_free()
+			continue
+		if remaining < CORPSE_FADE:
+			# sink into the ground over the final second instead of popping out
+			var sunk := (1.0 - remaining / CORPSE_FADE) * 1.2
+			node.position.y = float(cps["y0"]) - sunk
+		live.append(cps)
+	_corpses = live
+
+
+## Visual QA (--corpse-test): lay a few corpses in front of the camera so a screenshot catches them.
+func _ensure_corpse_demo(now: float) -> void:
+	if not corpse_demo or _corpse_demo_done or _camera == null:
+		return
+	var cb := _camera.global_transform
+	if not cb.origin.is_finite():
+		return
+	_corpse_demo_done = true
+	var fwd := (-cb.basis.z).normalized()
+	var tiers := [Armor.LIGHT, Armor.MEDIUM, Armor.HEAVY]
+	for i in range(3):
+		var es := EntityState.new()
+		es.pos = cb.origin + fwd * 7.0 + cb.basis.x * (float(i - 1) * 2.4)
+		es.pos.y = 0.0
+		es.yaw = float(i) * 0.7
+		es.armor_class = tiers[i]
+		_spawn_corpse(es, now + float(i) * 30.0)   # stagger TTLs so they don't all sink at once
 
 
 func _acquire_entity(id: int) -> Node3D:
