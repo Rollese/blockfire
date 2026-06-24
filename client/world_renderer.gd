@@ -494,6 +494,8 @@ const DEBRIS_GRAVITY := 18.0
 ## Spawn a cosmetic explosion at pos. kind: Protocol.DET_EXPLOSION (orange fireball + smoke + debris)
 ## or Protocol.DET_FLASH (bright white pop). Called from client_main on a DETONATION packet.
 func spawn_explosion(pos: Vector3, kind: int, now: float) -> void:
+	if not pos.is_finite():
+		return
 	if kind == 1:   # Protocol.DET_FLASH
 		_spawn_blast(pos + Vector3(0, 0.6, 0), Color(1.0, 1.0, 1.0), 1.2, 6.0, FLASH_BLAST_TTL, now)
 		return
@@ -562,6 +564,7 @@ func _spawn_debris(pos: Vector3, now: float) -> void:
 func _age_debris(now: float, delta: float) -> void:
 	if _debris.is_empty():
 		return
+	var dt := clampf(delta, 0.0, 0.1)   # ignore absurd startup/stall deltas so debris can't fling to INF
 	var live: Array = []
 	for d: Dictionary in _debris:
 		if now >= float(d["die"]):
@@ -569,8 +572,8 @@ func _age_debris(now: float, delta: float) -> void:
 			continue
 		var node: Node3D = d["node"]
 		var vel: Vector3 = d["vel"]
-		vel.y -= DEBRIS_GRAVITY * delta
-		var npos := node.position + vel * delta
+		vel.y -= DEBRIS_GRAVITY * dt
+		var npos := node.position + vel * dt
 		if npos.y < 0.0:
 			npos.y = 0.0; vel = Vector3.ZERO   # settle on the ground
 		node.position = npos
@@ -584,9 +587,11 @@ func _age_debris(now: float, delta: float) -> void:
 func _ensure_boom_demo(now: float) -> void:
 	if not boom_demo or _camera == null or now < _boom_next:
 		return
+	var cb := _camera.global_transform
+	if not cb.origin.is_finite():
+		return   # camera not positioned yet (pre-deploy) — don't spawn at INF
 	_boom_next = now + 0.28
 	_boom_i += 1
-	var cb := _camera.global_transform
 	var fwd := (-cb.basis.z).normalized()
 	var lateral := cb.basis.x * (float((_boom_i % 3) - 1) * 2.2)
 	spawn_explosion(cb.origin + fwd * 8.0 + lateral - Vector3(0, 1.0, 0), 0, now)
