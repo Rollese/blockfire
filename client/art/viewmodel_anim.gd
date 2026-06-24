@@ -24,10 +24,9 @@ static func sample(kind: int, t: float) -> Dictionary:
 static func _swing(t: float) -> Dictionary:
 	# sin(t*PI): 0 at both ends, 1 at the middle — a single thrust+recover with no pop.
 	var env := sin(t * PI)
-	# Thrust the muzzle forward (-Z) + slightly right/down, pitch it down and yaw across the slash.
-	var pos := Vector3(0.08 * env, -0.05 * env, -0.16 * env)
-	var pitch := -0.9 * sin(clampf((t - 0.1) / 0.6, 0.0, 1.0) * PI)   # quick down then back
-	var rot := Vector3(pitch, -0.55 * env, 0.30 * env)
+	# A forward jab/bash: thrust the muzzle forward (-Z) + dip it down and slash across (yaw+roll).
+	var pos := Vector3(0.06 * env, -0.07 * env, -0.22 * env)
+	var rot := Vector3(0.45 * env, -0.40 * env, 0.22 * env)   # +pitch = muzzle dips down (a bash, not an overhead)
 	return {"pos": pos, "rot": rot}
 
 static func _swap(t: float) -> Dictionary:
