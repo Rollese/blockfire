@@ -77,3 +77,16 @@ func test_nearest_capturable_skips_owned() -> void:
 	var json := '{"points":[{"pos":[0,0,0],"radius":10,"start_owner":0},{"pos":[100,0,0],"radius":10,"start_owner":-1}],"bases":[{"team":0,"pos":[-900,0,0],"radius":1},{"team":1,"pos":[900,0,0],"radius":1}]}'
 	var c := ConquestState.new(MapDef.from_json_string(json)["map"])
 	assert_eq(c.nearest_capturable_index(0, Vector3(5, 0, 0)), 1, "skips the point team 0 already owns")
+
+func test_point_contested_by_enemy_tracks_presence() -> void:
+	var c := ConquestState.new(_map_one_point(30.0, 0))   # team 0 owns A at origin
+	c.step(0.1, _world_with([[1, Vector3.ZERO]]))         # a team-1 enemy stands on it
+	assert_true(c.point_contested_by_enemy(0, 0), "team 0's point is contested by the enemy on it")
+	assert_false(c.point_contested_by_enemy(1, 0), "the enemy's own presence is not a contest for it")
+
+func test_point_not_contested_when_empty_or_friendly_only() -> void:
+	var c := ConquestState.new(_map_one_point(30.0, 0))
+	c.step(0.1, World.new())
+	assert_false(c.point_contested_by_enemy(0, 0), "empty point is not contested")
+	c.step(0.1, _world_with([[0, Vector3.ZERO]]))         # only a friendly present
+	assert_false(c.point_contested_by_enemy(0, 0), "friendly-only presence is not a contest")

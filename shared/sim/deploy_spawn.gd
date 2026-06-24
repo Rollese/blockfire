@@ -29,7 +29,7 @@ static func _by(arr: Array, key: String, val: int) -> Dictionary:
 static func enumerate(team: int, map: MapDef, conquest: ConquestState, squadmates: Array = [], vehicles: Array = []) -> Array:
 	var refs: Array = [0]
 	for i in conquest.points.size():
-		if int(conquest.points[i]["owner"]) == team:
+		if int(conquest.points[i]["owner"]) == team and not conquest.point_contested_by_enemy(team, i):
 			refs.append(i + 1)
 	for m in squadmates:
 		if _mate_ok(m, team):
@@ -51,7 +51,8 @@ static func is_valid(team: int, ref: int, map: MapDef, conquest: ConquestState, 
 	var idx := ref - 1
 	if idx < 0 or idx >= conquest.points.size():
 		return false
-	return int(conquest.points[idx]["owner"]) == team
+	# Owned and not contested by enemies on the point (BattleBit: no spawning on a contested point).
+	return int(conquest.points[idx]["owner"]) == team and not conquest.point_contested_by_enemy(team, idx)
 
 static func resolve(team: int, ref: int, map: MapDef, conquest: ConquestState, squadmates: Array = [], vehicles: Array = []) -> Vector3:
 	var src := Vector3.ZERO
