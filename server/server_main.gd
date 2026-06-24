@@ -41,6 +41,8 @@ const GRENADE_DAMAGE_STRUCT := 200    # frag structure blast GATE (>0 = enabled;
 const IMPACT_CONTACT_RADIUS := 1.0    # m — an impact grenade detonates this close to an enemy pawn
 const MELEE_DAMAGE := 50              # knife body-hit damage (M5.5-P3); rear-arc back-stab instant-kills
 const MELEE_COOLDOWN_TICKS := 24      # ~0.8s @30Hz between melee swings
+const SLEDGE_PAWN_DAMAGE := 35        # Engineer sledgehammer pawn-bonk (no structure in reach)
+const SLEDGE_STRUCT_RADIUS := 1.5     # m — carve radius of one sledge swing on a structure cell
 const SMOKE_DURATION_TICKS := 150     # 5s @30Hz — smoke zone lifetime
 const SMOKE_RADIUS := 6.0             # m — smoke zone radius (matches blast radius)
 const PIECES_PATH := "res://pieces/pieces.json"
@@ -1379,6 +1381,18 @@ func _resolve_melee(id: int) -> void:
 	var atk: Pawn = _sim.world.get_pawn(id)
 	if atk == null or not atk.alive or atk.is_downed: return
 	var melee_damage := MELEE_DAMAGE
+	# Engineer sledgehammer: demolish the structure cell under the crosshair first (heavy carve via
+	# SRC_MELEE). With no structure in reach it bonks a pawn for SLEDGE_PAWN_DAMAGE (knife path below).
+	if Loadout.has_sledgehammer(int(c.get("class", -1))):
+		melee_damage = SLEDGE_PAWN_DAMAGE
+		if _store != null and _store.count() > 0:
+			var dir := Combat._forward(atk.yaw, atk.pitch)
+			var m := _store.march(atk.eye_position(), dir, Melee.MELEE_RANGE)
+			if bool(m["hit"]):
+				var impact: Vector3 = atk.eye_position() + dir * float(m["dist"])
+				_damage_structure(int(m["id"]), PieceCatalog.SRC_MELEE, impact, SLEDGE_STRUCT_RADIUS)
+				_sledge_hits += 1
+				return
 	var enemies: Array = []
 	for tid in _sim.world.pawns:
 		var v: Pawn = _sim.world.pawns[tid]

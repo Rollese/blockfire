@@ -121,3 +121,31 @@ func test_melee_cooldown_blocks_second_swing() -> void:
 	srv._resolve_melee(1)   # same tick -> cooldown blocks
 	assert_eq(victim.health, hp_after_first, "second swing blocked by cooldown")
 	srv.free()
+
+# --- Task 4: Engineer sledgehammer ------------------------------------------------------------
+
+## A wall cell directly ahead of a pawn standing at z=-0.5 facing +z (cell (0,0,0) => z in [0,2]).
+func _place_front_wall(srv) -> int:
+	var bwall := _idx(srv._catalog, "bwall")
+	srv._store.place(1, bwall, Vector3i(0, 0, 0), 0, -1, 1)
+	return 1
+
+func test_sledge_engineer_damages_wall() -> void:
+	var srv := _make_server()
+	_place_front_wall(srv)
+	_client(srv, 1, Loadout.ENGINEER, Weapon.SMG)
+	var eng := _add_pawn(srv, 1, Vector3(0, 0, -0.5), 0); eng.yaw = 0.0; eng.pitch = 0.0
+	srv._resolve_melee(1)
+	assert_eq(srv._sledge_hits, 1, "engineer sledge struck the wall")
+	assert_true(srv._dmg >= 1, "structure took chunk damage")
+	srv.free()
+
+func test_assault_knife_does_not_demolish_wall() -> void:
+	var srv := _make_server()
+	_place_front_wall(srv)
+	_client(srv, 1, Loadout.ASSAULT, Weapon.AR)
+	var atk := _add_pawn(srv, 1, Vector3(0, 0, -0.5), 0); atk.yaw = 0.0; atk.pitch = 0.0
+	srv._resolve_melee(1)   # no enemy + knife: nothing happens to the wall
+	assert_eq(srv._sledge_hits, 0, "assault has no sledge")
+	assert_eq(srv._dmg, 0, "knife does not carve a building wall")
+	srv.free()
