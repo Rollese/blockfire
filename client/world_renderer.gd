@@ -297,6 +297,27 @@ func play_viewmodel_recoil(now: float) -> void:
 
 
 ## Apply the active viewmodel animation offset on top of the base placement, each frame.
+var _vm_loco_pos := Vector3.ZERO   # current locomotion offset (bob + eased sprint-lower)
+var _vm_loco_rot := Vector3.ZERO
+var _vm_sprint_t := 0.0            # 0..1 eased sprint-lower amount
+var _vm_bob_phase := 0.0           # step cycle phase, advanced by distance travelled
+var vm_sprint_test := false        # QA: force the sprint-lowered viewmodel for a screenshot
+
+## Continuous viewmodel locomotion: a subtle walk bob + an eased sprint-lower, from the predicted
+## pawn's motion. Composed in _pose_viewmodel on top of the base placement + any one-shot anim.
+func _update_viewmodel_locomotion(pawn: Pawn, dt: float) -> void:
+	if pawn == null:
+		return
+	var vel: Vector3 = pawn.velocity
+	var speed := Vector2(vel.x, vel.z).length()
+	var sprinting: bool = vm_sprint_test or (pawn.grounded and pawn.stance == Stance.STAND and speed > 6.5)
+	var speed_norm := 1.0 if vm_sprint_test else clampf(speed / 6.0, 0.0, 1.0)
+	_vm_sprint_t = lerpf(_vm_sprint_t, 1.0 if sprinting else 0.0, clampf(dt * 9.0, 0.0, 1.0))
+	_vm_bob_phase = fmod(_vm_bob_phase + speed * dt * 1.7, TAU)
+	var bob := ViewmodelAnim.walk_bob(speed_norm, _vm_bob_phase)
+	_vm_loco_pos = (bob["pos"] as Vector3) + ViewmodelAnim.SPRINT_LOWER_POS * _vm_sprint_t
+	_vm_loco_rot = (bob["rot"] as Vector3) + ViewmodelAnim.SPRINT_LOWER_ROT * _vm_sprint_t
+
 func _pose_viewmodel(now: float) -> void:
 	if _viewmodel == null:
 		return
@@ -311,8 +332,8 @@ func _pose_viewmodel(now: float) -> void:
 			_vm_anim_kind = -1   # done → back to rest
 		else:
 			off = ViewmodelAnim.sample(_vm_anim_kind, t)
-	_viewmodel.position = VM_OFFSET + (off["pos"] as Vector3)
-	_viewmodel.rotation = Vector3(0.0, VM_YAW, 0.0) + (off["rot"] as Vector3)
+	_viewmodel.position = VM_OFFSET + (off["pos"] as Vector3) + _vm_loco_pos
+	_viewmodel.rotation = Vector3(0.0, VM_YAW, 0.0) + (off["rot"] as Vector3) + _vm_loco_rot
 
 
 ## First-person weapon viewmodel: a GlbWeaponKit weapon placed at the camera-space offset and yawed
@@ -354,6 +375,7 @@ func update(world_view: WorldView, predictor: Prediction, now: float, fov: float
 
 	# 3. Camera from prediction (position) + client look (rotation)
 	_apply_camera(predictor, fov, look_yaw, look_pitch, eye)
+	_update_viewmodel_locomotion(predictor.predicted, render_delta)
 	_pose_viewmodel(now)   # apply any active swing/swap animation on top of the base placement
 
 	# 4. Age out shot tracers + integrate cosmetic rockets + explosions

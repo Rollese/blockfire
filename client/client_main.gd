@@ -84,6 +84,7 @@ var _corpse_test := false           # --corpse-test: lay a few corpses in front 
 var _swing_test := false            # --swing-test: hold the viewmodel mid-swing for a visual QA shot
 var _recoil_test := false           # --recoil-test: hold the viewmodel mid-recoil-kick for a visual QA shot
 var _crosshair_test := false        # --crosshair-test: force a bloomed crosshair for a visual QA shot
+var _sprint_test := false           # --sprint-test: freeze the viewmodel sprint-lowered for a visual QA shot
 var _active_slot := 0               # client-tracked weapon slot (0=primary/1=secondary) for quick-swap toggle
 var _shot_after := -1.0           # --shot-after=N: auto-save a screenshot N secs after launch, then quit
 var _shot_done := false
@@ -118,6 +119,7 @@ func configure(args: Dictionary) -> void:
 	_swing_test = args.has("swing-test")            # visual QA: hold the viewmodel mid-swing
 	_recoil_test = args.has("recoil-test")          # visual QA: hold the viewmodel mid-recoil-kick
 	_crosshair_test = args.has("crosshair-test")    # visual QA: force a bloomed crosshair
+	_sprint_test = args.has("sprint-test")          # visual QA: freeze the viewmodel sprint-lowered
 	_shot_after = float(args.get("shot-after", -1.0))  # automated screenshot then quit
 
 # ---- _ready -----------------------------------------------------------------
@@ -807,6 +809,7 @@ func _build_scene() -> void:
 	_renderer.corpse_demo = _corpse_test # --corpse-test: lay corpses for a QA screenshot
 	_renderer.vm_swing_test = _swing_test # --swing-test: freeze the viewmodel mid-swing
 	_renderer.vm_recoil_test = _recoil_test # --recoil-test: freeze the viewmodel mid-recoil-kick
+	_renderer.vm_sprint_test = _sprint_test # --sprint-test: freeze the viewmodel sprint-lowered
 
 	# HUD layer
 	var hud_layer: CanvasLayer = world_node.get_node("HUD") as CanvasLayer
