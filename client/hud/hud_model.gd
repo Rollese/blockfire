@@ -7,12 +7,21 @@ const LOW_AMMO_FRAC := 0.34
 const KILLFEED_TTL := 6.0
 const DAMAGE_TTL := 1.5
 const BLIND_FULL_TICKS := 45.0   # remaining-blind ticks at/above which the flash white-out is opaque
+const SUPPRESS_FX_THRESHOLD := 0.25   # mirrors shared/sim/suppress.gd SUPPRESS_THRESHOLD (audio + visual onset align)
 
 ## Flashbang white-out opacity (0..1) from the SELF_STATE remaining-blind-ticks byte (M5.5-P3).
 ## Saturated white while ≥ BLIND_FULL_TICKS remain, then a linear fade over the final tail — so a
 ## flash holds full white for ~1.5s and clears over ~1.5s (FLASH_BLIND_TICKS=90 @30Hz).
 static func blind_intensity(blind_ticks: int) -> float:
 	return clampf(float(blind_ticks) / BLIND_FULL_TICKS, 0.0, 1.0)
+
+## Suppression screen-FX strength (0..1) from the SELF_STATE own-suppression scalar (M5.5-P2).
+## Zero below the threshold (so audio + visual suppression onset align and idle shows nothing),
+## then a smoothstep ramp to full — same shaping as the audio duck/cutoff (client/audio/audio_mix.gd).
+static func suppression_intensity(suppression: float) -> float:
+	if suppression < SUPPRESS_FX_THRESHOLD:
+		return 0.0
+	return smoothstep(SUPPRESS_FX_THRESHOLD, 1.0, clampf(suppression, 0.0, 1.0))
 var _killfeed: Array = []   # [{killer,victim,headshot,weapon,t}]
 var _damages: Array = []   # [{bearing,amount,t}]
 var _throwable_active: int = 0

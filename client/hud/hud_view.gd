@@ -30,6 +30,8 @@ var _cap_bar: ColorRect           # capture progress bar background
 var _cap_fill: ColorRect          # capture progress fill
 var _killfeed_labels: Array[Label] = []
 var _vignette: ColorRect
+var _suppress_overlay: ColorRect  # M5.5-P2 suppression screen FX (bottom of HUD: blurs the world, HUD stays crisp)
+var _suppress_mat: ShaderMaterial
 var _blind_overlay: ColorRect     # M5.5-P3 flashbang white-out (topmost; alpha = blind intensity)
 var _arc_pool: Array[Control] = []
 var _prompt_label: Label          # placeholder interaction hook
@@ -131,6 +133,7 @@ func _build_tree() -> void:
 	anchor_bottom = 1.0
 	mouse_filter = MOUSE_FILTER_IGNORE
 
+	_build_suppression()   # first: samples only the rendered world; the HUD below draws crisp over it
 	_build_crosshair()
 	_hitmarker = _Hitmarker.new()
 	add_child(_hitmarker)
@@ -317,6 +320,55 @@ func _build_vignette() -> void:
 	_vignette.color = Color(0.9, 0.05, 0.05, 0.0)
 	_vignette.mouse_filter = MOUSE_FILTER_IGNORE
 	add_child(_vignette)
+
+
+## Full-screen suppression overlay (M5.5-P2). A canvas shader samples the rendered world (this is the
+## first HUD child, so the screen texture holds only the 3D scene) and applies a tunnel vignette +
+## desaturation + edge blur scaled by a `strength` uniform. At strength 0 it passes the screen through
+## untouched (invisible). Built before the HUD readouts so they stay crisp, and before the flashbang
+## white-out so a flash still covers it.
+func _build_suppression() -> void:
+	var sh := Shader.new()
+	sh.code = "shader_type canvas_item;\n" + \
+		"uniform sampler2D screen_tex : hint_screen_texture, repeat_disable, filter_linear;\n" + \
+		"uniform float strength : hint_range(0.0, 1.0) = 0.0;\n" + \
+		"void fragment() {\n" + \
+		"	vec2 uv = SCREEN_UV;\n" + \
+		"	vec3 base = texture(screen_tex, uv).rgb;\n" + \
+		"	if (strength <= 0.001) { COLOR = vec4(base, 1.0); }\n" + \
+		"	else {\n" + \
+		"		vec2 px = SCREEN_PIXEL_SIZE * (1.5 + 2.5 * strength);\n" + \
+		"		vec3 b = base;\n" + \
+		"		b += texture(screen_tex, uv + vec2(px.x, 0.0)).rgb;\n" + \
+		"		b += texture(screen_tex, uv - vec2(px.x, 0.0)).rgb;\n" + \
+		"		b += texture(screen_tex, uv + vec2(0.0, px.y)).rgb;\n" + \
+		"		b += texture(screen_tex, uv - vec2(0.0, px.y)).rgb;\n" + \
+		"		b /= 5.0;\n" + \
+		"		float d = distance(uv, vec2(0.5)) * 1.4142;\n" + \
+		"		float vig = smoothstep(0.35, 1.0, d);\n" + \
+		"		vec3 col = mix(base, b, clamp(vig * strength + strength * 0.3, 0.0, 1.0));\n" + \
+		"		float lum = dot(col, vec3(0.299, 0.587, 0.114));\n" + \
+		"		col = mix(col, vec3(lum), strength * 0.6);\n" + \
+		"		col *= 1.0 - vig * strength * 0.6;\n" + \
+		"		COLOR = vec4(col, 1.0);\n" + \
+		"	}\n" + \
+		"}\n"
+	_suppress_mat = ShaderMaterial.new()
+	_suppress_mat.shader = sh
+	_suppress_mat.set_shader_parameter("strength", 0.0)
+	_suppress_overlay = ColorRect.new()
+	_suppress_overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_suppress_overlay.color = Color(1, 1, 1, 1)   # opaque; the shader replaces it with the processed screen
+	_suppress_overlay.material = _suppress_mat
+	_suppress_overlay.mouse_filter = MOUSE_FILTER_IGNORE
+	add_child(_suppress_overlay)
+
+
+## Set the suppression screen-FX strength (0..1). Safe before _ready() (lazy-inits the tree).
+func set_suppression(strength: float) -> void:
+	if _suppress_mat == null:
+		_build_tree()
+	_suppress_mat.set_shader_parameter("strength", clampf(strength, 0.0, 1.0))
 
 
 func _build_blind() -> void:

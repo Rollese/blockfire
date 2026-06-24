@@ -93,7 +93,16 @@ next is the P1 gate (full-match human playtest with complete HUD).
 ### P2 — Art kit + LOD
 Swap placeholder primitives for the low-poly blocky kit (characters, weapons, vehicles, environment) behind the same node interfaces, LOD pipeline, and audio/visual feedback polish (richer hit markers, animated damage indicators, SFX). Pure presentation on top of a proven-playable P1.
 
-Also lands the **M5.5 presentation/feel deferrals** (the VFX/audio pieces of Combat Depth II — [combat-depth-2](../specs/combat-depth-2.md)): projectile **tracers** + muzzle flash, **suppression** screen blur/shake/muffle, **flashbang** white-out + deafen, melee/sledge/weapon-swap animations, fire-mode HUD indicator, armor visual diffs. **Audio gets its own spec** (`docs/specs/audio.md` — reserved; brainstormed when P2 starts): distance-attenuated + occluded gunfire, footsteps, **bullet crack/whiz** (from M5.5 projectiles), suppressor signature, suppression muffle, explosion/vehicle, directional.
+Also lands the **M5.5 presentation/feel deferrals** (the VFX/audio pieces of Combat Depth II — [combat-depth-2](../specs/combat-depth-2.md)): projectile **tracers** + muzzle flash *(done)*, **suppression** screen blur/desaturate/vignette + muffle *(screen FX done 2026-06-24; muffle done with audio)*, **flashbang** white-out + deafen *(white-out done 2026-06-24)*, melee/sledge/weapon-swap animations, fire-mode HUD indicator, armor visual diffs.
+
+#### P2 increment — Suppression screen FX — visual-validated ✅ 2026-06-24
+
+Closes the visual half of the M5.5-P2 "suppression screen blur/shake/muffle" deferral (audio half already shipped). Design: [`docs/superpowers/specs/2026-06-24-suppression-screen-fx-design.md`](../superpowers/specs/2026-06-24-suppression-screen-fx-design.md). Branch `m7-suppression-screen-fx`.
+
+- Driven by the **already-replicated** `SELF_STATE` own-suppression scalar (M5.5-P2) — the client already fed it to audio; this adds the matching screen effect. Client-only; no `shared/`/server/wire change.
+- `HudModel.suppression_intensity()` (pure, unit-tested): zero below the 0.25 threshold (aligns with the audio onset), smoothstep to full. `HudView` full-screen canvas shader — first HUD child so it samples only the rendered world (HUD draws crisp over it) — applies a **tunnel vignette + desaturation + edge blur** scaled by a `strength` uniform; built before the flashbang white-out so a flash still covers it. `client_main` drives it each frame (alive + not-downed gating, same as the blind overlay).
+- QA: `--suppress-test` mirrors `--flash-test`; with `--shot-after` it captures a same-camera **clean→suppressed A/B** for screenshot diffing.
+- **Validation:** full suite **715/0**; **visual-validated on .128** (iGPU, RADV Renoir, Wayland) via the self-screenshot recipe — same-camera A/B confirms the tunnel-darken/desaturate/blur veil over the world while the HUD stays crisp, and a perfect passthrough at strength 0. Feel-tuning of intensity is an owner playtest follow-up (AGENTS.md §10). **Audio gets its own spec** (`docs/specs/audio.md` — reserved; brainstormed when P2 starts): distance-attenuated + occluded gunfire, footsteps, **bullet crack/whiz** (from M5.5 projectiles), suppressor signature, suppression muffle, explosion/vehicle, directional.
 
 **P2 gate (the full M7 gate):** end-to-end human playtest of a full Conquest match **with the real art and complete HUD.**
 

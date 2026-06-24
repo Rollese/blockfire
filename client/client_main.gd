@@ -76,8 +76,11 @@ var _match_state: Dictionary = {}
 var _auto_deploy_ref: int = -1    # --deploy=N arg; -1 = not set
 var _auto_deploy_sent := false    # only send once
 var _flash_test := false          # --flash-test: force the flashbang white-out on (visual QA)
+var _suppress_test := false        # --suppress-test: force the suppression screen FX on (visual QA)
+var _suppress_qa_on := true         # in suppress-test, gates the forced FX (A/B screenshot sequence flips it)
 var _shot_after := -1.0           # --shot-after=N: auto-save a screenshot N secs after launch, then quit
 var _shot_done := false
+var _shot_count := 0              # makes auto-screenshot filenames unique within the same second
 var _dbg_accum := 0.0             # 1 Hz input/deploy diagnostic accumulator
 var _novsync := false             # --novsync: disable vsync (perf diagnostic)
 var _map_path: String = MAP_PATH  # --map=<name> overrides (must match server + bots)
@@ -100,6 +103,7 @@ func configure(args: Dictionary) -> void:
 	if args.has("map"):
 		_map_path = "res://maps/%s.json" % String(args["map"])
 	_flash_test = args.has("flash-test")            # visual QA: force the flashbang white-out
+	_suppress_test = args.has("suppress-test")      # visual QA: force the suppression screen FX
 	_shot_after = float(args.get("shot-after", -1.0))  # automated screenshot then quit
 
 # ---- _ready -----------------------------------------------------------------
@@ -269,7 +273,8 @@ func _save_screenshot() -> void:
 	var dir := "%s/bf-shots" % OS.get_environment("HOME")
 	DirAccess.make_dir_recursive_absolute(dir)
 	var stamp := Time.get_datetime_string_from_system().replace("T", "_").replace(":", "-")
-	var path := "%s/shot_%s.png" % [dir, stamp]
+	_shot_count += 1
+	var path := "%s/shot_%s_%02d.png" % [dir, stamp, _shot_count]
 	var err := img.save_png(path)
 	if err == OK:
 		print("[shot] saved %s" % path)
@@ -316,8 +321,18 @@ func _process(_dt: float) -> void:
 	# --shot-after=N: automated visual QA — save one screenshot N secs after launch, then quit.
 	if _shot_after >= 0.0 and not _shot_done and _scene_built and _elapsed >= _shot_after:
 		_shot_done = true
-		_save_screenshot()
-		get_tree().create_timer(0.5).timeout.connect(func() -> void: get_tree().quit())
+		if _suppress_test:
+			# A/B from the SAME camera: a clean frame (FX off), then the suppressed frame (FX on).
+			_suppress_qa_on = false
+			get_tree().create_timer(0.15).timeout.connect(func() -> void:
+				_save_screenshot()             # 1: clean
+				_suppress_qa_on = true
+				get_tree().create_timer(0.6).timeout.connect(func() -> void:
+					_save_screenshot()         # 2: suppressed
+					get_tree().create_timer(0.4).timeout.connect(func() -> void: get_tree().quit())))
+		else:
+			_save_screenshot()
+			get_tree().create_timer(0.5).timeout.connect(func() -> void: get_tree().quit())
 	if not _scene_built:
 		return
 	_poll_photo_mode()       # F8 free-fly toggle (camera exists once the scene is built)
@@ -404,6 +419,10 @@ func _process(_dt: float) -> void:
 		var blinded := hs != null and hs.alive and not hs.is_downed
 		var blind_ticks := 34 if _flash_test else (_blind_ticks if blinded else 0)
 		_hud_view.set_blind(HudModel.blind_intensity(blind_ticks))
+		# M5.5-P2 suppression screen FX from the SELF_STATE suppression byte (same gating as blind:
+		# only while alive + not downed). --suppress-test forces a strong veil for visual QA.
+		var supp := (0.8 if _suppress_qa_on else 0.0) if _suppress_test else (_suppression if blinded else 0.0)
+		_hud_view.set_suppression(HudModel.suppression_intensity(supp))
 
 	# ---- C3: revive intent (no self-recovery — a teammate must revive you, BattleBit-style) ----
 	var sss: EntityState = _wv.self_state()

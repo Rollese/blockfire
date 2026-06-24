@@ -167,3 +167,16 @@ func test_blind_intensity_saturates_then_fades() -> void:
 	assert_almost_eq(HudModel.blind_intensity(0), 0.0, 0.001)    # cleared
 	var mid := HudModel.blind_intensity(22)                      # mid-fade in (0,1)
 	assert_true(mid > 0.0 and mid < 1.0, "mid-tail fades between full and clear")
+
+
+func test_suppression_intensity_threshold_and_ramp() -> void:
+	# Below the 0.25 threshold the screen FX is fully off (matches the audio onset);
+	# above it, a smoothstep ramp to full at s=1.0; clamped to [0,1].
+	assert_almost_eq(HudModel.suppression_intensity(0.0), 0.0, 0.001)    # idle -> nothing
+	assert_almost_eq(HudModel.suppression_intensity(0.24), 0.0, 0.001)   # just below threshold -> off
+	assert_almost_eq(HudModel.suppression_intensity(1.0), 1.0, 0.001)    # fully suppressed -> full
+	assert_almost_eq(HudModel.suppression_intensity(2.0), 1.0, 0.001)    # clamped above 1
+	var lo := HudModel.suppression_intensity(0.4)
+	var hi := HudModel.suppression_intensity(0.8)
+	assert_true(lo > 0.0 and lo < 1.0, "above threshold ramps in (0,1)")
+	assert_true(hi > lo, "monotonic increasing with suppression")
