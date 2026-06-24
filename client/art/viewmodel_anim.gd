@@ -47,3 +47,22 @@ static func _recoil(t: float) -> Dictionary:
 	var pos := Vector3(0.0, 0.012 * env, 0.05 * env)   # nudge up + push back toward the camera (+Z)
 	var rot := Vector3(-0.10 * env, 0.0, 0.02 * env)   # -pitch = muzzle rises; a touch of roll for life
 	return {"pos": pos, "rot": rot}
+
+# ---- Continuous locomotion (not a one-shot anim; composed every frame) -------------------------
+# Applied on top of the base placement alongside any active swing/swap/recoil. The renderer eases
+# the sprint amount and advances the bob phase by distance travelled; these stay pure for testing.
+
+const SPRINT_LOWER_POS := Vector3(0.04, -0.06, 0.05)   # gun dips + shifts out of the aim when sprinting (stays partly in frame)
+const SPRINT_LOWER_ROT := Vector3(0.50, -0.30, 0.16)   # muzzle angled down/across (can't fire while sprinting)
+const BOB_X := 0.015     # m lateral sway at full speed
+const BOB_Y := 0.018     # m vertical dip at full speed
+const BOB_ROLL := 0.025  # rad roll sway at full speed
+
+## Subtle weapon bob while moving — a gentle step cadence so the held weapon reads as alive, not
+## frozen. `speed_norm` (0..1) scales the amplitude (0 at a standstill); `phase` (rad) is the step
+## cycle. Down-weighted on Y so each step dips (a footfall), not floats.
+static func walk_bob(speed_norm: float, phase: float) -> Dictionary:
+	var amp := clampf(speed_norm, 0.0, 1.0)
+	var pos := Vector3(sin(phase) * BOB_X * amp, -absf(sin(phase)) * BOB_Y * amp, 0.0)
+	var rot := Vector3(0.0, 0.0, sin(phase) * BOB_ROLL * amp)
+	return {"pos": pos, "rot": rot}
