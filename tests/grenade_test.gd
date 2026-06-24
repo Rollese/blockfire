@@ -21,3 +21,14 @@ func test_falloff_is_linear_to_zero_at_edge() -> void:
 	assert_eq(Grenade.falloff_damage(c, Vector3(3, 0, 0), 100, 6.0), 50)
 	assert_eq(Grenade.falloff_damage(c, Vector3(6, 0, 0), 100, 6.0), 0)
 	assert_eq(Grenade.falloff_damage(c, Vector3(9, 0, 0), 100, 6.0), 0)
+
+func test_new_grenade_type_constants() -> void:
+	assert_eq(Grenade.FRAG, 0)
+	assert_eq(Grenade.SMOKE, 1)
+	assert_eq(Grenade.FLASHBANG, 2)
+	assert_eq(Grenade.IMPACT, 3)
+
+func test_impact_is_contact_fuse_others_are_timed() -> void:
+	assert_true(Grenade.is_contact_fuse(Grenade.IMPACT))
+	assert_false(Grenade.is_contact_fuse(Grenade.FRAG))
+	assert_false(Grenade.is_contact_fuse(Grenade.FLASHBANG))
