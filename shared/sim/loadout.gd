@@ -58,6 +58,11 @@ static func can_equip(cls: int, weapon_id: int) -> bool:
 		return cls == ASSAULT
 	return true
 
+## The Engineer's melee is a sledgehammer: it demolishes structure cells (heavy carve) and bonks
+## pawns; every other class carries the universal quick-knife (M5.5-P3, spec §3).
+static func has_sledgehammer(cls: int) -> bool:
+	return cls == ENGINEER
+
 static func default_attachments() -> Dictionary:
 	return {"optic": "iron", "barrel": "standard", "underbarrel": "none_ub"}
 

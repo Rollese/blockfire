@@ -8,6 +8,12 @@ extends Object
 
 const FRAG := 0            # area damage to structures + pawns
 const SMOKE := 1           # spawns a smoke zone (no damage)
+const FLASHBANG := 2       # LOS-gated blind/deafen, no damage
+const IMPACT := 3          # frag-like blast, zero fuse, detonates on first contact
+
+## Impact grenades detonate on contact instead of on a fuse timer.
+static func is_contact_fuse(type: int) -> bool:
+	return type == IMPACT
 
 const GRAVITY := 20.0      # m/s^2 downward (gameplay gravity, not realistic 9.8)
 const THROW_SPEED := 18.0  # initial launch speed (m/s)

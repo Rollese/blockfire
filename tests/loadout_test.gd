@@ -74,3 +74,9 @@ func test_secondary_is_pistol_for_all_classes() -> void:
 func test_can_equip_pistol_any_class() -> void:
 	assert_true(Loadout.can_equip(Loadout.ASSAULT, Weapon.PISTOL))
 	assert_true(Loadout.can_equip(Loadout.SUPPORT, Weapon.PISTOL))
+
+func test_sledge_engineer_only() -> void:
+	assert_true(Loadout.has_sledgehammer(Loadout.ENGINEER))
+	assert_false(Loadout.has_sledgehammer(Loadout.ASSAULT))
+	assert_false(Loadout.has_sledgehammer(Loadout.MEDIC))
+	assert_false(Loadout.has_sledgehammer(Loadout.SUPPORT))
