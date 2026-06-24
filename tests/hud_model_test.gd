@@ -159,3 +159,11 @@ func test_damage_arc_relative_and_fades() -> void:
 	var faded := m.build({"self_yaw": 0.0, "now": 10.0 + HudModel.DAMAGE_TTL + 0.1, "tick": 0})
 	assert_eq(faded["damage_arcs"].size(), 0, "arc expired")
 	assert_almost_eq(faded["vignette"], 0.0, 0.01, "vignette decayed to ~0")
+
+func test_blind_intensity_saturates_then_fades() -> void:
+	# Saturated white while >= BLIND_FULL_TICKS remain; linear fade to 0; clamped.
+	assert_almost_eq(HudModel.blind_intensity(90), 1.0, 0.001)   # fresh flash -> full white
+	assert_almost_eq(HudModel.blind_intensity(45), 1.0, 0.001)   # still saturated at the knee
+	assert_almost_eq(HudModel.blind_intensity(0), 0.0, 0.001)    # cleared
+	var mid := HudModel.blind_intensity(22)                      # mid-fade in (0,1)
+	assert_true(mid > 0.0 and mid < 1.0, "mid-tail fades between full and clear")
