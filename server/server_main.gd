@@ -39,6 +39,8 @@ const BLAST_STRUCT_RADIUS := 4.0      # m (~2 build cells)
 const GRENADE_DAMAGE_PAWN := 100      # frag pawn splash at centre, linear falloff
 const GRENADE_DAMAGE_STRUCT := 200    # frag structure blast GATE (>0 = enabled; magnitude unused — carve is governed by struct_radius, M11)
 const IMPACT_CONTACT_RADIUS := 1.0    # m — an impact grenade detonates this close to an enemy pawn
+const MELEE_DAMAGE := 50              # knife body-hit damage (M5.5-P3); rear-arc back-stab instant-kills
+const MELEE_COOLDOWN_TICKS := 24      # ~0.8s @30Hz between melee swings
 const SMOKE_DURATION_TICKS := 150     # 5s @30Hz — smoke zone lifetime
 const SMOKE_RADIUS := 6.0             # m — smoke zone radius (matches blast radius)
 const PIECES_PATH := "res://pieces/pieces.json"
@@ -136,6 +138,12 @@ var _proj_hits := 0           # projectiles that connected with a pawn this wind
 var _proj_live_max := 0       # max concurrent live projectiles observed this window
 var _proj_dropped := 0        # spawns refused this window because the pool was at MAX_LIVE_PROJECTILES
 var _suppress_events := 0     # near-miss suppression accruals this window (M5.5-P2)
+var _melees := 0              # melee swings that landed this window (M5.5-P3)
+var _backstabs := 0           # rear-arc instant-kill melee hits this window (M5.5-P3)
+var _sledge_hits := 0         # Engineer sledgehammer structure hits this window (M5.5-P3)
+var _flashes := 0             # flashbang detonations this window (M5.5-P3)
+var _flash_blinds := 0        # pawns blinded by flashbangs this window (M5.5-P3)
+var _impacts := 0             # impact-grenade contact detonations this window (M5.5-P3)
 var _dbg_last_min_y := INF    # test seam only: lowest y any stepped projectile reached
 var _mines: Array = []        # [{owner, team, pos, facing, armed_after_tick}]
 var _giving: Dictionary = {}   # giver_id -> tick the give began (latched; cleared on STOP/invalid)
@@ -1083,6 +1091,7 @@ func _on_packet(peer: ENetPacketPeer, _channel: int, bytes: PackedByteArray) -> 
 		Protocol.Msg.SET_SQUAD: _handle_set_squad(peer, bytes)
 		Protocol.Msg.SET_FIRE_MODE: _handle_set_fire_mode(peer, bytes)
 		Protocol.Msg.SWAP_WEAPON: _handle_swap_weapon(peer, bytes)
+		Protocol.Msg.MELEE: _handle_melee(peer)
 		_: pass
 
 func _handle_hello(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
@@ -1355,6 +1364,39 @@ func _handle_grenade_throw(peer: ENetPacketPeer, bytes: PackedByteArray) -> void
 		"detonate_tick": _sim.tick + GRENADE_FUSE_TICKS,
 	})
 
+func _handle_melee(peer: ENetPacketPeer) -> void:
+	var id = _peer_to_id.get(peer, 0)
+	if id == 0 or not _clients.has(id): return
+	_resolve_melee(id)
+
+## Melee swing (M5.5-P3). Knife (all classes): the nearest enemy in the frontal reach cone takes
+## MELEE_DAMAGE, or an instant kill if struck within the rear arc (back-stab). Cooldown-gated per
+## client. (The Engineer sledgehammer structure branch is added in Task 4.)
+func _resolve_melee(id: int) -> void:
+	var c = _clients[id]
+	if _sim.tick < int(c.get("melee_ready_tick", 0)): return
+	c["melee_ready_tick"] = _sim.tick + MELEE_COOLDOWN_TICKS
+	var atk: Pawn = _sim.world.get_pawn(id)
+	if atk == null or not atk.alive or atk.is_downed: return
+	var melee_damage := MELEE_DAMAGE
+	var enemies: Array = []
+	for tid in _sim.world.pawns:
+		var v: Pawn = _sim.world.pawns[tid]
+		if v != null and v.alive and not v.is_downed and v.team != atk.team:
+			enemies.append({"id": tid, "pos": v.pos, "team": v.team})
+	var vid := Melee.best_target({"pos": atk.pos, "yaw": atk.yaw, "team": atk.team}, enemies)
+	if vid == 0: return
+	var victim: Pawn = _sim.world.get_pawn(vid)
+	var weapon_id := int(c.get("weapon", 0))
+	if Melee.is_backstab(victim.yaw, atk.pos - victim.pos):
+		# Rear-arc back-stab = instant kill: headshot=true routes through Revive.is_instant_kill,
+		# bypassing DBNO (same path the M4.5 head/blast instant-kill uses).
+		_apply_pawn_damage(vid, victim, 100000, true, Revive.Source.BULLET, id, weapon_id)
+		_backstabs += 1
+	else:
+		_apply_pawn_damage(vid, victim, melee_damage, false, Revive.Source.BULLET, id, weapon_id)
+	_melees += 1
+
 func _handle_gadget_action(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
 	var id = _peer_to_id.get(peer, 0)
 	if id == 0 or not _clients.has(id): return
@@ -1580,6 +1622,7 @@ func _step_impact(g: Dictionary) -> bool:
 		if s["pos"].y < 0.0:
 			s["pos"].y = 0.0
 		g["pos"] = s["pos"]
+		_impacts += 1
 		_detonate(g)
 		return true
 	g["pos"] = s["pos"]; g["vel"] = s["vel"]
@@ -1900,8 +1943,8 @@ func _log_telemetry() -> void:
 	var pts := ""
 	for pt in _conquest.points:
 		pts += "." if pt["owner"] == -1 else str(pt["owner"])
-	print("[telemetry] players=%d alive=%d tick_mean=%.2fms tick_p99=%.2fms agg=%.1fMbit/s kills=%d shots=%d hit_rate=%.2f starv=%d rewind_clamped=%d t0=%d t1=%d pts=%s cap_events=%d struct=%d bld=%d rmv=%d blk=%d pen=%d dmg=%d destroyed=%d collapsed=%d nades=%d splash=%d smoke=%d rockets=%d rstruct=%d proj=%d projhit=%d projlive=%d projdrop=%d downed=%d bleedouts=%d revives=%d c4=%d mines=%d heals=%d ammo=%d bags=%d bagx=%d climbs=%d vaults=%d dropblk=%d enters=%d exits=%d veh_dead=%d repairs=%d repair_oh=%d rkt_veh=%d transport_m=%.1f ac_viol=%d swaps=%d supp=%d"
-		% [n, alive, _tele.mean_tick_ms(), _tele.p99_tick_ms(), mbit, _kills, _shots, hit_rate, _tele.starvation, _rewind_clamped, _conquest.tickets_int(0), _conquest.tickets_int(1), pts, _cap_events, _store.count(), _builds, _removes, _shots_blocked, _pen, _dmg, _destroyed, _collapsed, _nades, _splash_kills, _smokes, _rockets_det, _rstruct, _proj_fired, _proj_hits, _proj_live_max, _proj_dropped, _downed, _bleedouts, _revives, _c4_det, _mine_trips, _heals, _ammo_gives, _bags_thrown, _bags_exhausted, _climbs, _vaults, _drop_shoot_blocked, _enters, _exits, _veh_destroyed, _repairs, _repair_overheats, _rkt_vs_veh, _transport_max, _ac_viol, _swaps, _suppress_events])
+	print("[telemetry] players=%d alive=%d tick_mean=%.2fms tick_p99=%.2fms agg=%.1fMbit/s kills=%d shots=%d hit_rate=%.2f starv=%d rewind_clamped=%d t0=%d t1=%d pts=%s cap_events=%d struct=%d bld=%d rmv=%d blk=%d pen=%d dmg=%d destroyed=%d collapsed=%d nades=%d splash=%d smoke=%d rockets=%d rstruct=%d proj=%d projhit=%d projlive=%d projdrop=%d downed=%d bleedouts=%d revives=%d c4=%d mines=%d heals=%d ammo=%d bags=%d bagx=%d climbs=%d vaults=%d dropblk=%d enters=%d exits=%d veh_dead=%d repairs=%d repair_oh=%d rkt_veh=%d transport_m=%.1f ac_viol=%d swaps=%d supp=%d melees=%d backstabs=%d sledge=%d flashes=%d flashblinds=%d impacts=%d"
+		% [n, alive, _tele.mean_tick_ms(), _tele.p99_tick_ms(), mbit, _kills, _shots, hit_rate, _tele.starvation, _rewind_clamped, _conquest.tickets_int(0), _conquest.tickets_int(1), pts, _cap_events, _store.count(), _builds, _removes, _shots_blocked, _pen, _dmg, _destroyed, _collapsed, _nades, _splash_kills, _smokes, _rockets_det, _rstruct, _proj_fired, _proj_hits, _proj_live_max, _proj_dropped, _downed, _bleedouts, _revives, _c4_det, _mine_trips, _heals, _ammo_gives, _bags_thrown, _bags_exhausted, _climbs, _vaults, _drop_shoot_blocked, _enters, _exits, _veh_destroyed, _repairs, _repair_overheats, _rkt_vs_veh, _transport_max, _ac_viol, _swaps, _suppress_events, _melees, _backstabs, _sledge_hits, _flashes, _flash_blinds, _impacts])
 	var pt := maxi(_phase_ticks, 1)
 	print("[perf] us/tick: poll=%d move=%d veh=%d lag=%d interest=%d fire=%d respawn=%d conquest=%d match=%d snap=%d (ticks=%d)"
 		% [_phase_us["poll"] / pt, _phase_us["move"] / pt, _phase_us["veh"] / pt, _phase_us["lag"] / pt, _phase_us["interest"] / pt, _phase_us["fire"] / pt, _phase_us["respawn"] / pt, _phase_us["conquest"] / pt, _phase_us["match"] / pt, _phase_us["snap"] / pt, _phase_ticks])
@@ -1915,3 +1958,4 @@ func _log_telemetry() -> void:
 	_ac_viol = 0
 	_swaps = 0
 	_suppress_events = 0
+	_melees = 0; _backstabs = 0; _sledge_hits = 0; _flashes = 0; _flash_blinds = 0; _impacts = 0

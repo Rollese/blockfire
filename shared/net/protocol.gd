@@ -43,6 +43,7 @@ enum Msg {
 	ROCKET_FX = 30,         ## server -> human clients: an RPG rocket was launched (origin+dir) -> cosmetic flying rocket
 	SET_FIRE_MODE = 31,     ## client -> server: select fire mode (AUTO/SEMI/BURST) for current weapon
 	SWAP_WEAPON = 32,       ## client -> server: quick-swap to weapon slot (0=primary, 1=secondary)
+	MELEE = 33,             ## client -> server: melee swing (knife / Engineer sledgehammer); zero payload
 }
 
 const OP_PLACE := 0
@@ -556,3 +557,8 @@ static func encode_swap_weapon(slot: int) -> PackedByteArray:
 
 static func decode_swap_weapon(bytes: PackedByteArray) -> int:
 	return body_reader(bytes).get_u8()
+
+static func encode_melee() -> PackedByteArray:
+	var buf := StreamPeerBuffer.new()
+	buf.put_u8(Msg.MELEE)
+	return buf.data_array

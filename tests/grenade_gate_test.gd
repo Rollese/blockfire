@@ -28,6 +28,21 @@ func _idx(cat: PieceCatalog, id: String) -> int:
 		if cat.name_of(i) == id: return i
 	return -1
 
+## Minimal client record sufficient for melee resolve + the kill path (_kill_pawn).
+func _client(srv, id: int, cls: int, weapon: int) -> Dictionary:
+	var c := {
+		"weapon": weapon, "class": cls, "melee_ready_tick": 0,
+		"peer": null, "dmg_ledger": {}, "auto_deploy": true,
+		"deaths": 0, "kills": 0, "score": 0,
+	}
+	srv._clients[id] = c
+	return c
+
+## Wire the death machinery a melee/blast kill touches (sends become no-ops with null peers).
+func _enable_kills(srv) -> void:
+	srv._net = NetHost.new()
+	srv._conquest = ConquestState.new()
+
 ## A wall cell in the grenade's flight path (cell (0,0,1) => world z in [2,4], x in [-1,1]).
 func _place_wall(srv) -> void:
 	var bwall := _idx(srv._catalog, "bwall")
@@ -69,4 +84,40 @@ func test_frag_ignores_wall_and_waits_for_fuse() -> void:
 		srv._step_grenades()
 	assert_eq(srv._nades, 0, "frag does not detonate on structure contact")
 	assert_eq(srv._grenades.size(), 1, "frag still in flight (fuse not elapsed, airborne)")
+	srv.free()
+
+# --- Task 3: melee knife resolve --------------------------------------------------------------
+
+func test_knife_frontal_does_body_damage_not_kill() -> void:
+	var srv := _make_server()
+	_client(srv, 1, Loadout.ASSAULT, Weapon.PISTOL)
+	var atk := _add_pawn(srv, 1, Vector3.ZERO, 0); atk.yaw = 0.0          # faces +z
+	var victim := _add_pawn(srv, 2, Vector3(0, 0, 1.0), 1); victim.yaw = PI  # faces attacker
+	srv._resolve_melee(1)
+	assert_true(victim.alive and not victim.is_downed, "frontal knife did not kill")
+	assert_true(victim.health < 100, "frontal knife dealt body damage")
+	srv.free()
+
+func test_knife_backstab_instakills() -> void:
+	var srv := _make_server()
+	_enable_kills(srv)
+	_client(srv, 1, Loadout.ASSAULT, Weapon.PISTOL)
+	_client(srv, 2, Loadout.ASSAULT, Weapon.AR)
+	var atk := _add_pawn(srv, 1, Vector3.ZERO, 0); atk.yaw = 0.0          # faces +z
+	var victim := _add_pawn(srv, 2, Vector3(0, 0, 1.0), 1); victim.yaw = 0.0  # faces away (+z)
+	srv._resolve_melee(1)
+	assert_false(victim.alive, "rear-arc back-stab instant-killed (bypassed DBNO)")
+	assert_false(victim.is_downed, "back-stab is a clean kill, not a down")
+	assert_eq(srv._backstabs, 1, "back-stab telemetry incremented")
+	srv.free()
+
+func test_melee_cooldown_blocks_second_swing() -> void:
+	var srv := _make_server()
+	_client(srv, 1, Loadout.ASSAULT, Weapon.PISTOL)
+	var atk := _add_pawn(srv, 1, Vector3.ZERO, 0); atk.yaw = 0.0
+	var victim := _add_pawn(srv, 2, Vector3(0, 0, 1.0), 1); victim.yaw = PI
+	srv._resolve_melee(1)
+	var hp_after_first := victim.health
+	srv._resolve_melee(1)   # same tick -> cooldown blocks
+	assert_eq(victim.health, hp_after_first, "second swing blocked by cooldown")
 	srv.free()

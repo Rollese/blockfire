@@ -296,3 +296,8 @@ func test_swap_weapon_roundtrip() -> void:
 	var b := Protocol.encode_swap_weapon(1)
 	assert_eq(b[0], Protocol.Msg.SWAP_WEAPON)
 	assert_eq(Protocol.decode_swap_weapon(b), 1)
+
+func test_melee_message_encodes() -> void:
+	var b := Protocol.encode_melee()
+	assert_eq(b[0], Protocol.Msg.MELEE)
+	assert_eq(b.size(), 1, "MELEE is a zero-payload trigger")
