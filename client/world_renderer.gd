@@ -61,6 +61,9 @@ var use_models: bool = false
 # Per-id last position + AnimationPlayer, for the per-frame speed estimate that selects the clip.
 var _last_pos: Dictionary = {}        # id(int) -> Vector3
 var _last_speed: Dictionary = {}      # id(int) -> float (held between sim ticks; see _pose_entity)
+var _armor_tier: Dictionary = {}      # id(int) -> last-applied armor tier (re-tint only on change)
+var armor_demo := false               # --armor-demo: pin LIGHT/MEDIUM/HEAVY dummies in front of camera
+var _armor_demo_done := false
 var _entity_ap: Dictionary = {}       # id(int) -> AnimationPlayer (only when use_models)
 
 # active structure nodes: id(int) -> Node3D (StructureKit piece)
@@ -273,6 +276,25 @@ func update(world_view: WorldView, predictor: Prediction, now: float, fov: float
 	_age_tracers(now)
 	_age_flashes(now)
 	_age_rockets(now, render_delta)
+
+	# 5. QA: three armor-tier dummies pinned in front of the camera (--armor-demo)
+	_ensure_armor_demo()
+
+
+## Visual QA (--armor-demo): once the camera exists, pin LIGHT/MEDIUM/HEAVY dummy soldiers in front
+## of it (camera-parented, always in view) for a clean A/B/C armor-diff screenshot.
+func _ensure_armor_demo() -> void:
+	if not armor_demo or _armor_demo_done or _camera == null:
+		return
+	_armor_demo_done = true
+	var tiers := [Armor.LIGHT, Armor.MEDIUM, Armor.HEAVY]
+	var xs := [-2.5, 0.0, 2.5]
+	for i in range(3):
+		var dummy := CharacterKit.build()
+		ArmorVisual.apply(dummy, tiers[i])
+		dummy.position = Vector3(xs[i], -1.4, -7.0)   # camera-local: in front (-Z), lowered to show feet
+		dummy.rotation = Vector3(0, PI, 0)            # face the camera
+		_camera.add_child(dummy)
 
 
 ## Spawn a brief tracer beam along the camera's aim. Called when the weapon predictor reports a
@@ -514,6 +536,7 @@ func _release_entity(id: int) -> void:
 	_entity_ap.erase(id)
 	_last_pos.erase(id)
 	_last_speed.erase(id)
+	_armor_tier.erase(id)
 	_free_list.append(node)
 
 
@@ -567,6 +590,11 @@ func _make_friend_marker() -> MeshInstance3D:
 
 
 func _pose_entity(id: int, node: Node3D, es: EntityState, render_delta: float) -> void:
+	# Armor-tier vest/helmet (M5.5-P2). Re-apply only when this (pooled) node's tier changes — a node
+	# recycled from the free list may still carry the previous id's tier. Cheap + before any return.
+	if _armor_tier.get(id, -1) != es.armor_class:
+		ArmorVisual.apply(node, es.armor_class)
+		_armor_tier[id] = es.armor_class
 	if use_models:
 		# Horizontal speed estimate from frame-to-frame position (velocity isn't replicated).
 		# The interpolated position only advances on SIM ticks (`now` steps at 30 Hz), so dividing by

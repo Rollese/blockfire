@@ -90,6 +90,27 @@ func test_squad_change_is_a_delta() -> void:
 	Snapshot.decode_apply(bytes, view)
 	assert_eq(view[5].squad, 4)
 
+func test_armor_class_replicates_on_enter() -> void:
+	# armor tier is immutable per life — carried on ENTER records (keyframe = all ENTER).
+	var cur := {}
+	var heavy := EntityState.new(); heavy.armor_class = Armor.HEAVY
+	cur[3] = heavy
+	var bytes := Snapshot.encode(1, 1, 0, 0, cur, {})   # keyframe -> ENTER
+	var view := {}
+	Snapshot.decode_apply(bytes, view)
+	assert_eq((view[3] as EntityState).armor_class, Armor.HEAVY, "armor tier survives ENTER")
+
+func test_armor_class_retained_across_a_changed_delta() -> void:
+	# After ENTER set the tier, a later CHANGED record (e.g. movement) must NOT clobber it —
+	# CHANGED carries no armor byte; the client keeps the cached tier.
+	var base := EntityState.new(); base.armor_class = Armor.HEAVY; base.pos = Vector3(0, 0, 0)
+	var cur := EntityState.new(); cur.armor_class = Armor.HEAVY; cur.pos = Vector3(1, 0, 0)  # only moved
+	var bytes := Snapshot.encode(2, 2, 1, 0, {5: cur}, {5: base})
+	var view := {5: EntityState.new()}; view[5].armor_class = Armor.HEAVY; view[5].pos = Vector3(0, 0, 0)
+	Snapshot.decode_apply(bytes, view)
+	assert_almost_eq(view[5].pos.x, 1.0, 0.01, "moved")
+	assert_eq(view[5].armor_class, Armor.HEAVY, "tier retained through a CHANGED delta")
+
 func test_downed_replicates_through_state_byte() -> void:
 	var cur := {}
 	var down := EntityState.new()
