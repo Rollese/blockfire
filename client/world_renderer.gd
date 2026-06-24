@@ -51,6 +51,11 @@ const ROCKET_LIFETIME := 5.0      # s safety cap before a cosmetic rocket self-d
 const ROCKET_TRAIL_DT := 0.03     # s between trail puffs
 var _rockets: Array = []          # [{node: Node3D, vel: Vector3, die: float, next_puff: float}]
 var _puffs: Array = []            # [{node, mat, die, ttl}] — smoke trail + impact puffs
+var _blasts: Array = []           # [{node, mat, born, die, ttl, s0, s1, color}] — explosion fireball cores
+var _debris: Array = []           # [{node, vel, die}] — explosion debris chunks
+var boom_demo := false            # --boom-test: pump frag explosions in front of the camera (QA)
+var _boom_next := 0.0
+var _boom_i := 0
 
 # active entity nodes: id(int) -> Node3D (CharacterKit soldier)
 var _active: Dictionary = {}
@@ -272,13 +277,16 @@ func update(world_view: WorldView, predictor: Prediction, now: float, fov: float
 	# 3. Camera from prediction (position) + client look (rotation)
 	_apply_camera(predictor, fov, look_yaw, look_pitch, eye)
 
-	# 4. Age out shot tracers + integrate cosmetic rockets
+	# 4. Age out shot tracers + integrate cosmetic rockets + explosions
 	_age_tracers(now)
 	_age_flashes(now)
 	_age_rockets(now, render_delta)
+	_age_blasts(now)
+	_age_debris(now, render_delta)
 
-	# 5. QA: three armor-tier dummies pinned in front of the camera (--armor-demo)
+	# 5. QA: armor-tier dummies (--armor-demo) + explosion pump (--boom-test)
 	_ensure_armor_demo()
+	_ensure_boom_demo(now)
 
 
 ## Visual QA (--armor-demo): once the camera exists, pin LIGHT/MEDIUM/HEAVY dummy soldiers in front
@@ -473,6 +481,115 @@ func _age_puffs(now: float) -> void:
 		(p["node"] as Node3D).scale = Vector3(grow, grow, grow)
 		live.append(p)
 	_puffs = live
+
+
+# =============================================================================
+#  Explosion VFX (M7) — driven by the server DETONATION event (cosmetic).
+# =============================================================================
+const BLAST_TTL := 0.45        # frag fireball lifetime (s)
+const FLASH_BLAST_TTL := 0.28  # flashbang white pop lifetime (s)
+const DEBRIS_TTL := 0.7
+const DEBRIS_GRAVITY := 18.0
+
+## Spawn a cosmetic explosion at pos. kind: Protocol.DET_EXPLOSION (orange fireball + smoke + debris)
+## or Protocol.DET_FLASH (bright white pop). Called from client_main on a DETONATION packet.
+func spawn_explosion(pos: Vector3, kind: int, now: float) -> void:
+	if kind == 1:   # Protocol.DET_FLASH
+		_spawn_blast(pos + Vector3(0, 0.6, 0), Color(1.0, 1.0, 1.0), 1.2, 6.0, FLASH_BLAST_TTL, now)
+		return
+	# frag / impact: a fireball core + an expanding smoke puff + scattered debris
+	_spawn_blast(pos + Vector3(0, 0.6, 0), Color(1.0, 0.62, 0.18), 0.8, 4.2, BLAST_TTL, now)
+	_spawn_puff(pos + Vector3(0, 0.7, 0), 2.8, 0.75, now)
+	_spawn_debris(pos + Vector3(0, 0.3, 0), now)
+
+
+## An emissive sphere that expands start_size -> end_size and fades over ttl. Unshaded so it reads as
+## a self-lit flash regardless of scene lighting.
+func _spawn_blast(pos: Vector3, color: Color, start_size: float, end_size: float, ttl: float, now: float) -> void:
+	var node := MeshInstance3D.new()
+	var sm := SphereMesh.new(); sm.radius = 0.5; sm.height = 1.0; sm.radial_segments = 8; sm.rings = 4
+	node.mesh = sm
+	node.position = pos
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = color
+	mat.emission_enabled = true
+	mat.emission = color
+	mat.emission_energy_multiplier = 2.5
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	node.material_override = mat
+	node.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	add_child(node)
+	_blasts.append({"node": node, "mat": mat, "born": now, "die": now + ttl, "ttl": ttl,
+		"s0": start_size, "s1": end_size, "color": color})
+
+
+func _age_blasts(now: float) -> void:
+	if _blasts.is_empty():
+		return
+	var live: Array = []
+	for b: Dictionary in _blasts:
+		var remaining: float = float(b["die"]) - now
+		if remaining <= 0.0:
+			(b["node"] as Node3D).queue_free()
+			continue
+		var t := 1.0 - remaining / float(b["ttl"])   # 0 -> 1 over life
+		var size: float = lerpf(float(b["s0"]), float(b["s1"]), sqrt(t))   # fast initial expansion
+		(b["node"] as Node3D).scale = Vector3(size, size, size)
+		var mat: StandardMaterial3D = b["mat"]
+		var c: Color = b["color"]; c.a = clampf(1.0 - t, 0.0, 1.0); mat.albedo_color = c
+		mat.emission_energy_multiplier = 2.5 * (1.0 - t)
+		live.append(b)
+	_blasts = live
+
+
+func _spawn_debris(pos: Vector3, now: float) -> void:
+	var dark := StandardMaterial3D.new()
+	dark.albedo_color = Color(0.18, 0.16, 0.14)
+	dark.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	for i in range(7):
+		var node := MeshInstance3D.new()
+		var bmesh := BoxMesh.new(); bmesh.size = Vector3(0.12, 0.12, 0.12)
+		node.mesh = bmesh; node.position = pos; node.material_override = dark
+		node.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		add_child(node)
+		# Fan outward + up; vary by index so each piece flies differently (no per-frame RNG).
+		var ang := TAU * float(i) / 7.0
+		var vel := Vector3(cos(ang) * 5.0, 6.0 + float(i % 3) * 1.5, sin(ang) * 5.0)
+		_debris.append({"node": node, "vel": vel, "die": now + DEBRIS_TTL})
+
+
+func _age_debris(now: float, delta: float) -> void:
+	if _debris.is_empty():
+		return
+	var live: Array = []
+	for d: Dictionary in _debris:
+		if now >= float(d["die"]):
+			(d["node"] as Node3D).queue_free()
+			continue
+		var node: Node3D = d["node"]
+		var vel: Vector3 = d["vel"]
+		vel.y -= DEBRIS_GRAVITY * delta
+		var npos := node.position + vel * delta
+		if npos.y < 0.0:
+			npos.y = 0.0; vel = Vector3.ZERO   # settle on the ground
+		node.position = npos
+		d["vel"] = vel
+		live.append(d)
+	_debris = live
+
+
+## Visual QA (--boom-test): pump frag explosions in front of the camera so a screenshot always
+## catches a fireball + debris + smoke at some age.
+func _ensure_boom_demo(now: float) -> void:
+	if not boom_demo or _camera == null or now < _boom_next:
+		return
+	_boom_next = now + 0.28
+	_boom_i += 1
+	var cb := _camera.global_transform
+	var fwd := (-cb.basis.z).normalized()
+	var lateral := cb.basis.x * (float((_boom_i % 3) - 1) * 2.2)
+	spawn_explosion(cb.origin + fwd * 8.0 + lateral - Vector3(0, 1.0, 0), 0, now)
 
 
 # =============================================================================

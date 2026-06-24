@@ -22,6 +22,18 @@ func test_rocket_fx_round_trip() -> void:
 	assert_almost_eq(d["origin"].x, 10.5)
 	assert_almost_eq(d["dir"].z, 1.0)
 
+func test_detonation_round_trip() -> void:
+	var b := Protocol.encode_detonation(Vector3(15.5, 0.8, -22.3), Protocol.DET_EXPLOSION)
+	assert_eq(Protocol.msg_type(b), Protocol.Msg.DETONATION)
+	var d := Protocol.decode_detonation(b)
+	assert_almost_eq(d["pos"].x, 15.5, 0.05, "pos x preserved to 0.1 m")
+	assert_almost_eq(d["pos"].z, -22.3, 0.05, "pos z preserved to 0.1 m")
+	assert_eq(d["kind"], Protocol.DET_EXPLOSION, "vfx kind preserved")
+
+func test_detonation_flash_kind() -> void:
+	var d := Protocol.decode_detonation(Protocol.encode_detonation(Vector3.ZERO, Protocol.DET_FLASH))
+	assert_eq(d["kind"], Protocol.DET_FLASH)
+
 func test_kill_event_round_trip() -> void:
 	var bytes := Protocol.encode_kill(7, 3, Weapon.DMR, true)
 	assert_eq(Protocol.msg_type(bytes), Protocol.Msg.KILL)
