@@ -83,11 +83,13 @@ var _boom_test := false             # --boom-test: pump frag explosions in front
 var _corpse_test := false           # --corpse-test: lay a few corpses in front of the camera (visual QA)
 var _swing_test := false            # --swing-test: hold the viewmodel mid-swing for a visual QA shot
 var _recoil_test := false           # --recoil-test: hold the viewmodel mid-recoil-kick for a visual QA shot
+var _crosshair_test := false        # --crosshair-test: force a bloomed crosshair for a visual QA shot
 var _active_slot := 0               # client-tracked weapon slot (0=primary/1=secondary) for quick-swap toggle
 var _shot_after := -1.0           # --shot-after=N: auto-save a screenshot N secs after launch, then quit
 var _shot_done := false
 var _shot_count := 0              # makes auto-screenshot filenames unique within the same second
 var _dbg_accum := 0.0             # 1 Hz input/deploy diagnostic accumulator
+var _ch_fire_bloom := 0.0        # crosshair fire-spread (px); kicked per shot, decays each frame
 var _novsync := false             # --novsync: disable vsync (perf diagnostic)
 var _map_path: String = MAP_PATH  # --map=<name> overrides (must match server + bots)
 
@@ -115,6 +117,7 @@ func configure(args: Dictionary) -> void:
 	_corpse_test = args.has("corpse-test")          # visual QA: lay corpses in front of camera
 	_swing_test = args.has("swing-test")            # visual QA: hold the viewmodel mid-swing
 	_recoil_test = args.has("recoil-test")          # visual QA: hold the viewmodel mid-recoil-kick
+	_crosshair_test = args.has("crosshair-test")    # visual QA: force a bloomed crosshair
 	_shot_after = float(args.get("shot-after", -1.0))  # automated screenshot then quit
 
 # ---- _ready -----------------------------------------------------------------
@@ -202,6 +205,7 @@ func _physics_process(delta: float) -> void:
 		if _wpred.step(_client_tick, firing, sprinting, false) and _renderer != null:
 			_renderer.fire_tracer(_elapsed)
 			_renderer.play_viewmodel_recoil(_elapsed)   # kick the viewmodel on each shot
+			_ch_fire_bloom = minf(_ch_fire_bloom + 3.0, 14.0)   # bloom the crosshair on each shot
 			if _audio != null:
 				_audio.play_at(_fire_event_for(_wpred.weapon), _pred.predicted.eye_position())
 
@@ -441,7 +445,22 @@ func _process(_dt: float) -> void:
 		_hud_view.set_scoreboard_held(Input.is_action_pressed("scoreboard"))
 		# Hide the alive-only combat HUD (ammo + throwable selector) while downed/dead/deploying.
 		var hs: EntityState = _wv.self_state()
-		_hud_view.set_alive_hud(hs != null and hs.alive and not hs.is_downed)
+		var ch_alive: bool = hs != null and hs.alive and not hs.is_downed
+		_hud_view.set_alive_hud(ch_alive)
+		# Dynamic crosshair spread — honest client-side bloom from movement / airborne / stance / fire.
+		_ch_fire_bloom = maxf(0.0, _ch_fire_bloom - 24.0 * _dt)
+		var cvel: Vector3 = _pred.predicted.velocity
+		var cspeed: float = Vector2(cvel.x, cvel.z).length()
+		var cspread: float = clampf(cspeed / 6.0, 0.0, 1.0) * 14.0
+		if not _pred.predicted.grounded:
+			cspread += 18.0
+		match _pred.predicted.stance:
+			Stance.CROUCH: cspread *= 0.55
+			Stance.PRONE: cspread *= 0.35
+		cspread += _ch_fire_bloom
+		if _crosshair_test:
+			cspread = 22.0   # visual QA: force a clearly-bloomed reticle for a screenshot
+		_hud_view.update_crosshair(cspread, not ch_alive and not _crosshair_test)
 		# M5.5-P3 flashbang white-out from the SELF_STATE blind byte (cleared on death/deploy).
 		# --flash-test forces a strong-but-translucent veil so the world shows through (visual QA);
 		# it still routes through blind_intensity so the real render chain is exercised.
