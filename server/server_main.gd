@@ -38,6 +38,7 @@ const BLAST_PAWN_RADIUS := 6.0        # m, sphere (current positions, FF-off)
 const BLAST_STRUCT_RADIUS := 4.0      # m (~2 build cells)
 const GRENADE_DAMAGE_PAWN := 100      # frag pawn splash at centre, linear falloff
 const GRENADE_DAMAGE_STRUCT := 200    # frag structure blast GATE (>0 = enabled; magnitude unused — carve is governed by struct_radius, M11)
+const IMPACT_CONTACT_RADIUS := 1.0    # m — an impact grenade detonates this close to an enemy pawn
 const SMOKE_DURATION_TICKS := 150     # 5s @30Hz — smoke zone lifetime
 const SMOKE_RADIUS := 6.0             # m — smoke zone radius (matches blast radius)
 const PIECES_PATH := "res://pieces/pieces.json"
@@ -1345,8 +1346,11 @@ func _handle_grenade_throw(peer: ENetPacketPeer, bytes: PackedByteArray) -> void
 	var dir: Vector3 = d["dir"]
 	if dir.length() < 0.001: return
 	c["last_grenade_tick"] = _sim.tick
+	var gtype := int(d["type"])
+	if gtype < Grenade.FRAG or gtype > Grenade.IMPACT:
+		gtype = Grenade.FRAG   # reject unknown throwable ids (default to frag)
 	_grenades.append({
-		"owner": id, "team": p.team, "type": int(d["type"]),
+		"owner": id, "team": p.team, "type": gtype,
 		"pos": p.eye_position(), "vel": Grenade.launch_velocity(dir),
 		"detonate_tick": _sim.tick + GRENADE_FUSE_TICKS,
 	})
@@ -1533,6 +1537,13 @@ func _step_grenades() -> void:
 		return
 	var still: Array = []
 	for g in _grenades:
+		# Impact grenades detonate on first contact (structure march, ground, or an enemy pawn at
+		# point-blank) instead of waiting for the fuse. The fuse remains a flight-time safety net.
+		if Grenade.is_contact_fuse(int(g["type"])):
+			if _step_impact(g):
+				continue
+			still.append(g)
+			continue
 		if _sim.tick >= int(g["detonate_tick"]):
 			_detonate(g)
 			continue
@@ -1544,6 +1555,35 @@ func _step_grenades() -> void:
 		else:
 			still.append(g)
 	_grenades = still
+
+## One integration step for an impact grenade. Detonates (frag blast via _detonate) on the first
+## contact: ground, a structure crossed this step, or an enemy pawn within IMPACT_CONTACT_RADIUS.
+## Returns true if it detonated (caller drops it from the pool); false if it is still in flight.
+func _step_impact(g: Dictionary) -> bool:
+	var s := Grenade.integrate(g["pos"], g["vel"], SimLoop.DT)
+	var seg: Vector3 = (s["pos"] as Vector3) - (g["pos"] as Vector3)
+	var seg_len := seg.length()
+	var struck: bool = s["pos"].y <= 0.0
+	if not struck and _store != null and _store.count() > 0 and seg_len > 0.0001:
+		if bool(_store.march(g["pos"], seg / seg_len, seg_len)["hit"]):
+			struck = true
+	if not struck:
+		var team := int(g["team"])
+		for pid in _sim.world.pawns:
+			var v: Pawn = _sim.world.pawns[pid]
+			if not v.alive or v.team == team:
+				continue
+			if v.pos.distance_to(s["pos"]) <= IMPACT_CONTACT_RADIUS:
+				struck = true
+				break
+	if struck:
+		if s["pos"].y < 0.0:
+			s["pos"].y = 0.0
+		g["pos"] = s["pos"]
+		_detonate(g)
+		return true
+	g["pos"] = s["pos"]; g["vel"] = s["vel"]
+	return false
 
 ## Generalized blast: structure damage (cell radius) + pawn splash (sphere, current positions,
 ## FF-off incl. owner). Shared by frag grenades, RPG, C4, and mines. `source` tags the kill
