@@ -23,7 +23,7 @@ enum Msg {
 	STRUCTURE_DELTA = 10,   ## server -> clients: piece placed/removed (event-based)
 	STRUCTURE_BASELINE = 11,## server -> client: all pieces in a region (on interest entry)
 	GRENADE_THROW = 12,     ## client -> server: throw a grenade (type FRAG/SMOKE) in a look dir
-	# DETONATION = 13       ## RESERVED (M7 frag VFX); not sent in the M4-P2 gate
+	DETONATION = 13,        ## server -> human clients: a grenade detonated at pos (cosmetic explosion VFX, M7)
 	SMOKE_DEPLOYED = 14,    ## server -> clients: a smoke zone was created (pos/radius/expire)
 	REVIVE_ACTION = 15,     ## client -> server: begin/continue (active) or stop reviving a downed teammate
 	SELF_BANDAGE = 16,      ## client -> server: use a bandage on self to halt bleed
@@ -337,6 +337,27 @@ static func decode_gadget_action(bytes: PackedByteArray) -> Dictionary:
 
 ## Cosmetic remote-shot tracer: muzzle origin (0.1 m units) + aim direction (unit vec, 1e-4 units).
 ## Best-effort/unreliable; presentation-only (no gameplay effect). Mirrors the gadget pos/dir packing.
+# Detonation VFX kind (which cosmetic effect the client spawns).
+const DET_EXPLOSION := 0   # frag / impact — orange blast + debris + smoke puff
+const DET_FLASH := 1       # flashbang — bright white pop
+
+## Grenade detonation (M7 cosmetic): position (×10 = 0.1 m) + a vfx-kind byte. Server -> human clients.
+static func encode_detonation(pos: Vector3, kind: int) -> PackedByteArray:
+	var buf := StreamPeerBuffer.new()
+	buf.put_u8(Msg.DETONATION)
+	buf.put_16(clampi(roundi(pos.x * 10.0), -32768, 32767))
+	buf.put_16(clampi(roundi(pos.y * 10.0), -32768, 32767))
+	buf.put_16(clampi(roundi(pos.z * 10.0), -32768, 32767))
+	buf.put_u8(kind & 0xFF)
+	return buf.data_array
+
+
+static func decode_detonation(bytes: PackedByteArray) -> Dictionary:
+	var r := body_reader(bytes)
+	var pos := Vector3(float(r.get_16()) / 10.0, float(r.get_16()) / 10.0, float(r.get_16()) / 10.0)
+	return {"pos": pos, "kind": r.get_u8()}
+
+
 static func encode_shot_fx(origin: Vector3, dir: Vector3) -> PackedByteArray:
 	var buf := StreamPeerBuffer.new()
 	buf.put_u8(Msg.SHOT_FX)

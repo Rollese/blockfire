@@ -1767,9 +1767,22 @@ func _detonate(g: Dictionary) -> void:
 		return
 	if int(g["type"]) == Grenade.FLASHBANG:
 		_detonate_flash(g)
+		_broadcast_detonation(g["pos"], Protocol.DET_FLASH)
 		return
 	_nades += 1
 	_blast_at(g["pos"], int(g["owner"]), int(g["team"]), GRENADE_DAMAGE_PAWN, BLAST_PAWN_RADIUS, GRENADE_DAMAGE_STRUCT, BLAST_STRUCT_RADIUS, FRAG_VEHICLE_DMG)
+	_broadcast_detonation(g["pos"], Protocol.DET_EXPLOSION)
+
+## Cosmetic explosion VFX (M7): tell every human client where a grenade detonated so it can spawn the
+## blast/flash effect. Unreliable + bot clients skipped (they don't render). Unlike rocket_fx we do
+## NOT skip the thrower — there is no client-predicted grenade arc, so the thrower needs this too.
+func _broadcast_detonation(pos: Vector3, kind: int) -> void:
+	var pkt := Protocol.encode_detonation(pos, kind)
+	for cid in _clients:
+		var c = _clients[cid]
+		if bool(c.get("auto_deploy", true)):
+			continue   # bot client — does not render
+		_net.send_to(c["peer"], NetHost.CHANNEL_SNAPSHOT, pkt, 0)
 
 ## Flashbang detonation (M5.5-P3): no damage. Blinds every LIVING pawn (any team — flashes are
 ## indiscriminate, BattleBit-style) within FLASH_RADIUS that has line-of-sight to the blast (a solid

@@ -79,6 +79,7 @@ var _flash_test := false          # --flash-test: force the flashbang white-out 
 var _suppress_test := false        # --suppress-test: force the suppression screen FX on (visual QA)
 var _suppress_qa_on := true         # in suppress-test, gates the forced FX (A/B screenshot sequence flips it)
 var _armor_demo := false            # --armor-demo: pin 3 armor-tier dummy soldiers in front of the camera
+var _boom_test := false             # --boom-test: pump frag explosions in front of the camera (visual QA)
 var _shot_after := -1.0           # --shot-after=N: auto-save a screenshot N secs after launch, then quit
 var _shot_done := false
 var _shot_count := 0              # makes auto-screenshot filenames unique within the same second
@@ -106,6 +107,7 @@ func configure(args: Dictionary) -> void:
 	_flash_test = args.has("flash-test")            # visual QA: force the flashbang white-out
 	_suppress_test = args.has("suppress-test")      # visual QA: force the suppression screen FX
 	_armor_demo = args.has("armor-demo")            # visual QA: pin LIGHT/MEDIUM/HEAVY dummies in view
+	_boom_test = args.has("boom-test")              # visual QA: pump frag explosions in front of camera
 	_shot_after = float(args.get("shot-after", -1.0))  # automated screenshot then quit
 
 # ---- _ready -----------------------------------------------------------------
@@ -598,6 +600,12 @@ func _on_packet(_from: ENetPacketPeer, _channel: int, bytes: PackedByteArray) ->
 			var rfx: Dictionary = Protocol.decode_rocket_fx(bytes)
 			if _renderer != null:
 				_renderer.fire_rocket(rfx["origin"], rfx["dir"], _elapsed)   # remote rocket flies + launch flash
+		Protocol.Msg.DETONATION:
+			var det: Dictionary = Protocol.decode_detonation(bytes)
+			if _renderer != null:
+				_renderer.spawn_explosion(det["pos"], int(det["kind"]), _elapsed)
+			if _audio != null:
+				_audio.play_at("explosion", det["pos"])   # spatial blast (synth tone until real asset)
 
 # ---- WELCOME ----------------------------------------------------------------
 func _handle_welcome(bytes: PackedByteArray) -> void:
@@ -738,6 +746,7 @@ func _build_scene() -> void:
 	_renderer.setup(_map, _camera)
 	_renderer.use_models = _settings.use_model_characters
 	_renderer.armor_demo = _armor_demo   # --armor-demo: pin armor-tier dummies for a QA screenshot
+	_renderer.boom_demo = _boom_test     # --boom-test: pump explosions for a QA screenshot
 
 	# HUD layer
 	var hud_layer: CanvasLayer = world_node.get_node("HUD") as CanvasLayer
