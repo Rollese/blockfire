@@ -82,6 +82,7 @@ var _armor_demo := false            # --armor-demo: pin 3 armor-tier dummy soldi
 var _boom_test := false             # --boom-test: pump frag explosions in front of the camera (visual QA)
 var _corpse_test := false           # --corpse-test: lay a few corpses in front of the camera (visual QA)
 var _swing_test := false            # --swing-test: hold the viewmodel mid-swing for a visual QA shot
+var _recoil_test := false           # --recoil-test: hold the viewmodel mid-recoil-kick for a visual QA shot
 var _active_slot := 0               # client-tracked weapon slot (0=primary/1=secondary) for quick-swap toggle
 var _shot_after := -1.0           # --shot-after=N: auto-save a screenshot N secs after launch, then quit
 var _shot_done := false
@@ -113,6 +114,7 @@ func configure(args: Dictionary) -> void:
 	_boom_test = args.has("boom-test")              # visual QA: pump frag explosions in front of camera
 	_corpse_test = args.has("corpse-test")          # visual QA: lay corpses in front of camera
 	_swing_test = args.has("swing-test")            # visual QA: hold the viewmodel mid-swing
+	_recoil_test = args.has("recoil-test")          # visual QA: hold the viewmodel mid-recoil-kick
 	_shot_after = float(args.get("shot-after", -1.0))  # automated screenshot then quit
 
 # ---- _ready -----------------------------------------------------------------
@@ -199,6 +201,7 @@ func _physics_process(delta: float) -> void:
 		# A true return means a shot fired this tick -> draw a tracer for immediate feedback.
 		if _wpred.step(_client_tick, firing, sprinting, false) and _renderer != null:
 			_renderer.fire_tracer(_elapsed)
+			_renderer.play_viewmodel_recoil(_elapsed)   # kick the viewmodel on each shot
 			if _audio != null:
 				_audio.play_at(_fire_event_for(_wpred.weapon), _pred.predicted.eye_position())
 
@@ -767,6 +770,7 @@ func _build_scene() -> void:
 	_renderer.boom_demo = _boom_test     # --boom-test: pump explosions for a QA screenshot
 	_renderer.corpse_demo = _corpse_test # --corpse-test: lay corpses for a QA screenshot
 	_renderer.vm_swing_test = _swing_test # --swing-test: freeze the viewmodel mid-swing
+	_renderer.vm_recoil_test = _recoil_test # --recoil-test: freeze the viewmodel mid-recoil-kick
 
 	# HUD layer
 	var hud_layer: CanvasLayer = world_node.get_node("HUD") as CanvasLayer

@@ -2,7 +2,7 @@ extends TestCase
 ## ViewmodelAnim: pure swing/swap offset curves.
 
 func test_rest_outside_phase_range() -> void:
-	for kind in [ViewmodelAnim.SWING, ViewmodelAnim.SWAP]:
+	for kind in [ViewmodelAnim.SWING, ViewmodelAnim.SWAP, ViewmodelAnim.RECOIL]:
 		var before: Dictionary = ViewmodelAnim.sample(kind, -0.1)
 		var after: Dictionary = ViewmodelAnim.sample(kind, 1.0)
 		var way_after: Dictionary = ViewmodelAnim.sample(kind, 2.0)
@@ -22,3 +22,11 @@ func test_swap_starts_lowered_and_rises_to_rest() -> void:
 	assert_true(start["pos"].y < -0.1, "weapon starts lowered out of frame")
 	var late: Dictionary = ViewmodelAnim.sample(ViewmodelAnim.SWAP, 0.95)
 	assert_true(late["pos"].y > start["pos"].y, "rises back toward rest over time")
+
+func test_recoil_kicks_at_start_and_decays() -> void:
+	var start: Dictionary = ViewmodelAnim.sample(ViewmodelAnim.RECOIL, 0.0)
+	# Immediate snap kick (no ramp-up): muzzle rises (-pitch) and the gun is pushed back toward the eye (+Z).
+	assert_true(float(start["rot"].x) < 0.0, "recoil snaps the muzzle up (negative pitch) immediately")
+	assert_true(float(start["pos"].z) > 0.0, "recoil pushes the gun back toward the camera (+Z)")
+	var late: Dictionary = ViewmodelAnim.sample(ViewmodelAnim.RECOIL, 0.9)
+	assert_true(absf(float(late["rot"].x)) < absf(float(start["rot"].x)), "kick decays back toward rest")
