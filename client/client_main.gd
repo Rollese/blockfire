@@ -276,6 +276,22 @@ func _poll_screenshot_key() -> void:
 		_save_screenshot()
 	_shot_key_down = down
 
+# ---- debug perf overlay toggle (F3) -----------------------------------------
+# F3 hides/shows the green fps/draws/vram readout. Default on (preserves the dev workflow); hiding it
+# gives a clean HUD for normal play / screenshots without entering free-fly photo mode (F8). Edge-
+# detected like the screenshot key (the HUD can swallow the event, so poll in _process).
+var _perf_overlay_on := true
+var _perf_key_down := false
+
+func _poll_debug_overlay_key() -> void:
+	var down := Input.is_physical_key_pressed(KEY_F3)
+	if down and not _perf_key_down:
+		_perf_overlay_on = not _perf_overlay_on
+		if _hud_view != null:
+			_hud_view.set_perf_visible(_perf_overlay_on)
+		print("[debug] perf overlay = %s" % _perf_overlay_on)
+	_perf_key_down = down
+
 func _save_screenshot() -> void:
 	var tex := get_viewport().get_texture()
 	var img: Image = tex.get_image() if tex != null else null
@@ -330,6 +346,7 @@ func _fly_photo_camera(dt: float) -> void:
 # ---- render frame -----------------------------------------------------------
 func _process(_dt: float) -> void:
 	_poll_screenshot_key()   # F12/F9 screenshot — works even before the scene is built
+	_poll_debug_overlay_key()   # F3 toggles the green perf/debug overlay
 	# --shot-after=N: automated visual QA — save one screenshot N secs after launch, then quit.
 	if _shot_after >= 0.0 and not _shot_done and _scene_built and _elapsed >= _shot_after:
 		_shot_done = true
