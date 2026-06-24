@@ -131,9 +131,27 @@ func setup(map: MapDef, camera: Camera3D) -> void:
 	var side := map.world_half * 2.0
 	plane.size = Vector2(side, side)
 	ground.mesh = plane
+	# Procedural two-tone green so the open terrain reads as ground with low-frequency patches,
+	# not one flat infinite plane. Noise is generated in-engine (no asset file); roads/buildings
+	# sit on top so only the open areas show it. Kept subtle — depth cue, not a loud pattern.
 	var gmat := StandardMaterial3D.new()
-	gmat.albedo_color = Color(0.25, 0.35, 0.20)   # muted green
+	gmat.albedo_color = Color(1, 1, 1)
 	gmat.roughness = 1.0
+	var gnoise := FastNoiseLite.new()
+	gnoise.noise_type = FastNoiseLite.TYPE_SIMPLEX
+	gnoise.frequency = 0.025
+	var gtex := NoiseTexture2D.new()
+	gtex.width = 256
+	gtex.height = 256
+	gtex.seamless = true
+	gtex.noise = gnoise
+	var gramp := Gradient.new()
+	gramp.set_color(0, Color(0.20, 0.29, 0.16))   # darker patch
+	gramp.set_color(1, Color(0.29, 0.39, 0.22))   # lighter patch
+	gtex.color_ramp = gramp
+	gmat.albedo_texture = gtex
+	var gtile := side / 70.0   # ~70 m per texture repeat — organic, not obviously tiled
+	gmat.uv1_scale = Vector3(gtile, gtile, 1.0)
 	ground.material_override = gmat
 	add_child(ground)
 
