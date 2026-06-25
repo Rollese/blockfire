@@ -595,8 +595,14 @@ func _step_projectiles() -> void:
 			var tgt: Pawn = _sim.world.get_pawn(tid)
 			if tgt == null or not tgt.alive: continue
 			if tgt.team == int(pr["team"]): continue
-			# Downed pawns are immune (BattleBit-style no finishing): bullet passes through, no hitmarker.
-			if tgt.is_downed: continue
+			# Downed pawns are immune (BattleBit-style no finishing): the bullet does no damage and
+			# never blocks (passes through to whatever's behind), but show a cosmetic blood impact if
+			# the round actually hits the body — feedback that you're firing on someone already down.
+			if tgt.is_downed:
+				var dhit := Hitbox.raycast_pawn(old_pos, seg_dir, tgt.pos, tgt.stance, seg_len)
+				if dhit["hit"]:
+					_broadcast_impact_fx(old_pos + seg_dir * float(dhit["t"]), Protocol.IMPACT_FLESH)
+				continue
 			# M5.5-P2 suppression: a live enemy bullet whose segment passes within SUPPRESS_RADIUS of
 			# the pawn raises its suppression (closer = more), whether or not it lands. Measured against
 			# the segment (point-to-segment distance) so a fast bullet still suppresses across one tick.
