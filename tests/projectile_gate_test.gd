@@ -163,3 +163,23 @@ func test_respawn_resets_both_slots_to_full_on_primary() -> void:
 	assert_eq(int(c["slots"][1]["ammo"]), int(Weapon.get_def(Weapon.PISTOL)["mag_size"]), "secondary full after respawn")
 	assert_eq(int(c["swap_locked_until"]), 0)
 	srv.free()
+
+func test_downed_enemy_takes_no_projectile_damage_but_emits_blood() -> void:
+	# BattleBit no-finishing: a bullet through a DOWNED enemy deals no damage and never blocks, but
+	# the server still emits a cosmetic flesh impact. This exercises that emit path (empty _clients =>
+	# no-op send) and protects the invariant that a downed pawn isn't finished by gunfire.
+	var srv := _make_server()
+	var shooter := _add_pawn(srv, 1, Vector3(0, 0, 0), 0)
+	var target := _add_pawn(srv, 2, Vector3(0, 0, 40), 1)
+	target.is_downed = true            # alive but downed (immune to finishing)
+	_rebuild_grid(srv)
+	var aim: Vector3 = target.pos + Vector3(0.0, Stance.body_height(target.stance) * 0.5, 0.0)
+	var dir: Vector3 = (aim - shooter.eye_position()).normalized()
+	srv._spawn_projectile_for_test(1, Weapon.AR, shooter.eye_position(), dir)
+	var hp0: int = target.health
+	for _i in 20:
+		srv._step_projectiles()       # must not crash on the impact emit (no clients)
+	assert_true(target.alive, "downed enemy is not finished by a bullet")
+	assert_true(target.is_downed, "downed enemy stays downed")
+	assert_eq(target.health, hp0, "downed enemy takes no projectile damage")
+	srv.free()
