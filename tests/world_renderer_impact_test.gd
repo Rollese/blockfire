@@ -9,6 +9,13 @@ func test_impact_spawns_a_puff_and_chips() -> void:
 	assert_true(r._debris.size() >= 1, "impact kicks off chips")
 	r.free()
 
+func test_flesh_impact_is_a_lighter_mist() -> void:
+	var r := WorldRenderer.new()
+	r.spawn_impact(Vector3(1, 1, 1), Protocol.IMPACT_FLESH, 0.0)
+	assert_true(r._puffs.size() >= 1, "flesh hit spawns a blood mist puff")
+	assert_eq(r._debris.size(), 2, "flesh mist has just a couple of droplets (fewer than wall chips)")
+	r.free()
+
 func test_impact_non_finite_pos_spawns_nothing() -> void:
 	var r := WorldRenderer.new()
 	r.spawn_impact(Vector3(INF, 0, 0), Protocol.IMPACT_DIRT, 0.0)

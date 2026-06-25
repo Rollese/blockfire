@@ -639,6 +639,7 @@ func _step_projectiles() -> void:
 				var split := Combat.apply_penetration(body_dmg, enemy_dmg,
 					PieceCatalog.absorption_of(mat), PieceCatalog.transmit_of(mat))
 				_damage_structure(block_id, PieceCatalog.SRC_BULLET, hit_pt, BULLET_CARVE_RADIUS)
+				_broadcast_impact_fx(hit_pt, Protocol.IMPACT_WALL)   # cosmetic: dust where it punches through
 				if _store.get_record(block_id).is_empty():
 					continue   # 1-pen: piece destroyed by this bullet consumes it
 				if best_victim == 0:
@@ -651,6 +652,7 @@ func _step_projectiles() -> void:
 			if victim != null and victim.alive:
 				_hits += 1
 				_proj_hits += 1
+				_broadcast_impact_fx(old_pos + seg_dir * best_t, Protocol.IMPACT_FLESH)   # cosmetic blood mist at the hit
 				_apply_pawn_damage(best_victim, victim, enemy_dmg, best_head, Revive.Source.BULLET,
 					int(pr["owner"]), wid)
 				# Hitmarker to the (human, manually-deployed) shooter — lethal = killed or downed.
