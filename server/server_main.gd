@@ -496,6 +496,23 @@ func _broadcast_shot_fx(shooter_id: int, origin: Vector3, dir: Vector3) -> void:
 		_net.send_to(c["peer"], NetHost.CHANNEL_SNAPSHOT, pkt, 0)
 
 
+const MAX_IMPACT_FX_PER_TICK := 24   # bound the cosmetic-impact fan-out per tick at bot scale
+var _impact_fx_this_tick := 0
+
+## Cosmetic bullet-impact puff at world geometry. Sent to ALL human clients (the shooter wants to
+## see their own rounds chip the wall too). Unreliable + per-tick capped; bots skipped (don't render).
+func _broadcast_impact_fx(pos: Vector3, kind: int) -> void:
+	if _impact_fx_this_tick >= MAX_IMPACT_FX_PER_TICK:
+		return
+	_impact_fx_this_tick += 1
+	var pkt := Protocol.encode_impact_fx(pos, kind)
+	for cid in _clients:
+		var c = _clients[cid]
+		if bool(c.get("auto_deploy", true)):
+			continue   # bot client — does not render
+		_net.send_to(c["peer"], NetHost.CHANNEL_SNAPSHOT, pkt, 0)
+
+
 func _fire_shot(shooter_id: int, shooter: Pawn, inp: Dictionary, shot_index: int) -> void:
 	var lean_sign := 0
 	if shooter.lean == Stance.LEAN_LEFT: lean_sign = -1
@@ -552,6 +569,7 @@ func _point_seg_dist(p: Vector3, a: Vector3, b: Vector3) -> float:
 	return p.distance_to(a + ab * t)
 
 func _step_projectiles() -> void:
+	_impact_fx_this_tick = 0   # reset the per-tick cosmetic-impact cap
 	if _projectiles.is_empty():
 		return
 	var still: Array = []
@@ -615,6 +633,7 @@ func _step_projectiles() -> void:
 				_shots_blocked += 1
 				if not PieceCatalog.is_penetrable(mat):
 					_damage_structure(block_id, PieceCatalog.SRC_BULLET, hit_pt, BULLET_CARVE_RADIUS)
+					_broadcast_impact_fx(hit_pt, Protocol.IMPACT_WALL)   # cosmetic: bullet chips the wall
 					continue   # stopped by cover — consume the bullet
 				# Penetrable: bullet exits at *transmit. Piece is carved geometrically (M11).
 				var split := Combat.apply_penetration(body_dmg, enemy_dmg,
@@ -648,6 +667,9 @@ func _step_projectiles() -> void:
 		pr["dist"] = float(pr["dist"]) + seg_len
 		_dbg_last_min_y = minf(_dbg_last_min_y, nxt.y)
 		if nxt.y <= 0.0:
+			# Cosmetic dirt puff at the ground-impact point (lerp the segment to y=0 for accuracy).
+			var gt: float = old_pos.y / (old_pos.y - nxt.y) if old_pos.y > nxt.y else 1.0
+			_broadcast_impact_fx(old_pos + (nxt - old_pos) * gt, Protocol.IMPACT_DIRT)
 			continue   # hit the ground
 		if Projectile.expired(_sim.tick - int(pr["spawn_tick"]), int(pr["ttl"]),
 				float(pr["dist"]), max_range):

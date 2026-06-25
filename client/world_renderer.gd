@@ -56,6 +56,9 @@ var _debris: Array = []           # [{node, vel, die}] — explosion debris chun
 var boom_demo := false            # --boom-test: pump frag explosions in front of the camera (QA)
 var _boom_next := 0.0
 var _boom_i := 0
+var impact_demo := false          # --impact-test: pump bullet impacts in front of the camera (QA)
+var _impact_next := 0.0
+var _impact_i := 0
 # corpse-on-death: a body left where a pawn died (alive->false in view), lingering then despawning.
 const CORPSE_TTL := 14.0          # seconds a corpse lingers before despawn
 const CORPSE_FADE := 1.0          # seconds of sink-into-ground at the end of life
@@ -401,6 +404,7 @@ func update(world_view: WorldView, predictor: Prediction, now: float, fov: float
 	# 5. QA: armor-tier dummies (--armor-demo) + explosion pump (--boom-test) + corpses (--corpse-test)
 	_ensure_armor_demo()
 	_ensure_boom_demo(now)
+	_ensure_impact_demo(now)
 	_ensure_corpse_demo(now)
 
 
@@ -565,13 +569,13 @@ func _make_rocket() -> Node3D:
 	return root
 
 
-func _spawn_puff(pos: Vector3, size: float, ttl: float, now: float) -> void:
+func _spawn_puff(pos: Vector3, size: float, ttl: float, now: float, color := Color(0.55, 0.55, 0.55, 0.65)) -> void:
 	var node := MeshInstance3D.new()
 	var sm := SphereMesh.new(); sm.radius = size * 0.5; sm.height = size; sm.radial_segments = 6; sm.rings = 3
 	node.mesh = sm
 	node.position = pos
 	var mat := StandardMaterial3D.new()
-	mat.albedo_color = Color(0.55, 0.55, 0.55, 0.65)
+	mat.albedo_color = color
 	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	node.material_override = mat
@@ -618,6 +622,35 @@ func spawn_explosion(pos: Vector3, kind: int, now: float) -> void:
 	_spawn_blast(pos + Vector3(0, 0.6, 0), Color(1.0, 0.62, 0.18), 0.8, 4.2, BLAST_TTL, now)
 	_spawn_puff(pos + Vector3(0, 0.7, 0), 2.8, 0.75, now)
 	_spawn_debris(pos + Vector3(0, 0.3, 0), now)
+
+
+const IMPACT_WALL_COLOR := Color(0.62, 0.60, 0.56, 0.7)    # grey wall dust
+const IMPACT_DIRT_COLOR := Color(0.45, 0.36, 0.24, 0.75)   # brown dirt
+
+## Cosmetic bullet impact: a small kind-coloured dust puff + a few chips kicked off the surface.
+## kind: Protocol.IMPACT_WALL (0) = grey wall dust, IMPACT_DIRT (1) = brown dirt.
+func spawn_impact(pos: Vector3, kind: int, now: float) -> void:
+	if not pos.is_finite():
+		return
+	var col: Color = IMPACT_DIRT_COLOR if kind == 1 else IMPACT_WALL_COLOR
+	_spawn_puff(pos, 0.6, 0.4, now, col)
+	_spawn_impact_chips(pos, now, col)
+
+## A few small specks flung off an impact point (smaller/fewer/slower than explosion debris). Reuses
+## the _debris pool so _age_debris integrates + settles them.
+func _spawn_impact_chips(pos: Vector3, now: float, color: Color) -> void:
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = Color(color.r, color.g, color.b, 1.0)
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	for i in range(4):
+		var node := MeshInstance3D.new()
+		var bmesh := BoxMesh.new(); bmesh.size = Vector3(0.06, 0.06, 0.06)
+		node.mesh = bmesh; node.position = pos; node.material_override = mat
+		node.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		add_child(node)
+		var ang := TAU * float(i) / 4.0
+		var vel := Vector3(cos(ang) * 2.2, 2.6 + float(i % 2) * 1.0, sin(ang) * 2.2)
+		_debris.append({"node": node, "vel": vel, "die": now + DEBRIS_TTL * 0.5})
 
 
 ## An emissive sphere that expands start_size -> end_size and fades over ttl. Unshaded so it reads as
@@ -710,6 +743,23 @@ func _ensure_boom_demo(now: float) -> void:
 	var fwd := (-cb.basis.z).normalized()
 	var lateral := cb.basis.x * (float((_boom_i % 3) - 1) * 2.2)
 	spawn_explosion(cb.origin + fwd * 8.0 + lateral - Vector3(0, 1.0, 0), 0, now)
+
+
+## Visual QA (--impact-test): pump bullet impacts in front of the camera so a screenshot catches
+## the dust puffs + chips. Alternates wall/dirt kinds across a small spread.
+func _ensure_impact_demo(now: float) -> void:
+	if not impact_demo or _camera == null or now < _impact_next:
+		return
+	var cb := _camera.global_transform
+	if not cb.origin.is_finite():
+		return
+	_impact_next = now + 0.18
+	var fwd := (-cb.basis.z).normalized()
+	for j in range(3):
+		_impact_i += 1
+		var lateral := cb.basis.x * (float((_impact_i % 5) - 2) * 0.9)
+		var rise := cb.basis.y * (float((_impact_i % 3) - 1) * 0.7)
+		spawn_impact(cb.origin + fwd * 6.0 + lateral + rise, _impact_i % 2, now)
 
 
 # =============================================================================

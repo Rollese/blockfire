@@ -44,6 +44,7 @@ enum Msg {
 	SET_FIRE_MODE = 31,     ## client -> server: select fire mode (AUTO/SEMI/BURST) for current weapon
 	SWAP_WEAPON = 32,       ## client -> server: quick-swap to weapon slot (0=primary, 1=secondary)
 	MELEE = 33,             ## client -> server: melee swing (knife / Engineer sledgehammer); zero payload
+	IMPACT_FX = 34,         ## server -> human clients: a bullet hit world geometry at pos (cosmetic impact puff)
 }
 
 const OP_PLACE := 0
@@ -394,6 +395,27 @@ static func decode_rocket_fx(bytes: PackedByteArray) -> Dictionary:
 	var origin := Vector3(float(r.get_16()) / 10.0, float(r.get_16()) / 10.0, float(r.get_16()) / 10.0)
 	var dir := Vector3(float(r.get_16()) / 10000.0, float(r.get_16()) / 10000.0, float(r.get_16()) / 10000.0)
 	return {"origin": origin, "dir": dir}
+
+# Bullet impact VFX kind (which cosmetic puff the client spawns at the hit point).
+const IMPACT_WALL := 0   # bullet stopped on a structure / wall — grey dust + chips
+const IMPACT_DIRT := 1   # bullet hit the ground — brown dirt puff
+
+## Cosmetic bullet impact (M7): hit position (×10 = 0.1 m) + a surface-kind byte. Server -> human
+## clients, best-effort/unreliable; presentation-only (no gameplay effect).
+static func encode_impact_fx(pos: Vector3, kind: int) -> PackedByteArray:
+	var buf := StreamPeerBuffer.new()
+	buf.put_u8(Msg.IMPACT_FX)
+	buf.put_16(clampi(roundi(pos.x * 10.0), -32768, 32767))
+	buf.put_16(clampi(roundi(pos.y * 10.0), -32768, 32767))
+	buf.put_16(clampi(roundi(pos.z * 10.0), -32768, 32767))
+	buf.put_u8(kind)
+	return buf.data_array
+
+static func decode_impact_fx(bytes: PackedByteArray) -> Dictionary:
+	var r := body_reader(bytes)
+	var pos := Vector3(float(r.get_16()) / 10.0, float(r.get_16()) / 10.0, float(r.get_16()) / 10.0)
+	var kind := r.get_u8()
+	return {"pos": pos, "kind": kind}
 
 
 static func encode_structure_baseline(region: Vector2i, records: Array) -> PackedByteArray:
