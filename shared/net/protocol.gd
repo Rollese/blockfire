@@ -397,8 +397,9 @@ static func decode_rocket_fx(bytes: PackedByteArray) -> Dictionary:
 	return {"origin": origin, "dir": dir}
 
 # Bullet impact VFX kind (which cosmetic puff the client spawns at the hit point).
-const IMPACT_WALL := 0   # bullet stopped on a structure / wall — grey dust + chips
-const IMPACT_DIRT := 1   # bullet hit the ground — brown dirt puff
+const IMPACT_WALL := 0   # bullet stopped on (or punched through) a structure / wall — grey dust + chips
+const IMPACT_DIRT := 1   # bullet hit the ground — brown dirt
+const IMPACT_FLESH := 2  # bullet hit a pawn — red blood mist puff
 
 ## Cosmetic bullet impact (M7): hit position (×10 = 0.1 m) + a surface-kind byte. Server -> human
 ## clients, best-effort/unreliable; presentation-only (no gameplay effect).

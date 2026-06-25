@@ -626,29 +626,42 @@ func spawn_explosion(pos: Vector3, kind: int, now: float) -> void:
 
 const IMPACT_WALL_COLOR := Color(0.62, 0.60, 0.56, 0.7)    # grey wall dust
 const IMPACT_DIRT_COLOR := Color(0.45, 0.36, 0.24, 0.75)   # brown dirt
+const IMPACT_FLESH_COLOR := Color(0.55, 0.06, 0.06, 0.8)   # red blood mist
 
-## Cosmetic bullet impact: a small kind-coloured dust puff + a few chips kicked off the surface.
-## kind: Protocol.IMPACT_WALL (0) = grey wall dust, IMPACT_DIRT (1) = brown dirt.
+## Cosmetic bullet impact: a small kind-coloured puff + a few specks kicked off the surface.
+## kind: Protocol.IMPACT_WALL (0) = grey wall dust, IMPACT_DIRT (1) = brown dirt,
+## IMPACT_FLESH (2) = a smaller red blood mist with just a couple of droplets.
 func spawn_impact(pos: Vector3, kind: int, now: float) -> void:
 	if not pos.is_finite():
 		return
-	var col: Color = IMPACT_DIRT_COLOR if kind == 1 else IMPACT_WALL_COLOR
-	_spawn_puff(pos, 0.6, 0.4, now, col)
-	_spawn_impact_chips(pos, now, col)
+	var col: Color
+	var size: float
+	var chips: int
+	match kind:
+		1:  # IMPACT_DIRT
+			col = IMPACT_DIRT_COLOR; size = 0.6; chips = 4
+		2:  # IMPACT_FLESH — a small blood mist, a couple of light droplets (no hard chips)
+			col = IMPACT_FLESH_COLOR; size = 0.45; chips = 2
+		_:  # IMPACT_WALL
+			col = IMPACT_WALL_COLOR; size = 0.6; chips = 4
+	_spawn_puff(pos, size, 0.4, now, col)
+	_spawn_impact_chips(pos, now, col, chips)
 
 ## A few small specks flung off an impact point (smaller/fewer/slower than explosion debris). Reuses
 ## the _debris pool so _age_debris integrates + settles them.
-func _spawn_impact_chips(pos: Vector3, now: float, color: Color) -> void:
+func _spawn_impact_chips(pos: Vector3, now: float, color: Color, count := 4) -> void:
+	if count <= 0:
+		return
 	var mat := StandardMaterial3D.new()
 	mat.albedo_color = Color(color.r, color.g, color.b, 1.0)
 	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	for i in range(4):
+	for i in range(count):
 		var node := MeshInstance3D.new()
 		var bmesh := BoxMesh.new(); bmesh.size = Vector3(0.06, 0.06, 0.06)
 		node.mesh = bmesh; node.position = pos; node.material_override = mat
 		node.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		add_child(node)
-		var ang := TAU * float(i) / 4.0
+		var ang := TAU * float(i) / float(count)
 		var vel := Vector3(cos(ang) * 2.2, 2.6 + float(i % 2) * 1.0, sin(ang) * 2.2)
 		_debris.append({"node": node, "vel": vel, "die": now + DEBRIS_TTL * 0.5})
 
@@ -759,7 +772,7 @@ func _ensure_impact_demo(now: float) -> void:
 		_impact_i += 1
 		var lateral := cb.basis.x * (float((_impact_i % 5) - 2) * 0.9)
 		var rise := cb.basis.y * (float((_impact_i % 3) - 1) * 0.7)
-		spawn_impact(cb.origin + fwd * 6.0 + lateral + rise, _impact_i % 2, now)
+		spawn_impact(cb.origin + fwd * 6.0 + lateral + rise, _impact_i % 3, now)   # cycle wall/dirt/flesh
 
 
 # =============================================================================
