@@ -51,6 +51,16 @@ func test_shot_fx_round_trip() -> void:
 	assert_almost_eq(d["origin"].z, -7.3, 0.05, "origin z preserved to 0.1 m")
 	assert_almost_eq(d["dir"].z, 1.0, 0.001, "aim dir preserved")
 
+func test_impact_fx_round_trip() -> void:
+	for kind in [Protocol.IMPACT_WALL, Protocol.IMPACT_DIRT]:
+		var b := Protocol.encode_impact_fx(Vector3(-14.3, 2.6, 9.1), kind)
+		assert_eq(Protocol.msg_type(b), Protocol.Msg.IMPACT_FX)
+		var d := Protocol.decode_impact_fx(b)
+		assert_almost_eq(d["pos"].x, -14.3, 0.05, "impact x preserved to 0.1 m")
+		assert_almost_eq(d["pos"].y, 2.6, 0.05, "impact y preserved to 0.1 m")
+		assert_almost_eq(d["pos"].z, 9.1, 0.05, "impact z preserved to 0.1 m")
+		assert_eq(d["kind"], kind, "surface kind preserved")
+
 func test_hitmarker_round_trip() -> void:
 	for hs in [false, true]:
 		for lethal in [false, true]:

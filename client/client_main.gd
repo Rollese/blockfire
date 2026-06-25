@@ -80,6 +80,7 @@ var _suppress_test := false        # --suppress-test: force the suppression scre
 var _suppress_qa_on := true         # in suppress-test, gates the forced FX (A/B screenshot sequence flips it)
 var _armor_demo := false            # --armor-demo: pin 3 armor-tier dummy soldiers in front of the camera
 var _boom_test := false             # --boom-test: pump frag explosions in front of the camera (visual QA)
+var _impact_test := false           # --impact-test: pump bullet impacts in front of the camera (visual QA)
 var _corpse_test := false           # --corpse-test: lay a few corpses in front of the camera (visual QA)
 var _swing_test := false            # --swing-test: hold the viewmodel mid-swing for a visual QA shot
 var _recoil_test := false           # --recoil-test: hold the viewmodel mid-recoil-kick for a visual QA shot
@@ -116,6 +117,7 @@ func configure(args: Dictionary) -> void:
 	_suppress_test = args.has("suppress-test")      # visual QA: force the suppression screen FX
 	_armor_demo = args.has("armor-demo")            # visual QA: pin LIGHT/MEDIUM/HEAVY dummies in view
 	_boom_test = args.has("boom-test")              # visual QA: pump frag explosions in front of camera
+	_impact_test = args.has("impact-test")          # visual QA: pump bullet impacts in front of camera
 	_corpse_test = args.has("corpse-test")          # visual QA: lay corpses in front of camera
 	_swing_test = args.has("swing-test")            # visual QA: hold the viewmodel mid-swing
 	_recoil_test = args.has("recoil-test")          # visual QA: hold the viewmodel mid-recoil-kick
@@ -671,6 +673,10 @@ func _on_packet(_from: ENetPacketPeer, _channel: int, bytes: PackedByteArray) ->
 				_renderer.spawn_explosion(det["pos"], int(det["kind"]), _elapsed)
 			if _audio != null:
 				_audio.play_at("explosion", det["pos"])   # spatial blast (synth tone until real asset)
+		Protocol.Msg.IMPACT_FX:
+			var imp: Dictionary = Protocol.decode_impact_fx(bytes)
+			if _renderer != null:
+				_renderer.spawn_impact(imp["pos"], int(imp["kind"]), _elapsed)
 
 # ---- WELCOME ----------------------------------------------------------------
 func _handle_welcome(bytes: PackedByteArray) -> void:
@@ -812,6 +818,7 @@ func _build_scene() -> void:
 	_renderer.use_models = _settings.use_model_characters
 	_renderer.armor_demo = _armor_demo   # --armor-demo: pin armor-tier dummies for a QA screenshot
 	_renderer.boom_demo = _boom_test     # --boom-test: pump explosions for a QA screenshot
+	_renderer.impact_demo = _impact_test # --impact-test: pump bullet impacts for a QA screenshot
 	_renderer.corpse_demo = _corpse_test # --corpse-test: lay corpses for a QA screenshot
 	_renderer.vm_swing_test = _swing_test # --swing-test: freeze the viewmodel mid-swing
 	_renderer.vm_recoil_test = _recoil_test # --recoil-test: freeze the viewmodel mid-recoil-kick
