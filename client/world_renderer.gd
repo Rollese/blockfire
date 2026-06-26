@@ -59,6 +59,18 @@ var _boom_i := 0
 var impact_demo := false          # --impact-test: pump bullet impacts in front of the camera (QA)
 var _impact_next := 0.0
 var _impact_i := 0
+# footstep feedback (view-only, AGENTS.md §7): a moving grounded pawn fires a footstep every stride
+# of ground travel -> a small dust puff (remotes) + a spatial footstep sound (via the `footstep`
+# signal, which client_main routes to the AudioDirector). Cadence math lives in FootstepCadence.
+signal footstep(world_pos: Vector3, intensity: float)
+const FOOTSTEP_DUST_COLOR := Color(0.58, 0.54, 0.46, 0.4)   # faint tan scuff, lighter than an impact puff
+const FOOTSTEP_PUFF_TTL := 0.4    # s the kicked-up dust lingers
+var _step_accum: Dictionary = {}  # id(int) -> float: stride-distance accumulator per remote
+var _step_prev: Dictionary = {}   # id(int) -> Vector3: last position a footstep tick saw (per remote)
+var _local_step_accum: float = 0.0
+var footstep_demo := false        # --footstep-test: pump footstep dust at ground in front of camera (QA)
+var _footstep_next := 0.0
+
 # corpse-on-death: a body left where a pawn died (alive->false in view), lingering then despawning.
 const CORPSE_TTL := 14.0          # seconds a corpse lingers before despawn
 const CORPSE_FADE := 1.0          # seconds of sink-into-ground at the end of life
@@ -390,6 +402,7 @@ func update(world_view: WorldView, predictor: Prediction, now: float, fov: float
 
 	# 3. Camera from prediction (position) + client look (rotation)
 	_update_viewmodel_locomotion(predictor.predicted, render_delta)   # eases _vm_sprint_t (camera FOV + pose read it)
+	_tick_local_footstep(predictor.predicted, render_delta, eye, now)   # local footstep audio (no dust)
 	_apply_camera(predictor, fov, look_yaw, look_pitch, eye)
 	_pose_viewmodel(now)   # apply any active swing/swap animation on top of the base placement
 
@@ -406,6 +419,7 @@ func update(world_view: WorldView, predictor: Prediction, now: float, fov: float
 	_ensure_boom_demo(now)
 	_ensure_impact_demo(now)
 	_ensure_corpse_demo(now)
+	_ensure_footstep_demo(now)
 
 
 ## Visual QA (--armor-demo): once the camera exists, pin LIGHT/MEDIUM/HEAVY dummy soldiers in front
@@ -775,6 +789,25 @@ func _ensure_impact_demo(now: float) -> void:
 		spawn_impact(cb.origin + fwd * 6.0 + lateral + rise, _impact_i % 3, now)   # cycle wall/dirt/flesh
 
 
+## Visual QA (--footstep-test): pump footstep dust scuffs along the ground in front of the view so a
+## screenshot reliably catches the kicked-up dust (no need for a bot to run past at the right moment).
+## Same puff as a real footfall; only the placement is camera-relative + on a steady cadence.
+func _ensure_footstep_demo(now: float) -> void:
+	if not footstep_demo or _camera == null or now < _footstep_next:
+		return
+	var cb := _camera.global_transform
+	if not cb.origin.is_finite():
+		return
+	_footstep_next = now + 0.22
+	var fwd := (-cb.basis.z).normalized()
+	for j in range(3):
+		# a little trail of footfalls receding ahead + to the side, at roughly ground level
+		var lateral := cb.basis.x * (float(j - 1) * 0.8)
+		var at := cb.origin + fwd * (4.0 + float(j) * 1.2) + lateral
+		at.y -= 1.5   # drop toward the feet/ground from the eye height
+		_spawn_footstep_fx(at, 0.4 + 0.2 * float(j), now)
+
+
 # =============================================================================
 #  Entity pool helpers (CharacterKit soldiers)
 # =============================================================================
@@ -804,11 +837,54 @@ func _sync_entity_pool(remotes: Dictionary, local_team: int, render_delta: float
 			continue
 		var node: Node3D = _acquire_entity(int(id))
 		_pose_entity(int(id), node, es, render_delta)
+		_tick_footstep(int(id), es, now)
 		if local_team >= 0 and es.team == local_team:
 			var marker: MeshInstance3D = _acquire_marker(int(id))
 			marker.position = Vector3(es.pos.x, es.pos.y + FRIEND_MARKER_Y, es.pos.z)
 		else:
 			_release_marker(int(id))
+
+
+## Remote-pawn footstep: accumulate ground travel between authoritative position updates and, on a
+## full stride, kick a dust puff at the feet + emit a spatial footstep. The interpolated position only
+## advances at the sim rate, so process only frames where it actually moved (distance-based cadence,
+## not time-based) — an idle pawn keeps its leftover accumulator instead of draining it every frame.
+func _tick_footstep(id: int, es: EntityState, now: float) -> void:
+	var prev: Vector3 = _step_prev.get(id, es.pos)
+	var flat := Vector3(es.pos.x - prev.x, 0.0, es.pos.z - prev.z)
+	var dist := flat.length()
+	if dist <= 0.0001:
+		return   # no authoritative movement this frame (inter-tick or stationary) — hold the accumulator
+	var speed := dist / SimLoop.DT   # interpolated pos steps at the sim rate; DT is the real interval
+	var grounded := not es.climbing and absf(es.pos.y - prev.y) < 0.3   # falling/climbing -> no steps
+	var r := FootstepCadence.advance(_step_accum.get(id, 0.0), dist, speed, es.stance, grounded)
+	_step_accum[id] = r["accum"]
+	_step_prev[id] = es.pos
+	if r["fired"]:
+		_spawn_footstep_fx(es.pos, r["intensity"], now)
+
+
+## Local-pawn footstep: the predicted pawn carries real velocity/grounded each render frame, so drive
+## the cadence time-based (dist = speed * dt). Audio only (no dust — the local feet are below the eye);
+## emitted at the eye so it plays centred (the listener sits there).
+func _tick_local_footstep(pawn: Pawn, dt: float, eye: Vector3, now: float) -> void:
+	if pawn == null or dt <= 0.0:
+		return
+	var vel: Vector3 = pawn.velocity
+	var speed := Vector2(vel.x, vel.z).length()
+	var r := FootstepCadence.advance(_local_step_accum, speed * dt, speed, pawn.stance, pawn.grounded)
+	_local_step_accum = r["accum"]
+	if r["fired"] and eye.is_finite():
+		footstep.emit(eye, r["intensity"])
+
+
+## Kick a dust scuff at a footfall and emit a spatial footstep sound. Dust scales a touch with speed.
+func _spawn_footstep_fx(pos: Vector3, intensity: float, now: float) -> void:
+	if not pos.is_finite():
+		return
+	var at := Vector3(pos.x, pos.y + 0.05, pos.z)   # at the feet, just clear of the ground
+	_spawn_puff(at, lerpf(0.22, 0.42, intensity), FOOTSTEP_PUFF_TTL, now, FOOTSTEP_DUST_COLOR)
+	footstep.emit(at, intensity)
 
 
 ## Lay a dead body at a pawn's last pose (face-DOWN, so a corpse reads differently from a face-UP
@@ -902,6 +978,8 @@ func _release_entity(id: int) -> void:
 	_last_pos.erase(id)
 	_last_speed.erase(id)
 	_armor_tier.erase(id)
+	_step_accum.erase(id)
+	_step_prev.erase(id)
 	_free_list.append(node)
 
 
