@@ -82,6 +82,7 @@ var _armor_demo := false            # --armor-demo: pin 3 armor-tier dummy soldi
 var _boom_test := false             # --boom-test: pump frag explosions in front of the camera (visual QA)
 var _impact_test := false           # --impact-test: pump bullet impacts in front of the camera (visual QA)
 var _corpse_test := false           # --corpse-test: lay a few corpses in front of the camera (visual QA)
+var _footstep_test := false         # --footstep-test: pump footstep dust in front of the camera (visual QA)
 var _swing_test := false            # --swing-test: hold the viewmodel mid-swing for a visual QA shot
 var _recoil_test := false           # --recoil-test: hold the viewmodel mid-recoil-kick for a visual QA shot
 var _crosshair_test := false        # --crosshair-test: force a bloomed crosshair for a visual QA shot
@@ -119,6 +120,7 @@ func configure(args: Dictionary) -> void:
 	_boom_test = args.has("boom-test")              # visual QA: pump frag explosions in front of camera
 	_impact_test = args.has("impact-test")          # visual QA: pump bullet impacts in front of camera
 	_corpse_test = args.has("corpse-test")          # visual QA: lay corpses in front of camera
+	_footstep_test = args.has("footstep-test")      # visual QA: pump footstep dust in front of camera
 	_swing_test = args.has("swing-test")            # visual QA: hold the viewmodel mid-swing
 	_recoil_test = args.has("recoil-test")          # visual QA: hold the viewmodel mid-recoil-kick
 	_crosshair_test = args.has("crosshair-test")    # visual QA: force a bloomed crosshair
@@ -820,6 +822,7 @@ func _build_scene() -> void:
 	_renderer.boom_demo = _boom_test     # --boom-test: pump explosions for a QA screenshot
 	_renderer.impact_demo = _impact_test # --impact-test: pump bullet impacts for a QA screenshot
 	_renderer.corpse_demo = _corpse_test # --corpse-test: lay corpses for a QA screenshot
+	_renderer.footstep_demo = _footstep_test # --footstep-test: pump footstep dust for a QA screenshot
 	_renderer.vm_swing_test = _swing_test # --swing-test: freeze the viewmodel mid-swing
 	_renderer.vm_recoil_test = _recoil_test # --recoil-test: freeze the viewmodel mid-recoil-kick
 	_renderer.vm_sprint_test = _sprint_test # --sprint-test: freeze the viewmodel sprint-lowered
@@ -857,6 +860,8 @@ func _build_scene() -> void:
 	_audio.setup(_acat, MAX_VOICES)
 	world_node.add_child(_audio)
 	_apply_master_volume()
+	# Route renderer footsteps (local + visible remotes) to the spatial audio bus.
+	_renderer.footstep.connect(_on_footstep)
 
 	_scene_built = true
 	if _novsync:
@@ -893,6 +898,12 @@ func _on_settings_applied(new_settings: ClientSettings) -> void:
 	_settings = new_settings
 	# sensitivity and fov are read each frame from _settings — already live
 	_apply_master_volume()   # master volume slider now drives the audio Master bus
+
+## A footfall fired by the renderer (local pawn or a visible remote) -> spatial footstep sound.
+## Presentation-only (AGENTS.md §7); the AudioDirector handles distance falloff + voice priority.
+func _on_footstep(world_pos: Vector3, _intensity: float) -> void:
+	if _audio != null:
+		_audio.play_at("footstep", world_pos)
 
 ## Drive the audio Master bus from the (previously inert) master_volume setting.
 func _apply_master_volume() -> void:
