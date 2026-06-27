@@ -1497,13 +1497,29 @@ func _vehicle_exit(id: int, p: Pawn) -> void:
 	var v: Vehicle = _sim.world.vehicles.get(p.in_vehicle)
 	if v != null:
 		if p.seat >= 0 and p.seat < v.seats.size(): v.seats[p.seat] = 0
-		var exit_pos := v.pos + Vehicle.rotate_yaw(v.exit_offset, v.heading)
-		exit_pos.y = maxf(0.0, exit_pos.y)
-		p.pos = exit_pos
+		p.pos = _safe_exit_pos(v)
 	p.in_vehicle = 0
 	p.seat = -1
 	_exits += 1
 	_transport_origin.erase(id)
+
+## Pick a dismount position clear of structures so a player doesn't get spat out inside a wall (and
+## stuck). Tries the configured exit side first, then the other sides around the hull, then falls back.
+func _safe_exit_pos(v: Vehicle) -> Vector3:
+	var dist: float = Vector3(v.exit_offset.x, 0.0, v.exit_offset.z).length()
+	if dist < 0.5:
+		dist = 3.0
+	var locals: Array = [v.exit_offset, Vector3(-dist, 0, 0), Vector3(dist, 0, 0),
+		Vector3(0, 0, -dist), Vector3(0, 0, dist), Vector3(-dist, 0, -dist) * 0.7071,
+		Vector3(dist, 0, -dist) * 0.7071]
+	for off: Vector3 in locals:
+		var cand: Vector3 = v.pos + Vehicle.rotate_yaw(off, v.heading)
+		cand.y = maxf(0.0, cand.y)
+		if _store == null or _store.resolve_movement(v.pos, cand).distance_to(cand) < 0.3:
+			return cand   # reachable from the hull centre without clipping a structure -> clear
+	var fb: Vector3 = v.pos + Vehicle.rotate_yaw(v.exit_offset, v.heading)
+	fb.y = maxf(0.0, fb.y)
+	return fb
 
 func _track_transport_distance() -> void:
 	for vid in _sim.world.vehicles:

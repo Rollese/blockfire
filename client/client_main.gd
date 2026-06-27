@@ -220,6 +220,15 @@ func _physics_process(delta: float) -> void:
 			cmd["move_x"] = 0.0
 			cmd["move_y"] = 0.0
 			cmd["buttons"] = 0
+		elif _in_vehicle() >= 0:
+			# Slaved to the vehicle server-side: predicting free movement only rubber-bands the eye.
+			# Zero movement + movement buttons (keep look + fire) and snap the predicted pawn onto the
+			# authoritative vehicle-seat position so the POV rides along instead of drifting/bouncing.
+			cmd["move_x"] = 0.0
+			cmd["move_y"] = 0.0
+			cmd["buttons"] = int(cmd["buttons"]) & InputCommand.BTN_FIRE
+			_pred.predicted.pos = ss.pos
+			_pred.predicted.velocity = Vector3.ZERO
 		_pred.record_cmd(_client_tick, cmd)
 
 		var buttons: int = int(cmd["buttons"])
