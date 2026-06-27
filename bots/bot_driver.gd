@@ -196,7 +196,10 @@ func _drive(bot: Dictionary, delta: float) -> void:
 	for id in view:
 		if id == bot["id"]: continue
 		var e: EntityState = view[id]
-		if not e.alive or e.team == me.team: continue
+		# Skip teammates, the dead, and DOWNED enemies (immune to weapon damage — shooting them just
+		# wastes fire and lets an alive reviver standing right over them go untargeted). A reviving
+		# enemy is alive + not downed, so it stays a valid (priority-by-distance) target.
+		if not e.alive or e.is_downed or e.team == me.team: continue
 		var dist := me.pos.distance_to(e.pos)
 		if dist < best:
 			best = dist; target = e
