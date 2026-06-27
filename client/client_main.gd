@@ -90,6 +90,10 @@ var _footstep_test := false         # --footstep-test: pump footstep dust in fro
 var _swing_test := false            # --swing-test: hold the viewmodel mid-swing for a visual QA shot
 var _recoil_test := false           # --recoil-test: hold the viewmodel mid-recoil-kick for a visual QA shot
 var _crosshair_test := false        # --crosshair-test: force a bloomed crosshair for a visual QA shot
+var _ads_test := false              # --ads-test: force aim-down-sights on for a visual QA shot
+var _scope_test := false            # --scope-test: force ADS + the sniper scope overlay for a visual QA shot
+var _ads_t := 0.0                   # 0..1 eased aim-down-sights blend (client-only visual zoom/pose)
+const ADS_RATE := 16.0              # ADS ease speed (per second); ~1/e in ~60 ms
 var _sprint_test := false           # --sprint-test: freeze the viewmodel sprint-lowered for a visual QA shot
 var _reload_test := false           # --reload-test: freeze the viewmodel mid-reload for a visual QA shot
 var _whiz_test := false             # --whiz-test: pump synthetic near-miss rounds across the view (crack/whiz QA)
@@ -142,6 +146,8 @@ func configure(args: Dictionary) -> void:
 	_swing_test = args.has("swing-test")            # visual QA: hold the viewmodel mid-swing
 	_recoil_test = args.has("recoil-test")          # visual QA: hold the viewmodel mid-recoil-kick
 	_crosshair_test = args.has("crosshair-test")    # visual QA: force a bloomed crosshair
+	_ads_test = args.has("ads-test")                # visual QA: force aim-down-sights on
+	_scope_test = args.has("scope-test")            # visual QA: force ADS + the sniper scope overlay
 	_sprint_test = args.has("sprint-test")          # visual QA: freeze the viewmodel sprint-lowered
 	_reload_test = args.has("reload-test")          # visual QA: freeze the viewmodel mid-reload
 	_whiz_test = args.has("whiz-test")              # audio+visual QA: synthetic near-miss crack/whiz rounds
@@ -426,8 +432,17 @@ func _process(_dt: float) -> void:
 	var deployed0: bool = ss0 != null and ss0.alive
 	var menu_open0: bool = (_settings_menu != null and _settings_menu.visible) \
 		or (_hud_view != null and _hud_view.is_squad_menu_open())
+	# Aim-down-sights (client-only visual zoom/pose). Held right-mouse ("aim") while deployed, not
+	# sprinting, not in a vehicle, menu closed. Eased so the zoom/pose glide rather than snap.
+	var weapon0: int = _wpred.weapon if _wpred != null else Weapon.AR
+	var ads_want: bool = (deployed0 and not menu_open0 and _in_vehicle() < 0 \
+		and not Input.is_action_pressed("sprint") \
+		and (_ads_test or _scope_test or Input.is_action_pressed("aim")))
+	_ads_t = lerpf(_ads_t, 1.0 if ads_want else 0.0, clampf(_dt * ADS_RATE, 0.0, 1.0))
 	if deployed0 and not menu_open0:
-		_input_ctrl.update_look(_settings)   # apply accumulated mouse delta at render rate
+		# Slow the look in proportion to the zoom so on-screen aim speed stays ~constant (zoom sensitivity).
+		var look_scale: float = lerpf(1.0, _ads_fov(weapon0) / _settings.fov, _ads_t)
+		_input_ctrl.update_look(_settings, look_scale)   # apply accumulated mouse delta at render rate
 	else:
 		_input_ctrl.drain_look()
 	_pos_err = _pos_err.lerp(Vector3.ZERO, clampf(_dt * RECON_SMOOTH, 0.0, 1.0))
@@ -459,8 +474,12 @@ func _process(_dt: float) -> void:
 
 	if _wpred != null and not _photo_mode:
 		_renderer.set_viewmodel_weapon(_wpred.weapon)   # show the RPG launcher etc., not always the AR
+	_renderer.set_ads(_ads_t)   # viewmodel sight pose + bob damping (before update -> _pose_viewmodel reads it)
+	# Hide the gun while scoped (you look through the scope, not at the centred gun).
+	_renderer.set_viewmodel_scope_hidden((_scope_test or _is_scoped(weapon0)) and _ads_t > 0.6)
+	var cam_fov: float = lerpf(_settings.fov, _ads_fov(weapon0), _ads_t)   # FOV zoom toward the per-weapon ADS FOV
 	var _t0 := Time.get_ticks_usec()
-	_renderer.update(_wv, _pred, _elapsed, _settings.fov, _input_ctrl.yaw, _input_ctrl.pitch, eye, _dt)
+	_renderer.update(_wv, _pred, _elapsed, cam_fov, _input_ctrl.yaw, _input_ctrl.pitch, eye, _dt)
 	if _photo_mode:
 		_fly_photo_camera(_dt)   # override the pawn-eye camera with the free-fly position
 	var _t1 := Time.get_ticks_usec()
@@ -545,7 +564,10 @@ func _process(_dt: float) -> void:
 		cspread += _ch_fire_bloom
 		if _crosshair_test:
 			cspread = 22.0   # visual QA: force a clearly-bloomed reticle for a screenshot
-		_hud_view.update_crosshair(cspread, not ch_alive and not _crosshair_test)
+		# Hide the hip crosshair once aiming down sights — the sights (or scope reticle) take over.
+		_hud_view.update_crosshair(cspread, (not ch_alive and not _crosshair_test) or _ads_t > 0.5)
+		# Sniper scope overlay: only for a scoped weapon (DMR), scaled by the ADS blend. --scope-test forces it.
+		_hud_view.set_scope(_ads_t if (_scope_test or _is_scoped(weapon0)) else 0.0)
 		# M5.5-P3 flashbang white-out from the SELF_STATE blind byte (cleared on death/deploy).
 		# --flash-test forces a strong-but-translucent veil so the world shows through (visual QA);
 		# it still routes through blind_intensity so the real render chain is exercised.
@@ -1243,6 +1265,20 @@ func _fire_event_for(weapon_id: int) -> String:
 		Weapon.SMG: return "gunfire_smg"
 		Weapon.DMR: return "gunfire_dmr"
 		_: return "gunfire"
+
+## Per-weapon aim-down-sights FOV (absolute degrees, horizontal). The DMR is scoped (strong zoom); the
+## RPG barely zooms (no sights); everything else gets a moderate iron-sight zoom. Scaled off the
+## player's hip FOV so it tracks their FOV setting. Client-only visual (AGENTS.md §7).
+func _ads_fov(weapon_id: int) -> float:
+	var base: float = _settings.fov
+	match weapon_id:
+		Weapon.DMR: return base * 0.38   # scoped marksman zoom
+		Weapon.RPG: return base * 0.88   # launcher: barely zooms
+		_: return base * 0.72            # iron-sight zoom (AR/SMG/pistol)
+
+## True when the equipped weapon uses a magnified scope overlay (only the DMR today).
+func _is_scoped(weapon_id: int) -> bool:
+	return weapon_id == Weapon.DMR
 
 ## True when the equipped weapon is the RPG — the server only includes the kind-100 throwable
 ## entry in SELF_STATE when c["weapon"] == Weapon.RPG, so its presence is the client's RPG signal.

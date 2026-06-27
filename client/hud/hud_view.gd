@@ -36,6 +36,8 @@ var _capture_labels: Array[Label] = []   # pooled capture-announcement banners (
 var _vignette: ColorRect
 var _suppress_overlay: ColorRect  # M5.5-P2 suppression screen FX (bottom of HUD: blurs the world, HUD stays crisp)
 var _suppress_mat: ShaderMaterial
+var _scope_overlay: ColorRect     # ADS sniper-scope mask + reticle (alpha = scope amount)
+var _scope_mat: ShaderMaterial
 var _blind_overlay: ColorRect     # M5.5-P3 flashbang white-out (topmost; alpha = blind intensity)
 var _arc_pool: Array[Control] = []
 var _grenade_marker: _ArcMarker   # orange directional warning for a live grenade near the player
@@ -142,6 +144,7 @@ func _build_tree() -> void:
 
 	_build_suppression()   # first: samples only the rendered world; the HUD below draws crisp over it
 	_build_crosshair()
+	_build_scope()         # sniper scope mask + reticle (over the world, under the flashbang/blind)
 	_hitmarker = _Hitmarker.new()
 	add_child(_hitmarker)
 	_build_ammo()
@@ -480,6 +483,48 @@ func set_suppression(strength: float) -> void:
 	if _suppress_mat == null:
 		_build_tree()
 	_suppress_mat.set_shader_parameter("strength", clampf(strength, 0.0, 1.0))
+
+
+func _build_scope() -> void:
+	# Sniper-scope overlay: a black mask outside an aspect-correct circle + a thin edge ring + thin
+	# crosshair hairlines, all fading in with `amount` (driven by ADS on a scoped weapon). The clear
+	# centre lets the zoomed world show through. Pure canvas shader, mirroring the suppression overlay.
+	var sh := Shader.new()
+	sh.code = "shader_type canvas_item;\n" + \
+		"uniform float amount : hint_range(0.0, 1.0) = 0.0;\n" + \
+		"void fragment() {\n" + \
+		"	if (amount <= 0.001) { COLOR = vec4(0.0); }\n" + \
+		"	else {\n" + \
+		"		float aspect = SCREEN_PIXEL_SIZE.y / SCREEN_PIXEL_SIZE.x;\n" + \
+		"		vec2 p = SCREEN_UV - vec2(0.5);\n" + \
+		"		p.x *= aspect;\n" + \
+		"		float r = length(p);\n" + \
+		"		float rad = 0.46;\n" + \
+		"		float outside = smoothstep(rad, rad + 0.012, r);\n" + \
+		"		float ring = 1.0 - smoothstep(0.004, 0.013, abs(r - rad));\n" + \
+		"		float lw = 0.0016;\n" + \
+		"		float inside = step(r, rad);\n" + \
+		"		float ch = (1.0 - smoothstep(lw, lw * 2.2, abs(p.y))) * inside;\n" + \
+		"		float cv = (1.0 - smoothstep(lw, lw * 2.2, abs(p.x))) * inside;\n" + \
+		"		float mask = clamp(max(outside, max(ring, max(ch, cv))), 0.0, 1.0);\n" + \
+		"		COLOR = vec4(0.0, 0.0, 0.0, mask * amount);\n" + \
+		"	}\n" + \
+		"}\n"
+	_scope_mat = ShaderMaterial.new()
+	_scope_mat.shader = sh
+	_scope_mat.set_shader_parameter("amount", 0.0)
+	_scope_overlay = ColorRect.new()
+	_scope_overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_scope_overlay.color = Color(1, 1, 1, 1)   # shader replaces it; alpha is per-fragment
+	_scope_overlay.material = _scope_mat
+	_scope_overlay.mouse_filter = MOUSE_FILTER_IGNORE
+	add_child(_scope_overlay)
+
+## Set the sniper-scope overlay amount (0 = none, 1 = full). Safe before _ready() (lazy-inits).
+func set_scope(amount: float) -> void:
+	if _scope_mat == null:
+		_build_tree()
+	_scope_mat.set_shader_parameter("amount", clampf(amount, 0.0, 1.0))
 
 
 func _build_blind() -> void:
