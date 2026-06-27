@@ -273,7 +273,7 @@ func _physics_process(delta: float) -> void:
 		_input_history.append({
 			"client_tick": _client_tick, "move_x": float(cmd["move_x"]), "move_y": float(cmd["move_y"]),
 			"yaw": aim_yaw, "pitch": float(cmd["pitch"]), "buttons": buttons,
-			"view_server_tick": _last_server_tick,
+			"view_server_tick": _wv.view_tick(_elapsed),   # rendered-time tick (now-DELAY) for lag-comp rewind
 		})
 		while _input_history.size() > INPUT_REDUNDANCY:
 			_input_history.pop_front()
