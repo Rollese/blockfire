@@ -45,6 +45,7 @@ enum Msg {
 	SWAP_WEAPON = 32,       ## client -> server: quick-swap to weapon slot (0=primary, 1=secondary)
 	MELEE = 33,             ## client -> server: melee swing (knife / Engineer sledgehammer); zero payload
 	IMPACT_FX = 34,         ## server -> human clients: a bullet hit world geometry at pos (cosmetic impact puff)
+	GRENADE_FX = 35,        ## server -> human clients: a remote pawn threw a grenade (cosmetic arcing object)
 }
 
 const OP_PLACE := 0
@@ -395,6 +396,26 @@ static func decode_rocket_fx(bytes: PackedByteArray) -> Dictionary:
 	var origin := Vector3(float(r.get_16()) / 10.0, float(r.get_16()) / 10.0, float(r.get_16()) / 10.0)
 	var dir := Vector3(float(r.get_16()) / 10000.0, float(r.get_16()) / 10000.0, float(r.get_16()) / 10000.0)
 	return {"origin": origin, "dir": dir}
+
+## Remote thrown grenade — same wire shape as ROCKET_FX (origin ×10, look dir ×10000) plus a kind
+## byte (Grenade.FRAG/SMOKE); the client rebuilds the launch velocity and arcs a cosmetic grenade.
+static func encode_grenade_fx(origin: Vector3, dir: Vector3, kind: int) -> PackedByteArray:
+	var buf := StreamPeerBuffer.new()
+	buf.put_u8(Msg.GRENADE_FX)
+	buf.put_16(clampi(roundi(origin.x * 10.0), -32768, 32767))
+	buf.put_16(clampi(roundi(origin.y * 10.0), -32768, 32767))
+	buf.put_16(clampi(roundi(origin.z * 10.0), -32768, 32767))
+	buf.put_16(clampi(roundi(dir.x * 10000.0), -32768, 32767))
+	buf.put_16(clampi(roundi(dir.y * 10000.0), -32768, 32767))
+	buf.put_16(clampi(roundi(dir.z * 10000.0), -32768, 32767))
+	buf.put_u8(clampi(kind, 0, 255))
+	return buf.data_array
+
+static func decode_grenade_fx(bytes: PackedByteArray) -> Dictionary:
+	var r := body_reader(bytes)
+	var origin := Vector3(float(r.get_16()) / 10.0, float(r.get_16()) / 10.0, float(r.get_16()) / 10.0)
+	var dir := Vector3(float(r.get_16()) / 10000.0, float(r.get_16()) / 10000.0, float(r.get_16()) / 10000.0)
+	return {"origin": origin, "dir": dir, "kind": r.get_u8()}
 
 # Bullet impact VFX kind (which cosmetic puff the client spawns at the hit point).
 const IMPACT_WALL := 0   # bullet stopped on (or punched through) a structure / wall — grey dust + chips

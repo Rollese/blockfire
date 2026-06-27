@@ -1397,6 +1397,10 @@ func _handle_grenade_throw(peer: ENetPacketPeer, bytes: PackedByteArray) -> void
 		"pos": p.eye_position(), "vel": Grenade.launch_velocity(dir),
 		"detonate_tick": _sim.tick + GRENADE_FUSE_TICKS,
 	})
+	# Cosmetic: let other human clients see the grenade arc through the air (FRAG/SMOKE only — IMPACT
+	# isn't in a human loadout and detonates on contact). The thrower renders their own locally.
+	if gtype == Grenade.FRAG or gtype == Grenade.SMOKE:
+		_broadcast_grenade_fx(id, p.eye_position(), dir.normalized(), gtype)
 
 func _handle_melee(peer: ENetPacketPeer) -> void:
 	var id = _peer_to_id.get(peer, 0)
@@ -1525,6 +1529,18 @@ func _broadcast_rocket_fx(shooter_id: int, origin: Vector3, dir: Vector3) -> voi
 	var pkt := Protocol.encode_rocket_fx(origin, dir)
 	for cid in _clients:
 		if cid == shooter_id:
+			continue
+		var c = _clients[cid]
+		if bool(c.get("auto_deploy", true)):
+			continue   # bot client — does not render
+		_net.send_to(c["peer"], NetHost.CHANNEL_SNAPSHOT, pkt, 0)
+
+## Cosmetic remote thrown-grenade hint. Sent only to HUMAN clients, excluding the thrower (who already
+## arcs their own grenade from client_main). Unreliable/droppable, like the other *_FX broadcasts.
+func _broadcast_grenade_fx(thrower_id: int, origin: Vector3, dir: Vector3, kind: int) -> void:
+	var pkt := Protocol.encode_grenade_fx(origin, dir, kind)
+	for cid in _clients:
+		if cid == thrower_id:
 			continue
 		var c = _clients[cid]
 		if bool(c.get("auto_deploy", true)):
