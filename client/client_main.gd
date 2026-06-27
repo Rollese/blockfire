@@ -120,6 +120,8 @@ var _capture_test := false          # --capture-test: pump capture-announcement 
 var _capture_test_next := 0.0
 var _killfeed_test := false         # --killfeed-test: pump named killfeed entries + a fake roster (visual QA)
 var _killfeed_test_next := 0.0
+var _destroy_test := false          # --destroy-test: pump piece destruction debris/dust (visual QA)
+var _collapse_test := false         # --collapse-test: play a building collapse cinematic (visual QA)
 var _whiz_t := 0.0                  # --whiz-test cadence timer
 var _whiz_i := 0                    # --whiz-test alternates crack/whiz offsets
 var _active_slot := 0               # client-tracked weapon slot (0=primary/1=secondary) for quick-swap toggle
@@ -181,6 +183,8 @@ func configure(args: Dictionary) -> void:
 	_grenade_danger_test = args.has("grenade-danger-test") # visual QA: pin a live grenade near the player
 	_capture_test = args.has("capture-test")        # visual QA: pump capture-announcement banners
 	_killfeed_test = args.has("killfeed-test")      # visual QA: pump named killfeed entries
+	_destroy_test = args.has("destroy-test")        # visual QA: pump piece destruction debris/dust
+	_collapse_test = args.has("collapse-test")      # visual QA: play a building collapse cinematic
 	_shot_after = float(args.get("shot-after", -1.0))  # automated screenshot then quit
 
 # ---- _ready -----------------------------------------------------------------
@@ -1064,6 +1068,8 @@ func _build_scene() -> void:
 	_renderer.grenade_demo = _grenade_test # --grenade-test: lob cosmetic grenades for a QA screenshot
 	_renderer.gadget_demo = _gadget_test # --gadget-test: place sample gadgets for a QA screenshot
 	_renderer.revive_demo = _revive_marker_test # --revive-marker-test: downed friendly + revive marker
+	_renderer.destroy_demo = _destroy_test   # --destroy-test: pump piece destruction debris/dust
+	_renderer.collapse_demo = _collapse_test # --collapse-test: play a building collapse cinematic
 	_renderer.vm_swing_test = _swing_test # --swing-test: freeze the viewmodel mid-swing
 	_renderer.vm_recoil_test = _recoil_test # --recoil-test: freeze the viewmodel mid-recoil-kick
 	_renderer.vm_sprint_test = _sprint_test # --sprint-test: freeze the viewmodel sprint-lowered
