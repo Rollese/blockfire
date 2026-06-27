@@ -119,8 +119,11 @@ var armor_demo := false               # --armor-demo: pin LIGHT/MEDIUM/HEAVY dum
 var _armor_demo_done := false
 var _entity_ap: Dictionary = {}       # id(int) -> AnimationPlayer (only when use_models)
 
-# active structure nodes: id(int) -> Node3D (StructureKit piece)
+# active structure nodes: id(int) -> Node3D (StructureKit piece) — legacy per-piece path, now only
+# freed on the first batched rebuild; rendering is via _struct_batches below.
 var _struct_active: Dictionary = {}
+# Batched structure render: MultiMeshInstance3D per (piece visual key, mesh slot). Rebuilt on change.
+var _struct_batches: Array = []
 # id(int) -> "type:bucket" key; a change means rebuild (kit geometry/tint is baked at build)
 var _struct_key_of: Dictionary = {}
 # last WorldView.structs_version() we synced; the per-frame pool walk is skipped while unchanged
@@ -849,7 +852,8 @@ func _make_gadget(kind: int, face: Vector3) -> Node3D:
 			slab.material_override = mmat; slab.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 			root.add_child(slab)
 			if face.length() > 0.01:
-				root.look_at(root.position + Vector3(face.x, 0.0, face.z), Vector3.UP)
+				# Orient via Basis (look_at needs the node in the tree; this runs before add_child).
+				root.transform.basis = Basis.looking_at(Vector3(face.x, 0.0, face.z), Vector3.UP)
 		GadgetList.BAG:    # supply crate
 			root.name = "Bag"
 			var crate := MeshInstance3D.new()
@@ -1414,33 +1418,94 @@ func _sync_structure_pool(world_view: WorldView, now: float) -> void:
 	if ver == _struct_synced_ver:
 		return
 	_struct_synced_ver = ver
-	var structs: Dictionary = world_view.structures()
+	_rebuild_structure_batches(world_view.structures())
 
-	# Release nodes for ids that have been removed from the store
-	var to_release: Array = []
-	for id: int in _struct_active:
-		if not structs.has(id):
-			to_release.append(id)
-	for id: int in to_release:
-		_start_destroy_pop(id, now)
 
-	# Acquire / update nodes for all known structures. _pose_structure only needs to run when a node
-	# is newly created or rebuilt (geometry/tint is baked at build) — static pieces keep their pose.
+## Batched structure render (perf): all pieces sharing a visual key (piece_id + damage bucket + skirt)
+## are IDENTICAL geometry, so they draw as one MultiMesh instead of one node per piece. Collapses the
+## town's ~8k pieces / ~16k draw calls to a few hundred. Rebuilt only on a structure-version change
+## (build/destroy/damage/collapse) — static the rest of the time. Per-piece build/destroy pops are
+## dropped (cosmetic); destruction still reflects instantly on the next rebuild.
+func _rebuild_structure_batches(structs: Dictionary) -> void:
+	for n: Node3D in _struct_batches:
+		n.queue_free()
+	_struct_batches.clear()
+	# Drop any legacy per-piece nodes from the old path (first rebuild after connect).
+	for id_v: Variant in _struct_active:
+		(_struct_active[id_v] as Node3D).queue_free()
+	_struct_active.clear()
+	_struct_key_of.clear()
+	_building_centroid.clear()
+
+	# Group piece world-transforms by visual key; track a per-building centroid for collapse rubble.
+	var groups: Dictionary = {}   # key -> {sample: rec, xforms: Array[Transform3D]}
 	for id_v: Variant in structs:
-		var id: int = int(id_v)
 		var rec: Dictionary = structs[id_v]
-		var was_present := _struct_active.has(id)
-		var node: Node3D = _acquire_structure(id, rec)
-		if not was_present or _struct_rebuilt:
-			_pose_structure(node, rec)
-			# M11: track a per-building centroid (last-posed piece position is fine for a placeholder
-			# rubble marker) so a COLLAPSE can drop rubble where the building stood.
-			var bid: int = int(rec.get("building_id", 0))
-			if bid != 0:
-				_building_centroid[bid] = node.position
-		# Pop only on a genuinely new structure, not on a damage-driven rebuild (still present).
-		if not was_present:
-			_start_build_pop(node)
+		var key: String = _struct_visual_key(rec)
+		if not groups.has(key):
+			groups[key] = {"sample": rec, "xforms": []}
+		var xf := _structure_xform(rec)
+		(groups[key]["xforms"] as Array).append(xf)
+		var bid: int = int(rec.get("building_id", 0))
+		if bid != 0:
+			_building_centroid[bid] = xf.origin   # last piece's position is fine for a placeholder marker
+
+	# One MultiMeshInstance3D per (visual key, mesh slot of the piece's kit node).
+	for key: String in groups:
+		var g: Dictionary = groups[key]
+		var template: Node3D = _make_structure_node(g["sample"])
+		var slots: Array = []
+		_collect_mesh_slots(template, Transform3D.IDENTITY, slots)
+		template.queue_free()   # template was never added to the tree
+		var xforms: Array = g["xforms"]
+		for slot: Dictionary in slots:
+			var mm := MultiMesh.new()
+			mm.transform_format = MultiMesh.TRANSFORM_3D
+			mm.mesh = slot["mesh"]
+			mm.instance_count = xforms.size()
+			for i in xforms.size():
+				mm.set_instance_transform(i, (xforms[i] as Transform3D) * (slot["local"] as Transform3D))
+			var mmi := MultiMeshInstance3D.new()
+			mmi.multimesh = mm
+			mmi.material_override = slot["material"]
+			mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON
+			add_child(mmi)
+			_struct_batches.append(mmi)
+
+
+## Visual key: pieces with the same id + damage bucket + skirt are byte-identical geometry, so they
+## share a MultiMesh. (Skirt depends on cell.y==0, so two same-type pieces at different floors differ.)
+func _struct_visual_key(rec: Dictionary) -> String:
+	var type_idx: int = int(rec.get("type", 0))
+	var cell: Vector3i = rec["cell"] as Vector3i
+	var piece_id: String = STRUCT_TYPE_ID[type_idx] if type_idx < STRUCT_TYPE_ID.size() else "wall"
+	var skirt: bool = cell.y == 0 and (piece_id.begins_with("bwall") or piece_id == "bcolumn" \
+		or piece_id.begins_with("prop_"))
+	return "%d:%d:%d" % [type_idx, _bucket_of(rec), 1 if skirt else 0]
+
+
+## World transform of a piece (mirrors _pose_structure: cell-centred + lifted, Y-yawed).
+func _structure_xform(rec: Dictionary) -> Transform3D:
+	var cell: Vector3i = rec["cell"] as Vector3i
+	var half := BuildGrid.CELL_SIZE * 0.5
+	var pos := Vector3(float(cell.x) * BuildGrid.CELL_SIZE + half,
+		float(cell.y) * BuildGrid.CELL_SIZE + STRUCT_LIFT,
+		float(cell.z) * BuildGrid.CELL_SIZE + half)
+	var basis := Basis.from_euler(Vector3(0.0, BuildGrid.yaw_radians(int(rec.get("yaw", 0))), 0.0))
+	return Transform3D(basis, pos)
+
+
+## Walk a kit node, collecting each MeshInstance3D as {mesh, material, local} (transform relative to
+## the kit root) so each can become a MultiMesh slot.
+func _collect_mesh_slots(node: Node3D, parent_xform: Transform3D, slots: Array) -> void:
+	var here := parent_xform * node.transform
+	if node is MeshInstance3D:
+		var mi := node as MeshInstance3D
+		if mi.mesh != null:
+			slots.append({"mesh": mi.mesh, "material": mi.material_override, "local": here})
+	for child in node.get_children():
+		if child is Node3D:
+			_collect_mesh_slots(child as Node3D, here, slots)
 
 
 func _acquire_structure(id: int, rec: Dictionary) -> Node3D:
