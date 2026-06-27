@@ -7,10 +7,11 @@ const Protocol := preload("res://shared/net/protocol.gd")
 const MAP_PATH := "res://maps/conquest_proving_grounds.json"   # default; override with --map=<name>
 const BUILD_COOLDOWN_TICKS := 150   # match server StructureStore.BUILD_COOLDOWN_TICKS (5s)
 const BUILD_DIST := 3.0             # how far ahead (m) to drop cover; within server BUILD_RANGE
-const MAX_BOT_BUILDS := 1           # walls each bot drops before stopping. Keeps the contested
-                                    # zone covered (cover blocks crossfire, so blk>0) without
-                                    # boxing every bot in — combat still flows so attrition
-                                    # converges the match to a winner. Tuned via the 48-bot smoke.
+const MAX_BOT_BUILDS := 0           # bots no longer auto-drop cover walls. Was 1 to exercise build/
+                                    # destruction on the fleet gate, but the walls cluttered spawn and
+                                    # trapped bots/vehicles in a human playtest, and the build+destruction
+                                    # mechanic is proven by unit tests (not emergent bot builds).
+                                    # Re-enable (set >0) behind a flag if a fleet build-exercise is wanted.
 const GRENADE_COOLDOWN_TICKS := 300   # match server GRENADE_COOLDOWN_TICKS (10s, shared frag/smoke)
 const MAX_BOT_GRENADES := 1           # per-bot lifetime FRAG cap (convergence/over-destruction knob)
 const MAX_BOT_SMOKES := 1             # per-bot lifetime SMOKE cap (exercises the smoke path)
