@@ -1075,19 +1075,22 @@ func _killfeed_test_roster() -> Array:
 		{"id": 3, "name": "Specter", "team": 1, "squad": 0, "score": 0},
 		{"id": 4, "name": "Falcon", "team": 0, "squad": 0, "score": 0}]
 
-## Rebuild the client StructureStore from a full STRUCTURE_BASELINE (a keyframe) and hand it to
-## prediction, so the predicted pawn collides with walls exactly like the server.
+## Ingest a STRUCTURE_BASELINE into the client collision store. Baselines arrive PER REGION (one each
+## as the player moves), so ACCUMULATE — never reset, or only the last region would block (the
+## renderer's world_view accumulates the same way). Prediction collides against this exactly like the
+## server's SimLoop._step_normal.
 func _rebuild_struct_store(bytes: PackedByteArray) -> void:
 	if _piece_cat == null:
 		return
-	_struct_store = StructureStore.new(_piece_cat)
+	if _struct_store == null:
+		_struct_store = StructureStore.new(_piece_cat)
+	if _pred != null:
+		_pred.structures = _struct_store
 	for rec: Dictionary in Protocol.decode_structure_baseline(bytes)["records"]:
 		var placed := _struct_store.place(int(rec["id"]), int(rec["type"]), rec["cell"],
 			int(rec["yaw"]), int(rec["owner"]), int(rec["building_id"]))
 		if not placed.is_empty():
 			placed["chunks"] = int(rec["chunks"])   # carry partial-destruction so collision matches
-	if _pred != null:
-		_pred.structures = _struct_store
 
 ## Apply a STRUCTURE_DELTA (place / remove / chunk-damage) to the collision store.
 func _apply_struct_delta_to_store(bytes: PackedByteArray) -> void:
