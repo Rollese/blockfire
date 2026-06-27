@@ -813,6 +813,7 @@ func _on_packet(_from: ENetPacketPeer, _channel: int, bytes: PackedByteArray) ->
 			var fx: Dictionary = Protocol.decode_shot_fx(bytes)
 			if _renderer != null:
 				_renderer.tracer_from(fx["origin"], fx["dir"], _elapsed)
+				_renderer.eject_casing_at(fx["origin"], fx["dir"], _elapsed)   # remote shooter's brass
 			if _audio != null:
 				_audio.play_at("gunfire", fx["origin"])   # spatial remote-pawn gunfire
 				# Supersonic near-miss: if this remote round passes close to us, snap a crack/whiz
