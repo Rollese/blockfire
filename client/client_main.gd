@@ -94,8 +94,13 @@ var _ads_test := false              # --ads-test: force aim-down-sights on for a
 var _scope_test := false            # --scope-test: force ADS + the sniper scope overlay for a visual QA shot
 var _casing_test := false          # --casing-test: pump ejected shell casings for a visual QA shot
 var _climb_test := false           # --climb-test: pin a climbing-posed dummy beside an upright one
+var _jump_test := false            # --jump-test: pin an airborne-posed dummy beside an upright one
+var _land_test := false            # --land-test: pump landing dust + viewmodel dip
 var _ads_t := 0.0                   # 0..1 eased aim-down-sights blend (client-only visual zoom/pose)
 const ADS_RATE := 16.0              # ADS ease speed (per second); ~1/e in ~60 ms
+var _prev_grounded := true          # for the local landing viewmodel dip (airborne->grounded edge)
+var _prev_vy := 0.0                 # local vertical velocity from the previous frame (fall impact speed)
+const LAND_VY := 3.5                # min downward speed (m/s) for a landing to kick the viewmodel dip
 var _sprint_test := false           # --sprint-test: freeze the viewmodel sprint-lowered for a visual QA shot
 var _reload_test := false           # --reload-test: freeze the viewmodel mid-reload for a visual QA shot
 var _whiz_test := false             # --whiz-test: pump synthetic near-miss rounds across the view (crack/whiz QA)
@@ -152,6 +157,8 @@ func configure(args: Dictionary) -> void:
 	_scope_test = args.has("scope-test")            # visual QA: force ADS + the sniper scope overlay
 	_casing_test = args.has("casing-test")          # visual QA: pump ejected shell casings
 	_climb_test = args.has("climb-test")            # visual QA: climbing pose vs upright dummy
+	_jump_test = args.has("jump-test")              # visual QA: airborne pose vs upright dummy
+	_land_test = args.has("land-test")              # visual QA: landing dust + viewmodel dip
 	_sprint_test = args.has("sprint-test")          # visual QA: freeze the viewmodel sprint-lowered
 	_reload_test = args.has("reload-test")          # visual QA: freeze the viewmodel mid-reload
 	_whiz_test = args.has("whiz-test")              # audio+visual QA: synthetic near-miss crack/whiz rounds
@@ -445,6 +452,13 @@ func _process(_dt: float) -> void:
 		and not Input.is_action_pressed("sprint") \
 		and (_ads_test or _scope_test or Input.is_action_pressed("aim")))
 	_ads_t = lerpf(_ads_t, 1.0 if ads_want else 0.0, clampf(_dt * ADS_RATE, 0.0, 1.0))
+	# Local landing dip: on the predicted pawn's airborne->grounded edge after a real fall, kick the
+	# viewmodel down (scaled by impact speed). _prev_vy holds the falling speed from the prior frame.
+	var lg: bool = _pred.predicted.grounded
+	if lg and not _prev_grounded and _prev_vy < -LAND_VY and _renderer != null:
+		_renderer.play_land_dip(clampf((-_prev_vy - LAND_VY) / 8.0, 0.2, 1.0))
+	_prev_grounded = lg
+	_prev_vy = _pred.predicted.velocity.y
 	if deployed0 and not menu_open0:
 		# Slow the look in proportion to the zoom so on-screen aim speed stays ~constant (zoom sensitivity).
 		var look_scale: float = lerpf(1.0, _ads_fov(weapon0) / _settings.fov, _ads_t)
@@ -998,6 +1012,8 @@ func _build_scene() -> void:
 	_renderer.wreck_demo = _vehicle_test # --vehicle-test: blow up a transport for a QA screenshot
 	_renderer.casing_demo = _casing_test # --casing-test: pump shell casings for a QA screenshot
 	_renderer.climb_demo = _climb_test   # --climb-test: climbing-pose dummy for a QA screenshot
+	_renderer.jump_demo = _jump_test     # --jump-test: airborne-pose dummy for a QA screenshot
+	_renderer.land_demo = _land_test     # --land-test: landing dust + viewmodel dip for a QA screenshot
 	_renderer.impact_demo = _impact_test # --impact-test: pump bullet impacts for a QA screenshot
 	_renderer.corpse_demo = _corpse_test # --corpse-test: lay corpses for a QA screenshot
 	_renderer.footstep_demo = _footstep_test # --footstep-test: pump footstep dust for a QA screenshot
