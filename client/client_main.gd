@@ -39,6 +39,7 @@ const RECON_SNAP := 2.5        # corrections over this (m) snap (respawn/telepor
 const RECON_SMOOTH := 13.0     # per-second decay of _pos_err (~a correction fades over ~150 ms)
 # DBNO downed screen
 var _downed_since := -1.0      # _elapsed when the current down began (-1 = not downed)
+var _downed_frozen_secs := -1.0   # latched bleed-out secs-left at the moment a bandage halted it (-1 = not halted)
 var _giveup_hold := 0.0        # seconds the give-up key (jump) has been held while downed
 var _giveup_sent := false
 const BLEEDOUT_SECS := 8.0     # Revive |BLEEDOUT_FLOOR|/BLEED_RATE / TICK_RATE = 240/30
@@ -96,6 +97,7 @@ var _casing_test := false          # --casing-test: pump ejected shell casings f
 var _climb_test := false           # --climb-test: pin a climbing-posed dummy beside an upright one
 var _jump_test := false            # --jump-test: pin an airborne-posed dummy beside an upright one
 var _land_test := false            # --land-test: pump landing dust + viewmodel dip
+var _downed_test := false          # --downed-test: force the DBNO overlay (bandage prompt/stabilized)
 var _ads_t := 0.0                   # 0..1 eased aim-down-sights blend (client-only visual zoom/pose)
 const ADS_RATE := 16.0              # ADS ease speed (per second); ~1/e in ~60 ms
 var _prev_grounded := true          # for the local landing viewmodel dip (airborne->grounded edge)
@@ -130,6 +132,8 @@ var _throwables: Array = []        # latest throwable list from SELF_STATE
 var _being_revived: bool = false   # latest "a teammate is reviving me" flag from SELF_STATE
 var _suppression: float = 0.0      # latest own-suppression scalar from SELF_STATE (M5.5-P2; M7 screen FX)
 var _blind_ticks: int = 0          # latest remaining flashbang-blind ticks from SELF_STATE (M5.5-P3 white-out)
+var _bandage_count: int = 0        # latest self-bandage charges from SELF_STATE (DBNO self-bandage UI)
+var _bleed_halted: bool = false    # latest bleed-halted flag from SELF_STATE (downed: bandaged = stabilized)
 var _revive_hold: float = 0.0      # seconds the interact key has been held on a revive target
 
 # ---- configure (called by bootstrap before add_child) -----------------------
@@ -159,6 +163,7 @@ func configure(args: Dictionary) -> void:
 	_climb_test = args.has("climb-test")            # visual QA: climbing pose vs upright dummy
 	_jump_test = args.has("jump-test")              # visual QA: airborne pose vs upright dummy
 	_land_test = args.has("land-test")              # visual QA: landing dust + viewmodel dip
+	_downed_test = args.has("downed-test")          # visual QA: force the DBNO bandage overlay
 	_sprint_test = args.has("sprint-test")          # visual QA: freeze the viewmodel sprint-lowered
 	_reload_test = args.has("reload-test")          # visual QA: freeze the viewmodel mid-reload
 	_whiz_test = args.has("whiz-test")              # audio+visual QA: synthetic near-miss crack/whiz rounds
@@ -551,6 +556,7 @@ func _process(_dt: float) -> void:
 			_downed_since = _elapsed
 			_giveup_hold = 0.0
 			_giveup_sent = false
+			_downed_frozen_secs = -1.0
 		if Input.is_action_pressed("jump"):
 			_giveup_hold += _dt
 			if _giveup_hold >= GIVEUP_HOLD and not _giveup_sent and _peer != null:
@@ -559,9 +565,18 @@ func _process(_dt: float) -> void:
 		else:
 			_giveup_hold = 0.0
 		var secs_left: float = maxf(0.0, BLEEDOUT_SECS - (_elapsed - _downed_since))
-		_hud_view.set_downed(true, secs_left, _nearest_friendly_dist(sds), clampf(_giveup_hold / GIVEUP_HOLD, 0.0, 1.0), _being_revived)
+		# Once the server reports bleed halted (bandaged), latch the time-left so the UI stops counting.
+		if _bleed_halted and _downed_frozen_secs < 0.0:
+			_downed_frozen_secs = secs_left
+		var shown_secs: float = _downed_frozen_secs if _bleed_halted else secs_left
+		_hud_view.set_downed(true, shown_secs, _nearest_friendly_dist(sds), clampf(_giveup_hold / GIVEUP_HOLD, 0.0, 1.0), _being_revived, _bandage_count, _bleed_halted)
+	elif _downed_test:
+		# Visual QA: force the DBNO overlay, alternating the bleeding/bandage-prompt and stabilized states.
+		var halted := fmod(_elapsed, 6.0) > 3.0
+		_hud_view.set_downed(true, 6.0, 12.0, 0.0, false, 3, halted)
 	elif _downed_since >= 0.0:
 		_downed_since = -1.0
+		_downed_frozen_secs = -1.0
 		_hud_view.set_downed(false, 0.0, -1.0, 0.0)
 
 	# ---- C3: scoreboard hold (TAB) ------------------------------------------------
@@ -603,7 +618,10 @@ func _process(_dt: float) -> void:
 	var sss: EntityState = _wv.self_state()
 	var is_downed: bool = sss != null and sss.alive and sss.is_downed
 	if is_downed:
-		pass   # downed players have no self-bandage/self-revive; they wait for a teammate or bleed out
+		# Self-bandage (R): spend a bandage to halt the bleed-out (no self-revive — a teammate must
+		# revive you, BattleBit-style). Server gates (must be downed, have a charge, not already halted).
+		if Input.is_action_just_pressed("reload") and _bandage_count > 0 and not _bleed_halted and _peer != null:
+			_net.send_to(_peer, NetHost.CHANNEL_CONTROL, Protocol.encode_self_bandage(), ENetPacketPeer.FLAG_RELIABLE)
 	else:
 		# Revive intent: hold interact while the interaction prompt targets a downed mate.
 		var ip = _model.get("interaction_prompt")
@@ -958,6 +976,8 @@ func _handle_self_state(bytes: PackedByteArray) -> void:
 	_being_revived = bool(d.get("being_revived", false))   # downed-screen "being revived" indicator
 	_suppression = float(d.get("suppression", 0.0))        # M5.5-P2: own suppression (M7 renders screen FX)
 	_blind_ticks = int(d.get("blind_ticks", 0))            # M5.5-P3: remaining flashbang-blind ticks (white-out)
+	_bandage_count = int(d.get("bandage_count", 0))        # DBNO self-bandage charges
+	_bleed_halted = bool(d.get("bleed_halted", false))     # downed: bleed-out halted by a bandage
 
 # ---- MATCH_STATE ------------------------------------------------------------
 func _handle_match_state(bytes: PackedByteArray) -> void:

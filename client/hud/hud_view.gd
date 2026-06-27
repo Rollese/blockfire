@@ -47,6 +47,7 @@ var _hitmarker: _Hitmarker        # brief crosshair flash when your shot lands
 var _downed_root: Control
 var _downed_timer: Label
 var _downed_friendly: Label
+var _downed_bandage: Label   # DBNO self-bandage prompt / charges / stabilized state
 var _downed_giveup_fill: ColorRect
 var _perf_label: Label            # debug perf overlay (FPS / frame-time / draw calls)
 var _perf_accum: float = 0.0      # throttle perf-label refresh to ~4 Hz
@@ -625,6 +626,10 @@ func _build_downed() -> void:
 	_downed_friendly = Label.new()
 	_downed_friendly.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	vbox.add_child(_downed_friendly)
+	_downed_bandage = Label.new()
+	_downed_bandage.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_downed_bandage.add_theme_font_size_override("font_size", 18)
+	vbox.add_child(_downed_bandage)
 	var giveup := Label.new()
 	giveup.text = "Hold [SPACE] to give up"
 	giveup.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -643,7 +648,7 @@ func _build_downed() -> void:
 
 ## Drive the downed (DBNO) overlay. active=false hides it. secs_left = bleed-out countdown,
 ## nearest_dist = metres to nearest standing teammate (<0 = none), giveup = hold progress [0,1].
-func set_downed(active: bool, secs_left: float, nearest_dist: float, giveup: float, being_revived: bool = false) -> void:
+func set_downed(active: bool, secs_left: float, nearest_dist: float, giveup: float, being_revived: bool = false, bandage_count: int = 0, bleed_halted: bool = false) -> void:
 	if _downed_root == null:
 		return
 	_downed_root.visible = active
@@ -654,10 +659,25 @@ func set_downed(active: bool, secs_left: float, nearest_dist: float, giveup: flo
 		_downed_timer.text = "Being revived — hold on!"
 		_downed_timer.add_theme_color_override("font_color", Color(0.4, 1.0, 0.4))
 		_downed_friendly.text = "A teammate is reviving you"
+	elif bleed_halted:
+		# Bandaged — bleed-out halted; the player holds at this time-left until revived or gives up.
+		_downed_timer.text = "Stabilized — %d s left" % int(ceil(secs_left))
+		_downed_timer.add_theme_color_override("font_color", Color(0.5, 0.9, 1.0))
+		_downed_friendly.text = ("Nearest friendly: %d m" % int(round(nearest_dist))) if nearest_dist >= 0.0 else "No friendly nearby"
 	else:
 		_downed_timer.text = "Bleeding out — %d s" % int(ceil(secs_left))
 		_downed_timer.add_theme_color_override("font_color", Color(1.0, 0.5, 0.5))
 		_downed_friendly.text = ("Nearest friendly: %d m" % int(round(nearest_dist))) if nearest_dist >= 0.0 else "No friendly nearby"
+	# Self-bandage prompt: stop the bleed-out with a charge (you can't self-revive, only stabilize).
+	if bleed_halted:
+		_downed_bandage.text = "Bleed stopped · %d bandage%s left" % [bandage_count, "" if bandage_count == 1 else "s"]
+		_downed_bandage.add_theme_color_override("font_color", Color(0.6, 0.9, 1.0))
+	elif bandage_count > 0:
+		_downed_bandage.text = "Press [R] to bandage (%d)" % bandage_count
+		_downed_bandage.add_theme_color_override("font_color", Color(1.0, 0.9, 0.5))
+	else:
+		_downed_bandage.text = "No bandages left"
+		_downed_bandage.add_theme_color_override("font_color", Color(0.8, 0.8, 0.8))
 	_downed_giveup_fill.size = Vector2(240.0 * clampf(giveup, 0.0, 1.0), 12.0)
 
 
