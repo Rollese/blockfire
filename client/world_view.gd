@@ -23,11 +23,16 @@ func apply_snapshot(bytes: PackedByteArray, now: float) -> Dictionary:
 	for id in _view:
 		if id != _local_id:
 			remotes[id] = (_view[id] as EntityState).clone()
-	_interp.push(now, remotes)
+	_interp.push(now, remotes, int(last_header.get("server_tick", 0)))
 	return last_header
 
 func remotes_at(now: float) -> Dictionary:
 	return _interp.sample(now)
+
+## Server tick the local player is currently RENDERING remotes at (now - interp DELAY). Sent as
+## view_server_tick so lag-comp rewinds enemies to where they were seen (no leading required).
+func view_tick(now: float) -> int:
+	return _interp.sample_tick(now)
 
 func self_state() -> EntityState:
 	return _view.get(_local_id)

@@ -6,12 +6,34 @@ extends RefCounted
 const DELAY := 0.1   # 100 ms render delay
 const MAX_BUFFER := 32
 
-var _buf: Array = []   # [{time, view: Dictionary[id->EntityState]}], ascending time
+var _buf: Array = []   # [{time, tick, view: Dictionary[id->EntityState]}], ascending time
 
-func push(time: float, view: Dictionary) -> void:
-	_buf.append({"time": time, "view": view})
+func push(time: float, view: Dictionary, server_tick: int = 0) -> void:
+	_buf.append({"time": time, "tick": server_tick, "view": view})
 	while _buf.size() > MAX_BUFFER:
 		_buf.pop_front()
+
+## The server tick corresponding to the INTERPOLATED render time (now - DELAY) — i.e. the tick at
+## which the player actually SEES remote pawns. The client sends this as view_server_tick so the
+## server's lag-comp rewinds enemies to where they were RENDERED, not to the latest snapshot (which is
+## ~DELAY ahead — the reason you'd otherwise have to lead a moving target to hit it).
+func sample_tick(now: float) -> int:
+	if _buf.is_empty():
+		return 0
+	var t := now - DELAY
+	if t <= _buf[0]["time"]:
+		return int(_buf[0]["tick"])
+	var last: Dictionary = _buf[_buf.size() - 1]
+	if t >= last["time"]:
+		return int(last["tick"])
+	for i in range(_buf.size() - 1):
+		var a: Dictionary = _buf[i]
+		var b: Dictionary = _buf[i + 1]
+		if t >= a["time"] and t <= b["time"]:
+			var span: float = b["time"] - a["time"]
+			var f: float = 0.0 if span <= 0.0 else (t - a["time"]) / span
+			return int(round(lerp(float(a["tick"]), float(b["tick"]), f)))
+	return int(last["tick"])
 
 ## Returns an interpolated id -> EntityState map at (now - DELAY).
 func sample(now: float) -> Dictionary:
