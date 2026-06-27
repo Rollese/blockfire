@@ -92,6 +92,7 @@ var _recoil_test := false           # --recoil-test: hold the viewmodel mid-reco
 var _crosshair_test := false        # --crosshair-test: force a bloomed crosshair for a visual QA shot
 var _ads_test := false              # --ads-test: force aim-down-sights on for a visual QA shot
 var _scope_test := false            # --scope-test: force ADS + the sniper scope overlay for a visual QA shot
+var _casing_test := false          # --casing-test: pump ejected shell casings for a visual QA shot
 var _ads_t := 0.0                   # 0..1 eased aim-down-sights blend (client-only visual zoom/pose)
 const ADS_RATE := 16.0              # ADS ease speed (per second); ~1/e in ~60 ms
 var _sprint_test := false           # --sprint-test: freeze the viewmodel sprint-lowered for a visual QA shot
@@ -148,6 +149,7 @@ func configure(args: Dictionary) -> void:
 	_crosshair_test = args.has("crosshair-test")    # visual QA: force a bloomed crosshair
 	_ads_test = args.has("ads-test")                # visual QA: force aim-down-sights on
 	_scope_test = args.has("scope-test")            # visual QA: force ADS + the sniper scope overlay
+	_casing_test = args.has("casing-test")          # visual QA: pump ejected shell casings
 	_sprint_test = args.has("sprint-test")          # visual QA: freeze the viewmodel sprint-lowered
 	_reload_test = args.has("reload-test")          # visual QA: freeze the viewmodel mid-reload
 	_whiz_test = args.has("whiz-test")              # audio+visual QA: synthetic near-miss crack/whiz rounds
@@ -258,6 +260,8 @@ func _physics_process(delta: float) -> void:
 		if _wpred.step(_client_tick, firing, sprinting, false) and _renderer != null:
 			_renderer.fire_tracer(_elapsed)
 			_renderer.play_viewmodel_recoil(_elapsed)   # kick the viewmodel on each shot
+			if _wpred.weapon != Weapon.RPG:
+				_renderer.eject_casing(_elapsed)   # brass flies from the port (no casing for the launcher)
 			_ch_fire_bloom = minf(_ch_fire_bloom + 3.0, 14.0)   # bloom the crosshair on each shot
 			if _audio != null:
 				_audio.play_at(_fire_event_for(_wpred.weapon), _pred.predicted.eye_position())
@@ -990,6 +994,7 @@ func _build_scene() -> void:
 	_renderer.armor_demo = _armor_demo   # --armor-demo: pin armor-tier dummies for a QA screenshot
 	_renderer.boom_demo = _boom_test     # --boom-test: pump explosions for a QA screenshot
 	_renderer.wreck_demo = _vehicle_test # --vehicle-test: blow up a transport for a QA screenshot
+	_renderer.casing_demo = _casing_test # --casing-test: pump shell casings for a QA screenshot
 	_renderer.impact_demo = _impact_test # --impact-test: pump bullet impacts for a QA screenshot
 	_renderer.corpse_demo = _corpse_test # --corpse-test: lay corpses for a QA screenshot
 	_renderer.footstep_demo = _footstep_test # --footstep-test: pump footstep dust for a QA screenshot
