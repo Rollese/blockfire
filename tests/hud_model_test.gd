@@ -71,6 +71,27 @@ func test_no_capture_when_off_point() -> void:
 		"point_positions": [Vector3(6, 0, 6)], "capture_radius": 8.0, "tick": 0})
 	assert_eq(out["capture"], null, "off point -> no capture readout")
 
+func test_killfeed_resolves_names_and_friendliness() -> void:
+	var m := HudModel.new()
+	var roster := [{"id": 1, "name": "Alice", "team": 0, "squad": 0, "score": 0},
+		{"id": 2, "name": "Bob", "team": 1, "squad": 0, "score": 0}]
+	m.push_kill({"killer": 1, "victim": 2, "headshot": true, "weapon": Weapon.AR}, 10.0)
+	var out := m.build({"now": 10.0, "tick": 0, "roster": roster, "self_id": 1})
+	var e: Dictionary = out["killfeed"][0]
+	assert_eq(e["killer_name"], "Alice", "killer id resolved to name")
+	assert_eq(e["victim_name"], "Bob", "victim id resolved to name")
+	assert_true(e["killer_friendly"], "killer is on the local team (self_id 1 -> team 0)")
+	assert_false(e["victim_friendly"], "victim is the enemy team")
+	assert_true(e["headshot"], "headshot flag carried through")
+
+func test_killfeed_unknown_id_falls_back() -> void:
+	var m := HudModel.new()
+	m.push_kill({"killer": 99, "victim": 2, "headshot": false, "weapon": Weapon.AR}, 5.0)
+	var out := m.build({"now": 5.0, "tick": 0, "roster": [], "self_id": 1})
+	var e: Dictionary = out["killfeed"][0]
+	assert_true(String(e["killer_name"]).contains("99"), "unknown id falls back to a #id label")
+	assert_false(e["killer_friendly"], "no roster -> not friendly")
+
 func test_killfeed_entries_decay_out() -> void:
 	var m := HudModel.new()
 	m.push_kill({"killer": 1, "victim": 2, "headshot": true, "weapon": Weapon.AR}, 10.0)

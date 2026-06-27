@@ -98,6 +98,8 @@ var _revive_marker_test := false    # --revive-marker-test: downed friendly + re
 var _grenade_danger_test := false   # --grenade-danger-test: pin a live grenade near the player (visual QA)
 var _capture_test := false          # --capture-test: pump capture-announcement banners (visual QA)
 var _capture_test_next := 0.0
+var _killfeed_test := false         # --killfeed-test: pump named killfeed entries + a fake roster (visual QA)
+var _killfeed_test_next := 0.0
 var _whiz_t := 0.0                  # --whiz-test cadence timer
 var _whiz_i := 0                    # --whiz-test alternates crack/whiz offsets
 var _active_slot := 0               # client-tracked weapon slot (0=primary/1=secondary) for quick-swap toggle
@@ -145,6 +147,7 @@ func configure(args: Dictionary) -> void:
 	_revive_marker_test = args.has("revive-marker-test")   # visual QA: downed friendly + revive marker
 	_grenade_danger_test = args.has("grenade-danger-test") # visual QA: pin a live grenade near the player
 	_capture_test = args.has("capture-test")        # visual QA: pump capture-announcement banners
+	_killfeed_test = args.has("killfeed-test")      # visual QA: pump named killfeed entries
 	_shot_after = float(args.get("shot-after", -1.0))  # automated screenshot then quit
 
 # ---- _ready -----------------------------------------------------------------
@@ -458,8 +461,8 @@ func _process(_dt: float) -> void:
 		"capture_radius": 8.0,
 		"now": _elapsed,
 		# C3 additions
-		"roster": _wv.roster(),
-		"self_id": my_id,
+		"roster": _killfeed_test_roster() if _killfeed_test else _wv.roster(),
+		"self_id": 1 if _killfeed_test else my_id,
 		"entities": _build_entities(),
 		"throwables": _throwables,
 		"downed_mates": _downed_mates(),
@@ -471,6 +474,10 @@ func _process(_dt: float) -> void:
 			{"label": "A", "status": CaptureAnnounce.FRIENDLY},
 			{"label": "B", "status": CaptureAnnounce.HOSTILE},
 			{"label": "C", "status": CaptureAnnounce.NEUTRAL}], _elapsed)
+	if _killfeed_test and _elapsed >= _killfeed_test_next:   # visual QA: keep named kills fresh
+		_killfeed_test_next = _elapsed + 2.0
+		_hud_model.push_kill({"killer": 1, "victim": 2, "headshot": true, "weapon": 0}, _elapsed)
+		_hud_model.push_kill({"killer": 3, "victim": 4, "headshot": false, "weapon": 0}, _elapsed)
 	var _model := _hud_model.build(ctx)
 	var _t2 := Time.get_ticks_usec()
 	_hud_view.render(_model)
@@ -1035,6 +1042,13 @@ func _objectives() -> Array:
 		var owner: int = int(pts[i]["owner"]) if i < pts.size() else -1
 		out.append({"pos": _map.points[i]["pos"], "owner": owner})
 	return out
+
+## Fake roster for --killfeed-test so synthetic kills resolve to names + friend/foe (self_id is 1 -> team 0).
+func _killfeed_test_roster() -> Array:
+	return [{"id": 1, "name": "Vanguard", "team": 0, "squad": 0, "score": 0},
+		{"id": 2, "name": "Reaper", "team": 1, "squad": 0, "score": 0},
+		{"id": 3, "name": "Specter", "team": 1, "squad": 0, "score": 0},
+		{"id": 4, "name": "Falcon", "team": 0, "squad": 0, "score": 0}]
 
 ## Live grenade world-positions for the HUD danger indicator: the renderer's cosmetic pool (local
 ## throws + remote GRENADE_FX), plus a pinned synthetic one under --grenade-danger-test.
