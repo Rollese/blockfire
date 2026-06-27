@@ -895,6 +895,8 @@ func _build_scene() -> void:
 	_apply_master_volume()
 	# Route renderer footsteps (local + visible remotes) to the spatial audio bus.
 	_renderer.footstep.connect(_on_footstep)
+	# Route bullet impacts (real IMPACT_FX + the --impact-test demo) to a spatial thud.
+	_renderer.impact.connect(_on_impact)
 
 	_scene_built = true
 	if _novsync:
@@ -937,6 +939,15 @@ func _on_settings_applied(new_settings: ClientSettings) -> void:
 func _on_footstep(world_pos: Vector3, _intensity: float) -> void:
 	if _audio != null:
 		_audio.play_at("footstep", world_pos)
+
+## A bullet terminated in the world — play a spatial thud where it landed (wall/dirt; flesh is
+## silent, it gets a blood puff instead). Presentation-only (AGENTS.md §7).
+func _on_impact(world_pos: Vector3, kind: int) -> void:
+	if _audio == null:
+		return
+	var snd := ImpactAudio.sound_for(kind)
+	if snd != "":
+		_audio.play_at(snd, world_pos)
 
 ## Drive the audio Master bus from the (previously inert) master_volume setting.
 func _apply_master_volume() -> void:

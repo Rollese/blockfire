@@ -63,6 +63,7 @@ var _impact_i := 0
 # of ground travel -> a small dust puff (remotes) + a spatial footstep sound (via the `footstep`
 # signal, which client_main routes to the AudioDirector). Cadence math lives in FootstepCadence.
 signal footstep(world_pos: Vector3, intensity: float)
+signal impact(world_pos: Vector3, kind: int)   # a bullet terminated in the world (wall/dirt/flesh)
 const FOOTSTEP_DUST_COLOR := Color(0.58, 0.54, 0.46, 0.4)   # faint tan scuff, lighter than an impact puff
 const FOOTSTEP_PUFF_TTL := 0.4    # s the kicked-up dust lingers
 var _step_accum: Dictionary = {}  # id(int) -> float: stride-distance accumulator per remote
@@ -660,6 +661,7 @@ func spawn_impact(pos: Vector3, kind: int, now: float) -> void:
 			col = IMPACT_WALL_COLOR; size = 0.6; chips = 4
 	_spawn_puff(pos, size, 0.4, now, col)
 	_spawn_impact_chips(pos, now, col, chips)
+	impact.emit(pos, kind)   # client_main routes this to a spatial thud (wall/dirt; flesh stays silent)
 
 ## A few small specks flung off an impact point (smaller/fewer/slower than explosion debris). Reuses
 ## the _debris pool so _age_debris integrates + settles them.
