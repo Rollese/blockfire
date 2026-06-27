@@ -63,6 +63,9 @@ var _thrown: Array = []           # [{node:Node3D, vel:Vector3, die:float, kind:
 var _puffs: Array = []            # [{node, mat, die, ttl}] — smoke trail + impact puffs
 var _blasts: Array = []           # [{node, mat, born, die, ttl, s0, s1, color}] — explosion fireball cores
 var _debris: Array = []           # [{node, vel, die}] — explosion debris chunks
+var _casings: Array = []          # [{node, vel, spin, die}] — ejected brass shell casings (local gun)
+var _casing_i := 0                # rotates per-shot variation without per-frame RNG
+var _casing_mat: StandardMaterial3D = null
 # smoke-grenade clouds (M7, view-only): SMOKE_DEPLOYED -> a cluster of soft puffs filling the zone
 # radius, opacity following SmokeCloud.envelope (billow-in / hold / fade-out). Bounded for 128p.
 const SMOKE_MAX_CLOUDS := 24      # cap concurrent client clouds (drop oldest); bounds mesh count
@@ -87,6 +90,8 @@ var _boom_next := 0.0
 var _boom_i := 0
 var wreck_demo := false           # --vehicle-test: blow up a transport in front of the camera (QA)
 var _wreck_demo_done := false
+var casing_demo := false          # --casing-test: pump shell casings from the gun port (QA)
+var _casing_demo_next := 0.0
 var impact_demo := false          # --impact-test: pump bullet impacts in front of the camera (QA)
 var _impact_next := 0.0
 var _impact_i := 0
@@ -470,6 +475,7 @@ func update(world_view: WorldView, predictor: Prediction, now: float, fov: float
 	_age_rockets(now, render_delta)
 	_age_blasts(now)
 	_age_debris(now, render_delta)
+	_age_casings(now, render_delta)
 	_age_corpses(now)
 	_age_smokes(now)
 	_age_thrown(now, render_delta)
@@ -485,6 +491,7 @@ func update(world_view: WorldView, predictor: Prediction, now: float, fov: float
 	_ensure_gadget_demo(now)
 	_ensure_revive_demo(now)
 	_ensure_wreck_demo(now)
+	_ensure_casing_demo(now)
 
 
 ## Visual QA (--armor-demo): once the camera exists, pin LIGHT/MEDIUM/HEAVY dummy soldiers in front
@@ -1085,6 +1092,81 @@ func _age_debris(now: float, delta: float) -> void:
 		d["vel"] = vel
 		live.append(d)
 	_debris = live
+
+
+const CASING_TTL := 3.0
+const CASING_GRAVITY := 16.0
+const CASING_MAX := 40             # cap live casings (drop oldest) so sustained auto-fire stays bounded
+
+func _casing_material() -> StandardMaterial3D:
+	if _casing_mat == null:
+		_casing_mat = StandardMaterial3D.new()
+		_casing_mat.albedo_color = Color(0.75, 0.56, 0.22)   # brass
+		_casing_mat.metallic = 0.8
+		_casing_mat.roughness = 0.35
+	return _casing_mat
+
+## Eject a brass shell casing from the local gun's port on each shot. Spawned in WORLD space at the
+## camera (so it tumbles + falls independently of the view, not glued to it), flung to the right of
+## the eye with a touch of up/back + per-shot variation. Cosmetic, local-player only. View-only (§7).
+func eject_casing(now: float) -> void:
+	if _camera == null:
+		return
+	var cb := _camera.global_transform
+	if not cb.origin.is_finite():
+		return
+	var right := cb.basis.x.normalized()
+	var up := cb.basis.y.normalized()
+	var fwd := (-cb.basis.z).normalized()
+	_casing_i += 1
+	var jitter := float((_casing_i % 5) - 2) * 0.4   # -0.8..0.8 spread, no per-frame RNG
+	var node := MeshInstance3D.new()
+	var cyl := CylinderMesh.new()
+	cyl.top_radius = 0.014; cyl.bottom_radius = 0.014; cyl.height = 0.07
+	node.mesh = cyl
+	node.material_override = _casing_material()
+	node.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	node.position = cb.origin + right * 0.22 + up * (-0.10) + fwd * 0.42   # near the ejection port
+	node.rotation = Vector3(0.0, 0.0, PI * 0.5)   # lay it on its side initially
+	add_child(node)
+	# Pop up-and-right so the brass is briefly visible near the gun before it falls away to the right
+	# (a pure rightward eject leaves the frame almost instantly).
+	var vel := right * (1.4 + jitter) + up * 2.8 + fwd * (-0.3)
+	var spin := Vector3(8.0 + jitter, 5.0, 11.0)   # rad/s tumble
+	_casings.append({"node": node, "vel": vel, "spin": spin, "die": now + CASING_TTL})
+	while _casings.size() > CASING_MAX:
+		var old: Dictionary = _casings.pop_front()
+		(old["node"] as Node3D).queue_free()
+
+## Visual QA (--casing-test): eject a casing every ~0.12 s so a screenshot catches brass mid-air.
+func _ensure_casing_demo(now: float) -> void:
+	if not casing_demo or _camera == null or now < _casing_demo_next:
+		return
+	_casing_demo_next = now + 0.12
+	eject_casing(now)
+
+func _age_casings(now: float, delta: float) -> void:
+	if _casings.is_empty():
+		return
+	var dt := clampf(delta, 0.0, 0.1)
+	var live: Array = []
+	for c: Dictionary in _casings:
+		if now >= float(c["die"]):
+			(c["node"] as Node3D).queue_free()
+			continue
+		var node: Node3D = c["node"]
+		var vel: Vector3 = c["vel"]
+		vel.y -= CASING_GRAVITY * dt
+		var npos := node.position + vel * dt
+		if npos.y <= 0.02:
+			npos.y = 0.02
+			vel = Vector3(vel.x * 0.3, absf(vel.y) * 0.25, vel.z * 0.3)   # small bounce + friction
+			c["spin"] = (c["spin"] as Vector3) * 0.4
+		node.position = npos
+		node.rotation += (c["spin"] as Vector3) * dt
+		c["vel"] = vel
+		live.append(c)
+	_casings = live
 
 
 ## Visual QA (--boom-test): pump frag explosions in front of the camera so a screenshot always
