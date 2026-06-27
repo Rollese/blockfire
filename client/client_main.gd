@@ -83,6 +83,7 @@ var _suppress_test := false        # --suppress-test: force the suppression scre
 var _suppress_qa_on := true         # in suppress-test, gates the forced FX (A/B screenshot sequence flips it)
 var _armor_demo := false            # --armor-demo: pin 3 armor-tier dummy soldiers in front of the camera
 var _boom_test := false             # --boom-test: pump frag explosions in front of the camera (visual QA)
+var _vehicle_test := false          # --vehicle-test: blow up a transport in front of the camera (visual QA)
 var _impact_test := false           # --impact-test: pump bullet impacts in front of the camera (visual QA)
 var _corpse_test := false           # --corpse-test: lay a few corpses in front of the camera (visual QA)
 var _footstep_test := false         # --footstep-test: pump footstep dust in front of the camera (visual QA)
@@ -134,6 +135,7 @@ func configure(args: Dictionary) -> void:
 	_suppress_test = args.has("suppress-test")      # visual QA: force the suppression screen FX
 	_armor_demo = args.has("armor-demo")            # visual QA: pin LIGHT/MEDIUM/HEAVY dummies in view
 	_boom_test = args.has("boom-test")              # visual QA: pump frag explosions in front of camera
+	_vehicle_test = args.has("vehicle-test")        # visual QA: blow up a transport in front of camera
 	_impact_test = args.has("impact-test")          # visual QA: pump bullet impacts in front of camera
 	_corpse_test = args.has("corpse-test")          # visual QA: lay corpses in front of camera
 	_footstep_test = args.has("footstep-test")      # visual QA: pump footstep dust in front of camera
@@ -779,6 +781,19 @@ func _on_packet(_from: ENetPacketPeer, _channel: int, bytes: PackedByteArray) ->
 				_renderer.spawn_explosion(det["pos"], int(det["kind"]), _elapsed)
 			if _audio != null:
 				_audio.play_at("explosion", det["pos"])   # spatial blast (synth tone until real asset)
+		Protocol.Msg.VEHICLE_DESTROYED:
+			# Reliable, sent to all clients on hp->0 (server _destroy_vehicle). The persistent burnt
+			# hulk is driven by the replicated hp<=0 in the vehicle pool; this event adds the one-shot
+			# fireball + blast audio at the vehicle's last known position (cosmetic, like DETONATION).
+			var vd: Dictionary = Protocol.decode_vehicle_destroyed(bytes)
+			var dvid: int = int(vd["vehicle_id"])
+			var vehs: Dictionary = _wv.vehicles()
+			if vehs.has(dvid):
+				var vpos: Vector3 = (vehs[dvid] as VehicleState).pos
+				if _renderer != null:
+					_renderer.destroy_vehicle(dvid, vpos + Vector3(0, 1.0, 0), _elapsed)
+				if _audio != null:
+					_audio.play_at("explosion", vpos)
 		Protocol.Msg.IMPACT_FX:
 			var imp: Dictionary = Protocol.decode_impact_fx(bytes)
 			if _renderer != null:
@@ -952,6 +967,7 @@ func _build_scene() -> void:
 	_renderer.use_models = _settings.use_model_characters
 	_renderer.armor_demo = _armor_demo   # --armor-demo: pin armor-tier dummies for a QA screenshot
 	_renderer.boom_demo = _boom_test     # --boom-test: pump explosions for a QA screenshot
+	_renderer.wreck_demo = _vehicle_test # --vehicle-test: blow up a transport for a QA screenshot
 	_renderer.impact_demo = _impact_test # --impact-test: pump bullet impacts for a QA screenshot
 	_renderer.corpse_demo = _corpse_test # --corpse-test: lay corpses for a QA screenshot
 	_renderer.footstep_demo = _footstep_test # --footstep-test: pump footstep dust for a QA screenshot
