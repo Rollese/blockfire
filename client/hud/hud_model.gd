@@ -191,6 +191,10 @@ func _ammo(ctx: Dictionary) -> Dictionary:
 	}
 
 func _interaction_prompt(ctx: Dictionary):
+	# Already seated in a vehicle -> the F prompt becomes "exit" (takes priority over revive/enter).
+	var in_veh := int(ctx.get("in_vehicle", -1))
+	if in_veh >= 0:
+		return {"action": "exit_vehicle", "target": in_veh}
 	var mates: Array = ctx.get("downed_mates", [])
 	if not mates.is_empty():
 		var best: Dictionary = mates[0]

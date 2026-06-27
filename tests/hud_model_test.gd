@@ -162,6 +162,15 @@ func test_prompt_none_when_nothing_in_range() -> void:
 	var out := m.build({"downed_mates": [], "vehicles_near": [], "tick": 0})
 	assert_eq(out["interaction_prompt"], null)
 
+func test_prompt_exit_vehicle_when_seated() -> void:
+	var m := HudModel.new()
+	# Seated in vehicle 9 -> the prompt is "exit", overriding a nearby vehicle / downed mate.
+	var out := m.build({"in_vehicle": 9, "downed_mates": [{"id": 5, "dist": 2.0}],
+		"vehicles_near": [{"vid": 9, "seat": 0, "dist": 0.0}], "tick": 0})
+	var p: Dictionary = out["interaction_prompt"]
+	assert_eq(p["action"], "exit_vehicle", "seated -> F exits")
+	assert_eq(p["target"], 9)
+
 func test_throwables_passthrough_and_active_cycle() -> void:
 	var m := HudModel.new()
 	var thr := [{"kind": 0, "count": 1}, {"kind": 1, "count": 2}, {"kind": 2, "count": 0}]

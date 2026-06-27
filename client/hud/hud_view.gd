@@ -941,6 +941,11 @@ func _render_interaction_prompt(prompt) -> void:
 			_interact_label.visible = true
 			if _revive_bar_bg != null:
 				_revive_bar_bg.visible = false
+		"exit_vehicle":
+			_interact_label.text = "F to exit vehicle"
+			_interact_label.visible = true
+			if _revive_bar_bg != null:
+				_revive_bar_bg.visible = false
 		_:
 			_interact_label.visible = false
 			if _revive_bar_bg != null:
