@@ -115,6 +115,8 @@ const CORPSE_MAX := 40            # cap; oldest is removed when exceeded (bounds
 var _corpses: Array = []          # [{node: Node3D, die: float, y0: float}]
 var corpse_demo := false          # --corpse-test: lay a few corpses in front of the camera (QA)
 var _corpse_demo_done := false
+var climb_demo := false           # --climb-test: pin a climbing-posed dummy beside an upright one (QA)
+var _climb_demo_done := false
 
 # active entity nodes: id(int) -> Node3D (CharacterKit soldier)
 var _active: Dictionary = {}
@@ -149,6 +151,7 @@ var _marker_free_list: Array = []
 const FRIEND_MARKER_Y := 2.35    # world height above the pawn's feet (fixed; ignores stance squash)
 const REVIVE_MARKER_COLOR := Color(1.0, 0.32, 0.22)   # downed teammate (needs revive) — stands out from blue
 const PRONE_LIFT := 0.3          # small lift so a flat-lying prone/downed body rests on the ground
+const CLIMB_PITCH := 0.32        # rad (~18°) forward lean of a figure climbing a ladder (vs. bolt-upright)
 # active vehicle nodes: vid(int) -> Node3D (VehicleKit transport; VehicleState carries no team)
 var _vehicle_active: Dictionary = {}
 var _vehicle_free_list: Array = []
@@ -492,6 +495,7 @@ func update(world_view: WorldView, predictor: Prediction, now: float, fov: float
 	_ensure_revive_demo(now)
 	_ensure_wreck_demo(now)
 	_ensure_casing_demo(now)
+	_ensure_climb_demo(now)
 
 
 ## Visual QA (--armor-demo): once the camera exists, pin LIGHT/MEDIUM/HEAVY dummy soldiers in front
@@ -1349,6 +1353,22 @@ func _age_corpses(now: float) -> void:
 ## Visual QA (--corpse-test): lay a few corpses CAMERA-PARENTED in front of the view so a screenshot
 ## always catches them regardless of spawn point / map occluders. Same mesh + flat-lay pose as a real
 ## corpse; only the placement is camera-relative (the real _spawn_corpse is world-positioned at deaths).
+## Visual QA (--climb-test): pin an upright dummy next to a climbing-posed one so a screenshot shows
+## the ladder lean vs. standing. Camera-parented (fixed framing); not snapshot-driven.
+func _ensure_climb_demo(now: float) -> void:
+	if not climb_demo or _climb_demo_done or _camera == null or now < 1.0:
+		return
+	_climb_demo_done = true
+	var upright := CharacterKit.build()
+	upright.position = Vector3(-0.8, -1.1, -3.0)
+	_camera.add_child(upright)
+	var climber := CharacterKit.build()
+	# Same forward lean the real climbing pose applies (about the feet), for the A/B framing.
+	climber.transform.basis = Basis.IDENTITY.rotated(Vector3(1, 0, 0), CLIMB_PITCH)
+	climber.position = Vector3(0.8, -1.1, -3.0)
+	_camera.add_child(climber)
+
+
 func _ensure_corpse_demo(now: float) -> void:
 	if not corpse_demo or _corpse_demo_done or _camera == null or now < 3.0:
 		return
@@ -1488,6 +1508,16 @@ func _pose_entity(id: int, node: Node3D, es: EntityState, render_delta: float) -
 		node.transform.basis = b
 		node.scale = Vector3.ONE
 		node.position = Vector3(es.pos.x, es.pos.y + PRONE_LIFT, es.pos.z)
+		return
+
+	if es.climbing:
+		# On a ladder: lean the figure forward toward the rungs so it doesn't read as standing/floating
+		# upright while it slides up. Pitch about the feet (node origin), keeping the stance height scale.
+		var cb := Basis.IDENTITY.rotated(Vector3.UP, es.yaw)
+		cb = cb.rotated(cb.x, CLIMB_PITCH)   # +X pitch = lean forward (same sign convention as prone)
+		node.position = Vector3(es.pos.x, es.pos.y, es.pos.z)
+		node.transform.basis = cb
+		node.scale = Vector3(1.0, height / CharacterKit.STAND_HEIGHT, 1.0)
 		return
 
 	# Standing / crouch: upright, the kit's base sits at the pawn's feet (no capsule-centre lift).
