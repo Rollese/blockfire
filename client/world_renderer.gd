@@ -118,6 +118,10 @@ const JUMP_PITCH := 0.20          # rad forward lean of an airborne figure
 const JUMP_TUCK := 0.88           # vertical scale of an airborne figure (mild tuck = off the ground)
 const MAX_LAND_DIP := 0.09        # local viewmodel dip on a hard landing (m)
 const LAND_DIP_DECAY := 8.0       # per-second ease of the land dip back to rest
+# Remote fire-recoil: a brief body lean-back twitch on a remote pawn when it shoots (SHOT_FX).
+var _fire_recoil: Dictionary = {} # id -> expire time of the fire-recoil twitch
+const FIRE_RECOIL_TTL := 0.13     # s the body recoil twitch lasts
+const FIRE_RECOIL_PITCH := 0.12   # rad peak backward lean on firing
 var footstep_demo := false        # --footstep-test: pump footstep dust at ground in front of camera (QA)
 var _footstep_next := 0.0
 
@@ -134,6 +138,8 @@ var jump_demo := false            # --jump-test: pin an airborne-posed dummy bes
 var _jump_demo_done := false
 var land_demo := false            # --land-test: pump landing dust + viewmodel dip (QA)
 var _land_demo_next := 0.0
+var firepose_demo := false        # --firepose-test: pin a fire-recoil-posed dummy beside an upright one (QA)
+var _firepose_demo_done := false
 
 # active entity nodes: id(int) -> Node3D (CharacterKit soldier)
 var _active: Dictionary = {}
@@ -518,6 +524,7 @@ func update(world_view: WorldView, predictor: Prediction, now: float, fov: float
 	_ensure_climb_demo(now)
 	_ensure_jump_demo(now)
 	_ensure_land_demo(now)
+	_ensure_firepose_demo(now)
 
 
 ## Visual QA (--armor-demo): once the camera exists, pin LIGHT/MEDIUM/HEAVY dummy soldiers in front
@@ -1353,6 +1360,20 @@ func _update_airborne(id: int, es: EntityState, dt: float, now: float) -> bool:
 func play_land_dip(strength: float) -> void:
 	_vm_land_dip = maxf(_vm_land_dip, clampf(strength, 0.0, 1.0) * MAX_LAND_DIP)
 
+## Arm a brief fire-recoil twitch on a remote pawn's body (from SHOT_FX shooter_id) so a firing
+## enemy's body flinches instead of standing statue-still behind its muzzle flash. View-only.
+func flash_fire(id: int, now: float) -> void:
+	if id > 0:
+		_fire_recoil[id] = now + FIRE_RECOIL_TTL
+
+## Signed recoil pitch (rad) for a pawn's standing pose: a backward lean that eases out, 0 when idle.
+func _fire_recoil_pitch(id: int) -> float:
+	var expire: float = _fire_recoil.get(id, 0.0)
+	if _now >= expire:
+		return 0.0
+	var rt := clampf((expire - _now) / FIRE_RECOIL_TTL, 0.0, 1.0)   # 1 at the shot -> 0 at the end
+	return -FIRE_RECOIL_PITCH * rt   # negative = lean back (b.x pitch: +forward, -back)
+
 
 ## Local-pawn footstep: the predicted pawn carries real velocity/grounded each render frame, so drive
 ## the cadence time-based (dist = speed * dt). Audio only (no dust — the local feet are below the eye);
@@ -1433,6 +1454,20 @@ func _ensure_climb_demo(now: float) -> void:
 	climber.transform.basis = Basis.IDENTITY.rotated(Vector3(1, 0, 0), CLIMB_PITCH)
 	climber.position = Vector3(0.8, -1.1, -3.0)
 	_camera.add_child(climber)
+
+
+## Visual QA (--firepose-test): upright dummy next to one frozen at peak fire-recoil (lean back).
+func _ensure_firepose_demo(now: float) -> void:
+	if not firepose_demo or _firepose_demo_done or _camera == null or now < 1.0:
+		return
+	_firepose_demo_done = true
+	var upright := CharacterKit.build()
+	upright.position = Vector3(-0.8, -1.1, -3.0)
+	_camera.add_child(upright)
+	var firing := CharacterKit.build()
+	firing.transform.basis = Basis.IDENTITY.rotated(Vector3(1, 0, 0), -FIRE_RECOIL_PITCH)   # peak lean-back
+	firing.position = Vector3(0.8, -1.1, -3.0)
+	_camera.add_child(firing)
 
 
 ## Visual QA (--jump-test): upright dummy next to an airborne-posed (tuck + lean) one.
@@ -1519,6 +1554,7 @@ func _release_entity(id: int) -> void:
 	_air_y.erase(id)
 	_air_vy.erase(id)
 	_air_fell.erase(id)
+	_fire_recoil.erase(id)
 	_free_list.append(node)
 
 
@@ -1633,9 +1669,16 @@ func _pose_entity(id: int, node: Node3D, es: EntityState, render_delta: float) -
 
 	# Standing / crouch: upright, the kit's base sits at the pawn's feet (no capsule-centre lift).
 	node.position = Vector3(es.pos.x, es.pos.y, es.pos.z)
-	# Orientation: yaw around Y, then lean tilt around Z (local forward = +Z, gun mount at +Z).
-	# Set basis BEFORE scale: assigning scale preserves rotation, but assigning basis resets scale.
-	node.transform.basis = Basis.from_euler(Vector3(0.0, es.yaw, tilt))
+	# Orientation: yaw around Y, a transient fire-recoil pitch (lean back) about the body's right, then
+	# lean tilt as a roll about local Z. Built with rotated() so the recoil is facing-relative; reduces
+	# to the old from_euler(0,yaw,tilt) when recoil=0. Set basis BEFORE scale (scale preserves rotation).
+	var fb := Basis.IDENTITY.rotated(Vector3.UP, es.yaw)
+	var recoil := _fire_recoil_pitch(id)
+	if recoil != 0.0:
+		fb = fb.rotated(fb.x, recoil)
+	if tilt != 0.0:
+		fb = fb.rotated(fb.z, tilt)
+	node.transform.basis = fb
 	# Scale vertically to the stance body-height (crouch reads as a shorter, still-upright figure).
 	node.scale = Vector3(1.0, height / CharacterKit.STAND_HEIGHT, 1.0)
 
