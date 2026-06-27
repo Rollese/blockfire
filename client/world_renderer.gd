@@ -105,6 +105,19 @@ const FOOTSTEP_PUFF_TTL := 0.4    # s the kicked-up dust lingers
 var _step_accum: Dictionary = {}  # id(int) -> float: stride-distance accumulator per remote
 var _step_prev: Dictionary = {}   # id(int) -> Vector3: last position a footstep tick saw (per remote)
 var _local_step_accum: float = 0.0
+# airborne inference (view-only): remotes carry no `grounded` on the wire, so estimate vertical
+# velocity from interpolated-y deltas to drive a jump/fall pose + a landing dust burst.
+var _air_y: Dictionary = {}       # id -> last y seen
+var _air_vy: Dictionary = {}      # id -> smoothed vertical velocity (units/s)
+var _air_fell: Dictionary = {}    # id -> bool: fell fast enough to kick dust on landing
+var _vm_land_dip := 0.0           # local viewmodel land-dip offset (m), decays each frame
+const AIR_JUMP_VY := 2.2          # |vy| above this reads as airborne (jump/fall pose)
+const AIR_FALL_VY := 3.5          # falling faster than this arms a landing dust burst
+const AIR_LAND_VY := 1.0          # settle below this = grounded again
+const JUMP_PITCH := 0.20          # rad forward lean of an airborne figure
+const JUMP_TUCK := 0.88           # vertical scale of an airborne figure (mild tuck = off the ground)
+const MAX_LAND_DIP := 0.09        # local viewmodel dip on a hard landing (m)
+const LAND_DIP_DECAY := 8.0       # per-second ease of the land dip back to rest
 var footstep_demo := false        # --footstep-test: pump footstep dust at ground in front of camera (QA)
 var _footstep_next := 0.0
 
@@ -117,6 +130,10 @@ var corpse_demo := false          # --corpse-test: lay a few corpses in front of
 var _corpse_demo_done := false
 var climb_demo := false           # --climb-test: pin a climbing-posed dummy beside an upright one (QA)
 var _climb_demo_done := false
+var jump_demo := false            # --jump-test: pin an airborne-posed dummy beside an upright one (QA)
+var _jump_demo_done := false
+var land_demo := false            # --land-test: pump landing dust + viewmodel dip (QA)
+var _land_demo_next := 0.0
 
 # active entity nodes: id(int) -> Node3D (CharacterKit soldier)
 var _active: Dictionary = {}
@@ -405,6 +422,9 @@ func _update_viewmodel_locomotion(pawn: Pawn, dt: float) -> void:
 	var bob := ViewmodelAnim.walk_bob(speed_norm, _vm_bob_phase)
 	_vm_loco_pos = (bob["pos"] as Vector3) + ViewmodelAnim.SPRINT_LOWER_POS * _vm_sprint_t
 	_vm_loco_rot = (bob["rot"] as Vector3) + ViewmodelAnim.SPRINT_LOWER_ROT * _vm_sprint_t
+	# Land dip: a quick downward kick on touchdown that eases back to rest (set by play_land_dip).
+	_vm_land_dip = lerpf(_vm_land_dip, 0.0, clampf(dt * LAND_DIP_DECAY, 0.0, 1.0))
+	_vm_loco_pos.y -= _vm_land_dip
 
 func _pose_viewmodel(now: float) -> void:
 	if _viewmodel == null:
@@ -496,6 +516,8 @@ func update(world_view: WorldView, predictor: Prediction, now: float, fov: float
 	_ensure_wreck_demo(now)
 	_ensure_casing_demo(now)
 	_ensure_climb_demo(now)
+	_ensure_jump_demo(now)
+	_ensure_land_demo(now)
 
 
 ## Visual QA (--armor-demo): once the camera exists, pin LIGHT/MEDIUM/HEAVY dummy soldiers in front
@@ -1288,6 +1310,29 @@ func _tick_footstep(id: int, es: EntityState, now: float) -> void:
 		_spawn_footstep_fx(es.pos, r["intensity"], now)
 
 
+## Estimate a remote's airborne state from its interpolated vertical motion (no `grounded` on the wire)
+## and kick a dust burst when it lands from a fall. Called every frame per remote so the vy estimate is
+## continuous (even across pose branches). Returns true while airborne (drives the jump/fall pose).
+func _update_airborne(id: int, es: EntityState, dt: float, now: float) -> bool:
+	var py: float = _air_y.get(id, es.pos.y)
+	var d := clampf(dt, 0.001, 0.1)
+	var inst := (es.pos.y - py) / d
+	var vy: float = lerpf(_air_vy.get(id, 0.0), inst, 0.35)   # smooth the interpolation-stepped delta
+	_air_y[id] = es.pos.y
+	_air_vy[id] = vy
+	if vy < -AIR_FALL_VY:
+		_air_fell[id] = true
+	if bool(_air_fell.get(id, false)) and absf(vy) < AIR_LAND_VY:
+		_air_fell[id] = false
+		_spawn_footstep_fx(es.pos, 1.0, now)   # strong dust burst at the feet on touchdown
+	return absf(vy) > AIR_JUMP_VY and not es.climbing
+
+## Kick the local viewmodel down on a hard landing (client_main calls this off the predicted pawn's
+## airborne->grounded transition). Decays back in _update_viewmodel_locomotion. View-only.
+func play_land_dip(strength: float) -> void:
+	_vm_land_dip = maxf(_vm_land_dip, clampf(strength, 0.0, 1.0) * MAX_LAND_DIP)
+
+
 ## Local-pawn footstep: the predicted pawn carries real velocity/grounded each render frame, so drive
 ## the cadence time-based (dist = speed * dt). Audio only (no dust — the local feet are below the eye);
 ## emitted at the eye so it plays centred (the listener sits there).
@@ -1369,6 +1414,36 @@ func _ensure_climb_demo(now: float) -> void:
 	_camera.add_child(climber)
 
 
+## Visual QA (--jump-test): upright dummy next to an airborne-posed (tuck + lean) one.
+func _ensure_jump_demo(now: float) -> void:
+	if not jump_demo or _jump_demo_done or _camera == null or now < 1.0:
+		return
+	_jump_demo_done = true
+	var upright := CharacterKit.build()
+	upright.position = Vector3(-0.8, -1.1, -3.0)
+	_camera.add_child(upright)
+	var jumper := CharacterKit.build()
+	jumper.transform.basis = Basis.IDENTITY.rotated(Vector3(1, 0, 0), JUMP_PITCH)
+	jumper.scale = Vector3(1.0, JUMP_TUCK, 1.0)   # same tuck the airborne pose applies
+	jumper.position = Vector3(0.8, -0.7, -3.0)    # lifted a touch to read as off the ground
+	_camera.add_child(jumper)
+
+
+## Visual QA (--land-test): pump a landing dust burst in front of the camera + kick the viewmodel dip
+## on a cadence, so a screenshot catches the touchdown FX.
+func _ensure_land_demo(now: float) -> void:
+	if not land_demo or _camera == null or now < _land_demo_next:
+		return
+	_land_demo_next = now + 0.9
+	var cb := _camera.global_transform
+	if not cb.origin.is_finite():
+		return
+	var fwd := (-cb.basis.z).normalized()
+	var at := cb.origin + fwd * 3.5; at.y = 0.05
+	_spawn_footstep_fx(at, 1.0, now)
+	play_land_dip(1.0)
+
+
 func _ensure_corpse_demo(now: float) -> void:
 	if not corpse_demo or _corpse_demo_done or _camera == null or now < 3.0:
 		return
@@ -1420,6 +1495,9 @@ func _release_entity(id: int) -> void:
 	_armor_tier.erase(id)
 	_step_accum.erase(id)
 	_step_prev.erase(id)
+	_air_y.erase(id)
+	_air_vy.erase(id)
+	_air_fell.erase(id)
 	_free_list.append(node)
 
 
@@ -1493,6 +1571,8 @@ func _pose_entity(id: int, node: Node3D, es: EntityState, render_delta: float) -
 			_last_pos[id] = es.pos
 		var sel: Dictionary = CharacterAnim.clip_for(es.is_downed, speed, es.stance)
 		CharacterDriver.drive(_entity_ap.get(id) as AnimationPlayer, sel["clip"], sel["loop"])
+	# Airborne inference must run every frame (continuous vy estimate) — before the early-return poses.
+	var airborne := _update_airborne(id, es, render_delta, _now)
 	var pose: Dictionary = StancePose.of(es.stance, es.lean, es.is_downed, es.climbing)
 	var height: float = pose["height"] as float
 	var tilt: float = pose["tilt"] as float
@@ -1518,6 +1598,16 @@ func _pose_entity(id: int, node: Node3D, es: EntityState, render_delta: float) -
 		node.position = Vector3(es.pos.x, es.pos.y, es.pos.z)
 		node.transform.basis = cb
 		node.scale = Vector3(1.0, height / CharacterKit.STAND_HEIGHT, 1.0)
+		return
+
+	if airborne:
+		# Jumping/falling: a slight forward tuck + mild vertical compress so an off-the-ground figure
+		# reads as airborne rather than gliding bolt-upright (remotes carry no jump state on the wire).
+		var jb := Basis.IDENTITY.rotated(Vector3.UP, es.yaw)
+		jb = jb.rotated(jb.x, JUMP_PITCH)
+		node.position = Vector3(es.pos.x, es.pos.y, es.pos.z)
+		node.transform.basis = jb
+		node.scale = Vector3(1.0, (height / CharacterKit.STAND_HEIGHT) * JUMP_TUCK, 1.0)
 		return
 
 	# Standing / crouch: upright, the kit's base sits at the pawn's feet (no capsule-centre lift).
