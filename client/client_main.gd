@@ -73,6 +73,7 @@ var _was_alive: bool = false
 var _died_at: float = -1.0                  # _elapsed at the last death; drives the respawn cooldown
 const RESPAWN_COOLDOWN_S := 5.0             # mirrors server RESPAWN_DELAY_TICKS (150 @ 30 Hz)
 var _match_state: Dictionary = {}
+var _prev_point_owners: Array = []   # capture-point owners last broadcast; diffed for capture banners
 var _auto_deploy_ref: int = -1    # --deploy=N arg; -1 = not set
 var _auto_deploy_sent := false    # only send once
 var _flash_test := false          # --flash-test: force the flashbang white-out on (visual QA)
@@ -95,6 +96,8 @@ var _gadget_test := false           # --gadget-test: place sample deployed gadge
 var _gadget_bytes := PackedByteArray()   # last GADGET_LIST bytes — skip the rebuild on an unchanged heartbeat
 var _revive_marker_test := false    # --revive-marker-test: downed friendly + revive marker (visual QA)
 var _grenade_danger_test := false   # --grenade-danger-test: pin a live grenade near the player (visual QA)
+var _capture_test := false          # --capture-test: pump capture-announcement banners (visual QA)
+var _capture_test_next := 0.0
 var _whiz_t := 0.0                  # --whiz-test cadence timer
 var _whiz_i := 0                    # --whiz-test alternates crack/whiz offsets
 var _active_slot := 0               # client-tracked weapon slot (0=primary/1=secondary) for quick-swap toggle
@@ -141,6 +144,7 @@ func configure(args: Dictionary) -> void:
 	_gadget_test = args.has("gadget-test")          # visual QA: place sample deployed gadgets in view
 	_revive_marker_test = args.has("revive-marker-test")   # visual QA: downed friendly + revive marker
 	_grenade_danger_test = args.has("grenade-danger-test") # visual QA: pin a live grenade near the player
+	_capture_test = args.has("capture-test")        # visual QA: pump capture-announcement banners
 	_shot_after = float(args.get("shot-after", -1.0))  # automated screenshot then quit
 
 # ---- _ready -----------------------------------------------------------------
@@ -461,6 +465,12 @@ func _process(_dt: float) -> void:
 		"downed_mates": _downed_mates(),
 		"vehicles_near": _vehicles_near(),
 	}
+	if _capture_test and _elapsed >= _capture_test_next:   # visual QA: keep one of each banner fresh
+		_capture_test_next = _elapsed + 2.0
+		_hud_model.push_capture_events([
+			{"label": "A", "status": CaptureAnnounce.FRIENDLY},
+			{"label": "B", "status": CaptureAnnounce.HOSTILE},
+			{"label": "C", "status": CaptureAnnounce.NEUTRAL}], _elapsed)
 	var _model := _hud_model.build(ctx)
 	var _t2 := Time.get_ticks_usec()
 	_hud_view.render(_model)
@@ -866,6 +876,25 @@ func _handle_match_state(bytes: PackedByteArray) -> void:
 	var pts: Array = _match_state.get("points", [])
 	for i in mini(pts.size(), _conquest.points.size()):
 		_conquest.points[i]["owner"] = int(pts[i]["owner"])
+	# Banner any ownership changes since the last broadcast (capture/lost/neutralized).
+	var owners: Array = []
+	for p: Dictionary in pts:
+		owners.append(int(p["owner"]))
+	if not _prev_point_owners.is_empty() and _hud_model != null and _map != null:
+		var changes: Array = CaptureAnnounce.diff(_prev_point_owners, owners, _local_team())
+		if not changes.is_empty():
+			var events: Array = []
+			for ch: Dictionary in changes:
+				var idx: int = int(ch["index"])
+				var label: String = String(_map.points[idx]["id"]) if idx < _map.points.size() else "?"
+				events.append({"label": label, "status": int(ch["status"])})
+			_hud_model.push_capture_events(events, _elapsed)
+	_prev_point_owners = owners
+
+## Local team from self-state (-1 until known) — used to colour capture banners friend/foe.
+func _local_team() -> int:
+	var ss: EntityState = _wv.self_state()
+	return ss.team if ss != null else -1
 
 # ---- scene build (post-WELCOME) --------------------------------------------
 func _build_scene() -> void:

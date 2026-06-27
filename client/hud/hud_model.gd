@@ -23,6 +23,8 @@ static func suppression_intensity(suppression: float) -> float:
 		return 0.0
 	return smoothstep(SUPPRESS_FX_THRESHOLD, 1.0, clampf(suppression, 0.0, 1.0))
 var _killfeed: Array = []   # [{killer,victim,headshot,weapon,t}]
+var _capture_feed: Array = []   # [{label:String, status:int, t:float}] — capture-point announcements
+const CAPTURE_FEED_TTL := 4.0   # seconds a capture banner lingers
 var _damages: Array = []   # [{bearing,amount,t}]
 var _throwable_active: int = 0
 var _death_info = null
@@ -38,6 +40,21 @@ func _killfeed_current(ctx: Dictionary) -> Array:
 		if now - e["t"] <= KILLFEED_TTL:
 			kept.append(e)
 	_killfeed = kept
+	return kept
+
+## Push capture-point announcements (each {label, status} from CaptureAnnounce.diff) to the banner feed.
+func push_capture_events(events: Array, now: float) -> void:
+	for ev: Dictionary in events:
+		_capture_feed.append({"label": String(ev["label"]), "status": int(ev["status"]), "t": now})
+
+func _capture_feed_current(ctx: Dictionary) -> Array:
+	var now := float(ctx.get("now", 0.0))
+	var kept: Array = []
+	for e in _capture_feed:
+		if now - e["t"] <= CAPTURE_FEED_TTL:
+			e["age"] = now - e["t"]
+			kept.append(e)
+	_capture_feed = kept
 	return kept
 
 func push_damage(world_bearing: float, amount: int, now: float) -> void:
@@ -88,7 +105,7 @@ func _grenade_danger(ctx: Dictionary):
 
 func build(ctx: Dictionary) -> Dictionary:
 	var dmg := _damage(ctx)
-	return {"ammo": _ammo(ctx), "compass": _compass(ctx), "tickets": _tickets(ctx), "capture": _capture(ctx), "killfeed": _killfeed_current(ctx), "damage_arcs": dmg["arcs"], "vignette": dmg["vignette"], "scoreboard": _scoreboard(ctx), "squad_roster": _squad_roster(ctx), "interaction_prompt": _interaction_prompt(ctx), "throwables": _throwables(ctx), "death_recap": _death_recap(ctx), "grenade_danger": _grenade_danger(ctx)}
+	return {"ammo": _ammo(ctx), "compass": _compass(ctx), "tickets": _tickets(ctx), "capture": _capture(ctx), "killfeed": _killfeed_current(ctx), "damage_arcs": dmg["arcs"], "vignette": dmg["vignette"], "scoreboard": _scoreboard(ctx), "squad_roster": _squad_roster(ctx), "interaction_prompt": _interaction_prompt(ctx), "throwables": _throwables(ctx), "death_recap": _death_recap(ctx), "grenade_danger": _grenade_danger(ctx), "capture_feed": _capture_feed_current(ctx)}
 
 func cycle_throwable(count: int) -> void:
 	if count <= 0:
