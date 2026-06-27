@@ -98,6 +98,7 @@ var _climb_test := false           # --climb-test: pin a climbing-posed dummy be
 var _jump_test := false            # --jump-test: pin an airborne-posed dummy beside an upright one
 var _land_test := false            # --land-test: pump landing dust + viewmodel dip
 var _downed_test := false          # --downed-test: force the DBNO overlay (bandage prompt/stabilized)
+var _firepose_test := false        # --firepose-test: pin a fire-recoil-posed dummy beside an upright one
 var _ads_t := 0.0                   # 0..1 eased aim-down-sights blend (client-only visual zoom/pose)
 const ADS_RATE := 16.0              # ADS ease speed (per second); ~1/e in ~60 ms
 var _prev_grounded := true          # for the local landing viewmodel dip (airborne->grounded edge)
@@ -164,6 +165,7 @@ func configure(args: Dictionary) -> void:
 	_jump_test = args.has("jump-test")              # visual QA: airborne pose vs upright dummy
 	_land_test = args.has("land-test")              # visual QA: landing dust + viewmodel dip
 	_downed_test = args.has("downed-test")          # visual QA: force the DBNO bandage overlay
+	_firepose_test = args.has("firepose-test")      # visual QA: fire-recoil pose vs upright dummy
 	_sprint_test = args.has("sprint-test")          # visual QA: freeze the viewmodel sprint-lowered
 	_reload_test = args.has("reload-test")          # visual QA: freeze the viewmodel mid-reload
 	_whiz_test = args.has("whiz-test")              # audio+visual QA: synthetic near-miss crack/whiz rounds
@@ -814,6 +816,7 @@ func _on_packet(_from: ENetPacketPeer, _channel: int, bytes: PackedByteArray) ->
 			if _renderer != null:
 				_renderer.tracer_from(fx["origin"], fx["dir"], _elapsed)
 				_renderer.eject_casing_at(fx["origin"], fx["dir"], _elapsed)   # remote shooter's brass
+				_renderer.flash_fire(int(fx.get("shooter_id", 0)), _elapsed)   # remote body fire-recoil twitch
 			if _audio != null:
 				_audio.play_at("gunfire", fx["origin"])   # spatial remote-pawn gunfire
 				# Supersonic near-miss: if this remote round passes close to us, snap a crack/whiz
@@ -1035,6 +1038,7 @@ func _build_scene() -> void:
 	_renderer.climb_demo = _climb_test   # --climb-test: climbing-pose dummy for a QA screenshot
 	_renderer.jump_demo = _jump_test     # --jump-test: airborne-pose dummy for a QA screenshot
 	_renderer.land_demo = _land_test     # --land-test: landing dust + viewmodel dip for a QA screenshot
+	_renderer.firepose_demo = _firepose_test  # --firepose-test: fire-recoil pose dummy for a QA screenshot
 	_renderer.impact_demo = _impact_test # --impact-test: pump bullet impacts for a QA screenshot
 	_renderer.corpse_demo = _corpse_test # --corpse-test: lay corpses for a QA screenshot
 	_renderer.footstep_demo = _footstep_test # --footstep-test: pump footstep dust for a QA screenshot

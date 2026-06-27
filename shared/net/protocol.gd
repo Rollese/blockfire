@@ -361,7 +361,7 @@ static func decode_detonation(bytes: PackedByteArray) -> Dictionary:
 	return {"pos": pos, "kind": r.get_u8()}
 
 
-static func encode_shot_fx(origin: Vector3, dir: Vector3) -> PackedByteArray:
+static func encode_shot_fx(origin: Vector3, dir: Vector3, shooter_id: int = 0) -> PackedByteArray:
 	var buf := StreamPeerBuffer.new()
 	buf.put_u8(Msg.SHOT_FX)
 	buf.put_16(clampi(roundi(origin.x * 10.0), -32768, 32767))
@@ -370,6 +370,7 @@ static func encode_shot_fx(origin: Vector3, dir: Vector3) -> PackedByteArray:
 	buf.put_16(clampi(roundi(dir.x * 10000.0), -32768, 32767))
 	buf.put_16(clampi(roundi(dir.y * 10000.0), -32768, 32767))
 	buf.put_16(clampi(roundi(dir.z * 10000.0), -32768, 32767))
+	buf.put_u32(shooter_id)   # bind the FX to the firing pawn (remote fire-recoil pose)
 	return buf.data_array
 
 
@@ -377,7 +378,8 @@ static func decode_shot_fx(bytes: PackedByteArray) -> Dictionary:
 	var r := body_reader(bytes)
 	var origin := Vector3(float(r.get_16()) / 10.0, float(r.get_16()) / 10.0, float(r.get_16()) / 10.0)
 	var dir := Vector3(float(r.get_16()) / 10000.0, float(r.get_16()) / 10000.0, float(r.get_16()) / 10000.0)
-	return {"origin": origin, "dir": dir}
+	var shooter_id := r.get_u32() if r.get_available_bytes() > 0 else 0   # trailing, backward-compatible
+	return {"origin": origin, "dir": dir, "shooter_id": shooter_id}
 
 ## RPG rocket launch — same wire shape as SHOT_FX (origin ×10, unit dir ×10000); the client rebuilds
 ## the velocity from the known rocket speed and flies a cosmetic projectile along the ballistic arc.

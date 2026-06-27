@@ -490,7 +490,7 @@ func _resolve_fires() -> void:
 func _broadcast_shot_fx(shooter_id: int, origin: Vector3, dir: Vector3) -> void:
 	# Cosmetic remote-tracer hint. Sent only to HUMAN clients (auto_deploy=false) — bots don't
 	# render, and skipping them keeps the fan-out tiny at bot scale. Unreliable (droppable).
-	var pkt := Protocol.encode_shot_fx(origin, dir)
+	var pkt := Protocol.encode_shot_fx(origin, dir, shooter_id)
 	for cid in _clients:
 		if cid == shooter_id:
 			continue
