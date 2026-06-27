@@ -66,3 +66,45 @@ func test_collapse_zero_is_ignored() -> void:
 	wv.apply_collapse(0)
 	assert_true(wv.structures().has(3), "apply_collapse(0) must NOT wipe loose pieces")
 	assert_eq(wv.take_collapsed(), [], "no collapse queued for id 0")
+
+# --- M11-P4: destruction cosmetic-event queue (debris/dust hooks) ---------------
+
+func test_remove_queues_destroy_fx_with_cell() -> void:
+	var wv := WorldView.new()
+	wv.apply_structure_baseline(Protocol.encode_structure_baseline(Vector2i(0, 0), [
+		{"id": 9, "type": 0, "cell": Vector3i(4, 1, 2), "yaw": 3, "chunks": ChunkMask.full_mask(8), "building_id": 0, "owner": 1}]))
+	wv.apply_structure_delta(Protocol.encode_structure_delta(Protocol.OP_REMOVE, {"id": 9}))
+	var fx := wv.take_struct_fx()
+	assert_eq(fx.size(), 1, "one destroy fx queued on remove")
+	assert_eq(fx[0]["kind"], "destroy", "removal is a destroy event")
+	assert_eq(fx[0]["cell"], Vector3i(4, 1, 2), "destroy fx carries the piece cell")
+	assert_eq(fx[0]["yaw"], 3, "destroy fx carries the piece yaw")
+	assert_eq(wv.take_struct_fx(), [], "queue drained after take")
+
+func test_remove_of_unknown_piece_queues_no_fx() -> void:
+	var wv := WorldView.new()
+	wv.apply_structure_delta(Protocol.encode_structure_delta(Protocol.OP_REMOVE, {"id": 404}))
+	assert_eq(wv.take_struct_fx(), [], "removing an absent piece queues nothing")
+
+func test_chunk_damage_queues_damage_fx_only_when_mask_changes() -> void:
+	var wv := WorldView.new()
+	wv.apply_structure_baseline(Protocol.encode_structure_baseline(Vector2i(0, 0), [
+		{"id": 11, "type": 0, "cell": Vector3i(1, 0, 1), "yaw": 0, "chunks": ChunkMask.full_mask(8), "building_id": 0, "owner": 1}]))
+	wv.take_struct_fx()   # drain any baseline noise
+	var newmask := ChunkMask.full_mask(8) & ~0b1111
+	wv.apply_structure_delta(Protocol.encode_structure_delta(Protocol.OP_CHUNK, {"id": 11, "mask": newmask}))
+	var fx := wv.take_struct_fx()
+	assert_eq(fx.size(), 1, "one damage fx queued on a mask change")
+	assert_eq(fx[0]["kind"], "damage", "chunk carve is a damage event")
+	assert_eq(fx[0]["cell"], Vector3i(1, 0, 1), "damage fx carries the piece cell")
+	# Re-applying the same mask must NOT re-emit (server resends are idempotent cosmetically).
+	wv.apply_structure_delta(Protocol.encode_structure_delta(Protocol.OP_CHUNK, {"id": 11, "mask": newmask}))
+	assert_eq(wv.take_struct_fx(), [], "no damage fx when the mask is unchanged")
+
+func test_collapse_does_not_queue_per_piece_destroy_fx() -> void:
+	# A whole-building collapse plays its own cinematic; it must not also spew a destroy puff per piece.
+	var wv := WorldView.new()
+	wv._structs[1] = {"id": 1, "type": 2, "cell": Vector3i(0,0,0), "yaw": 0, "chunks": -1, "building_id": 7}
+	wv._structs[2] = {"id": 2, "type": 2, "cell": Vector3i(0,1,0), "yaw": 0, "chunks": -1, "building_id": 7}
+	wv.apply_collapse(7)
+	assert_eq(wv.take_struct_fx(), [], "collapse drop does not queue per-piece destroy fx")

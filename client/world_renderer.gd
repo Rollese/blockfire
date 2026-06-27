@@ -142,6 +142,15 @@ var firepose_demo := false        # --firepose-test: pin a fire-recoil-posed dum
 var _firepose_demo_done := false
 var glbshoot_demo := false        # --glbshoot-test: GLB hold vs holding-both-shoot clip A/B (QA)
 var _glbshoot_demo_done := false
+# M11-P4 destruction cosmetics: per-piece debris/dust + a whole-building collapse cinematic + shake.
+var destroy_demo := false         # --destroy-test: pump piece destruction bursts in front of camera (QA)
+var _destroy_demo_next := 0.0
+var collapse_demo := false        # --collapse-test: play a building collapse cinematic in front of camera (QA)
+var _collapse_demo_next := 0.0
+# Camera shake: a transient positional jitter (collapses + nearby blasts). Decays to rest.
+var _shake_mag := 0.0             # current peak amplitude (m)
+var _shake_until := 0.0          # time the active shake ends
+var _shake_t0 := 0.0             # time the active shake began (for the decay envelope)
 
 # active entity nodes: id(int) -> Node3D (CharacterKit soldier)
 var _active: Dictionary = {}
@@ -498,6 +507,7 @@ func update(world_view: WorldView, predictor: Prediction, now: float, fov: float
 	_update_viewmodel_locomotion(predictor.predicted, render_delta)   # eases _vm_sprint_t (camera FOV + pose read it)
 	_tick_local_footstep(predictor.predicted, render_delta, eye, now)   # local footstep audio (no dust)
 	_apply_camera(predictor, fov, look_yaw, look_pitch, eye)
+	_apply_shake(now)      # transient view jitter from collapses / nearby blasts (on top of the camera)
 	_pose_viewmodel(now)   # apply any active swing/swap animation on top of the base placement
 
 	# 4. Age out shot tracers + integrate cosmetic rockets + explosions
@@ -528,6 +538,8 @@ func update(world_view: WorldView, predictor: Prediction, now: float, fov: float
 	_ensure_land_demo(now)
 	_ensure_firepose_demo(now)
 	_ensure_glbshoot_demo(now)
+	_ensure_destroy_demo(now)
+	_ensure_collapse_demo(now)
 
 
 ## Visual QA (--armor-demo): once the camera exists, pin LIGHT/MEDIUM/HEAVY dummy soldiers in front
@@ -1519,6 +1531,35 @@ func _ensure_land_demo(now: float) -> void:
 	play_land_dip(1.0)
 
 
+## Visual QA (--destroy-test): pump piece destruction bursts (debris + dust) in front of the camera
+## on a cadence, alternating "destroy" and "damage" feedback so a screenshot catches both.
+func _ensure_destroy_demo(now: float) -> void:
+	if not destroy_demo or _camera == null or now < _destroy_demo_next:
+		return
+	var cb := _camera.global_transform
+	if not cb.origin.is_finite():
+		return
+	_destroy_demo_next = now + 0.5
+	var fwd := (-cb.basis.z).normalized()
+	var at := cb.origin + fwd * 7.0 + Vector3(0, 0.5, 0)
+	_play_piece_destroy_fx(at + cb.basis.x * -2.0, now)
+	_play_piece_damage_fx(at + cb.basis.x * 2.0, now)
+
+
+## Visual QA (--collapse-test): play the whole-building collapse cinematic in front of the camera on a
+## slow cadence (dust cloud + heavy debris + screen shake + rubble mound).
+func _ensure_collapse_demo(now: float) -> void:
+	if not collapse_demo or _camera == null or now < _collapse_demo_next:
+		return
+	var cb := _camera.global_transform
+	if not cb.origin.is_finite():
+		return
+	_collapse_demo_next = now + 1.2   # re-fire faster than the ~1.4 s dust life so a single shot catches it
+	var fwd := (-cb.basis.z).normalized()
+	var at := cb.origin + fwd * 12.0; at.y = 0.0
+	_play_collapse_fx(at, now)
+
+
 func _ensure_corpse_demo(now: float) -> void:
 	if not corpse_demo or _corpse_demo_done or _camera == null or now < 3.0:
 		return
@@ -1724,8 +1765,19 @@ func _sync_structure_pool(world_view: WorldView, now: float) -> void:
 		_struct_dying.erase(id)
 		node.queue_free()
 
-	# M11: drain collapse events — each fully-collapsed building swaps to a rubble marker. Must run
-	# every frame (the queue is normally empty; a collapse also bumps the version below).
+	# M11-P4: drain per-piece destruction cosmetics — a removed piece bursts brick debris + dust,
+	# a freshly-carved piece kicks a small dust puff (the batched renderer can't see per-piece changes).
+	for ev_v: Variant in world_view.take_struct_fx():
+		var ev: Dictionary = ev_v
+		var p := _structure_xform({"cell": ev["cell"], "yaw": int(ev.get("yaw", 0))}).origin
+		p.y += BuildGrid.CELL_SIZE * 0.5   # raise to roughly the piece mid-height
+		if String(ev["kind"]) == "destroy":
+			_play_piece_destroy_fx(p, now)
+		else:
+			_play_piece_damage_fx(p, now)
+
+	# M11: drain collapse events — each fully-collapsed building plays a cinematic + swaps to rubble.
+	# Must run every frame (the queue is normally empty; a collapse also bumps the version below).
 	for bid_v: Variant in world_view.take_collapsed():
 		_spawn_rubble_for(int(bid_v))
 
@@ -1969,15 +2021,108 @@ func _make_structure_node(rec: Dictionary) -> Node3D:
 	return StructureKit.build(piece_id, _bucket_of(rec))
 
 
-## M11: replace a collapsed building with a flat rubble marker at its last-known centroid.
+## M11: replace a collapsed building with a rubble mound at its last-known centroid + a collapse
+## cinematic (rolling dust, flung debris, screen shake) so a building coming down reads as an event.
 func _spawn_rubble_for(building_id: int) -> void:
 	if not _building_centroid.has(building_id):
 		return   # unknown / double-collapse — don't dump rubble at world origin
 	var center: Vector3 = _building_centroid[building_id]
+	_play_collapse_fx(center, _now)
+	_building_centroid.erase(building_id)
+
+
+# =============================================================================
+#  M11-P4 destruction cosmetics — piece debris/dust + collapse cinematic + shake
+# =============================================================================
+const BRICK_DEBRIS_TTL := 1.1
+const COL_DEBRIS_A := Color(0.55, 0.53, 0.49)   # broken concrete (light) — matches BuildingKit rubble
+const COL_DEBRIS_B := Color(0.47, 0.45, 0.42)   # broken concrete (mid)
+const COL_DEBRIS_BRICK := Color(0.58, 0.31, 0.25)   # brick-red shard
+const DUST_COLOR := Color(0.66, 0.63, 0.57, 0.6)    # warm concrete dust
+
+## A piece reached 0 chunks: a concrete dust puff + a fan of chunky brick/concrete debris.
+func _play_piece_destroy_fx(pos: Vector3, now: float) -> void:
+	_spawn_puff(pos, 1.6, 0.55, now, DUST_COLOR)
+	_spawn_brick_debris(pos, now, 7, 0.16, 4.5, 5.5)
+
+## A piece took chunk damage but still stands: just a small dust kick + a couple of shards.
+func _play_piece_damage_fx(pos: Vector3, now: float) -> void:
+	_spawn_puff(pos, 0.7, 0.35, now, DUST_COLOR)
+	_spawn_brick_debris(pos, now, 3, 0.10, 2.6, 3.2)
+
+## Brick/concrete chunks flung from a damage point, integrated + settled by the shared _debris pool.
+## `box` = cube edge (m), `spread`/`lift` = horizontal/vertical launch speed.
+func _spawn_brick_debris(pos: Vector3, now: float, count: int, box: float, spread: float, lift: float) -> void:
+	if count <= 0:
+		return
+	var cols := [COL_DEBRIS_A, COL_DEBRIS_B, COL_DEBRIS_BRICK]
+	for i in range(count):
+		var node := MeshInstance3D.new()
+		# Vary the shard size per index (no per-frame RNG) so debris doesn't read as uniform cubes.
+		var s := box * (0.7 + 0.6 * float(i % 3))
+		var bmesh := BoxMesh.new(); bmesh.size = Vector3(s, s * 0.8, s)
+		node.mesh = bmesh
+		node.position = pos
+		var mat := StandardMaterial3D.new()
+		mat.albedo_color = cols[i % cols.size()]
+		mat.roughness = 0.95
+		node.material_override = mat
+		node.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		add_child(node)
+		var ang := TAU * float(i) / float(count) + float(i) * 0.7
+		var rad := spread * (0.5 + 0.5 * float((i + 1) % 3))
+		var vel := Vector3(cos(ang) * rad, lift + float(i % 3) * 1.2, sin(ang) * rad)
+		_debris.append({"node": node, "vel": vel, "die": now + BRICK_DEBRIS_TTL})
+
+## Whole-building collapse cinematic: a rolling ground dust cloud, a heavy debris burst, a screen
+## shake if the player is close, then the persistent rubble mound. Public-ish so the QA demo reuses it.
+func _play_collapse_fx(center: Vector3, now: float) -> void:
+	# Ground-hugging dust cloud — several offset puffs read as one rolling billow over the footprint.
+	for i in range(6):
+		var ang := TAU * float(i) / 6.0
+		var off := Vector3(cos(ang) * 1.4, 0.4 + 0.3 * float(i % 2), sin(ang) * 1.4)
+		_spawn_puff(center + off, 3.4, 1.4, now, DUST_COLOR)
+	_spawn_puff(center + Vector3(0, 1.2, 0), 4.2, 1.6, now, DUST_COLOR)
+	# Heavy debris burst flung up + out from the footprint.
+	_spawn_brick_debris(center + Vector3(0, 1.0, 0), now, 16, 0.26, 5.5, 7.0)
+	# The persistent rubble mound this building leaves behind.
 	var rubble := BuildingKit.build_rubble()
 	rubble.position = center
 	add_child(rubble)
-	_building_centroid.erase(building_id)
+	# Shake the view if the player is near enough to feel the building come down.
+	_add_shake(center, now, 0.28, 0.6)
+
+## Arm a camera shake of `mag` metres for `dur` s if `world_pos` is within feel range of the camera.
+func _add_shake(world_pos: Vector3, now: float, mag: float, dur: float) -> void:
+	if _camera == null:
+		return
+	var dist := _camera.global_transform.origin.distance_to(world_pos)
+	if dist > SHAKE_RANGE:
+		return
+	var falloff := 1.0 - dist / SHAKE_RANGE   # closer = stronger
+	var m := mag * falloff
+	if m <= _shake_mag and now < _shake_until:
+		return   # don't let a weaker/farther event stomp a stronger active shake
+	_shake_mag = m
+	_shake_t0 = now
+	_shake_until = now + dur
+
+const SHAKE_RANGE := 45.0   # m: beyond this a collapse/blast doesn't shake the view
+
+## Apply the active camera shake as a transient positional jitter on top of _apply_camera. Deterministic
+## (driven by `now`) so it never depends on Math.random; decays linearly to rest over its duration.
+func _apply_shake(now: float) -> void:
+	if _camera == null or now >= _shake_until or _shake_mag <= 0.0:
+		_shake_mag = 0.0
+		return
+	var life := (_shake_until - _shake_t0)
+	var k := 1.0 - (now - _shake_t0) / life if life > 0.0 else 0.0   # 1 -> 0 envelope
+	var amp := _shake_mag * maxf(k, 0.0)
+	# Two incommensurate frequencies per axis -> a non-repeating wobble without an RNG.
+	var ox := sin(now * 53.0) * amp
+	var oy := sin(now * 61.0 + 1.3) * amp
+	var basis := _camera.global_transform.basis
+	_camera.position += basis.x * ox + basis.y * oy
 
 
 ## A flat ground ring (TorusMesh lies in the XZ plane) marking a zone boundary at `radius`, with a

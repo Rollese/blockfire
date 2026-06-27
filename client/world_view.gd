@@ -12,6 +12,7 @@ var last_header: Dictionary = {}
 var _structs: Dictionary = {}
 var _structs_version: int = 0   # bumped on every structure mutation; renderer skips its O(N) pool sync when unchanged
 var _collapsed_buildings: Array = []   # M11: building_ids that COLLAPSED this window — drained by the renderer to spawn rubble
+var _struct_fx: Array = []   # M11-P4: cosmetic destruction events {cell, yaw, kind:"destroy"|"damage"} drained by renderer
 var _roster: Array = []
 
 func set_local_id(id: int) -> void:
@@ -52,12 +53,25 @@ func apply_structure_delta(bytes: PackedByteArray) -> void:
 			_structs[int(d["rec"]["id"])] = d["rec"]
 			_structs_version += 1
 		Protocol.OP_REMOVE:
-			if _structs.erase(int(d["id"])):
+			var rid := int(d["id"])
+			if _structs.has(rid):
+				# M11-P4: a piece reaching 0 chunks is a destruction moment — queue a debris/dust burst
+				# at its cell before dropping the record (the batched renderer can't infer per-piece removals).
+				var rrec: Dictionary = _structs[rid]
+				_struct_fx.append({"cell": rrec["cell"], "yaw": int(rrec.get("yaw", 0)), "kind": "destroy"})
+				_structs.erase(rid)
 				_structs_version += 1
 		Protocol.OP_CHUNK:
-			if _structs.has(int(d["id"])):
-				_structs[int(d["id"])]["chunks"] = int(d["mask"])
-				_structs_version += 1
+			var cid := int(d["id"])
+			if _structs.has(cid):
+				var crec: Dictionary = _structs[cid]
+				var newmask := int(d["mask"])
+				# Only react to a real carve — servers resend deltas under the per-tick cap, so an
+				# unchanged mask must not re-fire the version bump or a cosmetic dust puff.
+				if int(crec.get("chunks", -1)) != newmask:
+					crec["chunks"] = newmask
+					_struct_fx.append({"cell": crec["cell"], "yaw": int(crec.get("yaw", 0)), "kind": "damage"})
+					_structs_version += 1
 
 func structures() -> Dictionary:
 	return _structs
@@ -86,6 +100,12 @@ func apply_collapse(building_id: int) -> void:
 func take_collapsed() -> Array:
 	var out := _collapsed_buildings.duplicate()
 	_collapsed_buildings.clear()
+	return out
+
+## M11-P4: drain + clear the per-piece destruction-cosmetic queue (renderer spawns debris/dust).
+func take_struct_fx() -> Array:
+	var out := _struct_fx.duplicate()
+	_struct_fx.clear()
 	return out
 
 func set_roster(rows: Array) -> void:
