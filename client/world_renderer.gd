@@ -146,6 +146,7 @@ var _vehicle_free_list: Array = []
 const VEHICLE_SMOOTH_RATE := 16.0                # higher = snappier; ~1/e catch-up in ~60 ms
 var _wreck_mat: StandardMaterial3D = null        # shared burnt-out material for destroyed vehicles
 const _WRECK_DEMO_VID := -424242                 # synthetic vid for the --vehicle-test wreck
+const _DMG_DEMO_VID := -424243                   # synthetic vid for the --vehicle-test damaged transport
 # structures pending a destroy pop: id(int) -> {node:Node3D, die:float, tween:Tween}
 var _struct_dying: Dictionary = {}
 # M11: building_id(int) -> last-posed piece position; rubble spawns here on COLLAPSE.
@@ -1713,8 +1714,8 @@ func _sync_vehicle_pool(vehicles: Dictionary, render_delta: float) -> void:
 	# Release nodes whose vid is gone from the view.
 	var to_release: Array = []
 	for vid: int in _vehicle_active:
-		if vid == _WRECK_DEMO_VID:
-			continue   # the --vehicle-test demo wreck is camera-placed, never in the snapshot
+		if vid == _WRECK_DEMO_VID or vid == _DMG_DEMO_VID:
+			continue   # the --vehicle-test demo vehicles are camera-placed, never in the snapshot
 		if not vehicles.has(vid):
 			to_release.append(vid)
 	for vid: int in to_release:
@@ -1743,7 +1744,9 @@ func _sync_vehicle_pool(vehicles: Dictionary, render_delta: float) -> void:
 		# tilted hulk; a respawn restores hp>0 and the intact look. Robust for vehicles that come
 		# into view already destroyed or respawn out of sight — no event needed for the persistent look.
 		_set_vehicle_wrecked(node, vs.hp <= 0)
-		_ensure_wreck_smoke(node, _now)
+		var maxhp: int = _veh_max_hp(vs.type)
+		var ratio: float = (float(vs.hp) / float(maxhp)) if maxhp > 0 else 1.0
+		_ensure_vehicle_smoke(node, ratio, _now)
 
 
 func _acquire_vehicle(vid: int) -> Node3D:
@@ -1769,6 +1772,18 @@ func _make_vehicle_mesh() -> Node3D:
 const WRECK_CHAR_COLOR := Color(0.10, 0.09, 0.08)   # blackened, burnt-out hulk
 const WRECK_TILT := 0.14                             # rad (~8°) lean of a settled wreck
 const WRECK_SMOKE_PERIOD := 0.7                      # s between wreck smoke puffs (per visible wreck)
+const DAMAGE_SMOKE_RATIO := 0.5                      # start smoking once hp drops below this fraction of max
+var _veh_catalog: VehicleCatalog = null             # lazy data/vehicles.json -> per-type max_hp for damage %
+
+## max_hp for a vehicle type (data/vehicles.json), 0 if unknown. Lazy-loads the catalog once so the
+## damage-smoke threshold is a fraction of the real max rather than a magic absolute. View-only.
+func _veh_max_hp(type: int) -> int:
+	if _veh_catalog == null:
+		_veh_catalog = VehicleCatalog.load_file("res://data/vehicles.json")
+	if _veh_catalog == null:
+		return 0
+	var def := _veh_catalog.def_of(type)
+	return int(def.get("max_hp", 0))
 
 func _wreck_material() -> StandardMaterial3D:
 	if _wreck_mat == null:
@@ -1815,20 +1830,37 @@ func destroy_vehicle(_vid: int, pos: Vector3, now: float) -> void:
 	_spawn_puff(pos + Vector3(0, 1.4, 0), 4.0, 1.2, now, Color(0.18, 0.17, 0.16, 0.7))
 	_spawn_debris(pos + Vector3(0, 0.8, 0), now)
 
-## Smouldering column off every visible wreck — a slow dark puff on a throttle held in node meta
-## (cheap: one small puff per WRECK_SMOKE_PERIOD per on-screen wreck). Called from the pool sync.
-func _ensure_wreck_smoke(node: Node3D, now: float) -> void:
-	if not bool(node.get_meta("wrecked", false)):
+## Smouldering column off a hurt or destroyed vehicle — a puff on a throttle held in node meta
+## (cheap: one small puff per period per on-screen vehicle). `ratio` = hp/max_hp:
+##   <=0  → wrecked: a slow, heavy, near-black column.
+##   <DAMAGE_SMOKE_RATIO → damaged: a lighter grey wisp that thickens and quickens toward death.
+##   else → healthy: nothing.
+## Called from the pool sync for every visible vehicle. View-only (AGENTS.md §7).
+func _ensure_vehicle_smoke(node: Node3D, ratio: float, now: float) -> void:
+	var period: float
+	var color: Color
+	var size: float
+	if ratio <= 0.0:
+		period = WRECK_SMOKE_PERIOD
+		color = Color(0.16, 0.15, 0.14, 0.6)
+		size = 1.8
+	elif ratio < DAMAGE_SMOKE_RATIO:
+		var sev: float = clampf(1.0 - ratio / DAMAGE_SMOKE_RATIO, 0.0, 1.0)   # 0 at threshold → 1 near death
+		period = lerpf(1.4, 0.5, sev)
+		color = Color(0.34, 0.33, 0.32, lerpf(0.28, 0.5, sev))
+		size = lerpf(0.9, 1.5, sev)
+	else:
 		return
-	if now < float(node.get_meta("wreck_smoke_next", 0.0)):
+	if now < float(node.get_meta("veh_smoke_next", 0.0)):
 		return
-	node.set_meta("wreck_smoke_next", now + WRECK_SMOKE_PERIOD)
-	_spawn_puff(node.position + Vector3(0, 1.6, 0), 1.8, 1.6, now, Color(0.16, 0.15, 0.14, 0.6))
+	node.set_meta("veh_smoke_next", now + period)
+	_spawn_puff(node.position + Vector3(0, 1.6, 0), size, 1.6, now, color)
 
 
 func _ensure_wreck_demo(now: float) -> void:
-	# --vehicle-test: blow up a transport in front of the camera, then leave the burnt hulk smoking
-	# for the screenshot. One-shot creation; smoke keeps pumping (the demo node isn't snapshot-driven).
+	# --vehicle-test: a destroyed transport (burnt hulk + blast) plus a heavily-damaged one (grey
+	# smoke wisp) in front of the camera, for the screenshot. One-shot creation; smoke keeps pumping
+	# (the demo nodes aren't snapshot-driven, so they're driven through _ensure_vehicle_smoke directly).
 	if not wreck_demo or _camera == null or now < 1.0:
 		return
 	if not _wreck_demo_done:
@@ -1837,14 +1869,25 @@ func _ensure_wreck_demo(now: float) -> void:
 			return
 		_wreck_demo_done = true
 		var fwd := (-cb.basis.z).normalized()
-		var pos := cb.origin + fwd * 9.0
-		pos.y = 0.0
-		var node := _make_vehicle_mesh()
-		add_child(node)
-		node.position = pos
-		node.rotation.y = atan2(-fwd.x, -fwd.z)   # broadside-ish to the camera
-		_vehicle_active[_WRECK_DEMO_VID] = node
-		destroy_vehicle(_WRECK_DEMO_VID, pos + Vector3(0, 1.0, 0), now)
-		_set_vehicle_wrecked(node, true)   # demo node isn't snapshot-driven, so mark the hulk directly
-	elif _vehicle_active.has(_WRECK_DEMO_VID):
-		_ensure_wreck_smoke(_vehicle_active[_WRECK_DEMO_VID] as Node3D, now)
+		var right := cb.basis.x.normalized()
+		var yaw := atan2(-fwd.x, -fwd.z)   # broadside-ish to the camera
+		# Destroyed hulk, left of centre.
+		var base := cb.origin + fwd * 9.0; base.y = 0.0
+		var wreck := _make_vehicle_mesh()
+		add_child(wreck)
+		wreck.position = base - right * 3.0
+		wreck.rotation.y = yaw
+		_vehicle_active[_WRECK_DEMO_VID] = wreck
+		destroy_vehicle(_WRECK_DEMO_VID, wreck.position + Vector3(0, 1.0, 0), now)
+		_set_vehicle_wrecked(wreck, true)   # demo node isn't snapshot-driven, so mark the hulk directly
+		# Heavily-damaged but alive transport, right of centre.
+		var dmg := _make_vehicle_mesh()
+		add_child(dmg)
+		dmg.position = base + right * 3.0
+		dmg.rotation.y = yaw
+		_vehicle_active[_DMG_DEMO_VID] = dmg
+	else:
+		if _vehicle_active.has(_WRECK_DEMO_VID):
+			_ensure_vehicle_smoke(_vehicle_active[_WRECK_DEMO_VID] as Node3D, 0.0, now)
+		if _vehicle_active.has(_DMG_DEMO_VID):
+			_ensure_vehicle_smoke(_vehicle_active[_DMG_DEMO_VID] as Node3D, 0.2, now)
