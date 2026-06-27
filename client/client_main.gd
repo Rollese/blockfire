@@ -455,6 +455,7 @@ func _process(_dt: float) -> void:
 		"self_eye": _pred.predicted.eye_position(),
 		"self_yaw": _input_ctrl.yaw,   # client look yaw (camera), not the reconciled pawn yaw
 		"grenades": _grenade_danger_sources(),
+		"in_vehicle": _in_vehicle(),
 		"objectives": _objectives(),
 		"match_state": _match_state,
 		"point_positions": _point_positions(),
@@ -553,6 +554,12 @@ func _process(_dt: float) -> void:
 				and Input.is_action_just_pressed("interact") and _peer != null:
 			_net.send_to(_peer, NetHost.CHANNEL_CONTROL,
 				Protocol.encode_vehicle_action(Protocol.VA_ENTER, int(ip["target"]), int(ip.get("seat", 0))),
+				ENetPacketPeer.FLAG_RELIABLE)
+		# Exit-vehicle intent: a single F press while seated (the prompt switched to "exit_vehicle").
+		if ip != null and String(ip.get("action", "")) == "exit_vehicle" \
+				and Input.is_action_just_pressed("interact") and _peer != null:
+			_net.send_to(_peer, NetHost.CHANNEL_CONTROL,
+				Protocol.encode_vehicle_action(Protocol.VA_EXIT, int(ip["target"]), 0),
 				ENetPacketPeer.FLAG_RELIABLE)
 		if ip != null and String(ip.get("action", "")) == "revive" and interact_held and _peer != null:
 			_revive_hold += _dt
@@ -1049,6 +1056,21 @@ func _killfeed_test_roster() -> Array:
 		{"id": 2, "name": "Reaper", "team": 1, "squad": 0, "score": 0},
 		{"id": 3, "name": "Specter", "team": 1, "squad": 0, "score": 0},
 		{"id": 4, "name": "Falcon", "team": 0, "squad": 0, "score": 0}]
+
+## The vehicle id whose seat the local player currently occupies, or -1. Drives the F=exit prompt.
+## Seats are replicated on VehicleState (seat-index -> occupant pawn id, 0 = empty).
+func _in_vehicle() -> int:
+	if my_id == 0:
+		return -1
+	var vehs: Dictionary = _wv.vehicles()
+	for vid in vehs:
+		var vs = vehs[vid]
+		if vs == null:
+			continue
+		for occ in vs.seats:
+			if int(occ) == my_id:
+				return int(vid)
+	return -1
 
 ## Live grenade world-positions for the HUD danger indicator: the renderer's cosmetic pool (local
 ## throws + remote GRENADE_FX), plus a pinned synthetic one under --grenade-danger-test.
