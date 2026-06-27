@@ -93,6 +93,7 @@ var _smoke_test := false            # --smoke-test: pop a smoke cloud in front o
 var _grenade_test := false          # --grenade-test: lob cosmetic grenades across the view (visual QA)
 var _gadget_test := false           # --gadget-test: place sample deployed gadgets in view (visual QA)
 var _gadget_bytes := PackedByteArray()   # last GADGET_LIST bytes — skip the rebuild on an unchanged heartbeat
+var _revive_marker_test := false    # --revive-marker-test: downed friendly + revive marker (visual QA)
 var _whiz_t := 0.0                  # --whiz-test cadence timer
 var _whiz_i := 0                    # --whiz-test alternates crack/whiz offsets
 var _active_slot := 0               # client-tracked weapon slot (0=primary/1=secondary) for quick-swap toggle
@@ -137,6 +138,7 @@ func configure(args: Dictionary) -> void:
 	_smoke_test = args.has("smoke-test")            # visual QA: pop a smoke cloud in front of the camera
 	_grenade_test = args.has("grenade-test")        # visual QA: lob cosmetic grenades across the view
 	_gadget_test = args.has("gadget-test")          # visual QA: place sample deployed gadgets in view
+	_revive_marker_test = args.has("revive-marker-test")   # visual QA: downed friendly + revive marker
 	_shot_after = float(args.get("shot-after", -1.0))  # automated screenshot then quit
 
 # ---- _ready -----------------------------------------------------------------
@@ -890,6 +892,7 @@ func _build_scene() -> void:
 	_renderer.smoke_demo = _smoke_test   # --smoke-test: pop a smoke cloud for a QA screenshot
 	_renderer.grenade_demo = _grenade_test # --grenade-test: lob cosmetic grenades for a QA screenshot
 	_renderer.gadget_demo = _gadget_test # --gadget-test: place sample gadgets for a QA screenshot
+	_renderer.revive_demo = _revive_marker_test # --revive-marker-test: downed friendly + revive marker
 	_renderer.vm_swing_test = _swing_test # --swing-test: freeze the viewmodel mid-swing
 	_renderer.vm_recoil_test = _recoil_test # --recoil-test: freeze the viewmodel mid-recoil-kick
 	_renderer.vm_sprint_test = _sprint_test # --sprint-test: freeze the viewmodel sprint-lowered

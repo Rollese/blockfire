@@ -76,6 +76,8 @@ var _grenade_demo_i := 0
 var _gadget_nodes: Array = []     # current gadget mesh roots (freed + rebuilt on each set_gadgets)
 var gadget_demo := false          # --gadget-test: place sample gadgets in front of the camera (QA)
 var _gadget_demo_next := 0.0
+var revive_demo := false          # --revive-marker-test: a downed friendly + revive marker in view (QA)
+var _revive_demo_marker: MeshInstance3D = null
 var boom_demo := false            # --boom-test: pump frag explosions in front of the camera (QA)
 var _boom_next := 0.0
 var _boom_i := 0
@@ -131,6 +133,7 @@ var _struct_rebuilt: bool = false
 var _friend_markers: Dictionary = {}
 var _marker_free_list: Array = []
 const FRIEND_MARKER_Y := 2.35    # world height above the pawn's feet (fixed; ignores stance squash)
+const REVIVE_MARKER_COLOR := Color(1.0, 0.32, 0.22)   # downed teammate (needs revive) — stands out from blue
 const PRONE_LIFT := 0.3          # small lift so a flat-lying prone/downed body rests on the ground
 # active vehicle nodes: vid(int) -> Node3D (VehicleKit transport; VehicleState carries no team)
 var _vehicle_active: Dictionary = {}
@@ -449,6 +452,7 @@ func update(world_view: WorldView, predictor: Prediction, now: float, fov: float
 	_ensure_smoke_demo(now)
 	_ensure_grenade_demo(now)
 	_ensure_gadget_demo(now)
+	_ensure_revive_demo(now)
 
 
 ## Visual QA (--armor-demo): once the camera exists, pin LIGHT/MEDIUM/HEAVY dummy soldiers in front
@@ -864,6 +868,22 @@ func _make_gadget(kind: int, face: Vector3) -> Node3D:
 	return root
 
 
+## Visual QA (--revive-marker-test): lay a downed friendly soldier in front of the camera with the
+## bobbing red revive marker above it (mirrors the live downed-friendly branch: REVIVE colour + bob).
+func _ensure_revive_demo(now: float) -> void:
+	if not revive_demo or _camera == null:
+		return
+	if _revive_demo_marker == null:
+		var dummy := CharacterKit.build()
+		dummy.position = Vector3(0.0, -1.5, -5.0)   # camera-local: in front, on the ground
+		dummy.rotation = Vector3(-PI * 0.5, 0.0, 0.0)   # tip onto its back (downed = face-up)
+		_camera.add_child(dummy)
+		_revive_demo_marker = _make_friend_marker()
+		(_revive_demo_marker.material_override as StandardMaterial3D).albedo_color = REVIVE_MARKER_COLOR
+		_camera.add_child(_revive_demo_marker)
+	_revive_demo_marker.position = Vector3(0.0, -0.4 + RevivePulse.bob(now), -5.0)   # bob above the body
+
+
 ## Visual QA (--gadget-test): once deployed, keep a C4 / mine / bag laid out in front of the camera
 ## (re-placed each second relative to the eye, so they appear after the player spawns away from origin).
 func _ensure_gadget_demo(now: float) -> void:
@@ -1108,7 +1128,15 @@ func _sync_entity_pool(remotes: Dictionary, local_team: int, render_delta: float
 		_tick_footstep(int(id), es, now)
 		if local_team >= 0 and es.team == local_team:
 			var marker: MeshInstance3D = _acquire_marker(int(id))
-			marker.position = Vector3(es.pos.x, es.pos.y + FRIEND_MARKER_Y, es.pos.z)
+			# A downed teammate keeps the marker but re-tints to the revive colour and bobs, so you can
+			# pick out who needs picking up; an alive teammate is the steady blue friendly marker.
+			var mk_mat := marker.material_override as StandardMaterial3D
+			if es.is_downed:
+				mk_mat.albedo_color = REVIVE_MARKER_COLOR
+				marker.position = Vector3(es.pos.x, es.pos.y + FRIEND_MARKER_Y + RevivePulse.bob(now), es.pos.z)
+			else:
+				mk_mat.albedo_color = ArtPalette.FRIENDLY
+				marker.position = Vector3(es.pos.x, es.pos.y + FRIEND_MARKER_Y, es.pos.z)
 		else:
 			_release_marker(int(id))
 
