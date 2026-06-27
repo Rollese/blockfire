@@ -85,6 +85,14 @@ Every Gate A criterion met: chunks destroyed + pieces removed + **cascade + coll
 
 **Map-scale finding (separate from M11 logic):** buildings-dense maps push the snapshot-baseline cost toward the ceiling — `conquest_arena_buildings` (768 pieces) gates with destruction firing hard (destroyed≈51–70) but peak tick rides the edge (**33.10 ms**, just under budget); `conquest_showcase` (2463 pieces) and `conquest_town` (8324 pieces) exceed it. This is replication cost from piece count, not the cascade/collapse path. Tracked as a follow-up (snapshot-cost optimisation) if those richer maps are wanted at 128p.
 
-**Gate B (feel — owner playtest of holes/debris/collapse cinematic) + P4 client cosmetics still pending the M7 client.**
+**Gate B (feel — owner playtest of holes/debris/collapse cinematic) still pending. P4 client cosmetics — first pass landed (2026-06-27).**
 
-**Known deferrals (P4 / later):** hole-aware march (pieces block until fully removed); GPU brick-debris particles + far-LOD; collapse cinematic is light (rubble swap only); 3 cosmetic BuildingKit geometry tweaks (lintel 1 cm clip, railing height, stair height) to eyeball in-engine; rubble nodes untracked (bounded, freed on renderer teardown).
+## Phase 4 (client cosmetics) — first pass ✅ 2026-06-27
+
+The M7 rendered client now exists, so the deferred cosmetic layer was started. **Landed (merged to master, branch `m11-p4-destruction-cosmetics`):**
+- **Per-piece destruction FX.** `WorldView` queues cosmetic events — `OP_REMOVE` → a `destroy` event, a real `OP_CHUNK` carve → a `damage` event (idempotent: a resent unchanged mask fires nothing) — drained via `take_struct_fx()` (the batched-MultiMesh renderer can't otherwise infer per-piece changes). The renderer plays a concrete dust puff + a fan of chunky brick/concrete debris (reuses the `_debris` gravity+settle pool).
+- **Collapse cinematic.** Whole-building collapse upgraded from an instant flat rubble swap to `_play_collapse_fx`: rolling ground dust cloud + heavy debris burst + a distance-falloff camera shake, then the persistent rubble mound.
+- **Camera shake.** Transient deterministic positional jitter (no RNG), reapplied on top of `_apply_camera` each frame so it never accumulates; decays over its life. Reusable by future nearby-blast events.
+- **QA flags** `--destroy-test` / `--collapse-test`; visual-validated via self-screenshot on `.128` (dust dome + flung brick/concrete debris confirmed). 843 unit tests green (4 new `WorldView` event-queue tests).
+
+**Still deferred (P4 / later):** **hole-aware per-chunk geometry** (incompatible with the 8k-piece MultiMesh batching — a piece still blocks + renders whole until fully removed; this is the spec's "hole-aware march" descope); GPU-particle debris + far-LOD (current debris is pooled MeshInstances, fine at typical event rates); 3 cosmetic BuildingKit geometry tweaks (lintel 1 cm clip, railing height, stair height) to eyeball in-engine; rubble + debris nodes untracked (bounded, freed on renderer teardown). **Gate B = owner playtest of the feel.**
