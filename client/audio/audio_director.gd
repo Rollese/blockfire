@@ -15,6 +15,7 @@ var _suppression: float = 0.0   # fed from the replicated Pawn.suppression byte 
 var _max_voices: int = 32
 var _players: Array = []          # slot index -> AudioStreamPlayer3D (1:1 with the VoicePool slots)
 var _ui_player: AudioStreamPlayer = null   # non-spatial (UI bus): hitmarker, reload, ui_click
+var _engine_player: AudioStreamPlayer3D = null   # dedicated looping engine voice (nearest running vehicle)
 var _streams: Dictionary = {}     # stream-id -> AudioStream (lazily generated placeholder tones)
 var _listener_pos: Vector3 = Vector3.ZERO
 
@@ -80,6 +81,11 @@ func _ready() -> void:
 	_ui_player = AudioStreamPlayer.new()
 	_ui_player.bus = "UI"
 	add_child(_ui_player)
+	# Dedicated looping engine voice (outside the one-shot pool): a single nearest-running-vehicle
+	# engine rumble, started/positioned/stopped per frame by client_main via update_engine/stop_engine.
+	_engine_player = AudioStreamPlayer3D.new()
+	_engine_player.bus = "SFX"
+	add_child(_engine_player)
 
 ## Each render frame: where the local listener (camera/eye) is, for distance cull + voice-stealing.
 func set_listener_pos(pos: Vector3) -> void:
@@ -121,6 +127,27 @@ func play_2d(event_type: String) -> void:
 	_ui_player.volume_db = float(def["gain_db"])
 	_ui_player.play()
 
+## Position + (re)start the looping engine voice at world_pos. Idempotent — call every frame a running
+## vehicle is in range; the stream is the seamless engine loop, so it just tracks position once playing.
+func update_engine(world_pos: Vector3) -> void:
+	if _engine_player == null or _catalog == null:
+		return
+	if _engine_player.stream == null:
+		var def: Dictionary = _catalog.def_for("engine")
+		_engine_player.stream = _stream_for("engine")
+		_engine_player.unit_size = float(def["unit_size"])
+		_engine_player.max_distance = float(def["max_distance"])
+		_engine_player.bus = String(def["bus"])
+		_engine_player.volume_db = float(def["gain_db"])
+	_engine_player.global_position = world_pos
+	if not _engine_player.playing:
+		_engine_player.play()
+
+## Stop the looping engine voice (no running vehicle in range).
+func stop_engine() -> void:
+	if _engine_player != null and _engine_player.playing:
+		_engine_player.stop()
+
 ## Compatibility shell kept from the pre-wiring stub: resolve+bind in one call with an explicit
 ## listener position. Equivalent to set_listener_pos(listener_pos) + play_at(...).
 func play_event(event_type: String, world_pos: Vector3, listener_pos: Vector3, coverage: float) -> Dictionary:
@@ -159,6 +186,8 @@ func _load_asset(event_type: String) -> AudioStream:
 	return ResourceLoader.load(path) as AudioStream
 
 static func _gen_tone(event_type: String) -> AudioStreamWAV:
+	if event_type == "engine":
+		return _gen_engine_loop()
 	var freq := 440.0
 	var secs := 0.12
 	match event_type:
@@ -187,4 +216,27 @@ static func _gen_tone(event_type: String) -> AudioStreamWAV:
 	wav.mix_rate = _TONE_SR
 	wav.stereo = false
 	wav.data = data
+	return wav
+
+## Sustained, seamlessly-looping low rumble for the vehicle engine (the one-shot _gen_tone decays to
+## zero, which would click on every loop). A whole number of fundamental periods makes the buffer wrap
+## continuously; a 2nd harmonic thickens it into an idle. Placeholder until a real engine_loop asset.
+static func _gen_engine_loop() -> AudioStreamWAV:
+	var freq := 90.0
+	var period := int(round(float(_TONE_SR) / freq))   # samples per cycle
+	var n := period * 48                                # ~0.5 s, an exact number of cycles (seamless wrap)
+	var data := PackedByteArray()
+	data.resize(n * 2)
+	for i in n:
+		var t := float(i) / float(_TONE_SR)
+		var v: float = (sin(TAU * freq * t) * 0.6 + sin(TAU * freq * 2.0 * t) * 0.25) * 0.5
+		data.encode_s16(i * 2, int(clampf(v, -1.0, 1.0) * 32767.0))
+	var wav := AudioStreamWAV.new()
+	wav.format = AudioStreamWAV.FORMAT_16_BITS
+	wav.mix_rate = _TONE_SR
+	wav.stereo = false
+	wav.data = data
+	wav.loop_mode = AudioStreamWAV.LOOP_FORWARD
+	wav.loop_begin = 0
+	wav.loop_end = n
 	return wav

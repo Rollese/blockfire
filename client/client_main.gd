@@ -105,6 +105,8 @@ const ADS_RATE := 16.0              # ADS ease speed (per second); ~1/e in ~60 m
 var _prev_grounded := true          # for the local landing viewmodel dip (airborne->grounded edge)
 var _prev_vy := 0.0                 # local vertical velocity from the previous frame (fall impact speed)
 const LAND_VY := 3.5                # min downward speed (m/s) for a landing to kick the viewmodel dip
+const ENGINE_AUDIO_RANGE := 200.0  # m: voice the engine of the nearest running vehicle within this
+var _engine_test := false          # --engine-test: force the engine loop on (audio QA, no vehicle needed)
 var _sprint_test := false           # --sprint-test: freeze the viewmodel sprint-lowered for a visual QA shot
 var _reload_test := false           # --reload-test: freeze the viewmodel mid-reload for a visual QA shot
 var _whiz_test := false             # --whiz-test: pump synthetic near-miss rounds across the view (crack/whiz QA)
@@ -168,6 +170,7 @@ func configure(args: Dictionary) -> void:
 	_downed_test = args.has("downed-test")          # visual QA: force the DBNO bandage overlay
 	_firepose_test = args.has("firepose-test")      # visual QA: fire-recoil pose vs upright dummy
 	_glbshoot_test = args.has("glbshoot-test")      # visual QA: GLB hold vs holding-both-shoot clip
+	_engine_test = args.has("engine-test")          # audio QA: force the vehicle engine loop on
 	_sprint_test = args.has("sprint-test")          # visual QA: freeze the viewmodel sprint-lowered
 	_reload_test = args.has("reload-test")          # visual QA: freeze the viewmodel mid-reload
 	_whiz_test = args.has("whiz-test")              # audio+visual QA: synthetic near-miss crack/whiz rounds
@@ -479,6 +482,15 @@ func _process(_dt: float) -> void:
 
 	if _audio != null:
 		_audio.set_listener_pos(eye)   # spatial-audio listener tracks the rendered camera/eye
+		# Engine loop: voice the nearest running vehicle (driver seated, or the one we're riding).
+		if _engine_test:
+			_audio.update_engine(eye + Vector3(3, 0, 0))   # QA: force the engine loop just to our right
+		else:
+			var eng: Dictionary = EngineAudio.nearest_running(_wv.vehicles(), eye, _in_vehicle(), ENGINE_AUDIO_RANGE)
+			if bool(eng["found"]):
+				_audio.update_engine(eng["pos"])
+			else:
+				_audio.stop_engine()
 
 	if _whiz_test and _camera != null and _audio != null:
 		# QA: a synthetic round sweeps left->right just above the eye. The tracer is re-emitted every
@@ -846,7 +858,10 @@ func _on_packet(_from: ENetPacketPeer, _channel: int, bytes: PackedByteArray) ->
 			if _renderer != null:
 				_renderer.spawn_explosion(det["pos"], int(det["kind"]), _elapsed)
 			if _audio != null:
-				_audio.play_at("explosion", det["pos"])   # spatial blast (synth tone until real asset)
+				# Flashbang has its own bright-pop cue (was a dead catalog entry — every detonation
+				# played the frag "explosion" boom regardless of kind).
+				var snd := "flashbang" if int(det["kind"]) == Protocol.DET_FLASH else "explosion"
+				_audio.play_at(snd, det["pos"])   # spatial (synth tone until real asset)
 		Protocol.Msg.VEHICLE_DESTROYED:
 			# Reliable, sent to all clients on hp->0 (server _destroy_vehicle). The persistent burnt
 			# hulk is driven by the replicated hp<=0 in the vehicle pool; this event adds the one-shot

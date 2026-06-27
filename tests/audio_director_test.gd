@@ -44,3 +44,10 @@ func test_play_event_drops_when_pool_full() -> void:
 	var b := d.decide("footstep", 5.0, 0.0, 0.0)
 	assert_true(a["slot"] >= 0, "explosion gets the only slot")
 	assert_eq(b["slot"], -1, "footstep dropped when pool full and outranked")
+
+func test_engine_loop_stream_is_seamless_and_loops() -> void:
+	# The engine voice must loop without the one-shot decay (which would click each wrap).
+	var s := AudioDirector._gen_engine_loop()
+	assert_eq(s.loop_mode, AudioStreamWAV.LOOP_FORWARD, "engine stream loops forward")
+	assert_true(s.data.size() > 0, "engine buffer is non-empty")
+	assert_eq(s.loop_end, s.data.size() / 2, "loop spans the whole 16-bit buffer (seamless wrap)")
