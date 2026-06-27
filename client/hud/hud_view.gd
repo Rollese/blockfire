@@ -1199,7 +1199,10 @@ func _render_killfeed(entries: Array) -> void:
 		else:
 			var e: Dictionary = entries[entry_idx]
 			var hs: String = " ☆" if bool(e.get("headshot", false)) else ""
-			lbl.text = "%d → %d%s" % [int(e.get("killer", 0)), int(e.get("victim", 0)), hs]
+			lbl.text = "%s → %s%s" % [String(e.get("killer_name", "?")), String(e.get("victim_name", "?")), hs]
+			# Tint toward the killer's allegiance (friend = blue, foe = red), neutral grey if unknown.
+			lbl.modulate = (Color(0.55, 0.75, 1.0, 0.95) if bool(e.get("killer_friendly", false))
+				else Color(1.0, 0.55, 0.5, 0.95))
 			lbl.visible = true
 
 

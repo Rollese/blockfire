@@ -35,12 +35,33 @@ func push_kill(ev: Dictionary, now: float) -> void:
 
 func _killfeed_current(ctx: Dictionary) -> Array:
 	var now := float(ctx.get("now", 0.0))
-	var kept: Array = []
+	# Resolve ids -> names + friend/foe from the roster, so the feed reads "Alice -> Bob" not "1 -> 2".
+	var by_id: Dictionary = {}
+	for rw: Dictionary in ctx.get("roster", []):
+		by_id[int(rw["id"])] = rw
+	var self_id := int(ctx.get("self_id", 0))
+	var my_team := int(by_id[self_id]["team"]) if by_id.has(self_id) else -1
+	var raw_kept: Array = []
+	var out: Array = []
 	for e in _killfeed:
-		if now - e["t"] <= KILLFEED_TTL:
-			kept.append(e)
-	_killfeed = kept
-	return kept
+		if now - e["t"] > KILLFEED_TTL:
+			continue
+		raw_kept.append(e)
+		out.append({
+			"killer_name": _roster_name(by_id, int(e["killer"])),
+			"victim_name": _roster_name(by_id, int(e["victim"])),
+			"killer_friendly": _roster_friendly(by_id, int(e["killer"]), my_team),
+			"victim_friendly": _roster_friendly(by_id, int(e["victim"]), my_team),
+			"headshot": bool(e.get("headshot", false)),
+		})
+	_killfeed = raw_kept
+	return out
+
+static func _roster_name(by_id: Dictionary, id: int) -> String:
+	return String(by_id[id]["name"]) if by_id.has(id) else "#%d" % id
+
+static func _roster_friendly(by_id: Dictionary, id: int, my_team: int) -> bool:
+	return my_team >= 0 and by_id.has(id) and int(by_id[id]["team"]) == my_team
 
 ## Push capture-point announcements (each {label, status} from CaptureAnnounce.diff) to the banner feed.
 func push_capture_events(events: Array, now: float) -> void:
