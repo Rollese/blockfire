@@ -8,6 +8,8 @@ const COMPASS_STRIP_WIDTH := 400.0
 const COMPASS_HEIGHT := 24.0
 const COMPASS_MARKER_POOL := 12   # reused objective-marker labels (never realloc per frame)
 const KILLFEED_MAX := 6
+const CAPTURE_FEED_MAX := 3      # max concurrent capture banners
+const CAPTURE_FEED_TTL_VIEW := 4.0   # mirror HudModel.CAPTURE_FEED_TTL (drives the fade-out)
 const ARC_POOL_SIZE := 8        # max concurrent directional-damage arcs
 const ARC_RADIUS := 180.0       # distance from screen centre where arcs appear
 
@@ -30,6 +32,7 @@ var _tickets_label: Label
 var _cap_bar: ColorRect           # capture progress bar background
 var _cap_fill: ColorRect          # capture progress fill
 var _killfeed_labels: Array[Label] = []
+var _capture_labels: Array[Label] = []   # pooled capture-announcement banners (centred, top)
 var _vignette: ColorRect
 var _suppress_overlay: ColorRect  # M5.5-P2 suppression screen FX (bottom of HUD: blurs the world, HUD stays crisp)
 var _suppress_mat: ShaderMaterial
@@ -109,6 +112,7 @@ func render(model: Dictionary) -> void:
 	_perf_compass_us = Time.get_ticks_usec() - _cs
 	_render_tickets(model.get("tickets", [0, 0]), model.get("capture"))
 	_render_killfeed(model.get("killfeed", []))
+	_render_capture_feed(model.get("capture_feed", []))
 	_render_damage(model.get("damage_arcs", []), float(model.get("vignette", 0.0)))
 	_render_grenade_danger(model.get("grenade_danger", {}))
 	_render_scoreboard(model.get("scoreboard", {}))
@@ -144,6 +148,7 @@ func _build_tree() -> void:
 	_build_compass()
 	_build_tickets()
 	_build_killfeed()
+	_build_capture_feed()
 	_build_vignette()
 	_build_damage_arcs()
 	_build_prompt()
@@ -368,6 +373,55 @@ func _build_killfeed() -> void:
 		lbl.mouse_filter = MOUSE_FILTER_IGNORE
 		panel.add_child(lbl)
 		_killfeed_labels.append(lbl)
+
+
+func _build_capture_feed() -> void:
+	# Capture announcements — a short stack of centred banners just under the top bar.
+	var panel := Control.new()
+	panel.anchor_left = 0.5
+	panel.anchor_right = 0.5
+	panel.anchor_top = 0.0
+	panel.offset_top = 54.0
+	panel.mouse_filter = MOUSE_FILTER_IGNORE
+	add_child(panel)
+	for i in CAPTURE_FEED_MAX:
+		var lbl := Label.new()
+		lbl.add_theme_font_size_override("font_size", 19)
+		lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		lbl.anchor_left = 0.5
+		lbl.anchor_right = 0.5
+		lbl.offset_left = -200.0
+		lbl.offset_right = 200.0
+		lbl.position = Vector2(0, i * 26.0)
+		lbl.visible = false
+		lbl.mouse_filter = MOUSE_FILTER_IGNORE
+		panel.add_child(lbl)
+		_capture_labels.append(lbl)
+
+
+## Render capture banners (newest at top), coloured friend/foe/neutral and fading out near end of life.
+func _render_capture_feed(feed: Array) -> void:
+	for i in CAPTURE_FEED_MAX:
+		var lbl := _capture_labels[i]
+		# newest first
+		var src_i := feed.size() - 1 - i
+		if src_i < 0:
+			lbl.visible = false
+			continue
+		var e: Dictionary = feed[src_i]
+		var status := int(e["status"])
+		var label := String(e["label"])
+		var col: Color
+		var verb: String
+		match status:
+			0: col = Color(0.35, 0.95, 0.45); verb = "CAPTURED"          # FRIENDLY
+			2: col = Color(0.95, 0.85, 0.30); verb = "NEUTRALIZED"       # NEUTRAL
+			_: col = Color(0.95, 0.35, 0.30); verb = "LOST"             # HOSTILE
+		var age := float(e.get("age", 0.0))
+		var fade: float = clampf((CAPTURE_FEED_TTL_VIEW - age) / 1.0, 0.0, 1.0)   # fade over the last second
+		lbl.text = "%s  %s" % [label, verb]
+		lbl.modulate = Color(col.r, col.g, col.b, fade)
+		lbl.visible = true
 
 
 func _build_vignette() -> void:
