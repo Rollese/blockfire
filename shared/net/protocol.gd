@@ -533,7 +533,7 @@ static func decode_damage_event(bytes: PackedByteArray) -> Dictionary:
 	return {"bearing": Quantize.dec_angle(r.get_u16()), "amount": r.get_u8()}
 
 
-static func encode_self_state(mag: int, reloading: bool, reload_remaining: int, weapon: int, throwables: Array = [], being_revived: bool = false, suppression: float = 0.0, blind_ticks: int = 0) -> PackedByteArray:
+static func encode_self_state(mag: int, reloading: bool, reload_remaining: int, weapon: int, throwables: Array = [], being_revived: bool = false, suppression: float = 0.0, blind_ticks: int = 0, bandage_count: int = 0, bleed_halted: bool = false) -> PackedByteArray:
 	var buf := StreamPeerBuffer.new()
 	buf.put_u8(Msg.SELF_STATE)
 	buf.put_u8(clampi(mag, 0, 255))
@@ -553,6 +553,10 @@ static func encode_self_state(mag: int, reloading: bool, reload_remaining: int, 
 	# M5.5-P3: remaining flashbang-blind ticks (1 byte) for the M7 white-out — owner-only, like
 	# suppression. Capped at 255 (well above FLASH_BLIND_TICKS).
 	buf.put_u8(clampi(blind_ticks, 0, 255))
+	# Bandage state for the DBNO self-bandage UI: remaining charges + whether bleed-out is halted.
+	# Owner-only (rides SELF_STATE), appended last so older decoders ignore it.
+	buf.put_u8(clampi(bandage_count, 0, 255))
+	buf.put_u8(1 if bleed_halted else 0)
 	return buf.data_array
 
 static func decode_self_state(bytes: PackedByteArray) -> Dictionary:
@@ -565,6 +569,8 @@ static func decode_self_state(bytes: PackedByteArray) -> Dictionary:
 	var throwables: Array = []
 	var suppression := 0.0
 	var blind_ticks := 0
+	var bandage_count := 0
+	var bleed_halted := false
 	if r.get_available_bytes() > 0:
 		being_revived = r.get_u8() == 1
 	if r.get_available_bytes() > 0:
@@ -575,7 +581,11 @@ static func decode_self_state(bytes: PackedByteArray) -> Dictionary:
 		suppression = float(r.get_u8()) / 255.0
 	if r.get_available_bytes() > 0:
 		blind_ticks = r.get_u8()
-	return {"mag": mag, "reloading": reloading, "reload_remaining": reload_remaining, "weapon": weapon, "throwables": throwables, "being_revived": being_revived, "suppression": suppression, "blind_ticks": blind_ticks}
+	if r.get_available_bytes() > 0:
+		bandage_count = r.get_u8()
+	if r.get_available_bytes() > 0:
+		bleed_halted = r.get_u8() == 1
+	return {"mag": mag, "reloading": reloading, "reload_remaining": reload_remaining, "weapon": weapon, "throwables": throwables, "being_revived": being_revived, "suppression": suppression, "blind_ticks": blind_ticks, "bandage_count": bandage_count, "bleed_halted": bleed_halted}
 
 
 static func encode_roster(rows: Array) -> PackedByteArray:

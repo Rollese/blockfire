@@ -257,6 +257,15 @@ func test_self_state_roundtrip() -> void:
 	assert_true(d["reloading"])
 	assert_eq(d["reload_remaining"], 40)
 	assert_eq(d["weapon"], Weapon.AR)
+	# Defaults when not supplied (backward-compatible trailing fields).
+	assert_eq(d["bandage_count"], 0)
+	assert_false(d["bleed_halted"])
+
+func test_self_state_carries_bandage_state() -> void:
+	var b := Protocol.encode_self_state(17, false, 0, Weapon.AR, [], false, 0.0, 0, 3, true)
+	var d := Protocol.decode_self_state(b)
+	assert_eq(d["bandage_count"], 3)
+	assert_true(d["bleed_halted"])
 
 func test_hello_carries_auto_deploy_default_true() -> void:
 	var b := Protocol.encode_hello("Bot")
