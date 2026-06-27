@@ -71,6 +71,26 @@ func test_grenade_fx_round_trip() -> void:
 		assert_almost_eq(d["dir"].y, 1.0, 0.001, "grenade dir preserved")
 		assert_eq(d["kind"], kind, "grenade kind preserved")
 
+func test_gadget_list_round_trip() -> void:
+	var list := [
+		{"kind": GadgetList.C4, "pos": Vector3(12.3, 1.5, -4.6), "face": Vector3.ZERO},
+		{"kind": GadgetList.MINE, "pos": Vector3(-7.1, 0.0, 8.2), "face": Vector3(0.0, 0.0, 1.0)},
+		{"kind": GadgetList.BAG, "pos": Vector3(3.0, 0.0, 3.0), "face": Vector3.ZERO},
+	]
+	var b := Protocol.encode_gadget_list(list)
+	assert_eq(Protocol.msg_type(b), Protocol.Msg.GADGET_LIST)
+	var d := Protocol.decode_gadget_list(b)
+	assert_eq(d.size(), 3, "all gadgets survive the round trip")
+	assert_eq(d[0]["kind"], GadgetList.C4)
+	assert_almost_eq(d[0]["pos"].x, 12.3, 0.1, "C4 pos preserved to 0.1 m")
+	assert_eq(d[1]["kind"], GadgetList.MINE)
+	assert_almost_eq(d[1]["face"].z, 1.0, 0.001, "mine facing z preserved")
+	assert_eq(d[2]["kind"], GadgetList.BAG)
+
+func test_empty_gadget_list_round_trip() -> void:
+	var b := Protocol.encode_gadget_list([])
+	assert_eq(Protocol.decode_gadget_list(b).size(), 0, "empty list clears the client's gadgets")
+
 func test_hitmarker_round_trip() -> void:
 	for hs in [false, true]:
 		for lethal in [false, true]:

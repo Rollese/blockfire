@@ -46,6 +46,7 @@ enum Msg {
 	MELEE = 33,             ## client -> server: melee swing (knife / Engineer sledgehammer); zero payload
 	IMPACT_FX = 34,         ## server -> human clients: a bullet hit world geometry at pos (cosmetic impact puff)
 	GRENADE_FX = 35,        ## server -> human clients: a remote pawn threw a grenade (cosmetic arcing object)
+	GADGET_LIST = 36,       ## server -> human clients: authoritative list of deployed gadgets (C4/mine/bag) to render
 }
 
 const OP_PLACE := 0
@@ -416,6 +417,36 @@ static func decode_grenade_fx(bytes: PackedByteArray) -> Dictionary:
 	var origin := Vector3(float(r.get_16()) / 10.0, float(r.get_16()) / 10.0, float(r.get_16()) / 10.0)
 	var dir := Vector3(float(r.get_16()) / 10000.0, float(r.get_16()) / 10000.0, float(r.get_16()) / 10000.0)
 	return {"origin": origin, "dir": dir, "kind": r.get_u8()}
+
+## Authoritative deployed-gadget list — each entry: kind byte (GadgetList.C4/MINE/BAG), pos ×10,
+## facing x/z ×10000 (zero for C4/bags). The client replaces its rendered gadget set on each receipt.
+static func encode_gadget_list(list: Array) -> PackedByteArray:
+	var buf := StreamPeerBuffer.new()
+	buf.put_u8(Msg.GADGET_LIST)
+	var n: int = mini(list.size(), 255)
+	buf.put_u8(n)
+	for i in range(n):
+		var g: Dictionary = list[i]
+		var pos: Vector3 = g["pos"]
+		var face: Vector3 = g.get("face", Vector3.ZERO)
+		buf.put_u8(clampi(int(g["kind"]), 0, 255))
+		buf.put_16(clampi(roundi(pos.x * 10.0), -32768, 32767))
+		buf.put_16(clampi(roundi(pos.y * 10.0), -32768, 32767))
+		buf.put_16(clampi(roundi(pos.z * 10.0), -32768, 32767))
+		buf.put_16(clampi(roundi(face.x * 10000.0), -32768, 32767))
+		buf.put_16(clampi(roundi(face.z * 10000.0), -32768, 32767))
+	return buf.data_array
+
+static func decode_gadget_list(bytes: PackedByteArray) -> Array:
+	var r := body_reader(bytes)
+	var n := r.get_u8()
+	var out: Array = []
+	for i in range(n):
+		var kind := r.get_u8()
+		var pos := Vector3(float(r.get_16()) / 10.0, float(r.get_16()) / 10.0, float(r.get_16()) / 10.0)
+		var face := Vector3(float(r.get_16()) / 10000.0, 0.0, float(r.get_16()) / 10000.0)
+		out.append({"kind": kind, "pos": pos, "face": face})
+	return out
 
 # Bullet impact VFX kind (which cosmetic puff the client spawns at the hit point).
 const IMPACT_WALL := 0   # bullet stopped on (or punched through) a structure / wall — grey dust + chips
