@@ -74,6 +74,8 @@ var _died_at: float = -1.0                  # _elapsed at the last death; drives
 const RESPAWN_COOLDOWN_S := 5.0             # mirrors server RESPAWN_DELAY_TICKS (150 @ 30 Hz)
 var _match_state: Dictionary = {}
 var _prev_point_owners: Array = []   # capture-point owners last broadcast; diffed for capture banners
+var _piece_cat: PieceCatalog        # client mirror of the server piece catalog (for prediction collision)
+var _struct_store: StructureStore   # client mirror of the server StructureStore; feeds prediction wall collision
 var _auto_deploy_ref: int = -1    # --deploy=N arg; -1 = not set
 var _auto_deploy_sent := false    # only send once
 var _flash_test := false          # --flash-test: force the flashbang white-out on (visual QA)
@@ -167,6 +169,9 @@ func _ready() -> void:
 	_pred = Prediction.new()
 	if _map != null:
 		_pred.world_half = _map.world_half   # clamp local prediction to the map like the server
+	# Client mirror of the server's piece catalog, so prediction can collide with structures (walls).
+	# Built from STRUCTURE_BASELINE/DELTA; without it the client predicts through walls and rubber-bands.
+	_piece_cat = PieceCatalog.load_file("res://pieces/pieces.json")
 	_wpred = WeaponPredictor.new()
 	_hud_model = HudModel.new()
 
@@ -733,10 +738,14 @@ func _on_packet(_from: ENetPacketPeer, _channel: int, bytes: PackedByteArray) ->
 			_deploy_menu_populated = false
 		Protocol.Msg.STRUCTURE_BASELINE:
 			_wv.apply_structure_baseline(bytes)
+			_rebuild_struct_store(bytes)   # keep the prediction-collision store in sync
 		Protocol.Msg.STRUCTURE_DELTA:
 			_wv.apply_structure_delta(bytes)
+			_apply_struct_delta_to_store(bytes)
 		Protocol.Msg.COLLAPSE:
-			_wv.apply_collapse(Protocol.decode_collapse(bytes))
+			var _bid := Protocol.decode_collapse(bytes)
+			_collapse_struct_store(_bid)
+			_wv.apply_collapse(_bid)
 		Protocol.Msg.SHOT_FX:
 			var fx: Dictionary = Protocol.decode_shot_fx(bytes)
 			if _renderer != null:
@@ -1065,6 +1074,50 @@ func _killfeed_test_roster() -> Array:
 		{"id": 2, "name": "Reaper", "team": 1, "squad": 0, "score": 0},
 		{"id": 3, "name": "Specter", "team": 1, "squad": 0, "score": 0},
 		{"id": 4, "name": "Falcon", "team": 0, "squad": 0, "score": 0}]
+
+## Rebuild the client StructureStore from a full STRUCTURE_BASELINE (a keyframe) and hand it to
+## prediction, so the predicted pawn collides with walls exactly like the server.
+func _rebuild_struct_store(bytes: PackedByteArray) -> void:
+	if _piece_cat == null:
+		return
+	_struct_store = StructureStore.new(_piece_cat)
+	for rec: Dictionary in Protocol.decode_structure_baseline(bytes)["records"]:
+		var placed := _struct_store.place(int(rec["id"]), int(rec["type"]), rec["cell"],
+			int(rec["yaw"]), int(rec["owner"]), int(rec["building_id"]))
+		if not placed.is_empty():
+			placed["chunks"] = int(rec["chunks"])   # carry partial-destruction so collision matches
+	if _pred != null:
+		_pred.structures = _struct_store
+
+## Apply a STRUCTURE_DELTA (place / remove / chunk-damage) to the collision store.
+func _apply_struct_delta_to_store(bytes: PackedByteArray) -> void:
+	if _struct_store == null:
+		return
+	var d := Protocol.decode_structure_delta(bytes)
+	match int(d["op"]):
+		Protocol.OP_PLACE:
+			var rec: Dictionary = d["rec"]
+			var placed := _struct_store.place(int(rec["id"]), int(rec["type"]), rec["cell"],
+				int(rec["yaw"]), int(rec["owner"]), int(rec["building_id"]))
+			if not placed.is_empty():
+				placed["chunks"] = int(rec["chunks"])
+		Protocol.OP_REMOVE:
+			_struct_store.remove(int(d["id"]))
+		Protocol.OP_CHUNK:
+			var r := _struct_store.get_record(int(d["id"]))
+			if not r.is_empty():
+				r["chunks"] = int(d["mask"])
+
+## A building collapsed — drop its pieces from collision so the client doesn't snag on phantom rubble.
+func _collapse_struct_store(building_id: int) -> void:
+	if _struct_store == null or building_id == 0:
+		return
+	var drop: Array = []
+	for id in _wv.structures():
+		if int(_wv.structures()[id].get("building_id", 0)) == building_id:
+			drop.append(int(id))
+	for id in drop:
+		_struct_store.remove(int(id))
 
 ## The vehicle id whose seat the local player currently occupies, or -1. Drives the F=exit prompt.
 ## Seats are replicated on VehicleState (seat-index -> occupant pawn id, 0 = empty).
