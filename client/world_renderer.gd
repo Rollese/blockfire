@@ -53,6 +53,15 @@ var _rockets: Array = []          # [{node: Node3D, vel: Vector3, die: float, ne
 var _puffs: Array = []            # [{node, mat, die, ttl}] — smoke trail + impact puffs
 var _blasts: Array = []           # [{node, mat, born, die, ttl, s0, s1, color}] — explosion fireball cores
 var _debris: Array = []           # [{node, vel, die}] — explosion debris chunks
+# smoke-grenade clouds (M7, view-only): SMOKE_DEPLOYED -> a cluster of soft puffs filling the zone
+# radius, opacity following SmokeCloud.envelope (billow-in / hold / fade-out). Bounded for 128p.
+const SMOKE_MAX_CLOUDS := 24      # cap concurrent client clouds (drop oldest); bounds mesh count
+const SMOKE_PUFFS := 16           # soft spheres per cloud (overlap into a near-solid mass)
+const SMOKE_BASE_ALPHA := 0.86    # peak per-puff opacity (x SmokeCloud.envelope)
+const SMOKE_COLOR := Color(0.84, 0.85, 0.87)   # light cool grey
+var _smokes: Array = []           # [{root:Node3D, mats:Array, born:float, dur:float, base:Array}]
+var smoke_demo := false           # --smoke-test: pop a smoke cloud in front of the camera (QA)
+var _smoke_demo_next := 0.0       # re-pop cadence (so a cloud lands in front AFTER the player deploys)
 var boom_demo := false            # --boom-test: pump frag explosions in front of the camera (QA)
 var _boom_next := 0.0
 var _boom_i := 0
@@ -414,6 +423,7 @@ func update(world_view: WorldView, predictor: Prediction, now: float, fov: float
 	_age_blasts(now)
 	_age_debris(now, render_delta)
 	_age_corpses(now)
+	_age_smokes(now)
 
 	# 5. QA: armor-tier dummies (--armor-demo) + explosion pump (--boom-test) + corpses (--corpse-test)
 	_ensure_armor_demo()
@@ -421,6 +431,7 @@ func update(world_view: WorldView, predictor: Prediction, now: float, fov: float
 	_ensure_impact_demo(now)
 	_ensure_corpse_demo(now)
 	_ensure_footstep_demo(now)
+	_ensure_smoke_demo(now)
 
 
 ## Visual QA (--armor-demo): once the camera exists, pin LIGHT/MEDIUM/HEAVY dummy soldiers in front
@@ -615,6 +626,92 @@ func _age_puffs(now: float) -> void:
 		(p["node"] as Node3D).scale = Vector3(grow, grow, grow)
 		live.append(p)
 	_puffs = live
+
+
+# =============================================================================
+#  Smoke-grenade clouds (M7) — driven by SMOKE_DEPLOYED (cosmetic, view-only).
+# =============================================================================
+
+## Pop a smoke cloud filling a `radius` zone at `pos`, living `duration` seconds. Builds a cluster of
+## soft unshaded puffs scattered in the zone; opacity is driven per-frame by SmokeCloud.envelope in
+## _age_smokes (billow-in / hold / fade-out). Deterministic offsets (golden-angle spiral) so the
+## cloud reads the same every time; capped at SMOKE_MAX_CLOUDS (oldest dropped) to bound mesh count.
+func spawn_smoke(pos: Vector3, radius: float, duration: float, now: float) -> void:
+	if not pos.is_finite() or radius <= 0.0 or duration <= 0.0:
+		return
+	while _smokes.size() >= SMOKE_MAX_CLOUDS:
+		var oldest: Dictionary = _smokes.pop_front()
+		(oldest["root"] as Node3D).queue_free()
+	var root := Node3D.new()
+	root.position = pos
+	add_child(root)
+	var mats: Array = []
+	var bases: Array = []
+	for i in range(SMOKE_PUFFS):
+		# golden-angle spiral in the horizontal plane, gently rising — fills the disc evenly
+		var t := float(i) / float(SMOKE_PUFFS)
+		var ang := float(i) * 2.39996323   # golden angle (rad)
+		var rr := radius * 0.92 * sqrt(t)
+		# billow up from near the ground (low puffs wide, higher puffs pulled toward the centre)
+		var off := Vector3(cos(ang) * rr, radius * (0.05 + 0.45 * t), sin(ang) * rr)
+		var size := radius * (1.25 - 0.5 * t)    # bigger near the base, smaller up top
+		var node := MeshInstance3D.new()
+		var sm := SphereMesh.new()
+		sm.radius = size * 0.5; sm.height = size; sm.radial_segments = 7; sm.rings = 4
+		node.mesh = sm
+		node.position = off
+		var mat := StandardMaterial3D.new()
+		mat.albedo_color = Color(SMOKE_COLOR.r, SMOKE_COLOR.g, SMOKE_COLOR.b, 0.0)
+		mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		node.material_override = mat
+		node.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		root.add_child(node)
+		mats.append(mat)
+		bases.append(node.position)
+	_smokes.append({"root": root, "mats": mats, "born": now, "dur": duration, "base": bases})
+
+
+func _age_smokes(now: float) -> void:
+	if _smokes.is_empty():
+		return
+	var live: Array = []
+	for s: Dictionary in _smokes:
+		var age: float = now - float(s["born"])
+		var dur: float = float(s["dur"])
+		if age >= dur:
+			(s["root"] as Node3D).queue_free()
+			continue
+		var env := SmokeCloud.envelope(age, dur)
+		var a := env * SMOKE_BASE_ALPHA
+		var mats: Array = s["mats"]
+		for mat: StandardMaterial3D in mats:
+			var c := mat.albedo_color; c.a = a; mat.albedo_color = c
+		# slow drift upward + slight spread as it ages, so the cloud breathes instead of sitting static
+		var grow := 1.0 + clampf(age / dur, 0.0, 1.0) * 0.25
+		var root := s["root"] as Node3D
+		root.scale = Vector3(grow, grow, grow)
+		live.append(s)
+	_smokes = live
+
+
+## Visual QA (--smoke-test): once the camera exists, pop one smoke cloud a few metres ahead so a
+## screenshot reliably catches a billowed cloud (no bot/throw needed).
+func _ensure_smoke_demo(now: float) -> void:
+	if not smoke_demo or _camera == null or now < _smoke_demo_next:
+		return
+	var cb := _camera.global_transform
+	if not cb.origin.is_finite():
+		return
+	# Re-pop every 4 s (cloud lives 5 s) so a fresh cloud lands in front of the camera AFTER the
+	# player has deployed away from the origin — a one-shot would fire at the pre-deploy origin.
+	_smoke_demo_next = now + 4.0
+	var fwd := (-cb.basis.z).normalized()
+	var at := cb.origin + fwd * 16.0   # downrange, so it reads as a discrete cloud (not enveloping the eye)
+	at.y = 0.0
+	spawn_smoke(at, 6.0, 5.0, now)
+
+
 
 
 # =============================================================================
