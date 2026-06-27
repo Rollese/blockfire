@@ -97,6 +97,9 @@ var _vaults := 0              # vault completions this window
 var _drop_shoot_blocked := 0  # shots rejected by the prone-transition gate this window
 
 var _roster_tick := 0
+var _gadget_pkt_sent: PackedByteArray = PackedByteArray()   # last GADGET_LIST sent (resend only on change)
+var _gadget_hb_tick := 0                                    # last heartbeat tick (covers late joiners)
+const GADGET_HEARTBEAT_TICKS := 30                          # resend the (non-empty) list ~1 Hz for late joiners
 var _kills := 0
 var _shots := 0
 var _hits := 0
@@ -291,6 +294,7 @@ func _physics_process(delta: float) -> void:
 	_roster_tick += 1
 	if _roster_tick % ROSTER_STRIDE_TICKS == 0:
 		_broadcast_roster()
+	_broadcast_gadget_list()
 	var t_snap := Time.get_ticks_usec()
 	_phase_us["poll"] += t_poll - t0
 	_phase_us["move"] += t_move - t_poll
@@ -1534,6 +1538,31 @@ func _broadcast_rocket_fx(shooter_id: int, origin: Vector3, dir: Vector3) -> voi
 		if bool(c.get("auto_deploy", true)):
 			continue   # bot client — does not render
 		_net.send_to(c["peer"], NetHost.CHANNEL_SNAPSHOT, pkt, 0)
+
+## Authoritative deployed-gadget list (C4/mines/bags) for human clients to render. Rebuilt from the
+## live stores each tick and sent (reliably) only when it CHANGES, plus a ~1 Hz heartbeat while
+## non-empty so a late-joining human catches up. Skipped entirely when no human is connected.
+func _broadcast_gadget_list() -> void:
+	var has_human := false
+	for cid in _clients:
+		if not bool(_clients[cid].get("auto_deploy", true)):
+			has_human = true
+			break
+	if not has_human:
+		return
+	var list := GadgetList.build(_c4, _mines, _bags)
+	var pkt := Protocol.encode_gadget_list(list)
+	var changed := pkt != _gadget_pkt_sent
+	var heartbeat := list.size() > 0 and _sim.tick - _gadget_hb_tick >= GADGET_HEARTBEAT_TICKS
+	if not changed and not heartbeat:
+		return
+	_gadget_pkt_sent = pkt
+	_gadget_hb_tick = _sim.tick
+	for cid in _clients:
+		var c = _clients[cid]
+		if bool(c.get("auto_deploy", true)):
+			continue   # bot client — does not render
+		_net.send_to(c["peer"], NetHost.CHANNEL_CONTROL, pkt, ENetPacketPeer.FLAG_RELIABLE)
 
 ## Cosmetic remote thrown-grenade hint. Sent only to HUMAN clients, excluding the thrower (who already
 ## arcs their own grenade from client_main). Unreliable/droppable, like the other *_FX broadcasts.

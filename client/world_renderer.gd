@@ -71,6 +71,11 @@ var _smoke_demo_next := 0.0       # re-pop cadence (so a cloud lands in front AF
 var grenade_demo := false         # --grenade-test: lob cosmetic grenades across the view (QA)
 var _grenade_demo_next := 0.0
 var _grenade_demo_i := 0
+# deployed gadgets (M7, view-only): the server broadcasts an authoritative GADGET_LIST (C4/mine/bag);
+# set_gadgets replaces the rendered set on each receipt, so the client always mirrors true server state.
+var _gadget_nodes: Array = []     # current gadget mesh roots (freed + rebuilt on each set_gadgets)
+var gadget_demo := false          # --gadget-test: place sample gadgets in front of the camera (QA)
+var _gadget_demo_next := 0.0
 var boom_demo := false            # --boom-test: pump frag explosions in front of the camera (QA)
 var _boom_next := 0.0
 var _boom_i := 0
@@ -443,6 +448,7 @@ func update(world_view: WorldView, predictor: Prediction, now: float, fov: float
 	_ensure_footstep_demo(now)
 	_ensure_smoke_demo(now)
 	_ensure_grenade_demo(now)
+	_ensure_gadget_demo(now)
 
 
 ## Visual QA (--armor-demo): once the camera exists, pin LIGHT/MEDIUM/HEAVY dummy soldiers in front
@@ -796,6 +802,85 @@ func _ensure_grenade_demo(now: float) -> void:
 	throw_grenade(cb.origin + fwd * 0.6, Grenade.launch_velocity(dir), kind, now)
 
 
+# =============================================================================
+#  Deployed gadgets (M7) — driven by the server's authoritative GADGET_LIST.
+# =============================================================================
+
+## Replace the rendered gadget set with `list` (each {kind, pos, face}). Cheap full rebuild — the
+## server only resends when the set changes, and gadgets are few. C4 sticks a charge with a blinking
+## light; a mine is a small directional claymore; a bag is a supply crate.
+func set_gadgets(list: Array) -> void:
+	for n in _gadget_nodes:
+		(n as Node3D).queue_free()
+	_gadget_nodes.clear()
+	for g: Dictionary in list:
+		var pos: Vector3 = g["pos"]
+		if not pos.is_finite():
+			continue
+		var node := _make_gadget(int(g["kind"]), g.get("face", Vector3.ZERO))
+		node.position = pos
+		add_child(node)
+		_gadget_nodes.append(node)
+
+
+func _make_gadget(kind: int, face: Vector3) -> Node3D:
+	var root := Node3D.new()
+	root.name = "Gadget"
+	match kind:
+		GadgetList.MINE:   # claymore: a small slab on stub legs, fronted by the kill direction
+			root.name = "Mine"
+			var slab := MeshInstance3D.new()
+			var smesh := BoxMesh.new(); smesh.size = Vector3(0.34, 0.16, 0.08)
+			slab.mesh = smesh; slab.position = Vector3(0, 0.14, 0)
+			var mmat := StandardMaterial3D.new(); mmat.albedo_color = Color(0.22, 0.26, 0.18); mmat.roughness = 0.8
+			slab.material_override = mmat; slab.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			root.add_child(slab)
+			if face.length() > 0.01:
+				root.look_at(root.position + Vector3(face.x, 0.0, face.z), Vector3.UP)
+		GadgetList.BAG:    # supply crate
+			root.name = "Bag"
+			var crate := MeshInstance3D.new()
+			var cmesh := BoxMesh.new(); cmesh.size = Vector3(0.55, 0.4, 0.4)
+			crate.mesh = cmesh; crate.position = Vector3(0, 0.2, 0)
+			var bmat := StandardMaterial3D.new(); bmat.albedo_color = Color(0.36, 0.42, 0.22); bmat.roughness = 0.9
+			crate.material_override = bmat; crate.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			root.add_child(crate)
+		_:                 # C4: a dark brick of charge with a small red indicator light
+			root.name = "C4"
+			var brick := MeshInstance3D.new()
+			var bkmesh := BoxMesh.new(); bkmesh.size = Vector3(0.26, 0.12, 0.16)
+			brick.mesh = bkmesh; brick.position = Vector3(0, 0.06, 0)
+			var c4mat := StandardMaterial3D.new(); c4mat.albedo_color = Color(0.30, 0.22, 0.14); c4mat.roughness = 0.85
+			brick.material_override = c4mat; brick.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			root.add_child(brick)
+			var led := MeshInstance3D.new()
+			var lmesh := BoxMesh.new(); lmesh.size = Vector3(0.05, 0.05, 0.05)
+			led.mesh = lmesh; led.position = Vector3(0.08, 0.14, 0)
+			var lmat := StandardMaterial3D.new()
+			lmat.albedo_color = Color(1.0, 0.1, 0.1); lmat.emission_enabled = true
+			lmat.emission = Color(1.0, 0.1, 0.1); lmat.emission_energy_multiplier = 2.0
+			led.material_override = lmat; led.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			root.add_child(led)
+	return root
+
+
+## Visual QA (--gadget-test): once deployed, keep a C4 / mine / bag laid out in front of the camera
+## (re-placed each second relative to the eye, so they appear after the player spawns away from origin).
+func _ensure_gadget_demo(now: float) -> void:
+	if not gadget_demo or _camera == null or now < _gadget_demo_next:
+		return
+	var cb := _camera.global_transform
+	if not cb.origin.is_finite():
+		return
+	_gadget_demo_next = now + 1.0
+	var fwd := (-cb.basis.z).normalized()
+	var right := cb.basis.x.normalized()
+	var base := cb.origin + fwd * 4.0; base.y = 0.0
+	set_gadgets([
+		{"kind": GadgetList.C4, "pos": base - right * 1.4, "face": Vector3.ZERO},
+		{"kind": GadgetList.MINE, "pos": base, "face": -fwd},
+		{"kind": GadgetList.BAG, "pos": base + right * 1.4, "face": Vector3.ZERO},
+	])
 
 
 # =============================================================================

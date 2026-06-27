@@ -91,6 +91,8 @@ var _reload_test := false           # --reload-test: freeze the viewmodel mid-re
 var _whiz_test := false             # --whiz-test: pump synthetic near-miss rounds across the view (crack/whiz QA)
 var _smoke_test := false            # --smoke-test: pop a smoke cloud in front of the camera (visual QA)
 var _grenade_test := false          # --grenade-test: lob cosmetic grenades across the view (visual QA)
+var _gadget_test := false           # --gadget-test: place sample deployed gadgets in view (visual QA)
+var _gadget_bytes := PackedByteArray()   # last GADGET_LIST bytes — skip the rebuild on an unchanged heartbeat
 var _whiz_t := 0.0                  # --whiz-test cadence timer
 var _whiz_i := 0                    # --whiz-test alternates crack/whiz offsets
 var _active_slot := 0               # client-tracked weapon slot (0=primary/1=secondary) for quick-swap toggle
@@ -134,6 +136,7 @@ func configure(args: Dictionary) -> void:
 	_whiz_test = args.has("whiz-test")              # audio+visual QA: synthetic near-miss crack/whiz rounds
 	_smoke_test = args.has("smoke-test")            # visual QA: pop a smoke cloud in front of the camera
 	_grenade_test = args.has("grenade-test")        # visual QA: lob cosmetic grenades across the view
+	_gadget_test = args.has("gadget-test")          # visual QA: place sample deployed gadgets in view
 	_shot_after = float(args.get("shot-after", -1.0))  # automated screenshot then quit
 
 # ---- _ready -----------------------------------------------------------------
@@ -716,6 +719,11 @@ func _on_packet(_from: ENetPacketPeer, _channel: int, bytes: PackedByteArray) ->
 			if _renderer != null:
 				# Remote pawn's thrown grenade arcs the shared Grenade model (same as the local thrower).
 				_renderer.throw_grenade(gfx["origin"], Grenade.launch_velocity(gfx["dir"]), int(gfx["kind"]), _elapsed)
+		Protocol.Msg.GADGET_LIST:
+			if bytes != _gadget_bytes:
+				_gadget_bytes = bytes   # skip the rebuild on an unchanged 1 Hz heartbeat
+				if _renderer != null:
+					_renderer.set_gadgets(Protocol.decode_gadget_list(bytes))
 		Protocol.Msg.DETONATION:
 			var det: Dictionary = Protocol.decode_detonation(bytes)
 			if _renderer != null:
@@ -881,6 +889,7 @@ func _build_scene() -> void:
 	_renderer.footstep_demo = _footstep_test # --footstep-test: pump footstep dust for a QA screenshot
 	_renderer.smoke_demo = _smoke_test   # --smoke-test: pop a smoke cloud for a QA screenshot
 	_renderer.grenade_demo = _grenade_test # --grenade-test: lob cosmetic grenades for a QA screenshot
+	_renderer.gadget_demo = _gadget_test # --gadget-test: place sample gadgets for a QA screenshot
 	_renderer.vm_swing_test = _swing_test # --swing-test: freeze the viewmodel mid-swing
 	_renderer.vm_recoil_test = _recoil_test # --recoil-test: freeze the viewmodel mid-recoil-kick
 	_renderer.vm_sprint_test = _sprint_test # --sprint-test: freeze the viewmodel sprint-lowered
