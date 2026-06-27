@@ -8,6 +8,7 @@ const _BITS := {
 	"prone": InputCommand.BTN_PRONE, "sprint": InputCommand.BTN_SPRINT,
 	"lean_left": InputCommand.BTN_LEAN_L, "lean_right": InputCommand.BTN_LEAN_R,
 	"fire": InputCommand.BTN_FIRE, "reload": InputCommand.BTN_RELOAD,
+	"aim": InputCommand.BTN_AIM,
 }
 
 static func buttons_from(pressed: Dictionary) -> int:

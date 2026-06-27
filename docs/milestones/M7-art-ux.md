@@ -164,6 +164,15 @@ The `aim` input action (right-mouse) was bound but **read nowhere** — there wa
 
 Client-only — no `shared/`/server/wire change (server-authoritative spread-reduction-on-ADS would need an input bit, but the `buttons` mask is a full u8; that's a netcode follow-up, noted). The DMR's base spread is already tiny, so the zoom is the real benefit (not misleading). `--ads-test` forces iron ADS, `--scope-test` forces ADS + the scope overlay (the client can't pick the DMR class via CLI). Suite **824/0**; **visual-validated on .128** (iGPU/Wayland): hip vs iron-ADS (zoom + braced gun + no crosshair) vs DMR scope (circular mask + reticle + hidden gun) all read clearly distinct. ADS pose/FOV feel-tuning + server-side spread-on-ADS are owner/netcode follow-ups (AGENTS.md §10).
 
+#### Increment — Server-authoritative ADS spread reduction (netcode) — validated ✅ 2026-06-27
+
+The M7 ADS increment was client-visual-only (FOV/scope/pose) — aiming gave no actual accuracy benefit because the spread model never knew you were aiming. Closed that with the wire + sim change it was waiting on:
+- **Wire:** `InputCommand.buttons` widened **u8 → u16** (it was a full 8 bits) and a `BTN_AIM` (bit 9) added. `+1 byte per input frame` — negligible (input is one client's frames, not the snapshot hot path). All three roles share `InputCommand`, so client/bot/server stay in lockstep.
+- **Input:** `input_map.gd` maps the (previously dead) `aim` action → `BTN_AIM`; `input_controller.gather` sets it. The in-vehicle / photo-mode button masks already drop it (no ADS there).
+- **Sim:** `Combat.reconstruct_ray` gained an `aiming` arg → multiplies the whole accumulated cone (base + bloom + move + suppression) by `ADS_SPREAD_MULT` (0.35), applied **before** the prone-bipod zero-override so a deployed bipod still wins.
+- **Server authority:** `_fire_shot` honours `BTN_AIM` only when **not sprinting** (you can't physically ADS mid-sprint), so a client can't claim ADS accuracy while sprint-running. The server reconstructs the authoritative ray as always — clients send intent, not the cone.
+- Crosses `shared/`+`server/` (a real gameplay/netcode change, not a cosmetic broadcast). **Proven deterministically (AGENTS §10):** `combat_test` — ADS deviation < hip and scales exactly by `ADS_SPREAD_MULT` (isolated at shot_index 0 to exclude the recoil climb, which ADS doesn't reduce); bipod-zero still wins over ADS; `input_command_test` — `BTN_AIM` survives the u16 round-trip; `input_map_test` — `aim`→`BTN_AIM`. Suite **839/0**. **No-regression smoke** (24 bots / dev_arena / ~20 s): clean — bots connect/move/fire, `shots`/`proj`/`projhit`/kills/heals register, tick ~9–10 ms, zero input-decode errors (the u16 widening is transparent to live bot/server input). Hip-fire is unchanged; the client already hides the crosshair on ADS, so the tightened cone reads honestly.
+
 #### Increment — Audio gaps: flashbang cue + vehicle engine loop — validated ✅ 2026-06-27
 
 Two dead `data/sounds.json` catalog entries, now wired:

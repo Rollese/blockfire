@@ -61,6 +61,7 @@ func gather(settings: ClientSettings) -> Dictionary:
 		"lean_right": Input.is_action_pressed("lean_right"),
 		"fire": Input.is_action_pressed("fire"),
 		"reload": Input.is_action_pressed("reload"),
+		"aim": Input.is_action_pressed("aim"),   # ADS — server tightens spread (the in-vehicle/photo masks drop it)
 	}
 	return {"move_x": f.x, "move_y": f.y, "yaw": yaw, "pitch": pitch,
 		"buttons": InputMap2.buttons_from(pressed)}

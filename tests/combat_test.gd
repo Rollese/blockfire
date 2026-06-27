@@ -10,6 +10,27 @@ func test_different_shot_index_differs() -> void:
 	var r2 := Combat.reconstruct_ray(Weapon.AR, Vector3(0,1.6,0), 0.0, 0.0, 0, 7, 5, 3, true)
 	assert_true((r1["dir"] - r2["dir"]).length() > 0.0, "recoil/spread differ by shot index")
 
+func test_ads_tightens_spread() -> void:
+	# shot_index 0 isolates the random spread cone from the deterministic recoil climb (which scales
+	# with shot_index and is NOT reduced by ADS). Same seed/inputs (moving), so the random draw matches
+	# and the deviation scales exactly by ADS_SPREAD_MULT.
+	var fwd := Vector3(0, 0, 1)   # _forward(0,0) = +Z
+	var hip := Combat.reconstruct_ray(Weapon.AR, Vector3(0,1.6,0), 0.0, 0.0, 0, 7, 1, 0, true, false, {}, 0.0, false)
+	var ads := Combat.reconstruct_ray(Weapon.AR, Vector3(0,1.6,0), 0.0, 0.0, 0, 7, 1, 0, true, false, {}, 0.0, true)
+	var hip_dev: float = (hip["dir"] as Vector3).angle_to(fwd)
+	var ads_dev: float = (ads["dir"] as Vector3).angle_to(fwd)
+	assert_true(ads_dev < hip_dev, "ADS deviation (%f) < hip deviation (%f)" % [ads_dev, hip_dev])
+	assert_almost_eq(ads_dev / hip_dev, Combat.ADS_SPREAD_MULT, 0.02, "ADS shrinks the cone by the mult")
+
+func test_ads_bipod_still_zeroes_spread() -> void:
+	# A deployed prone bipod overrides ADS to a zero cone. shot_index 0 so there's no recoil climb
+	# left in the ray (recoil is separate from the spread cone and isn't zeroed by the bipod).
+	var w := Weapon.get_def(Weapon.AR).duplicate()
+	w["prone_spread_zero"] = true
+	var fwd := Vector3(0, 0, 1)
+	var r := Combat.reconstruct_ray(Weapon.AR, Vector3(0,1.6,0), 0.0, 0.0, 0, 7, 1, 0, true, true, w, 0.0, true)
+	assert_almost_eq((r["dir"] as Vector3).angle_to(fwd), 0.0, 0.00001, "bipod zero-spread wins over ADS")
+
 func test_headshot_multiplier() -> void:
 	assert_eq(Combat.damage_for(Weapon.AR, false, 10.0), 25)
 	assert_eq(Combat.damage_for(Weapon.AR, true, 10.0), 50)
