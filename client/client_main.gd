@@ -88,6 +88,9 @@ var _recoil_test := false           # --recoil-test: hold the viewmodel mid-reco
 var _crosshair_test := false        # --crosshair-test: force a bloomed crosshair for a visual QA shot
 var _sprint_test := false           # --sprint-test: freeze the viewmodel sprint-lowered for a visual QA shot
 var _reload_test := false           # --reload-test: freeze the viewmodel mid-reload for a visual QA shot
+var _whiz_test := false             # --whiz-test: pump synthetic near-miss rounds across the view (crack/whiz QA)
+var _whiz_t := 0.0                  # --whiz-test cadence timer
+var _whiz_i := 0                    # --whiz-test alternates crack/whiz offsets
 var _active_slot := 0               # client-tracked weapon slot (0=primary/1=secondary) for quick-swap toggle
 var _shot_after := -1.0           # --shot-after=N: auto-save a screenshot N secs after launch, then quit
 var _shot_done := false
@@ -126,6 +129,7 @@ func configure(args: Dictionary) -> void:
 	_crosshair_test = args.has("crosshair-test")    # visual QA: force a bloomed crosshair
 	_sprint_test = args.has("sprint-test")          # visual QA: freeze the viewmodel sprint-lowered
 	_reload_test = args.has("reload-test")          # visual QA: freeze the viewmodel mid-reload
+	_whiz_test = args.has("whiz-test")              # audio+visual QA: synthetic near-miss crack/whiz rounds
 	_shot_after = float(args.get("shot-after", -1.0))  # automated screenshot then quit
 
 # ---- _ready -----------------------------------------------------------------
@@ -397,6 +401,27 @@ func _process(_dt: float) -> void:
 	if _audio != null:
 		_audio.set_listener_pos(eye)   # spatial-audio listener tracks the rendered camera/eye
 
+	if _whiz_test and _camera != null and _audio != null:
+		# QA: a synthetic round sweeps left->right just above the eye. The tracer is re-emitted every
+		# frame (its TTL is ~1 frame) so a streak is always on screen for a screenshot; the crack/whiz
+		# audio + log fire on a ~0.6 s cadence, alternating a 1 m (crack) and 2.5 m (whiz) near miss.
+		var basis := _camera.global_transform.basis
+		var fwd := -basis.z
+		var off := 1.0 if _whiz_i % 2 == 0 else 2.5
+		var cross := eye + basis.x * off                  # closest-approach point: `off` m to the right of the eye
+		var origin := cross + fwd * 40.0                  # round starts 40 m downrange (ahead)
+		var dir := -fwd                                   # flying back toward (and past) the player
+		if _renderer != null:
+			_renderer.tracer_from(origin, dir, _elapsed)  # every frame: always a visible streak for QA
+		_whiz_t += _dt
+		if _whiz_t >= 0.6:
+			_whiz_t = 0.0
+			_whiz_i += 1
+			var pb: Dictionary = BulletPassby.classify(origin, dir, eye)
+			if pb["kind"] != "":
+				_audio.play_at(pb["kind"], pb["point"])
+			print("[whiz-test] off=%.1f kind=%s" % [off, pb["kind"]])
+
 	if _wpred != null and not _photo_mode:
 		_renderer.set_viewmodel_weapon(_wpred.weapon)   # show the RPG launcher etc., not always the AR
 	var _t0 := Time.get_ticks_usec()
@@ -665,6 +690,12 @@ func _on_packet(_from: ENetPacketPeer, _channel: int, bytes: PackedByteArray) ->
 				_renderer.tracer_from(fx["origin"], fx["dir"], _elapsed)
 			if _audio != null:
 				_audio.play_at("gunfire", fx["origin"])   # spatial remote-pawn gunfire
+				# Supersonic near-miss: if this remote round passes close to us, snap a crack/whiz
+				# at its closest approach (view-only — server already resolved the shot).
+				if _pred != null and _pred.predicted != null:
+					var pb: Dictionary = BulletPassby.classify(fx["origin"], fx["dir"], _pred.predicted.eye_position())
+					if pb["kind"] != "":
+						_audio.play_at(pb["kind"], pb["point"])
 		Protocol.Msg.ROCKET_FX:
 			var rfx: Dictionary = Protocol.decode_rocket_fx(bytes)
 			if _renderer != null:
