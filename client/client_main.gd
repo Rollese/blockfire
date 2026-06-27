@@ -89,6 +89,7 @@ var _crosshair_test := false        # --crosshair-test: force a bloomed crosshai
 var _sprint_test := false           # --sprint-test: freeze the viewmodel sprint-lowered for a visual QA shot
 var _reload_test := false           # --reload-test: freeze the viewmodel mid-reload for a visual QA shot
 var _whiz_test := false             # --whiz-test: pump synthetic near-miss rounds across the view (crack/whiz QA)
+var _smoke_test := false            # --smoke-test: pop a smoke cloud in front of the camera (visual QA)
 var _whiz_t := 0.0                  # --whiz-test cadence timer
 var _whiz_i := 0                    # --whiz-test alternates crack/whiz offsets
 var _active_slot := 0               # client-tracked weapon slot (0=primary/1=secondary) for quick-swap toggle
@@ -130,6 +131,7 @@ func configure(args: Dictionary) -> void:
 	_sprint_test = args.has("sprint-test")          # visual QA: freeze the viewmodel sprint-lowered
 	_reload_test = args.has("reload-test")          # visual QA: freeze the viewmodel mid-reload
 	_whiz_test = args.has("whiz-test")              # audio+visual QA: synthetic near-miss crack/whiz rounds
+	_smoke_test = args.has("smoke-test")            # visual QA: pop a smoke cloud in front of the camera
 	_shot_after = float(args.get("shot-after", -1.0))  # automated screenshot then quit
 
 # ---- _ready -----------------------------------------------------------------
@@ -712,6 +714,15 @@ func _on_packet(_from: ENetPacketPeer, _channel: int, bytes: PackedByteArray) ->
 			var imp: Dictionary = Protocol.decode_impact_fx(bytes)
 			if _renderer != null:
 				_renderer.spawn_impact(imp["pos"], int(imp["kind"]), _elapsed)
+		Protocol.Msg.SMOKE_DEPLOYED:
+			var sm: Dictionary = Protocol.decode_smoke_deployed(bytes)
+			if _renderer != null:
+				# Lifetime from the server's absolute expiry tick vs our latest server tick (30 Hz);
+				# clamp to a sane window, fall back to the 5 s server smoke duration if unknown.
+				var dur := float(int(sm["expire_tick"]) - _last_server_tick) / 30.0
+				if dur <= 0.5 or dur > 12.0:
+					dur = 5.0
+				_renderer.spawn_smoke(sm["pos"], float(int(sm["radius"])), dur, _elapsed)
 
 # ---- WELCOME ----------------------------------------------------------------
 func _handle_welcome(bytes: PackedByteArray) -> void:
@@ -856,6 +867,7 @@ func _build_scene() -> void:
 	_renderer.impact_demo = _impact_test # --impact-test: pump bullet impacts for a QA screenshot
 	_renderer.corpse_demo = _corpse_test # --corpse-test: lay corpses for a QA screenshot
 	_renderer.footstep_demo = _footstep_test # --footstep-test: pump footstep dust for a QA screenshot
+	_renderer.smoke_demo = _smoke_test   # --smoke-test: pop a smoke cloud for a QA screenshot
 	_renderer.vm_swing_test = _swing_test # --swing-test: freeze the viewmodel mid-swing
 	_renderer.vm_recoil_test = _recoil_test # --recoil-test: freeze the viewmodel mid-recoil-kick
 	_renderer.vm_sprint_test = _sprint_test # --sprint-test: freeze the viewmodel sprint-lowered
