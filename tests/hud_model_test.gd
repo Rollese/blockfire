@@ -20,6 +20,35 @@ func test_compass_relative_bearing_to_objective() -> void:
 	assert_almost_eq(absf(rad_to_deg(out["compass"]["heading"])), 180.0, 0.5)  # camera points -Z
 	assert_almost_eq(rad_to_deg(out["compass"]["markers"][0]["rel_bearing"]), 90.0, 1.0)
 
+func test_grenade_danger_none_when_no_grenades() -> void:
+	var m := HudModel.new()
+	var out := m.build({"self_pos": Vector3.ZERO, "self_yaw": 0.0, "tick": 0})
+	assert_true((out["grenade_danger"] as Dictionary).is_empty(), "no grenades -> no danger indicator")
+
+func test_grenade_danger_ignores_far_grenade() -> void:
+	var m := HudModel.new()
+	var out := m.build({"self_pos": Vector3.ZERO, "self_eye": Vector3.ZERO, "self_yaw": 0.0,
+		"grenades": [Vector3(40, 0, 0)], "tick": 0})
+	assert_true((out["grenade_danger"] as Dictionary).is_empty(), "a grenade beyond the radius isn't a danger")
+
+func test_grenade_danger_points_at_nearby_grenade() -> void:
+	var m := HudModel.new()
+	# yaw 0 -> camera looks -Z; a grenade due +X is to the camera's right -> rel_bearing +90 (as compass).
+	var out := m.build({"self_pos": Vector3.ZERO, "self_eye": Vector3.ZERO, "self_yaw": 0.0,
+		"grenades": [Vector3(5, 0, 0)], "tick": 0})
+	var dg: Dictionary = out["grenade_danger"]
+	assert_false(dg.is_empty(), "a grenade within the radius raises the indicator")
+	assert_almost_eq(rad_to_deg(dg["rel_bearing"]), 90.0, 1.0, "indicator points at the grenade")
+	assert_true(dg["proximity"] > 0.0 and dg["proximity"] <= 1.0, "proximity is a 0..1 closeness")
+
+func test_grenade_danger_picks_nearest() -> void:
+	var m := HudModel.new()
+	var out := m.build({"self_pos": Vector3.ZERO, "self_eye": Vector3.ZERO, "self_yaw": 0.0,
+		"grenades": [Vector3(6, 0, 0), Vector3(2, 0, 0)], "tick": 0})
+	var dg: Dictionary = out["grenade_danger"]
+	# nearer grenade (2 m) -> higher proximity than the 6 m one would give.
+	assert_true(dg["proximity"] > 0.5, "the nearest grenade drives the strongest warning")
+
 func test_compass_bearing_wraps_behind() -> void:
 	var m := HudModel.new()
 	# yaw 0 -> camera looks -Z, so an objective at +Z is directly behind -> +/-180 deg.
