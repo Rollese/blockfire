@@ -711,6 +711,11 @@ func _on_packet(_from: ENetPacketPeer, _channel: int, bytes: PackedByteArray) ->
 			var rfx: Dictionary = Protocol.decode_rocket_fx(bytes)
 			if _renderer != null:
 				_renderer.fire_rocket(rfx["origin"], rfx["dir"], _elapsed)   # remote rocket flies + launch flash
+		Protocol.Msg.GRENADE_FX:
+			var gfx: Dictionary = Protocol.decode_grenade_fx(bytes)
+			if _renderer != null:
+				# Remote pawn's thrown grenade arcs the shared Grenade model (same as the local thrower).
+				_renderer.throw_grenade(gfx["origin"], Grenade.launch_velocity(gfx["dir"]), int(gfx["kind"]), _elapsed)
 		Protocol.Msg.DETONATION:
 			var det: Dictionary = Protocol.decode_detonation(bytes)
 			if _renderer != null:

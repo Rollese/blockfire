@@ -61,6 +61,16 @@ func test_impact_fx_round_trip() -> void:
 		assert_almost_eq(d["pos"].z, 9.1, 0.05, "impact z preserved to 0.1 m")
 		assert_eq(d["kind"], kind, "surface kind preserved")
 
+func test_grenade_fx_round_trip() -> void:
+	for kind in [Grenade.FRAG, Grenade.SMOKE]:
+		var b := Protocol.encode_grenade_fx(Vector3(8.4, 1.7, -3.6), Vector3(0.0, 1.0, 0.0), kind)
+		assert_eq(Protocol.msg_type(b), Protocol.Msg.GRENADE_FX)
+		var d := Protocol.decode_grenade_fx(b)
+		assert_almost_eq(d["origin"].x, 8.4, 0.1, "grenade origin x preserved to 0.1 m")
+		assert_almost_eq(d["origin"].z, -3.6, 0.1, "grenade origin z preserved to 0.1 m")
+		assert_almost_eq(d["dir"].y, 1.0, 0.001, "grenade dir preserved")
+		assert_eq(d["kind"], kind, "grenade kind preserved")
+
 func test_hitmarker_round_trip() -> void:
 	for hs in [false, true]:
 		for lethal in [false, true]:
