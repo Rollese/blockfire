@@ -526,8 +526,12 @@ func _fire_shot(shooter_id: int, shooter: Pawn, inp: Dictionary, shot_index: int
 	var wdef: Dictionary = _clients[shooter_id]["weapon_def"]
 	var prone: bool = shooter.stance == Stance.PRONE
 	var supp_deg := Suppress.spread_penalty_deg(shooter.suppression)   # M5.5-P2: incoming fire widens our spread
+	# Aim-down-sights tightens spread. Authoritative: honour the bit only when not sprinting (you can't
+	# physically ADS mid-sprint), so a client can't claim ADS accuracy while sprint-running.
+	var sprinting: bool = (int(inp["buttons"]) & InputCommand.BTN_SPRINT) != 0 and shooter.stance == Stance.STAND
+	var aiming: bool = (int(inp["buttons"]) & InputCommand.BTN_AIM) != 0 and not sprinting
 	var ray := Combat.reconstruct_ray(wid, shooter.eye_position(),
-		inp["yaw"], inp["pitch"], lean_sign, shooter_id, _sim.tick, shot_index, moving, prone, wdef, supp_deg)
+		inp["yaw"], inp["pitch"], lean_sign, shooter_id, _sim.tick, shot_index, moving, prone, wdef, supp_deg, aiming)
 
 	# Cosmetic: tell human clients (renderers) about this shot so remote pawns show a tracer.
 	_broadcast_shot_fx(shooter_id, ray["origin"], ray["dir"])

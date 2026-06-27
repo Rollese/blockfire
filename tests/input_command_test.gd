@@ -2,6 +2,14 @@ extends TestCase
 ## INPUT packets carry a bundle of the last N input frames (redundancy against packet loss).
 ## decode() returns {ack_seq, frames:[...]} with frames ordered oldest -> newest.
 
+func test_aim_bit_survives_u16_buttons() -> void:
+	# BTN_AIM is bit 9 (256) — only survives because buttons is a u16 on the wire now.
+	var buttons := InputCommand.BTN_AIM | InputCommand.BTN_FIRE
+	var bytes := InputCommand.encode(1, 0, 0.0, 0.0, 0.0, 0.0, buttons, 0)
+	var f: Dictionary = InputCommand.decode(bytes)["frames"][0]
+	assert_true(int(f["buttons"]) & InputCommand.BTN_AIM, "aim bit round-trips")
+	assert_true(int(f["buttons"]) & InputCommand.BTN_FIRE, "fire bit still round-trips")
+
 func test_single_frame_round_trip() -> void:
 	var buttons := InputCommand.BTN_FIRE | InputCommand.BTN_SPRINT
 	var bytes := InputCommand.encode(123, 45, 1.0, -0.5, 1.2, -0.3, buttons, 77)

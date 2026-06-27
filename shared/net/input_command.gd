@@ -17,6 +17,7 @@ const BTN_LEAN_L := 16
 const BTN_LEAN_R := 32
 const BTN_FIRE := 64
 const BTN_RELOAD := 128
+const BTN_AIM := 256   # aim-down-sights (bit 9 -> buttons is a u16 on the wire)
 
 ## Encode a single-frame bundle. Convenience wrapper kept for the bot driver and old call sites;
 ## the rendered client uses encode_bundle() to send the last N frames for redundancy.
@@ -44,7 +45,7 @@ static func _put_frame(buf: StreamPeerBuffer, f: Dictionary) -> void:
 	buf.put_16(clampi(roundi(clampf(float(f["move_y"]), -1.0, 1.0) * MOVE_SCALE), -32767, 32767))
 	buf.put_u16(Quantize.enc_angle(float(f["yaw"])))
 	buf.put_u16(Quantize.enc_angle(float(f["pitch"])))
-	buf.put_u8(int(f["buttons"]) & 0xFF)
+	buf.put_u16(int(f["buttons"]) & 0xFFFF)   # u16: room for BTN_AIM (bit 9) beyond the 8 movement/fire bits
 
 ## Decode an INPUT packet into {ack_seq, frames:[...]} with frames ordered oldest -> newest.
 ## Each frame dict has the same shape consumed by the server sim (client_tick, move_x, move_y,
@@ -68,5 +69,5 @@ static func _get_frame(buf: StreamPeerBuffer) -> Dictionary:
 		"move_y": float(buf.get_16()) / MOVE_SCALE,
 		"yaw": Quantize.dec_angle(buf.get_u16()),
 		"pitch": Quantize.dec_angle(buf.get_u16()),
-		"buttons": buf.get_u8(),
+		"buttons": buf.get_u16(),
 	}

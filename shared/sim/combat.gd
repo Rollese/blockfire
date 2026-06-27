@@ -13,9 +13,12 @@ static func _seed(shooter_id: int, fire_tick: int, shot_index: int) -> int:
 ## Returns {origin, dir}. lean: -1 left, 0 none, +1 right. moving adds spread. `prone` enables the
 ## bipod zero-spread case; `def` (optional) is an effective weapon def (Weapon.effective_def) used
 ## instead of the base when non-empty — this is how loadout attachments reach the shot.
+const ADS_SPREAD_MULT := 0.35   # aim-down-sights tightens the whole cone (BattleBit-style)
+
 static func reconstruct_ray(weapon_id: int, eye: Vector3, yaw: float, pitch: float,
 		lean: int, shooter_id: int, fire_tick: int, shot_index: int, moving: bool,
-		prone: bool = false, def: Dictionary = {}, suppression_spread_deg: float = 0.0) -> Dictionary:
+		prone: bool = false, def: Dictionary = {}, suppression_spread_deg: float = 0.0,
+		aiming: bool = false) -> Dictionary:
 	var w: Dictionary = def if not def.is_empty() else Weapon.get_def(weapon_id)
 	var rng := RandomNumberGenerator.new()
 	rng.seed = _seed(shooter_id, fire_tick, shot_index)
@@ -29,6 +32,10 @@ static func reconstruct_ray(weapon_id: int, eye: Vector3, yaw: float, pitch: flo
 	# M5.5-P2: incoming-fire suppression widens spread (gameplay-affecting). A deployed bipod
 	# (prone_spread_zero) still zeroes everything below, so it overrides suppression by design.
 	spread += deg_to_rad(suppression_spread_deg)
+	# Aim-down-sights tightens the accumulated cone (base/bloom/move/suppression all scale down).
+	# Applied before the prone-bipod override so a deployed bipod still wins (zero spread).
+	if aiming:
+		spread *= ADS_SPREAD_MULT
 	if prone and bool(w.get("prone_spread_zero", false)):
 		spread = 0.0
 	var ang := rng.randf_range(0.0, TAU)
