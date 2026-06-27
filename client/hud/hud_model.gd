@@ -61,9 +61,34 @@ func _damage(ctx: Dictionary) -> Dictionary:
 	_damages = kept
 	return {"arcs": arcs, "vignette": vignette}
 
+const GRENADE_DANGER_RADIUS := 7.0   # m — a live grenade within this of the eye raises the warning
+
+## Directional warning for the nearest live grenade (local + remote, from the renderer's cosmetic
+## pool) within GRENADE_DANGER_RADIUS of the eye. Same bearing convention as the compass/damage arcs.
+## Returns {rel_bearing, proximity} or {} when nothing is close. Pure.
+func _grenade_danger(ctx: Dictionary):
+	var grens: Array = ctx.get("grenades", [])
+	if grens.is_empty():
+		return {}
+	var eye: Vector3 = ctx.get("self_eye", ctx.get("self_pos", Vector3.ZERO))
+	var view := wrapf(float(ctx.get("self_yaw", 0.0)) + PI, -PI, PI)
+	var best := GRENADE_DANGER_RADIUS + 1.0
+	var best_pos: Variant = null
+	for gp: Vector3 in grens:
+		var dd := eye.distance_to(gp)
+		if dd <= GRENADE_DANGER_RADIUS and dd < best:
+			best = dd
+			best_pos = gp
+	if best_pos == null:
+		return {}
+	var d: Vector3 = (best_pos as Vector3) - eye
+	var world_bearing := atan2(d.x, d.z)
+	return {"rel_bearing": wrapf(view - world_bearing, -PI, PI),
+		"proximity": clampf(1.0 - best / GRENADE_DANGER_RADIUS, 0.0, 1.0)}
+
 func build(ctx: Dictionary) -> Dictionary:
 	var dmg := _damage(ctx)
-	return {"ammo": _ammo(ctx), "compass": _compass(ctx), "tickets": _tickets(ctx), "capture": _capture(ctx), "killfeed": _killfeed_current(ctx), "damage_arcs": dmg["arcs"], "vignette": dmg["vignette"], "scoreboard": _scoreboard(ctx), "squad_roster": _squad_roster(ctx), "interaction_prompt": _interaction_prompt(ctx), "throwables": _throwables(ctx), "death_recap": _death_recap(ctx)}
+	return {"ammo": _ammo(ctx), "compass": _compass(ctx), "tickets": _tickets(ctx), "capture": _capture(ctx), "killfeed": _killfeed_current(ctx), "damage_arcs": dmg["arcs"], "vignette": dmg["vignette"], "scoreboard": _scoreboard(ctx), "squad_roster": _squad_roster(ctx), "interaction_prompt": _interaction_prompt(ctx), "throwables": _throwables(ctx), "death_recap": _death_recap(ctx), "grenade_danger": _grenade_danger(ctx)}
 
 func cycle_throwable(count: int) -> void:
 	if count <= 0:

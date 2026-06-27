@@ -655,6 +655,15 @@ func _age_thrown(now: float, delta: float) -> void:
 	_thrown = live
 
 
+## World positions of the live cosmetic grenades (local throws + remote GRENADE_FX). The HUD reads
+## this to warn when one is about to go off near the player. View-only — no gameplay authority.
+func live_grenade_positions() -> Array:
+	var out: Array = []
+	for g: Dictionary in _thrown:
+		out.append((g["node"] as Node3D).position)
+	return out
+
+
 func _make_grenade(kind: int) -> Node3D:
 	var root := Node3D.new()
 	root.name = "Grenade"

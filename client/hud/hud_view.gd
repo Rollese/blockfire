@@ -35,6 +35,7 @@ var _suppress_overlay: ColorRect  # M5.5-P2 suppression screen FX (bottom of HUD
 var _suppress_mat: ShaderMaterial
 var _blind_overlay: ColorRect     # M5.5-P3 flashbang white-out (topmost; alpha = blind intensity)
 var _arc_pool: Array[Control] = []
+var _grenade_marker: _ArcMarker   # orange directional warning for a live grenade near the player
 var _prompt_label: Label          # placeholder interaction hook
 var _hitmarker: _Hitmarker        # brief crosshair flash when your shot lands
 # DBNO downed screen
@@ -109,6 +110,7 @@ func render(model: Dictionary) -> void:
 	_render_tickets(model.get("tickets", [0, 0]), model.get("capture"))
 	_render_killfeed(model.get("killfeed", []))
 	_render_damage(model.get("damage_arcs", []), float(model.get("vignette", 0.0)))
+	_render_grenade_danger(model.get("grenade_danger", {}))
 	_render_scoreboard(model.get("scoreboard", {}))
 	_render_squad_roster(model.get("squad_roster", []))
 	_render_interaction_prompt(model.get("interaction_prompt"))
@@ -452,6 +454,29 @@ func _build_damage_arcs() -> void:
 		arc.mouse_filter = MOUSE_FILTER_IGNORE
 		add_child(arc)
 		_arc_pool.append(arc)
+	# Grenade-danger marker — a bigger orange triangle, closer to centre, pulsing while a live grenade
+	# is near. Drawn over the damage arcs so it stands out from incoming-fire direction cues.
+	_grenade_marker = _ArcMarker.new()
+	_grenade_marker.tint = Color(1.0, 0.62, 0.05)
+	_grenade_marker.marker_size = 30.0
+	_grenade_marker.dist = 120.0
+	_grenade_marker.visible = false
+	_grenade_marker.mouse_filter = MOUSE_FILTER_IGNORE
+	add_child(_grenade_marker)
+
+
+## Show/aim the grenade-danger marker from the HUD model's {rel_bearing, proximity} (or hide on {}).
+func _render_grenade_danger(danger: Dictionary) -> void:
+	if danger.is_empty():
+		_grenade_marker.visible = false
+		return
+	_grenade_marker.rel_bearing = float(danger.get("rel_bearing", 0.0))
+	# Pulse: a fast sine on top of a proximity floor, so a closer grenade glows brighter + steadier.
+	var prox := clampf(float(danger.get("proximity", 0.0)), 0.0, 1.0)
+	var pulse := 0.55 + 0.45 * sin(float(Time.get_ticks_msec()) * 0.012)
+	_grenade_marker.fade = clampf(0.4 + 0.6 * prox, 0.0, 1.0) * pulse
+	_grenade_marker.visible = true
+	_grenade_marker.queue_redraw()
 
 
 func _build_prompt() -> void:
@@ -1201,6 +1226,9 @@ class _Hitmarker extends Control:
 class _ArcMarker extends Control:
 	var rel_bearing: float = 0.0   # radians, relative to camera facing
 	var fade: float = 1.0
+	var tint := Color(0.9, 0.1, 0.1)   # damage arcs are red; grenade-danger overrides to orange
+	var marker_size := 22.0            # bigger for the grenade marker
+	var dist := 160.0                  # pixels from screen centre
 
 	const _SIZE := 22.0
 	const _DIST := 160.0   # pixels from screen centre
@@ -1216,11 +1244,11 @@ class _ArcMarker extends Control:
 		# rel_bearing = 0 is forward (up on screen). Godot 2D +Y is down, so:
 		# forward = -Y. rel_bearing increases clockwise.
 		var dir := Vector2(sin(rel_bearing), -cos(rel_bearing))
-		var tip := centre + dir * _DIST
+		var tip := centre + dir * dist
 		var perp := Vector2(-dir.y, dir.x)
-		var base_half := _SIZE * 0.5
-		var base := tip - dir * _SIZE
+		var base_half := marker_size * 0.5
+		var base := tip - dir * marker_size
 		var p1 := base + perp * base_half
 		var p2 := base - perp * base_half
-		var col := Color(0.9, 0.1, 0.1, fade)
+		var col := Color(tint.r, tint.g, tint.b, fade)
 		draw_colored_polygon(PackedVector2Array([tip, p1, p2]), col)

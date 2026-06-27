@@ -94,6 +94,7 @@ var _grenade_test := false          # --grenade-test: lob cosmetic grenades acro
 var _gadget_test := false           # --gadget-test: place sample deployed gadgets in view (visual QA)
 var _gadget_bytes := PackedByteArray()   # last GADGET_LIST bytes — skip the rebuild on an unchanged heartbeat
 var _revive_marker_test := false    # --revive-marker-test: downed friendly + revive marker (visual QA)
+var _grenade_danger_test := false   # --grenade-danger-test: pin a live grenade near the player (visual QA)
 var _whiz_t := 0.0                  # --whiz-test cadence timer
 var _whiz_i := 0                    # --whiz-test alternates crack/whiz offsets
 var _active_slot := 0               # client-tracked weapon slot (0=primary/1=secondary) for quick-swap toggle
@@ -139,6 +140,7 @@ func configure(args: Dictionary) -> void:
 	_grenade_test = args.has("grenade-test")        # visual QA: lob cosmetic grenades across the view
 	_gadget_test = args.has("gadget-test")          # visual QA: place sample deployed gadgets in view
 	_revive_marker_test = args.has("revive-marker-test")   # visual QA: downed friendly + revive marker
+	_grenade_danger_test = args.has("grenade-danger-test") # visual QA: pin a live grenade near the player
 	_shot_after = float(args.get("shot-after", -1.0))  # automated screenshot then quit
 
 # ---- _ready -----------------------------------------------------------------
@@ -443,7 +445,9 @@ func _process(_dt: float) -> void:
 		"weapon_predictor": _wpred,
 		"tick": _client_tick,
 		"self_pos": _pred.predicted.pos,
+		"self_eye": _pred.predicted.eye_position(),
 		"self_yaw": _input_ctrl.yaw,   # client look yaw (camera), not the reconciled pawn yaw
+		"grenades": _grenade_danger_sources(),
 		"objectives": _objectives(),
 		"match_state": _match_state,
 		"point_positions": _point_positions(),
@@ -1001,6 +1005,16 @@ func _objectives() -> Array:
 	for i in _map.points.size():
 		var owner: int = int(pts[i]["owner"]) if i < pts.size() else -1
 		out.append({"pos": _map.points[i]["pos"], "owner": owner})
+	return out
+
+## Live grenade world-positions for the HUD danger indicator: the renderer's cosmetic pool (local
+## throws + remote GRENADE_FX), plus a pinned synthetic one under --grenade-danger-test.
+func _grenade_danger_sources() -> Array:
+	var out: Array = []
+	if _renderer != null:
+		out = _renderer.live_grenade_positions()
+	if _grenade_danger_test and _pred != null and _pred.predicted != null:
+		out.append(_pred.predicted.eye_position() + Vector3(3.0, 0.0, 0.0))   # QA: a grenade ~3 m away
 	return out
 
 func _point_positions() -> Array:
