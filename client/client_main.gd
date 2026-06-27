@@ -558,6 +558,8 @@ func _process(_dt: float) -> void:
 			_net.send_to(_peer, NetHost.CHANNEL_CONTROL, Protocol.encode_melee(), ENetPacketPeer.FLAG_RELIABLE)
 			if _renderer != null:
 				_renderer.play_viewmodel_swing(_elapsed)
+			if _audio != null:
+				_audio.play_2d("melee")   # own swing whoosh (was a dead catalog entry); hit-confirm stays the hitmarker
 
 		# Quick-swap primary/secondary (mouse wheel): toggle the slot; the swap anim plays when the
 		# weapon actually changes (SELF_STATE → set_viewmodel_weapon), so client and server stay in step.
