@@ -140,6 +140,8 @@ var land_demo := false            # --land-test: pump landing dust + viewmodel d
 var _land_demo_next := 0.0
 var firepose_demo := false        # --firepose-test: pin a fire-recoil-posed dummy beside an upright one (QA)
 var _firepose_demo_done := false
+var glbshoot_demo := false        # --glbshoot-test: GLB hold vs holding-both-shoot clip A/B (QA)
+var _glbshoot_demo_done := false
 
 # active entity nodes: id(int) -> Node3D (CharacterKit soldier)
 var _active: Dictionary = {}
@@ -525,6 +527,7 @@ func update(world_view: WorldView, predictor: Prediction, now: float, fov: float
 	_ensure_jump_demo(now)
 	_ensure_land_demo(now)
 	_ensure_firepose_demo(now)
+	_ensure_glbshoot_demo(now)
 
 
 ## Visual QA (--armor-demo): once the camera exists, pin LIGHT/MEDIUM/HEAVY dummy soldiers in front
@@ -1456,6 +1459,22 @@ func _ensure_climb_demo(now: float) -> void:
 	_camera.add_child(climber)
 
 
+## Visual QA (--glbshoot-test): two GLB soldiers side-by-side — left plays the resting `holding-both`
+## clip, right plays the authored `holding-both-shoot` (recoil) clip — so the shoot pose is verifiable
+## independent of the use_models setting. Builds GLB directly (not the procedural kit).
+func _ensure_glbshoot_demo(now: float) -> void:
+	if not glbshoot_demo or _glbshoot_demo_done or _camera == null or now < 1.0:
+		return
+	_glbshoot_demo_done = true
+	# Both placed left of centre so the local viewmodel (bottom-right) doesn't occlude them.
+	for spec in [{"x": -2.4, "clip": "holding-both"}, {"x": -0.7, "clip": "holding-both-shoot"}]:
+		var dummy := GlbCharacterKit.build()
+		dummy.position = Vector3(float(spec["x"]), -1.5, -2.8)
+		dummy.rotation.y = PI   # face the camera
+		_camera.add_child(dummy)
+		CharacterDriver.drive(GlbCharacterKit.anim_player(dummy), String(spec["clip"]), true)
+
+
 ## Visual QA (--firepose-test): upright dummy next to one frozen at peak fire-recoil (lean back).
 func _ensure_firepose_demo(now: float) -> void:
 	if not firepose_demo or _firepose_demo_done or _camera == null or now < 1.0:
@@ -1626,7 +1645,9 @@ func _pose_entity(id: int, node: Node3D, es: EntityState, render_delta: float) -
 			speed = minf(flat.length() / SimLoop.DT, 20.0)   # 20 m/s cap: a respawn/teleport jump can't read as a sprint
 			_last_speed[id] = speed
 			_last_pos[id] = es.pos
-		var sel: Dictionary = CharacterAnim.clip_for(es.is_downed, speed, es.stance)
+		# Firing (from SHOT_FX shooter_id) swaps the stationary hold to the authored shoot clip.
+		var firing := _now < float(_fire_recoil.get(id, 0.0))
+		var sel: Dictionary = CharacterAnim.clip_for(es.is_downed, speed, es.stance, firing)
 		CharacterDriver.drive(_entity_ap.get(id) as AnimationPlayer, sel["clip"], sel["loop"])
 	# Airborne inference must run every frame (continuous vy estimate) — before the early-return poses.
 	var airborne := _update_airborne(id, es, render_delta, _now)
@@ -1673,7 +1694,9 @@ func _pose_entity(id: int, node: Node3D, es: EntityState, render_delta: float) -
 	# lean tilt as a roll about local Z. Built with rotated() so the recoil is facing-relative; reduces
 	# to the old from_euler(0,yaw,tilt) when recoil=0. Set basis BEFORE scale (scale preserves rotation).
 	var fb := Basis.IDENTITY.rotated(Vector3.UP, es.yaw)
-	var recoil := _fire_recoil_pitch(id)
+	# Body-pitch recoil twitch for the procedural body only — the GLB path uses the authored
+	# holding-both-shoot clip instead (applying both would double the recoil).
+	var recoil := 0.0 if use_models else _fire_recoil_pitch(id)
 	if recoil != 0.0:
 		fb = fb.rotated(fb.x, recoil)
 	if tilt != 0.0:

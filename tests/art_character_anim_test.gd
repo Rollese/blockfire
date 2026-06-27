@@ -24,3 +24,16 @@ func test_downed_uses_calm_lying_pose() -> void:
 func test_downed_overrides_movement() -> void:
 	var r := CharacterAnim.clip_for(true, 6.0, Stance.STAND)
 	assert_eq(r["clip"], "idle", "downed wins over speed (no sprinting while incapacitated)")
+
+func test_firing_stationary_uses_shoot_clip() -> void:
+	var r := CharacterAnim.clip_for(false, 0.0, Stance.STAND, true)
+	assert_eq(r["clip"], "holding-both-shoot", "stationary + firing -> authored shoot clip")
+	assert_true(r["loop"], "shoot clip loops for sustained auto-fire")
+
+func test_firing_while_moving_keeps_locomotion() -> void:
+	# A moving shooter keeps walk/sprint (the body-pitch recoil twitch covers fire feedback in motion).
+	assert_eq(CharacterAnim.clip_for(false, 1.5, Stance.STAND, true)["clip"], "walk", "walking+firing stays walk")
+	assert_eq(CharacterAnim.clip_for(false, 6.0, Stance.STAND, true)["clip"], "sprint", "sprinting+firing stays sprint")
+
+func test_not_firing_stationary_is_plain_hold() -> void:
+	assert_eq(CharacterAnim.clip_for(false, 0.0, Stance.STAND, false)["clip"], "holding-both", "stationary idle -> plain hold")
