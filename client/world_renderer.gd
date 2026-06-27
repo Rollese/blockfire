@@ -25,7 +25,11 @@ const STRUCT_DESTROY_DUR := 0.14   # seconds for destroy pop scale-down before r
 
 # -- viewmodel placeholder dimensions -----------------------------------------
 const VM_OFFSET := Vector3(0.15, -0.12, -0.28)   # right / down / forward in camera space (pulled back from -0.40 — was too far forward)
+const VM_ADS_OFFSET := Vector3(0.05, -0.20, -0.34)  # ADS: pull the gun inboard + low so it braces under the (zoomed) sightline without filling the view
 const VM_YAW := PI   # GlbWeaponKit aims the barrel +Z; camera-forward is -Z, so flip 180° to aim with the view
+var _ads_t := 0.0   # 0..1 aim-down-sights blend (client-only visual zoom/pose); set each frame by client_main
+var _vm_photo_hidden := false   # viewmodel hidden by photo/free-fly mode
+var _vm_scope_hidden := false   # viewmodel hidden while scoped (look through the scope, not at the gun)
 
 # -- tracer (shot feedback) ---------------------------------------------------
 const TRACER_POOL := 16
@@ -307,8 +311,24 @@ func setup(map: MapDef, camera: Camera3D) -> void:
 
 ## Hide/show the first-person viewmodel (photo/free-fly mode wants a clean frame with no gun).
 func set_viewmodel_hidden(h: bool) -> void:
+	_vm_photo_hidden = h
+	_apply_vm_visibility()
+
+## Hide the viewmodel while scoped — you look *through* the scope, not at the gun (the centred gun
+## would otherwise fill the scope circle). Composes with the photo-mode hide.
+func set_viewmodel_scope_hidden(h: bool) -> void:
+	_vm_scope_hidden = h
+	_apply_vm_visibility()
+
+func _apply_vm_visibility() -> void:
 	if _viewmodel != null:
-		_viewmodel.visible = not h
+		_viewmodel.visible = not (_vm_photo_hidden or _vm_scope_hidden)
+
+## Aim-down-sights blend (0 = hip, 1 = fully aimed). Client-only visual: shifts the viewmodel to the
+## sight line (see _pose_viewmodel) and damps the locomotion bob. The matching FOV zoom is applied by
+## client_main (it owns the per-weapon FOV). View-only (AGENTS.md §7).
+func set_ads(t: float) -> void:
+	_ads_t = clampf(t, 0.0, 1.0)
 
 ## Swap the first-person viewmodel to match the equipped weapon. Rebuilds only when the weapon id
 ## changes (so e.g. an RPG loadout shows the launcher, not the default AR). Call each frame.
@@ -394,8 +414,11 @@ func _pose_viewmodel(now: float) -> void:
 			_vm_anim_kind = -1   # done → back to rest
 		else:
 			off = ViewmodelAnim.sample(_vm_anim_kind, t)
-	_viewmodel.position = VM_OFFSET + (off["pos"] as Vector3) + _vm_loco_pos
-	_viewmodel.rotation = Vector3(0.0, VM_YAW, 0.0) + (off["rot"] as Vector3) + _vm_loco_rot
+	# ADS pulls the gun to the sight line and damps the locomotion bob (you hold steadier when aiming).
+	var base_pos: Vector3 = VM_OFFSET.lerp(VM_ADS_OFFSET, _ads_t)
+	var loco_damp: float = 1.0 - 0.85 * _ads_t
+	_viewmodel.position = base_pos + (off["pos"] as Vector3) + _vm_loco_pos * loco_damp
+	_viewmodel.rotation = Vector3(0.0, VM_YAW, 0.0) + (off["rot"] as Vector3) + _vm_loco_rot * loco_damp
 
 
 ## First-person weapon viewmodel: a GlbWeaponKit weapon placed at the camera-space offset and yawed

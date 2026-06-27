@@ -28,16 +28,18 @@ static func move_world(local_x: float, local_z: float, yaw: float) -> Vector2:
 	return Vector2(local_x, local_z).rotated(-yaw)
 
 ## Apply accumulated look. Separated out so it is unit-testable without the Input singleton.
-func apply_look(rel: Vector2, settings: ClientSettings) -> void:
-	var gain := LOOK_RAD_PER_PIXEL * settings.sensitivity
+func apply_look(rel: Vector2, settings: ClientSettings, look_scale: float = 1.0) -> void:
+	# look_scale < 1 slows the look while aiming down sights so the on-screen angular speed stays
+	# ~constant as the FOV tightens (BattleBit-style zoom sensitivity).
+	var gain := LOOK_RAD_PER_PIXEL * settings.sensitivity * look_scale
 	yaw = wrapf(yaw - rel.x * gain, -PI, PI)
 	var inv := -1.0 if settings.invert_y else 1.0
 	pitch = clampf(pitch - rel.y * gain * inv, -Pawn.MAX_PITCH, Pawn.MAX_PITCH)
 
 ## Apply the mouse delta accumulated since the last call, then clear it. Called at RENDER rate
 ## (not the 30 Hz sim tick) so mouse-look is smooth — gather() then just reads the current yaw/pitch.
-func update_look(settings: ClientSettings) -> void:
-	apply_look(_mouse_rel, settings)
+func update_look(settings: ClientSettings, look_scale: float = 1.0) -> void:
+	apply_look(_mouse_rel, settings, look_scale)
 	_mouse_rel = Vector2.ZERO
 
 func gather(settings: ClientSettings) -> Dictionary:

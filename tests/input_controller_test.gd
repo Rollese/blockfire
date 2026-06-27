@@ -20,6 +20,15 @@ func test_pitch_clamps_to_max() -> void:
 	assert_true(ic.pitch <= Pawn.MAX_PITCH + 0.001 and ic.pitch >= -Pawn.MAX_PITCH - 0.001, "pitch clamped")
 	assert_almost_eq(absf(ic.pitch), Pawn.MAX_PITCH, 0.001, "saturates at MAX_PITCH")
 
+func test_look_scale_reduces_rotation_proportionally() -> void:
+	# ADS zoom-sensitivity: a look_scale < 1 must slow yaw by exactly that factor (vs. the default 1.0).
+	var s := ClientSettings.new()
+	var full := _ic(); full.apply_look(Vector2(100, 0), s)            # default look_scale = 1.0
+	var half := _ic(); half.apply_look(Vector2(100, 0), s, 0.5)       # half-speed (zoomed)
+	# yaw starts at 0 and decreases with +rel.x; half should move half as far.
+	assert_almost_eq(half.yaw, full.yaw * 0.5, 0.0001, "look_scale 0.5 halves yaw delta")
+	assert_true(absf(full.yaw) > absf(half.yaw), "scaled look is slower than full")
+
 func test_move_basis_matches_aim_convention() -> void:
 	# Combat._forward defines forward(yaw)=(sin,cos), right(yaw)=(cos,-sin) on XZ; the user's
 	# aim follows it. Pressing W (local_z=+1) must move along forward, D (local_x=+1) along right.
