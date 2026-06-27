@@ -90,6 +90,7 @@ var _sprint_test := false           # --sprint-test: freeze the viewmodel sprint
 var _reload_test := false           # --reload-test: freeze the viewmodel mid-reload for a visual QA shot
 var _whiz_test := false             # --whiz-test: pump synthetic near-miss rounds across the view (crack/whiz QA)
 var _smoke_test := false            # --smoke-test: pop a smoke cloud in front of the camera (visual QA)
+var _grenade_test := false          # --grenade-test: lob cosmetic grenades across the view (visual QA)
 var _whiz_t := 0.0                  # --whiz-test cadence timer
 var _whiz_i := 0                    # --whiz-test alternates crack/whiz offsets
 var _active_slot := 0               # client-tracked weapon slot (0=primary/1=secondary) for quick-swap toggle
@@ -132,6 +133,7 @@ func configure(args: Dictionary) -> void:
 	_reload_test = args.has("reload-test")          # visual QA: freeze the viewmodel mid-reload
 	_whiz_test = args.has("whiz-test")              # audio+visual QA: synthetic near-miss crack/whiz rounds
 	_smoke_test = args.has("smoke-test")            # visual QA: pop a smoke cloud in front of the camera
+	_grenade_test = args.has("grenade-test")        # visual QA: lob cosmetic grenades across the view
 	_shot_after = float(args.get("shot-after", -1.0))  # automated screenshot then quit
 
 # ---- _ready -----------------------------------------------------------------
@@ -587,6 +589,11 @@ func _process(_dt: float) -> void:
 				if kind == Grenade.FRAG or kind == Grenade.SMOKE:
 					_net.send_to(_peer, NetHost.CHANNEL_CONTROL,
 						Protocol.encode_grenade_throw(aim_dir, kind), ENetPacketPeer.FLAG_RELIABLE)
+					if _renderer != null:
+						# Instant thrower feedback: a cosmetic grenade arcs along the shared Grenade
+						# model from the eye (matching the server) and vanishes on landing / at the fuse.
+						_renderer.throw_grenade(_pred.predicted.eye_position(),
+							Grenade.launch_velocity(aim_dir), kind, _elapsed)
 				elif kind == 100:  # RPG
 					_net.send_to(_peer, NetHost.CHANNEL_CONTROL,
 						Protocol.encode_gadget_action(Protocol.GA_RPG_FIRE,
@@ -868,6 +875,7 @@ func _build_scene() -> void:
 	_renderer.corpse_demo = _corpse_test # --corpse-test: lay corpses for a QA screenshot
 	_renderer.footstep_demo = _footstep_test # --footstep-test: pump footstep dust for a QA screenshot
 	_renderer.smoke_demo = _smoke_test   # --smoke-test: pop a smoke cloud for a QA screenshot
+	_renderer.grenade_demo = _grenade_test # --grenade-test: lob cosmetic grenades for a QA screenshot
 	_renderer.vm_swing_test = _swing_test # --swing-test: freeze the viewmodel mid-swing
 	_renderer.vm_recoil_test = _recoil_test # --recoil-test: freeze the viewmodel mid-recoil-kick
 	_renderer.vm_sprint_test = _sprint_test # --sprint-test: freeze the viewmodel sprint-lowered

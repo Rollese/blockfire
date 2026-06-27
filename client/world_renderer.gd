@@ -50,6 +50,12 @@ const ROCKET_SPEED := 150.0       # MUST match data/gadgets.json rpg rocket_spee
 const ROCKET_LIFETIME := 5.0      # s safety cap before a cosmetic rocket self-despawns
 const ROCKET_TRAIL_DT := 0.03     # s between trail puffs
 var _rockets: Array = []          # [{node: Node3D, vel: Vector3, die: float, next_puff: float}]
+# thrown-grenade cosmetics (M7, view-only): the local thrower sees their own frag/smoke fly the
+# shared Grenade ballistic arc (matching the server's eye-origin + launch_velocity) and vanish on
+# ground contact or at the 1.5 s fuse — the DETONATION / SMOKE_DEPLOYED event then plays the effect.
+const GRENADE_FUSE := 1.5         # s — MUST match server GRENADE_FUSE_TICKS (45 @ 30 Hz)
+const GRENADE_TRAIL_DT := 0.05    # s between a smoke grenade's faint trail puffs
+var _thrown: Array = []           # [{node:Node3D, vel:Vector3, die:float, kind:int, next_trail:float}]
 var _puffs: Array = []            # [{node, mat, die, ttl}] — smoke trail + impact puffs
 var _blasts: Array = []           # [{node, mat, born, die, ttl, s0, s1, color}] — explosion fireball cores
 var _debris: Array = []           # [{node, vel, die}] — explosion debris chunks
@@ -62,6 +68,9 @@ const SMOKE_COLOR := Color(0.84, 0.85, 0.87)   # light cool grey
 var _smokes: Array = []           # [{root:Node3D, mats:Array, born:float, dur:float, base:Array}]
 var smoke_demo := false           # --smoke-test: pop a smoke cloud in front of the camera (QA)
 var _smoke_demo_next := 0.0       # re-pop cadence (so a cloud lands in front AFTER the player deploys)
+var grenade_demo := false         # --grenade-test: lob cosmetic grenades across the view (QA)
+var _grenade_demo_next := 0.0
+var _grenade_demo_i := 0
 var boom_demo := false            # --boom-test: pump frag explosions in front of the camera (QA)
 var _boom_next := 0.0
 var _boom_i := 0
@@ -424,6 +433,7 @@ func update(world_view: WorldView, predictor: Prediction, now: float, fov: float
 	_age_debris(now, render_delta)
 	_age_corpses(now)
 	_age_smokes(now)
+	_age_thrown(now, render_delta)
 
 	# 5. QA: armor-tier dummies (--armor-demo) + explosion pump (--boom-test) + corpses (--corpse-test)
 	_ensure_armor_demo()
@@ -432,6 +442,7 @@ func update(world_view: WorldView, predictor: Prediction, now: float, fov: float
 	_ensure_corpse_demo(now)
 	_ensure_footstep_demo(now)
 	_ensure_smoke_demo(now)
+	_ensure_grenade_demo(now)
 
 
 ## Visual QA (--armor-demo): once the camera exists, pin LIGHT/MEDIUM/HEAVY dummy soldiers in front
@@ -595,6 +606,63 @@ func _make_rocket() -> Node3D:
 	return root
 
 
+# =============================================================================
+#  Thrown grenade cosmetics (M7) — local thrower feedback for frag/smoke.
+# =============================================================================
+
+## Spawn a cosmetic thrown grenade arcing from `origin` with initial `vel` (use Grenade.launch_velocity
+## from the look dir, matching the server). `kind` is Grenade.FRAG / Grenade.SMOKE — only the colour
+## differs. It flies the shared ballistic arc and vanishes on ground contact or at the fuse; the
+## server's DETONATION / SMOKE_DEPLOYED then plays the blast / cloud at the landing point.
+func throw_grenade(origin: Vector3, vel: Vector3, kind: int, now: float) -> void:
+	if not origin.is_finite() or not vel.is_finite():
+		return
+	var node := _make_grenade(kind)
+	node.position = origin
+	add_child(node)
+	_thrown.append({"node": node, "vel": vel, "die": now + GRENADE_FUSE, "kind": kind, "next_trail": now})
+
+
+func _age_thrown(now: float, delta: float) -> void:
+	if _thrown.is_empty():
+		return
+	var live: Array = []
+	for g: Dictionary in _thrown:
+		var node: Node3D = g["node"]
+		var s := Grenade.integrate(node.position, g["vel"], delta)
+		var npos: Vector3 = s["pos"]
+		g["vel"] = s["vel"]
+		# a smoke canister leaks a faint trail so the throw reads in the air
+		if int(g["kind"]) == Grenade.SMOKE and now >= float(g["next_trail"]):
+			_spawn_puff(node.position, 0.3, 0.45, now, Color(0.78, 0.80, 0.80, 0.4))
+			g["next_trail"] = now + GRENADE_TRAIL_DT
+		if now >= float(g["die"]) or npos.y <= 0.0:
+			node.queue_free()   # detonation/smoke event plays the end effect at the landing point
+			continue
+		node.position = npos
+		node.rotate_x(delta * 9.0)   # tumble in flight
+		live.append(g)
+	_thrown = live
+
+
+func _make_grenade(kind: int) -> Node3D:
+	var root := Node3D.new()
+	root.name = "Grenade"
+	var body := MeshInstance3D.new()
+	var sm := SphereMesh.new(); sm.radius = 0.11; sm.height = 0.30; sm.radial_segments = 8; sm.rings = 5
+	body.mesh = sm
+	var mat := StandardMaterial3D.new()
+	# frag = dark olive, smoke = grey-green canister
+	mat.albedo_color = Color(0.20, 0.24, 0.12) if kind == Grenade.FRAG else Color(0.30, 0.40, 0.34)
+	mat.metallic = 0.2; mat.roughness = 0.7
+	body.material_override = mat
+	body.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	root.add_child(body)
+	return root
+
+
+
+
 func _spawn_puff(pos: Vector3, size: float, ttl: float, now: float, color := Color(0.55, 0.55, 0.55, 0.65)) -> void:
 	var node := MeshInstance3D.new()
 	var sm := SphereMesh.new(); sm.radius = size * 0.5; sm.height = size; sm.radial_segments = 6; sm.rings = 3
@@ -710,6 +778,22 @@ func _ensure_smoke_demo(now: float) -> void:
 	var at := cb.origin + fwd * 16.0   # downrange, so it reads as a discrete cloud (not enveloping the eye)
 	at.y = 0.0
 	spawn_smoke(at, 6.0, 5.0, now)
+
+
+## Visual QA (--grenade-test): lob a cosmetic grenade across the view every ~0.5 s (alternating
+## frag/smoke) so a screenshot reliably catches one mid-arc.
+func _ensure_grenade_demo(now: float) -> void:
+	if not grenade_demo or _camera == null or now < _grenade_demo_next:
+		return
+	var cb := _camera.global_transform
+	if not cb.origin.is_finite():
+		return
+	_grenade_demo_next = now + 0.5
+	var fwd := (-cb.basis.z).normalized()
+	var dir := (fwd + Vector3.UP * 0.5).normalized()   # forward + up, so it arcs across the frame
+	var kind := Grenade.FRAG if _grenade_demo_i % 2 == 0 else Grenade.SMOKE
+	_grenade_demo_i += 1
+	throw_grenade(cb.origin + fwd * 0.6, Grenade.launch_velocity(dir), kind, now)
 
 
 
