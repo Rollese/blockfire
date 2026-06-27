@@ -1135,6 +1135,8 @@ func _casing_material() -> StandardMaterial3D:
 ## Eject a brass shell casing from the local gun's port on each shot. Spawned in WORLD space at the
 ## camera (so it tumbles + falls independently of the view, not glued to it), flung to the right of
 ## the eye with a touch of up/back + per-shot variation. Cosmetic, local-player only. View-only (§7).
+## Local gun's casing — framed near the camera's ejection port (pops up-and-right, briefly visible
+## before falling away; a pure rightward eject leaves the frame instantly).
 func eject_casing(now: float) -> void:
 	if _camera == null:
 		return
@@ -1144,6 +1146,20 @@ func eject_casing(now: float) -> void:
 	var right := cb.basis.x.normalized()
 	var up := cb.basis.y.normalized()
 	var fwd := (-cb.basis.z).normalized()
+	_spawn_casing(cb.origin + right * 0.22 + up * (-0.10) + fwd * 0.42, right, up, fwd, now)
+
+## Remote shooter's casing, driven by SHOT_FX origin+dir (no shooter_id needed). Ejects to the right
+## of the aim direction at the muzzle. dir = shot direction; a horizontal "right" is derived from it.
+func eject_casing_at(origin: Vector3, dir: Vector3, now: float) -> void:
+	if not origin.is_finite() or not dir.is_finite():
+		return
+	var fwd := dir.normalized()
+	var right := fwd.cross(Vector3.UP).normalized()
+	if right.length() < 0.01:
+		right = Vector3(1, 0, 0)   # near-vertical aim fallback
+	_spawn_casing(origin + right * 0.2 + Vector3(0, 0.05, 0), right, Vector3.UP, fwd, now)
+
+func _spawn_casing(pos: Vector3, right: Vector3, up: Vector3, fwd: Vector3, now: float) -> void:
 	_casing_i += 1
 	var jitter := float((_casing_i % 5) - 2) * 0.4   # -0.8..0.8 spread, no per-frame RNG
 	var node := MeshInstance3D.new()
@@ -1152,11 +1168,10 @@ func eject_casing(now: float) -> void:
 	node.mesh = cyl
 	node.material_override = _casing_material()
 	node.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	node.position = cb.origin + right * 0.22 + up * (-0.10) + fwd * 0.42   # near the ejection port
+	node.position = pos
 	node.rotation = Vector3(0.0, 0.0, PI * 0.5)   # lay it on its side initially
 	add_child(node)
-	# Pop up-and-right so the brass is briefly visible near the gun before it falls away to the right
-	# (a pure rightward eject leaves the frame almost instantly).
+	# Pop up-and-right so the brass arcs out of the port rather than shooting straight sideways.
 	var vel := right * (1.4 + jitter) + up * 2.8 + fwd * (-0.3)
 	var spin := Vector3(8.0 + jitter, 5.0, 11.0)   # rad/s tumble
 	_casings.append({"node": node, "vel": vel, "spin": spin, "die": now + CASING_TTL})
@@ -1164,12 +1179,18 @@ func eject_casing(now: float) -> void:
 		var old: Dictionary = _casings.pop_front()
 		(old["node"] as Node3D).queue_free()
 
-## Visual QA (--casing-test): eject a casing every ~0.12 s so a screenshot catches brass mid-air.
+## Visual QA (--casing-test): eject a local casing + a remote-path casing (downrange) every ~0.12 s so
+## a screenshot catches brass mid-air from both the local-gun and the SHOT_FX (remote) paths.
 func _ensure_casing_demo(now: float) -> void:
 	if not casing_demo or _camera == null or now < _casing_demo_next:
 		return
 	_casing_demo_next = now + 0.12
 	eject_casing(now)
+	var cb := _camera.global_transform
+	if cb.origin.is_finite():
+		var fwd := (-cb.basis.z).normalized()
+		var muzzle := cb.origin + fwd * 4.0 + Vector3(0, 0.3, 0)   # stand in for a remote shooter downrange
+		eject_casing_at(muzzle, fwd, now)
 
 func _age_casings(now: float, delta: float) -> void:
 	if _casings.is_empty():
