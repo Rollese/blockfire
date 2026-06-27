@@ -169,6 +169,7 @@ func _ready() -> void:
 	_pred = Prediction.new()
 	if _map != null:
 		_pred.world_half = _map.world_half   # clamp local prediction to the map like the server
+		_pred.set_geometry(_map.ladders, _map.platforms)   # so climb/platform predict like the server
 	# Client mirror of the server's piece catalog, so prediction can collide with structures (walls).
 	# Built from STRUCTURE_BASELINE/DELTA; without it the client predicts through walls and rubber-bands.
 	_piece_cat = PieceCatalog.load_file("res://pieces/pieces.json")
