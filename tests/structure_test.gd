@@ -127,3 +127,24 @@ func test_ids_in_radius_returns_occupied_within_range() -> void:
 	var wider := s.ids_in_radius(Vector3(1, 1, 1), 4.5)
 	assert_eq(wider.size(), 2)
 	assert_eq(wider.has(1) and wider.has(2), true)
+
+func test_repair_chunks_refills_a_holed_piece() -> void:
+	var cat: PieceCatalog = PieceCatalog.from_dict({"pieces": [{"id": "wall", "height": "full", "health": 350,
+		"material": "CONCRETE", "chunk_grid": 8, "damage": ["explosive", "melee"]}]})["catalog"]
+	var s := StructureStore.new(cat)
+	s.place(1, 0, Vector3i(0, 0, 0), 0, 9)
+	var center := BuildGrid.cell_min(Vector3i(0, 0, 0)) + Vector3(0.5, 0.5, 0.5)
+	var dmg: Dictionary = s.damage_chunks(1, PieceCatalog.SRC_EXPLOSIVE, center, 0.6)
+	assert_true(dmg["hit"], "explosive holes the wall")
+	var holed_mask := int(s.get_record(1)["chunks"])
+	var rep: Dictionary = s.repair_chunks(1, center, 0.6)
+	assert_true(rep["changed"], "repair re-sets cleared chunks")
+	assert_true(int(s.get_record(1)["chunks"]) != holed_mask, "mask grew back toward full")
+
+func test_repair_noop_on_full_piece() -> void:
+	var cat: PieceCatalog = PieceCatalog.from_dict({"pieces": [{"id": "wall", "height": "full", "health": 350,
+		"material": "CONCRETE", "chunk_grid": 8, "damage": ["explosive"]}]})["catalog"]
+	var s := StructureStore.new(cat)
+	s.place(1, 0, Vector3i(0, 0, 0), 0, 9)
+	var rep: Dictionary = s.repair_chunks(1, Vector3(0, 0, 0), 0.6)
+	assert_false(rep["changed"], "repairing an intact piece does nothing")
