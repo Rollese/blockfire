@@ -109,3 +109,25 @@ func test_surface_and_ramp_flags() -> void:
 	assert_true(cat.is_ramp(stair_t), "bstair is a ramp")
 	assert_false(cat.is_flat_surface(wall_t), "bwall is neither surface nor ramp")
 	assert_false(cat.is_ramp(wall_t), "bwall is not a ramp")
+
+func test_build_cost_and_min_builders_parse() -> void:
+	var data := {"pieces": [
+		{"id": "small", "height": "half", "health": 150, "material": "METAL_THIN", "chunk_grid": 8,
+			"build_cost": 120, "min_builders": 1, "damage": ["explosive", "melee"]},
+		{"id": "big", "height": "full", "health": 600, "material": "CONCRETE", "chunk_grid": 8,
+			"build_cost": 600, "min_builders": 2, "damage": ["explosive", "melee"]},
+	]}
+	var r := PieceCatalog.from_dict(data)
+	assert_true(r["ok"], "catalog with build fields parses: %s" % r["error"])
+	var c: PieceCatalog = r["catalog"]
+	assert_eq(c.build_cost_of(0), 120, "small build_cost parsed")
+	assert_eq(c.min_builders_of(0), 1, "small needs 1 builder")
+	assert_eq(c.build_cost_of(1), 600, "large build_cost parsed")
+	assert_eq(c.min_builders_of(1), 2, "large needs 2 builders")
+
+func test_build_fields_default_when_absent() -> void:
+	var data := {"pieces": [{"id": "p", "height": "half", "health": 100, "material": "WOOD",
+		"chunk_grid": 1, "damage": ["melee"]}]}
+	var c: PieceCatalog = PieceCatalog.from_dict(data)["catalog"]
+	assert_eq(c.min_builders_of(0), 1, "min_builders defaults to 1 (solo)")
+	assert_eq(c.build_cost_of(0), 60, "build_cost defaults to maxi(60, health/2) = 60")

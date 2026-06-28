@@ -2,6 +2,13 @@ extends TestCase
 ## INPUT packets carry a bundle of the last N input frames (redundancy against packet loss).
 ## decode() returns {ack_seq, frames:[...]} with frames ordered oldest -> newest.
 
+func test_btn_shovel_round_trips() -> void:
+	var btns := InputCommand.BTN_SHOVEL | InputCommand.BTN_FIRE
+	var bytes := InputCommand.encode(1, 0, 0.0, 0.0, 0.0, 0.0, btns, 0)
+	var f: Dictionary = InputCommand.decode(bytes)["frames"][0]
+	assert_true((int(f["buttons"]) & InputCommand.BTN_SHOVEL) != 0, "shovel bit survives the wire")
+	assert_eq(InputCommand.BTN_SHOVEL, 512, "shovel is bit 9 (free above BTN_AIM)")
+
 func test_aim_bit_survives_u16_buttons() -> void:
 	# BTN_AIM is bit 9 (256) — only survives because buttons is a u16 on the wire now.
 	var buttons := InputCommand.BTN_AIM | InputCommand.BTN_FIRE

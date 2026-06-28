@@ -54,6 +54,12 @@ func is_half(type: int) -> bool:
 func health_of(type: int) -> int:
 	return int(pieces[type]["health"])
 
+func build_cost_of(type: int) -> int:
+	return int(pieces[type]["build_cost"]) if type >= 0 and type < pieces.size() else 60
+
+func min_builders_of(type: int) -> int:
+	return int(pieces[type]["min_builders"]) if type >= 0 and type < pieces.size() else 1
+
 func chunk_grid_of(type: int) -> int:
 	return int(pieces[type]["chunk_grid"])
 
@@ -137,7 +143,9 @@ static func from_dict(data: Dictionary) -> Dictionary:
 			"material": _MATERIALS[mat_str], "chunk_grid": grid,
 			"structural": bool(p.get("structural", false)), "damage_types": dmg,
 			"passable": bool(p.get("passable", false)),
-			"surface": bool(p.get("surface", false)), "ramp": bool(p.get("ramp", false))})
+			"surface": bool(p.get("surface", false)), "ramp": bool(p.get("ramp", false)),
+			"build_cost": int(p.get("build_cost", maxi(60, health / 2))),
+			"min_builders": clampi(int(p.get("min_builders", 1)), 1, 4)})
 	return {"ok": true, "catalog": c, "error": ""}
 
 static func load_file(path: String) -> PieceCatalog:

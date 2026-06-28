@@ -7,11 +7,18 @@ const Protocol := preload("res://shared/net/protocol.gd")
 const MAP_PATH := "res://maps/conquest_proving_grounds.json"   # default; override with --map=<name>
 const BUILD_COOLDOWN_TICKS := 150   # match server StructureStore.BUILD_COOLDOWN_TICKS (5s)
 const BUILD_DIST := 3.0             # how far ahead (m) to drop cover; within server BUILD_RANGE
-const MAX_BOT_BUILDS := 0           # bots no longer auto-drop cover walls. Was 1 to exercise build/
-                                    # destruction on the fleet gate, but the walls cluttered spawn and
-                                    # trapped bots/vehicles in a human playtest, and the build+destruction
-                                    # mechanic is proven by unit tests (not emergent bot builds).
-                                    # Re-enable (set >0) behind a flag if a fleet build-exercise is wanted.
+const MAX_BOT_BUILDS := 3           # per-bot lifetime BUILD_REQUEST cap. Re-enabled (was 0) so the
+                                    # M12-P2 shovel-drillers (index % 8 == 4) can PLACE build sites and
+                                    # the fleet gate sees built_small/built_large/bsolo/dismantled/repaired.
+                                    # Normal bots only drop a side-wall while stationary (original gate
+                                    # behaviour); 3 is a small cap so it does not clutter combat.
+const PIECES_PATH := "res://pieces/pieces.json"   # match server PIECES_PATH (shovel-drill type lookup)
+const WALL_TYPE := 1                # small piece (min_builders 1) shovel-drillers build solo
+const SHOVEL_APPROACH := BuildSite.SHOVEL_RANGE * 0.8   # stop+shovel once this close to the site centre
+const BUILD_COMMIT_TICKS := 90     # ticks a driller stays on a just-placed cell awaiting its site delta
+const SHOVEL_SEEK_RANGE := 28.0    # m: build-capped drillers roam to a structure within this to repair/dismantle
+const SMALL_LANES := 13            # per-team lane slots a small driller scans for a clear near-base build cell
+const SMALL_BUILD_DEPTH := 6.0     # m in front of the base (toward map centre) where small build lanes sit
 const GRENADE_COOLDOWN_TICKS := 300   # match server GRENADE_COOLDOWN_TICKS (10s, shared frag/smoke)
 const MAX_BOT_GRENADES := 1           # per-bot lifetime FRAG cap (convergence/over-destruction knob)
 const MAX_BOT_SMOKES := 1             # per-bot lifetime SMOKE cap (exercises the smoke path)
@@ -39,6 +46,8 @@ var _global_seed: int = 12345
 var _perf_us: float = 0.0
 var _perf_frames: int = 0
 
+var _heavy_type: int = 22   # heavy_barricade catalog index (large, min_builders 2); resolved in _ready
+
 func configure(args: Dictionary) -> void:
 	_server_ip = String(args.get("connect", _server_ip))
 	_port = int(args.get("port", _port))
@@ -51,6 +60,13 @@ func _ready() -> void:
 	_map = MapDef.load_file(_map_path)
 	if _map == null:
 		push_error("[bots] failed to load map %s" % _map_path)
+	# Resolve the large-cooperation piece index once so the shovel-drill stays correct if the catalog
+	# re-orders (falls back to the known last index 22 if the lookup fails).
+	var cat := PieceCatalog.load_file(PIECES_PATH)
+	if cat != null:
+		var hi := cat.index_of("heavy_barricade")
+		if hi >= 0:
+			_heavy_type = hi
 	print("[bots] spawning %d bot(s) -> %s:%d" % [_bot_count, _server_ip, _port])
 	print("[bots] ai seed=%d" % _global_seed)
 	# Deterministic bot headings for reproducible gate runs (seed wired from --seed).
@@ -117,6 +133,7 @@ func _drive(bot: Dictionary, delta: float) -> void:
 		bot["mine_placed"] = false
 		bot["in_vehicle"] = 0
 		bot["fire_mode_set"] = false
+		bot["has_build"] = false   # shovel-driller: drop any stale build-commit cell from the past life
 		bot["cur_swap_slot"] = 0   # server resets active_slot to 0 on (re)spawn; mirror it
 		_send(bot, 0.0, 0.0, bot["yaw"], 0.0, 0)
 		return
@@ -190,6 +207,14 @@ func _drive(bot: Dictionary, delta: float) -> void:
 					_send(bot, sin(yaw), cos(yaw), yaw, 0.0, 0)
 					return
 			# no vehicle in view -> fall through to normal infantry behavior
+
+	# --- Shovel-driller logic: ~1 in 8 bots (index % 8 == 4, DISJOINT from the climb driller at
+	# %8==0) run a deterministic build/shovel drill so the fleet gate sees built_small/built_large/
+	# bsolo/dismantled/repaired. Like the climb driller it OVERRIDES movement+combat (it does NOT also
+	# run the climb drill) and fully self-sends, so it never trips the normal _maybe_build side-wall.
+	if int(bot["index"]) % 8 == 4:
+		_drive_shovel_driller(bot, me)
+		return
 
 	var target: EntityState = null
 	var best := INF
@@ -368,6 +393,160 @@ func _maybe_build(bot: Dictionary, me: EntityState) -> void:
 	(bot["net"] as NetHost).send_to(bot["peer"], NetHost.CHANNEL_INPUT, bytes, 0)
 	bot["last_build_tick"] = st
 	bot["builds_made"] = int(bot["builds_made"]) + 1
+
+## M12-P2 shovel-driller (index % 8 == 4): place build sites + hold BTN_SHOVEL to build them, and
+## shovel finished structures the server then auto-repairs (friendly+holed) or dismantles (enemy).
+## Self-contained: computes move + buttons and _sends, so it never runs combat or the side-wall build.
+## A LARGE-cooperation sub-subset (index % 16 == 4) converges on ONE shared per-team heavy_barricade
+## cell so >=2 of them build it together (built_large); a lone one there trips bsolo while it waits.
+func _drive_shovel_driller(bot: Dictionary, me: EntityState) -> void:
+	var structs: Dictionary = bot["structs"]
+	var is_large: bool = int(bot["index"]) % 16 == 4
+
+	# 1. Pick a work target cell (Vector3i). Build sites are PRIMARY (so the structure-dense map's
+	#    finished pieces never starve the build path); shovelling a nearby finished structure (repair/
+	#    dismantle) is the fallback once a driller has spent its build cap.
+	var target_cell := Vector3i.ZERO
+	var have_target := false
+
+	if is_large and _map != null and not _map.base_for(int(me.team)).is_empty():
+		# Large-cooperation: every large driller on the team locks the SAME shared cell so >=2 converge.
+		target_cell = _shared_large_cell(int(me.team))
+		have_target = true
+		if not _cell_known(structs, target_cell):
+			if me.pos.distance_to(BuildGrid.world_of(target_cell)) <= StructureStore.BUILD_RANGE - 0.5:
+				_place_site(bot, me, _heavy_type, target_cell)
+	else:
+		var have_base: bool = _map != null and not _map.base_for(int(me.team)).is_empty()
+		# (P1) Commit to a sticky own build cell until the site finishes (or proves rejected/decayed).
+		#      This is what stops the structure-dense map's branch-(P3) shovel from diverting a driller
+		#      off its half-built wall every tick.
+		if bool(bot.get("has_build", false)):
+			var bc: Vector3i = bot["build_cell"]
+			var rec := _struct_at(structs, bc)
+			if not rec.is_empty():
+				if int(rec.get("under_construction", 0)) == 1:
+					target_cell = bc; have_target = true        # still building -> stay on it
+				else:
+					bot["has_build"] = false                    # completed -> release
+			elif int(bot["server_tick"]) - int(bot.get("build_set_tick", 0)) < BUILD_COMMIT_TICKS:
+				target_cell = bc; have_target = true            # placed; site delta in flight -> hold
+			else:
+				# Placed but the site never appeared (cell occupied / lost race on the dense gate map):
+				# shift to a fresh lane next pass and refund the cap (nothing was actually built).
+				bot["has_build"] = false
+				bot["build_attempt"] = int(bot.get("build_attempt", 0)) + 1
+				bot["builds_made"] = maxi(0, int(bot["builds_made"]) - 1)
+		# (P2) Head to a CLEAR per-driller lane cell near the team base and place a wall there once in
+		#      BUILD_RANGE. Ahead-of-facing placement (old _wall_cell) collided with the dense map's
+		#      prebuilt pieces and got rejected -> built_small never fired; a clear near-base lane fixes it.
+		if not have_target and have_base and int(bot["builds_made"]) < MAX_BOT_BUILDS:
+			var seed: int = int(bot["id"]) + int(bot.get("build_attempt", 0))   # id is globally unique
+			var bc := Vector3i.ZERO
+			var clear := false
+			for k in SMALL_LANES:
+				var cand := _small_build_cell(int(me.team), seed + k)
+				if _struct_at(structs, cand).is_empty():
+					bc = cand; clear = true; break
+			if clear:
+				target_cell = bc; have_target = true
+				if me.pos.distance_to(BuildGrid.world_of(bc)) <= StructureStore.BUILD_RANGE - 0.5:
+					if _place_site(bot, me, WALL_TYPE, bc):
+						bot["has_build"] = true
+						bot["build_cell"] = bc
+						bot["build_set_tick"] = int(bot["server_tick"])
+		# (P3) Fallback (build done / capped / no base): seek the nearest known structure in range and
+		#      shovel it — the server repairs it (friendly + holed) or dismantles it (enemy). Wide range
+		#      so a driller that has finished building roams to a real structure instead of idling.
+		if not have_target:
+			var best_d := SHOVEL_SEEK_RANGE
+			for sid in structs:
+				var wp: Vector3 = BuildGrid.world_of(structs[sid]["cell"] as Vector3i)
+				var d := me.pos.distance_to(wp)
+				if d < best_d:
+					best_d = d; target_cell = structs[sid]["cell"]; have_target = true
+
+	if not have_target:
+		# Nothing to work yet (e.g. build on cooldown, no structure in seek range) — hold + face forward.
+		_send(bot, 0.0, 0.0, bot["yaw"], 0.0, 0)
+		return
+
+	# 2. Steer to the target and shovel. Face the centre (atan2(dir.x, dir.z)); stop + hold BTN_SHOVEL
+	#    once within range so the server accrues progress / repairs / dismantles.
+	var center := BuildGrid.world_of(target_cell)
+	var to := center - me.pos
+	var flat := Vector2(to.x, to.z)
+	var dist := flat.length()
+	var move_x := 0.0
+	var move_y := 0.0
+	var buttons := 0
+	if dist > 0.001:
+		bot["yaw"] = atan2(to.x, to.z)
+	if dist <= SHOVEL_APPROACH:
+		pass   # in range: hold position
+	else:
+		var n := flat / dist
+		move_x = n.x; move_y = n.y
+	if dist <= BuildSite.SHOVEL_RANGE:
+		buttons |= InputCommand.BTN_SHOVEL   # server resolves build vs repair vs dismantle
+	_send(bot, move_x, move_y, bot["yaw"], 0.0, buttons)
+
+## Deterministic shared heavy_barricade cell for a team: 4 m in front of the team base toward the map
+## centre (origin), snapped to a build cell. Every large driller on the team computes the same cell so
+## they converge on one site. Reachable (near spawn) and clear of the base itself.
+func _shared_large_cell(team: int) -> Vector3i:
+	var bpos: Vector3 = _map.base_for(team)["pos"]
+	var toward := Vector3(-bpos.x, 0.0, -bpos.z)
+	if toward.length() < 0.01:
+		toward = Vector3(0.0, 0.0, 1.0)
+	var p := bpos + toward.normalized() * 4.0
+	return BuildGrid.cell_of(Vector3(p.x, 0.0, p.z))
+
+## A clear per-driller wall cell near the team base: SMALL_BUILD_DEPTH in front of the base toward the
+## map centre, then offset laterally into a lane derived from `seed` (per-driller, so drillers don't
+## stack), snapped to a build cell. Mirrors _shared_large_cell but spreads small drillers into lanes.
+## The caller scans SMALL_LANES consecutive seeds for the first cell with no known structure, so the
+## dense gate map's prebuilt pieces (and other drillers' walls) are avoided instead of colliding.
+func _small_build_cell(team: int, seed: int) -> Vector3i:
+	var bpos: Vector3 = _map.base_for(team)["pos"]
+	var toward := Vector3(-bpos.x, 0.0, -bpos.z)
+	if toward.length() < 0.01:
+		toward = Vector3(0.0, 0.0, 1.0)
+	toward = toward.normalized()
+	var perp := Vector3(-toward.z, 0.0, toward.x)       # lateral axis across the base->centre line
+	var lane := (seed % SMALL_LANES) - SMALL_LANES / 2  # spread both sides of the approach line
+	var p := bpos + toward * SMALL_BUILD_DEPTH + perp * (float(lane) * BuildGrid.CELL_SIZE)
+	return BuildGrid.cell_of(Vector3(p.x, 0.0, p.z))
+
+## The known structure/site record at `cell` (empty Dictionary if none).
+func _struct_at(structs: Dictionary, cell: Vector3i) -> Dictionary:
+	for sid in structs:
+		if (structs[sid]["cell"] as Vector3i) == cell:
+			return structs[sid]
+	return {}
+
+## True if a known structure/site already occupies `cell` (so a driller shovels it instead of re-placing).
+func _cell_known(structs: Dictionary, cell: Vector3i) -> bool:
+	for sid in structs:
+		if (structs[sid]["cell"] as Vector3i) == cell:
+			return true
+	return false
+
+## Send a BUILD_REQUEST for `type` at `cell` if the per-bot cap + cooldown allow. Returns true if sent.
+## The server independently validates range/occupancy/cooldown, so a rejected request is harmless.
+func _place_site(bot: Dictionary, me: EntityState, type: int, cell: Vector3i) -> bool:
+	if int(bot["builds_made"]) >= MAX_BOT_BUILDS:
+		return false
+	var st: int = bot["server_tick"]
+	if st - int(bot["last_build_tick"]) < BUILD_COOLDOWN_TICKS:
+		return false
+	var yaw_step := int(round(me.yaw / (TAU / float(BuildGrid.YAW_STEPS)))) % BuildGrid.YAW_STEPS
+	if yaw_step < 0: yaw_step += BuildGrid.YAW_STEPS
+	(bot["net"] as NetHost).send_to(bot["peer"], NetHost.CHANNEL_INPUT,
+		Protocol.encode_build_request(type, cell, yaw_step), 0)
+	bot["last_build_tick"] = st
+	bot["builds_made"] = int(bot["builds_made"]) + 1
+	return true
 
 ## Throw a FRAG at an in-view enemy when a structure sits roughly on the line between us and them
 ## (so the blast clears cover) — shared cooldown + per-bot frag cap. Drives the blast/destruction gate.

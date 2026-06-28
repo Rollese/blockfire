@@ -130,6 +130,28 @@ func damage_chunks(id: int, source_type: int, impact: Vector3, radius: float) ->
 	rec["chunks"] = after
 	return {"hit": true, "holed": true, "destroyed": false, "mask": after}
 
+## Inverse of damage_chunks: re-sets (heals) chunk bits within `radius` of `impact`, toward the full
+## mask. Used by M12-P2 friendly shovel-repair. Returns {changed:bool, mask:int}. No-op if already full.
+func repair_chunks(id: int, impact: Vector3, radius: float) -> Dictionary:
+	if not _by_id.has(id):
+		return {"changed": false, "mask": 0}
+	var rec: Dictionary = _by_id[id]
+	var type := int(rec["type"])
+	var grid := _catalog.chunk_grid_of(type)
+	var full := ChunkMask.full_mask(grid)
+	var cur := int(rec["chunks"])
+	if cur == full:
+		return {"changed": false, "mask": cur}
+	# clear_in_radius on a FULL mask clears exactly the in-radius chunks; full XOR that = the in-radius
+	# bit set. Re-set those bits in the current (damaged) mask to heal the hole.
+	var in_radius := full ^ ChunkMask.clear_in_radius(full, rec["cell"], int(rec["yaw"]), grid,
+		_face_height(type), impact, radius)
+	var healed := cur | in_radius
+	if healed == cur:
+		return {"changed": false, "mask": cur}
+	rec["chunks"] = healed
+	return {"changed": true, "mask": healed}
+
 ## Ids of occupied pieces whose cell-centre is within `radius_m` of the world point `center`.
 ## Bounded by the (small) blast cell neighbourhood; used by explosive area damage. Array[int].
 func ids_in_radius(center: Vector3, radius_m: float) -> Array:

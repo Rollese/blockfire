@@ -18,6 +18,7 @@ const BTN_LEAN_R := 32
 const BTN_FIRE := 64
 const BTN_RELOAD := 128
 const BTN_AIM := 256   # aim-down-sights (bit 9 -> buttons is a u16 on the wire)
+const BTN_SHOVEL := 512    # bit 9: held shovel-use (M12-P2 build/repair/dismantle); server-computed
 
 ## Encode a single-frame bundle. Convenience wrapper kept for the bot driver and old call sites;
 ## the rendered client uses encode_bundle() to send the last N frames for redundancy.
