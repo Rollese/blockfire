@@ -1015,8 +1015,9 @@ func _draw_support_slot(s: Dictionary, a: Vector3, b: Vector3, kind: int, now: f
 	else:
 		var mid := (a + b) * 0.5
 		var up := Vector3.UP if absf(dir.dot(Vector3.UP)) < 0.99 * dist else Vector3.RIGHT
-		beam.global_transform = Transform3D(Basis.looking_at(dir / dist, up), mid)
-		beam.scale = Vector3(1.0, 1.0, dist)   # box is unit length on local -Z (looking_at axis)
+		# Bake the length into the global basis (z-scale) so we don't depend on the renderer node
+		# being at identity — same robustness as the tracer pool. Box is unit length on local Z.
+		beam.global_transform = Transform3D(Basis.looking_at(dir / dist, up).scaled(Vector3(1.0, 1.0, dist)), mid)
 		var col: Color = SUPPORT_COLORS.get(kind, Color.WHITE)
 		var bmat: StandardMaterial3D = s["beam_mat"]
 		# Gentle flow pulse so the link reads as "active" rather than a static line.
@@ -1026,9 +1027,8 @@ func _draw_support_slot(s: Dictionary, a: Vector3, b: Vector3, kind: int, now: f
 		beam.visible = true
 	# Target aura — a soft translucent sphere that breathes.
 	var aura: MeshInstance3D = s["aura"]
-	aura.global_position = b
 	var grow := 1.0 + 0.18 * sin(now * 5.0)
-	aura.scale = Vector3(grow, grow, grow)
+	aura.global_transform = Transform3D(Basis().scaled(Vector3(grow, grow, grow)), b)
 	var acol: Color = SUPPORT_COLORS.get(kind, Color.WHITE)
 	var amat: StandardMaterial3D = s["aura_mat"]
 	amat.albedo_color = Color(acol.r, acol.g, acol.b, 0.22)
