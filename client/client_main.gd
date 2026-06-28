@@ -114,7 +114,9 @@ var _smoke_test := false            # --smoke-test: pop a smoke cloud in front o
 var _grenade_test := false          # --grenade-test: lob cosmetic grenades across the view (visual QA)
 var _gadget_test := false           # --gadget-test: place sample deployed gadgets in view (visual QA)
 var _gadget_bytes := PackedByteArray()   # last GADGET_LIST bytes — skip the rebuild on an unchanged heartbeat
+var _support_bytes := PackedByteArray()  # last SUPPORT_LIST bytes — skip the rebuild on an unchanged heartbeat
 var _revive_marker_test := false    # --revive-marker-test: downed friendly + revive marker (visual QA)
+var _support_test := false           # --support-test: support beam + aura between two soldiers (visual QA)
 var _grenade_danger_test := false   # --grenade-danger-test: pin a live grenade near the player (visual QA)
 var _capture_test := false          # --capture-test: pump capture-announcement banners (visual QA)
 var _capture_test_next := 0.0
@@ -180,6 +182,7 @@ func configure(args: Dictionary) -> void:
 	_grenade_test = args.has("grenade-test")        # visual QA: lob cosmetic grenades across the view
 	_gadget_test = args.has("gadget-test")          # visual QA: place sample deployed gadgets in view
 	_revive_marker_test = args.has("revive-marker-test")   # visual QA: downed friendly + revive marker
+	_support_test = args.has("support-test")        # visual QA: support beam + aura between two soldiers
 	_grenade_danger_test = args.has("grenade-danger-test") # visual QA: pin a live grenade near the player
 	_capture_test = args.has("capture-test")        # visual QA: pump capture-announcement banners
 	_killfeed_test = args.has("killfeed-test")      # visual QA: pump named killfeed entries
@@ -857,6 +860,11 @@ func _on_packet(_from: ENetPacketPeer, _channel: int, bytes: PackedByteArray) ->
 				_gadget_bytes = bytes   # skip the rebuild on an unchanged 1 Hz heartbeat
 				if _renderer != null:
 					_renderer.set_gadgets(Protocol.decode_gadget_list(bytes))
+		Protocol.Msg.SUPPORT_LIST:
+			if bytes != _support_bytes:
+				_support_bytes = bytes   # skip the rebuild on an unchanged 1 Hz heartbeat
+				if _renderer != null:
+					_renderer.set_support_links(Protocol.decode_support_list(bytes))
 		Protocol.Msg.DETONATION:
 			var det: Dictionary = Protocol.decode_detonation(bytes)
 			if _renderer != null:
@@ -1068,6 +1076,7 @@ func _build_scene() -> void:
 	_renderer.grenade_demo = _grenade_test # --grenade-test: lob cosmetic grenades for a QA screenshot
 	_renderer.gadget_demo = _gadget_test # --gadget-test: place sample gadgets for a QA screenshot
 	_renderer.revive_demo = _revive_marker_test # --revive-marker-test: downed friendly + revive marker
+	_renderer.support_demo = _support_test   # --support-test: support beam + aura between two soldiers
 	_renderer.destroy_demo = _destroy_test   # --destroy-test: pump piece destruction debris/dust
 	_renderer.collapse_demo = _collapse_test # --collapse-test: play a building collapse cinematic
 	_renderer.vm_swing_test = _swing_test # --swing-test: freeze the viewmodel mid-swing

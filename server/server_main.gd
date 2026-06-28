@@ -154,6 +154,9 @@ var _impacts := 0             # impact-grenade contact detonations this window (
 var _dbg_last_min_y := INF    # test seam only: lowest y any stepped projectile reached
 var _mines: Array = []        # [{owner, team, pos, facing, armed_after_tick}]
 var _giving: Dictionary = {}   # giver_id -> tick the give began (latched; cleared on STOP/invalid)
+var _support_links_this_tick: Array = []   # [{giver, target, kind}] the give/repair/revive steps actually acted on
+var _support_pkt_sent: PackedByteArray = PackedByteArray()   # last SUPPORT_LIST sent (resend only on change)
+var _support_hb_tick := 0                                    # last support heartbeat tick (late joiners)
 var _repairing := {}        # engineer_id -> true (latched)
 var _repair_heat := {}      # engineer_id -> int
 var _repair_cd := {}        # engineer_id -> cooldown_until tick
@@ -275,6 +278,7 @@ func _physics_process(delta: float) -> void:
 	_step_grenades()
 	_step_rockets()
 	_step_mines()
+	_support_links_this_tick.clear()   # rebuilt by the give/repair/revive steps below for SUPPORT_LIST
 	_step_active_give()
 	_step_repairs()
 	_step_bags()
@@ -295,6 +299,7 @@ func _physics_process(delta: float) -> void:
 	if _roster_tick % ROSTER_STRIDE_TICKS == 0:
 		_broadcast_roster()
 	_broadcast_gadget_list()
+	_broadcast_support_list()
 	var t_snap := Time.get_ticks_usec()
 	_phase_us["poll"] += t_poll - t0
 	_phase_us["move"] += t_move - t_poll
@@ -851,6 +856,7 @@ func _step_revives() -> void:
 	# Advance + complete.
 	for target_id in active_targets:
 		var reviver_id: int = active_targets[target_id]
+		_support_links_this_tick.append({"giver": reviver_id, "target": target_id, "kind": SupportLinks.REVIVE})
 		_revive_ticks[target_id] = int(_revive_ticks.get(target_id, 0)) + 1
 		if _revive_ticks[target_id] >= Revive.revive_ticks(_is_medic(reviver_id)):
 			_complete_revive(target_id)
@@ -888,8 +894,10 @@ func _step_active_give() -> void:
 		if target == 0: continue   # nothing to give to this tick; keep the latch
 		if kind == Gadget.KIND_HEAL:
 			_give_heal(target, int(gdef["active_rate"]))
+			_support_links_this_tick.append({"giver": gid, "target": target, "kind": SupportLinks.HEAL})
 		else:
 			_give_ammo(target, int(gdef["active_rate"]))
+			_support_links_this_tick.append({"giver": gid, "target": target, "kind": SupportLinks.AMMO})
 	for gid in done:
 		_giving.erase(gid)
 
@@ -917,6 +925,7 @@ func _step_repairs() -> void:
 			var before := v.hp
 			v.hp = mini(v.max_hp, v.hp + rate)
 			_repairs += v.hp - before
+			_support_links_this_tick.append({"giver": eid, "target": v.id, "kind": SupportLinks.REPAIR})
 	for eid in done:
 		_repairing.erase(eid)
 
@@ -1578,6 +1587,32 @@ func _broadcast_gadget_list() -> void:
 		return
 	_gadget_pkt_sent = pkt
 	_gadget_hb_tick = _sim.tick
+	for cid in _clients:
+		var c = _clients[cid]
+		if bool(c.get("auto_deploy", true)):
+			continue   # bot client — does not render
+		_net.send_to(c["peer"], NetHost.CHANNEL_CONTROL, pkt, ENetPacketPeer.FLAG_RELIABLE)
+
+## Active support links (heal/ammo/repair/revive) for human clients to draw a beam + target aura.
+## Same shape as the gadget list: rebuilt each tick from what the support steps actually acted on,
+## sent reliably only when it CHANGES, plus a ~1 Hz heartbeat while non-empty for late joiners.
+## Skipped entirely when no human is connected.
+func _broadcast_support_list() -> void:
+	var has_human := false
+	for cid in _clients:
+		if not bool(_clients[cid].get("auto_deploy", true)):
+			has_human = true
+			break
+	if not has_human:
+		return
+	var list := SupportLinks.build(_support_links_this_tick)
+	var pkt := Protocol.encode_support_list(list)
+	var changed := pkt != _support_pkt_sent
+	var heartbeat := list.size() > 0 and _sim.tick - _support_hb_tick >= GADGET_HEARTBEAT_TICKS
+	if not changed and not heartbeat:
+		return
+	_support_pkt_sent = pkt
+	_support_hb_tick = _sim.tick
 	for cid in _clients:
 		var c = _clients[cid]
 		if bool(c.get("auto_deploy", true)):

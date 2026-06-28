@@ -42,6 +42,20 @@ var _camera: Camera3D = null
 var _tracers: Array = []          # [{node: MeshInstance3D, mat: StandardMaterial3D, die: float}]
 var _tracer_idx: int = 0
 
+# -- support links (heal/ammo/repair/revive beams + target aura) --------------
+# Persistent node pool (one beam + one aura per slot) reused each frame from the server's
+# SUPPORT_LIST. The beam spans giver->target chest; the aura pulses on the target. View-only.
+const SUPPORT_POOL := 16
+const SUPPORT_CHEST_Y := 1.2       # raise both endpoints to ~chest so the beam reads as person-to-person
+const SUPPORT_COLORS := {
+	0: Color(0.25, 1.0, 0.35),     # HEAL   — green
+	1: Color(1.0, 0.78, 0.22),     # AMMO   — amber
+	2: Color(0.35, 0.82, 1.0),     # REPAIR — cyan
+	3: Color(0.65, 1.0, 0.78),     # REVIVE — white-green
+}
+var _support_links: Array = []     # raw [{giver, target, kind}] from the last SUPPORT_LIST
+var _support_slots: Array = []     # [{beam, beam_mat, aura, aura_mat}] persistent pool
+
 # -- muzzle flash pool (MuzzleFlashKit; mirrors the tracer pool) ---------------
 const FLASH_POOL := 16
 var _flashes: Array = []          # [{node: MeshInstance3D, mat: StandardMaterial3D, die: float}]
@@ -111,6 +125,13 @@ var _air_y: Dictionary = {}       # id -> last y seen
 var _air_vy: Dictionary = {}      # id -> smoothed vertical velocity (units/s)
 var _air_fell: Dictionary = {}    # id -> bool: fell fast enough to kick dust on landing
 var _vm_land_dip := 0.0           # local viewmodel land-dip offset (m), decays each frame
+# --support-test QA: two dummy soldiers parented to the camera linked by a live support beam.
+var support_demo := false
+var _support_demo_done := false
+var _support_demo_beam: MeshInstance3D = null
+var _support_demo_beam_mat: StandardMaterial3D = null
+var _support_demo_aura: MeshInstance3D = null
+var _support_demo_aura_mat: StandardMaterial3D = null
 const AIR_JUMP_VY := 2.2          # |vy| above this reads as airborne (jump/fall pose)
 const AIR_FALL_VY := 3.5          # falling faster than this arms a landing dust burst
 const AIR_LAND_VY := 1.0          # settle below this = grounded again
@@ -336,6 +357,35 @@ func setup(map: MapDef, camera: Camera3D) -> void:
 		add_child(tn)
 		_tracers.append({"node": tn, "mat": tmat, "die": 0.0})
 
+	# Support-link pool — a thin emissive beam (unit length along local -Z, stretched per frame) plus a
+	# translucent aura sphere at the target. Hidden until an active support link resolves both endpoints.
+	for _i in SUPPORT_POOL:
+		var beam := MeshInstance3D.new()
+		var bmesh := BoxMesh.new()
+		bmesh.size = Vector3(0.07, 0.07, 1.0)   # local -Z spans the link; scaled to the gap each frame
+		beam.mesh = bmesh
+		var bmat := StandardMaterial3D.new()
+		bmat.emission_enabled = true
+		bmat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		bmat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		beam.material_override = bmat
+		beam.visible = false
+		beam.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		add_child(beam)
+		var aura := MeshInstance3D.new()
+		var amesh := SphereMesh.new()
+		amesh.radius = 0.5; amesh.height = 1.0
+		aura.mesh = amesh
+		var amat := StandardMaterial3D.new()
+		amat.emission_enabled = true
+		amat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		amat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		aura.material_override = amat
+		aura.visible = false
+		aura.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		add_child(aura)
+		_support_slots.append({"beam": beam, "beam_mat": bmat, "aura": aura, "aura_mat": amat})
+
 	# Muzzle flash pool — brief emissive plates at the muzzle, hidden until a shot is fired.
 	for _i in FLASH_POOL:
 		var fn := MuzzleFlashKit.build()
@@ -495,6 +545,10 @@ func update(world_view: WorldView, predictor: Prediction, now: float, fov: float
 	var local_team: int = self_es.team if self_es != null else -1
 	_sync_entity_pool(remotes, local_team, render_delta, now)
 
+	# 1b. Support-link beams (heal/ammo/repair/revive) — resolve giver/target by id from the same
+	# snapshot the entity pool just used, so the beams track interpolated positions.
+	_update_support_links(world_view, remotes, predictor, now)
+
 	# 2. Structure pool update (pass world_view so the sync can drain COLLAPSE events for rubble)
 	_sync_structure_pool(world_view, now)
 
@@ -531,6 +585,7 @@ func update(world_view: WorldView, predictor: Prediction, now: float, fov: float
 	_ensure_grenade_demo(now)
 	_ensure_gadget_demo(now)
 	_ensure_revive_demo(now)
+	_ensure_support_demo(now)
 	_ensure_wreck_demo(now)
 	_ensure_casing_demo(now)
 	_ensure_climb_demo(now)
@@ -909,6 +964,77 @@ func _ensure_grenade_demo(now: float) -> void:
 ## Replace the rendered gadget set with `list` (each {kind, pos, face}). Cheap full rebuild — the
 ## server only resends when the set changes, and gadgets are few. C4 sticks a charge with a blinking
 ## light; a mine is a small directional claymore; a bag is a supply crate.
+## Replace the active support links from a server SUPPORT_LIST. Raw ids+kind only; positions are
+## resolved per render frame in _update_support_links (entities interpolate between sim ticks).
+func set_support_links(list: Array) -> void:
+	_support_links = list
+
+## Resolve each active support link's endpoints from the current snapshot and drive the beam + aura
+## pool. A link whose giver OR target isn't visible this frame (left interest, dead) is simply not
+## drawn. Endpoint = chest height (pos + SUPPORT_CHEST_Y); for the local player we use the predicted
+## pawn so a beam from us doesn't lag the camera.
+func _update_support_links(world_view: WorldView, remotes: Dictionary, predictor: Prediction, now: float) -> void:
+	var slot := 0
+	if not _support_links.is_empty():
+		var lid := world_view.local_id()
+		var local_pos := predictor.predicted.pos if predictor.predicted != null else Vector3.INF
+		var vehicles: Dictionary = world_view.vehicles()
+		for link: Dictionary in _support_links:
+			if slot >= _support_slots.size():
+				break
+			var a := _resolve_support_pos(int(link["giver"]), lid, local_pos, remotes, vehicles)
+			var b := _resolve_support_pos(int(link["target"]), lid, local_pos, remotes, vehicles)
+			if not a.is_finite() or not b.is_finite():
+				continue
+			a.y += SUPPORT_CHEST_Y
+			b.y += SUPPORT_CHEST_Y
+			_draw_support_slot(_support_slots[slot], a, b, int(link["kind"]), now)
+			slot += 1
+	# Hide unused slots.
+	for i in range(slot, _support_slots.size()):
+		_support_slots[i]["beam"].visible = false
+		_support_slots[i]["aura"].visible = false
+
+## Position of an entity id this frame, or Vector3.INF if not visible. Pawns come from `remotes`
+## (or the predicted local pawn); vehicle-range ids come from the vehicle pool.
+func _resolve_support_pos(id: int, local_id: int, local_pos: Vector3, remotes: Dictionary, vehicles: Dictionary) -> Vector3:
+	if id == local_id:
+		return local_pos
+	if remotes.has(id):
+		return (remotes[id] as EntityState).pos
+	if vehicles.has(id):
+		return (vehicles[id] as VehicleState).pos
+	return Vector3.INF
+
+func _draw_support_slot(s: Dictionary, a: Vector3, b: Vector3, kind: int, now: float) -> void:
+	var dir := b - a
+	var dist := dir.length()
+	var beam: MeshInstance3D = s["beam"]
+	if dist < 0.15:
+		beam.visible = false   # endpoints coincide — nothing meaningful to draw
+	else:
+		var mid := (a + b) * 0.5
+		var up := Vector3.UP if absf(dir.dot(Vector3.UP)) < 0.99 * dist else Vector3.RIGHT
+		beam.global_transform = Transform3D(Basis.looking_at(dir / dist, up), mid)
+		beam.scale = Vector3(1.0, 1.0, dist)   # box is unit length on local -Z (looking_at axis)
+		var col: Color = SUPPORT_COLORS.get(kind, Color.WHITE)
+		var bmat: StandardMaterial3D = s["beam_mat"]
+		# Gentle flow pulse so the link reads as "active" rather than a static line.
+		var pulse := 0.55 + 0.30 * (0.5 + 0.5 * sin(now * 7.0))
+		bmat.albedo_color = Color(col.r, col.g, col.b, pulse)
+		bmat.emission = col
+		beam.visible = true
+	# Target aura — a soft translucent sphere that breathes.
+	var aura: MeshInstance3D = s["aura"]
+	aura.global_position = b
+	var grow := 1.0 + 0.18 * sin(now * 5.0)
+	aura.scale = Vector3(grow, grow, grow)
+	var acol: Color = SUPPORT_COLORS.get(kind, Color.WHITE)
+	var amat: StandardMaterial3D = s["aura_mat"]
+	amat.albedo_color = Color(acol.r, acol.g, acol.b, 0.22)
+	amat.emission = acol
+	aura.visible = true
+
 func set_gadgets(list: Array) -> void:
 	for n in _gadget_nodes:
 		(n as Node3D).queue_free()
@@ -998,6 +1124,57 @@ func _ensure_gadget_demo(now: float) -> void:
 		{"kind": GadgetList.MINE, "pos": base, "face": -fwd},
 		{"kind": GadgetList.BAG, "pos": base + right * 1.4, "face": Vector3.ZERO},
 	])
+
+
+## Visual QA (--support-test): camera-parented giver + target dummies linked by a live support beam +
+## aura (cycling kind so all four colours — heal/ammo/repair/revive — show). Camera-parented (like the
+## armor demo) so it's always in view regardless of where/when the player spawned.
+func _ensure_support_demo(now: float) -> void:
+	if not support_demo or _camera == null:
+		return
+	if not _support_demo_done:
+		_support_demo_done = true
+		var giver := CharacterKit.build()
+		giver.position = Vector3(-1.6, -1.4, -6.0)   # camera-local: lowered to show feet, 6 m ahead
+		giver.rotation = Vector3(0, PI * 0.5, 0)      # face the target across the gap
+		_camera.add_child(giver)
+		var target := CharacterKit.build()
+		target.position = Vector3(1.6, -1.4, -6.0)
+		target.rotation = Vector3(0, -PI * 0.5, 0)
+		_camera.add_child(target)
+		# Beam: a box whose length runs along local X, spanning the two chests; scaled per frame.
+		_support_demo_beam = MeshInstance3D.new()
+		var bmesh := BoxMesh.new(); bmesh.size = Vector3(1.0, 0.08, 0.08)
+		_support_demo_beam.mesh = bmesh
+		_support_demo_beam_mat = StandardMaterial3D.new()
+		_support_demo_beam_mat.emission_enabled = true
+		_support_demo_beam_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		_support_demo_beam_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		_support_demo_beam.material_override = _support_demo_beam_mat
+		_support_demo_beam.position = Vector3(0.0, -1.4 + SUPPORT_CHEST_Y, -6.0)
+		_support_demo_beam.scale = Vector3(3.2, 1.0, 1.0)   # span between the two chests
+		_support_demo_beam.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		_camera.add_child(_support_demo_beam)
+		_support_demo_aura = MeshInstance3D.new()
+		var amesh := SphereMesh.new(); amesh.radius = 0.5; amesh.height = 1.0
+		_support_demo_aura.mesh = amesh
+		_support_demo_aura_mat = StandardMaterial3D.new()
+		_support_demo_aura_mat.emission_enabled = true
+		_support_demo_aura_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		_support_demo_aura_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		_support_demo_aura.material_override = _support_demo_aura_mat
+		_support_demo_aura.position = Vector3(1.6, -1.4 + SUPPORT_CHEST_Y, -6.0)
+		_support_demo_aura.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		_camera.add_child(_support_demo_aura)
+	var kind := int(now / 1.6) % 4   # cycle heal -> ammo -> repair -> revive
+	var col: Color = SUPPORT_COLORS.get(kind, Color.WHITE)
+	var pulse := 0.55 + 0.30 * (0.5 + 0.5 * sin(now * 7.0))
+	_support_demo_beam_mat.albedo_color = Color(col.r, col.g, col.b, pulse)
+	_support_demo_beam_mat.emission = col
+	var grow := 1.0 + 0.18 * sin(now * 5.0)
+	_support_demo_aura.scale = Vector3(grow, grow, grow)
+	_support_demo_aura_mat.albedo_color = Color(col.r, col.g, col.b, 0.22)
+	_support_demo_aura_mat.emission = col
 
 
 # =============================================================================
