@@ -8,6 +8,8 @@
       "material": "METAL_THIN",
       "chunk_grid": 8,
       "structural": false,
+      "build_cost": 90,
+      "min_builders": 1,
       "damage": [
         "bullet",
         "explosive",
@@ -22,6 +24,8 @@
       "material": "CONCRETE",
       "chunk_grid": 8,
       "structural": false,
+      "build_cost": 150,
+      "min_builders": 1,
       "damage": [
         "bullet",
         "explosive",
@@ -297,6 +301,21 @@
       "material": "CONCRETE",
       "chunk_grid": 8,
       "structural": true,
+      "damage": [
+        "explosive",
+        "melee"
+      ]
+    },
+    {
+      "id": "heavy_barricade",
+      "height": "full",
+      "health": 700,
+      "blocks": "both",
+      "material": "METAL_THICK",
+      "chunk_grid": 8,
+      "structural": false,
+      "build_cost": 600,
+      "min_builders": 2,
       "damage": [
         "explosive",
         "melee"
