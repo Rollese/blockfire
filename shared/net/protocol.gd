@@ -47,6 +47,7 @@ enum Msg {
 	IMPACT_FX = 34,         ## server -> human clients: a bullet hit world geometry at pos (cosmetic impact puff)
 	GRENADE_FX = 35,        ## server -> human clients: a remote pawn threw a grenade (cosmetic arcing object)
 	GADGET_LIST = 36,       ## server -> human clients: authoritative list of deployed gadgets (C4/mine/bag) to render
+	SUPPORT_LIST = 37,      ## server -> human clients: active support links (heal/ammo/repair/revive) -> beam + aura
 }
 
 const OP_PLACE := 0
@@ -448,6 +449,33 @@ static func decode_gadget_list(bytes: PackedByteArray) -> Array:
 		var pos := Vector3(float(r.get_16()) / 10.0, float(r.get_16()) / 10.0, float(r.get_16()) / 10.0)
 		var face := Vector3(float(r.get_16()) / 10000.0, 0.0, float(r.get_16()) / 10000.0)
 		out.append({"kind": kind, "pos": pos, "face": face})
+	return out
+
+## Active support links (M7): each entry is giver_id u32 + target_id u32 + kind u8
+## (SupportLinks.HEAL/AMMO/REPAIR/REVIVE). No coordinates on the wire — the client resolves both
+## endpoints from its own snapshot (pawn or vehicle ids it already mirrors) and skips any it can't
+## see. Rebuilt + sent each tick like GADGET_LIST; view-only.
+static func encode_support_list(list: Array) -> PackedByteArray:
+	var buf := StreamPeerBuffer.new()
+	buf.put_u8(Msg.SUPPORT_LIST)
+	var n: int = mini(list.size(), 255)
+	buf.put_u8(n)
+	for i in range(n):
+		var e: Dictionary = list[i]
+		buf.put_u32(int(e["giver"]))
+		buf.put_u32(int(e["target"]))
+		buf.put_u8(clampi(int(e["kind"]), 0, 255))
+	return buf.data_array
+
+static func decode_support_list(bytes: PackedByteArray) -> Array:
+	var r := body_reader(bytes)
+	var n := r.get_u8()
+	var out: Array = []
+	for i in range(n):
+		var giver := r.get_u32()
+		var target := r.get_u32()
+		var kind := r.get_u8()
+		out.append({"giver": giver, "target": target, "kind": kind})
 	return out
 
 # Bullet impact VFX kind (which cosmetic puff the client spawns at the hit point).

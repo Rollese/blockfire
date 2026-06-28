@@ -18,6 +18,9 @@ var _roster: Array = []
 func set_local_id(id: int) -> void:
 	_local_id = id
 
+func local_id() -> int:
+	return _local_id
+
 func apply_snapshot(bytes: PackedByteArray, now: float) -> Dictionary:
 	last_header = Snapshot.decode_apply(bytes, _view, _view_v)
 	var remotes := {}
