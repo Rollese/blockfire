@@ -110,6 +110,13 @@ var _cap_events := 0          # per-telemetry-window (reset each second)
 var _cap_events_total := 0    # cumulative over the match (for the match-end summary)
 var _builds := 0
 var _removes := 0
+var _sites := BuildSiteStore.new()   # M12-P2: active under-construction build sites
+const MAX_SITES_PER_PLAYER := 4
+var _built_small := 0
+var _built_large := 0
+var _build_blocked_solo := 0
+var _dismantled := 0
+var _repaired := 0
 var _shots_blocked := 0
 var _pen := 0                 # bullet penetrations through a piece this window
 var _dmg := 0                 # damage events applied this window
@@ -281,6 +288,7 @@ func _physics_process(delta: float) -> void:
 	_support_links_this_tick.clear()   # rebuilt by the give/repair/revive steps below for SUPPORT_LIST
 	_step_active_give()
 	_step_repairs()
+	_step_build_sites()   # M12-P2: cooperative shovel construction / repair / dismantle
 	_step_bags()
 	_expire_smoke_zones()
 	_step_revives()
@@ -1369,20 +1377,146 @@ func _handle_build_request(peer: ENetPacketPeer, bytes: PackedByteArray) -> void
 	var cell: Vector3i = d["cell"]
 	var v := _store.validate_place(cell, p.pos, _sim.tick, c["last_build_tick"], Pawn.WORLD_HALF)
 	if not v["ok"]: return
-	if _store.owner_count(id) >= StructureStore.MAX_PIECES_PER_PLAYER:
-		var old_id := _store.oldest_id(id)
-		if old_id != 0:
-			var old_cell := _cell_of_struct(old_id)   # capture BEFORE removal (record still present)
-			_store.recycle_oldest(id)
-			_removes += 1
-			_emit_structure_delta(Protocol.OP_REMOVE, {"id": old_id}, old_cell)
+	if _catalog.is_structural(type): return   # players build only fortifications, not building pieces
+	if _sites.occupied(cell): return          # already a site there
+	# Per-player SITE cap: recycle the oldest unfinished site.
+	if _sites.owner_count(id) >= MAX_SITES_PER_PLAYER:
+		var oldid := _sites.oldest_id(id)
+		if oldid != 0:
+			var ocell: Vector3i = _sites.get_site(oldid)["cell"]
+			_sites.remove(oldid)
+			_emit_structure_delta(Protocol.OP_REMOVE, {"id": oldid}, ocell)
 	var sid := _next_struct_id
 	_next_struct_id += 1
-	var rec := _store.place(sid, type, cell, d["yaw"], id)
-	if rec.is_empty(): return   # lost a race for the cell
 	c["last_build_tick"] = _sim.tick
+	var site := {"id": sid, "owner": id, "team": p.team, "type": type, "cell": cell, "yaw": int(d["yaw"]),
+		"build_progress": 0.0, "build_cost": _catalog.build_cost_of(type),
+		"min_builders": _catalog.min_builders_of(type), "last_work_tick": _sim.tick}
+	_sites.add(site)
 	_builds += 1
-	_emit_structure_delta(Protocol.OP_PLACE, rec, cell)
+	_emit_structure_delta(Protocol.OP_PLACE, _site_wire_record(site), cell)
+
+## Wire record for an under-construction site: StructureStore record shape + the M12-P2 fields.
+func _site_wire_record(site: Dictionary) -> Dictionary:
+	return {"id": site["id"], "type": site["type"], "cell": site["cell"], "yaw": site["yaw"],
+		"chunks": ChunkMask.full_mask(_catalog.chunk_grid_of(int(site["type"]))),
+		"building_id": 0, "owner": site["owner"],
+		"under_construction": 1, "build_progress": int(site["build_progress"])}
+
+func _emit_structure_progress(id: int, progress: int, cell: Vector3i) -> void:
+	var region := _store.region_of(cell)
+	var bytes := Protocol.encode_structure_progress(id, progress)
+	for cid in _clients:
+		if _clients[cid]["known_regions"].has(region):
+			_net.send_to(_clients[cid]["peer"], NetHost.CHANNEL_CONTROL, bytes, ENetPacketPeer.FLAG_RELIABLE)
+
+## M12-P2: advance build sites from eligible shovellers; complete -> promote to StructureStore;
+## decay abandoned sites; then repair/dismantle finished structures for the remaining shovellers.
+func _step_build_sites() -> void:
+	# Pawns holding BTN_SHOVEL this tick.
+	var shov := {}
+	for cid in _clients:
+		var inp = _clients[cid]["last_input"]
+		if inp == null or (int(inp["buttons"]) & InputCommand.BTN_SHOVEL) == 0:
+			continue
+		var pp: Pawn = _sim.world.get_pawn(cid)
+		if pp == null or not pp.alive or pp.is_downed:
+			continue
+		shov[cid] = {"pos": pp.pos, "fwd": Combat._forward(pp.yaw, pp.pitch), "team": pp.team}
+	if _sites.count() == 0 and shov.is_empty():
+		return
+	var built: Array = []
+	var decayed: Array = []
+	var busy := {}   # cid -> true: contributed to a site this tick (skip for structure-shovel)
+	for id in _sites.ids():
+		var s: Dictionary = _sites.get_site(id)
+		var center := BuildGrid.world_of(s["cell"])
+		var n := 0
+		for cid in shov:
+			var b = shov[cid]
+			if int(b["team"]) != int(s["team"]):
+				continue
+			if BuildSite.eligible(b["pos"], b["fwd"], center):
+				n += 1
+				busy[cid] = true
+		if n <= 0:
+			if BuildSite.decayed(_sim.tick, int(s["last_work_tick"])):
+				decayed.append(id)
+			continue
+		if n < int(s["min_builders"]):
+			_build_blocked_solo += 1
+			continue
+		var before := float(s["build_progress"])
+		var after := BuildSite.progress_step(before, int(s["build_cost"]), n, int(s["min_builders"]), SimLoop.DT)
+		s["build_progress"] = after
+		s["last_work_tick"] = _sim.tick
+		if int(after / 6.0) != int(before / 6.0):
+			_emit_structure_progress(int(id), int(after), s["cell"])
+		if BuildSite.is_complete(after, int(s["build_cost"])):
+			built.append(id)
+	for id in built:
+		_complete_site(int(id))
+	for id in decayed:
+		var dcell: Vector3i = _sites.get_site(int(id))["cell"]
+		_sites.remove(int(id))
+		_emit_structure_delta(Protocol.OP_REMOVE, {"id": int(id)}, dcell)
+	_step_shovel_structures(shov, busy)
+
+func _complete_site(id: int) -> void:
+	var s: Dictionary = _sites.get_site(id)
+	if s.is_empty():
+		return
+	_sites.remove(id)
+	# Cap finished pieces per owner (recycle oldest), then promote into the real structure store.
+	if _store.owner_count(int(s["owner"])) >= StructureStore.MAX_PIECES_PER_PLAYER:
+		var oldp := _store.oldest_id(int(s["owner"]))
+		if oldp != 0:
+			var oc := _cell_of_struct(oldp)
+			_store.recycle_oldest(int(s["owner"]))
+			_emit_structure_delta(Protocol.OP_REMOVE, {"id": oldp}, oc)
+	var rec := _store.place(id, int(s["type"]), s["cell"], int(s["yaw"]), int(s["owner"]))
+	if rec.is_empty():
+		return   # lost the cell race
+	var wire := rec.duplicate()
+	wire["under_construction"] = 0
+	wire["build_progress"] = int(s["build_cost"])
+	_emit_structure_delta(Protocol.OP_PLACE, wire, s["cell"])
+	if int(s["min_builders"]) >= 2:
+		_built_large += 1
+	else:
+		_built_small += 1
+
+## Shovellers not busy building a site repair a friendly / dismantle an enemy finished structure they
+## are aiming at within reach. Reuses the M4 melee damage path (dismantle) + repair_chunks (repair).
+func _step_shovel_structures(shov: Dictionary, busy: Dictionary) -> void:
+	for cid in shov:
+		if busy.has(cid):
+			continue
+		var b = shov[cid]
+		var hit := _store.march(b["pos"], b["fwd"], BuildSite.SHOVEL_RANGE)
+		if not hit["hit"]:
+			continue
+		var sidx := int(hit["id"])
+		var rec := _store.get_record(sidx)
+		if rec.is_empty():
+			continue
+		var impact: Vector3 = (b["pos"] as Vector3) + (b["fwd"] as Vector3).normalized() * float(hit["dist"])
+		var op: Pawn = _sim.world.get_pawn(int(rec["owner"]))
+		var struct_team := op.team if op != null else int(b["team"])
+		if int(b["team"]) == struct_team:
+			var rep := _store.repair_chunks(sidx, impact, 0.9)
+			if rep["changed"]:
+				_repaired += 1
+				_emit_structure_delta(Protocol.OP_CHUNK, {"id": sidx, "mask": int(rep["mask"])}, rec["cell"])
+		else:
+			if not _catalog.takes_damage(int(rec["type"]), PieceCatalog.SRC_MELEE):
+				continue
+			var dmg := _store.damage_chunks(sidx, PieceCatalog.SRC_MELEE, impact, 0.6)
+			if dmg["destroyed"]:
+				_dismantled += 1
+				_pending_removes.append({"id": sidx, "cell": rec["cell"]})
+			elif dmg["holed"]:
+				_dmg_touched[sidx] = true
 
 func _handle_build_remove(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
 	var id = _peer_to_id.get(peer, 0)
@@ -2086,7 +2220,7 @@ func _emit_structure_delta(op: int, rec: Dictionary, cell: Vector3i) -> void:
 ## After computing a client's interest entities, send baselines for any structured regions
 ## newly covered by its interest set. known_regions caches what the client already has.
 func _sync_structure_baselines(c: Dictionary, self_pos: Vector3) -> void:
-	if _store.count() == 0:
+	if _store.count() == 0 and _sites.count() == 0:
 		return
 	var center := _grid.key_of(self_pos)
 	var span := int(ceil(INTEREST_RADIUS / CELL_SIZE))
@@ -2097,6 +2231,8 @@ func _sync_structure_baselines(c: Dictionary, self_pos: Vector3) -> void:
 			if known.has(region):
 				continue
 			var recs := _store.records_in_region(region)
+			for s in _sites.records_in_region(region):
+				recs.append(_site_wire_record(s))
 			if recs.is_empty():
 				continue
 			known[region] = true
@@ -2125,8 +2261,8 @@ func _log_telemetry() -> void:
 	var pts := ""
 	for pt in _conquest.points:
 		pts += "." if pt["owner"] == -1 else str(pt["owner"])
-	print("[telemetry] players=%d alive=%d tick_mean=%.2fms tick_p99=%.2fms agg=%.1fMbit/s kills=%d shots=%d hit_rate=%.2f starv=%d rewind_clamped=%d t0=%d t1=%d pts=%s cap_events=%d struct=%d bld=%d rmv=%d blk=%d pen=%d dmg=%d destroyed=%d collapsed=%d nades=%d splash=%d smoke=%d rockets=%d rstruct=%d proj=%d projhit=%d projlive=%d projdrop=%d downed=%d bleedouts=%d revives=%d c4=%d mines=%d heals=%d ammo=%d bags=%d bagx=%d climbs=%d vaults=%d dropblk=%d enters=%d exits=%d veh_dead=%d repairs=%d repair_oh=%d rkt_veh=%d transport_m=%.1f ac_viol=%d swaps=%d supp=%d melees=%d backstabs=%d sledge=%d flashes=%d flashblinds=%d impacts=%d"
-		% [n, alive, _tele.mean_tick_ms(), _tele.p99_tick_ms(), mbit, _kills, _shots, hit_rate, _tele.starvation, _rewind_clamped, _conquest.tickets_int(0), _conquest.tickets_int(1), pts, _cap_events, _store.count(), _builds, _removes, _shots_blocked, _pen, _dmg, _destroyed, _collapsed, _nades, _splash_kills, _smokes, _rockets_det, _rstruct, _proj_fired, _proj_hits, _proj_live_max, _proj_dropped, _downed, _bleedouts, _revives, _c4_det, _mine_trips, _heals, _ammo_gives, _bags_thrown, _bags_exhausted, _climbs, _vaults, _drop_shoot_blocked, _enters, _exits, _veh_destroyed, _repairs, _repair_overheats, _rkt_vs_veh, _transport_max, _ac_viol, _swaps, _suppress_events, _melees, _backstabs, _sledge_hits, _flashes, _flash_blinds, _impacts])
+	print("[telemetry] players=%d alive=%d tick_mean=%.2fms tick_p99=%.2fms agg=%.1fMbit/s kills=%d shots=%d hit_rate=%.2f starv=%d rewind_clamped=%d t0=%d t1=%d pts=%s cap_events=%d struct=%d bld=%d rmv=%d blk=%d pen=%d dmg=%d destroyed=%d collapsed=%d nades=%d splash=%d smoke=%d rockets=%d rstruct=%d proj=%d projhit=%d projlive=%d projdrop=%d downed=%d bleedouts=%d revives=%d c4=%d mines=%d heals=%d ammo=%d bags=%d bagx=%d climbs=%d vaults=%d dropblk=%d enters=%d exits=%d veh_dead=%d repairs=%d repair_oh=%d rkt_veh=%d transport_m=%.1f ac_viol=%d swaps=%d supp=%d melees=%d backstabs=%d sledge=%d flashes=%d flashblinds=%d impacts=%d built_small=%d built_large=%d bsolo=%d dismantled=%d repaired=%d"
+		% [n, alive, _tele.mean_tick_ms(), _tele.p99_tick_ms(), mbit, _kills, _shots, hit_rate, _tele.starvation, _rewind_clamped, _conquest.tickets_int(0), _conquest.tickets_int(1), pts, _cap_events, _store.count(), _builds, _removes, _shots_blocked, _pen, _dmg, _destroyed, _collapsed, _nades, _splash_kills, _smokes, _rockets_det, _rstruct, _proj_fired, _proj_hits, _proj_live_max, _proj_dropped, _downed, _bleedouts, _revives, _c4_det, _mine_trips, _heals, _ammo_gives, _bags_thrown, _bags_exhausted, _climbs, _vaults, _drop_shoot_blocked, _enters, _exits, _veh_destroyed, _repairs, _repair_overheats, _rkt_vs_veh, _transport_max, _ac_viol, _swaps, _suppress_events, _melees, _backstabs, _sledge_hits, _flashes, _flash_blinds, _impacts, _built_small, _built_large, _build_blocked_solo, _dismantled, _repaired])
 	var pt := maxi(_phase_ticks, 1)
 	print("[perf] us/tick: poll=%d move=%d veh=%d lag=%d interest=%d fire=%d respawn=%d conquest=%d match=%d snap=%d (ticks=%d)"
 		% [_phase_us["poll"] / pt, _phase_us["move"] / pt, _phase_us["veh"] / pt, _phase_us["lag"] / pt, _phase_us["interest"] / pt, _phase_us["fire"] / pt, _phase_us["respawn"] / pt, _phase_us["conquest"] / pt, _phase_us["match"] / pt, _phase_us["snap"] / pt, _phase_ticks])
@@ -2141,3 +2277,4 @@ func _log_telemetry() -> void:
 	_swaps = 0
 	_suppress_events = 0
 	_melees = 0; _backstabs = 0; _sledge_hits = 0; _flashes = 0; _flash_blinds = 0; _impacts = 0
+	_built_small = 0; _built_large = 0; _build_blocked_solo = 0; _dismantled = 0; _repaired = 0
