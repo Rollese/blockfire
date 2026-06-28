@@ -53,6 +53,7 @@ enum Msg {
 const OP_PLACE := 0
 const OP_REMOVE := 1
 const OP_CHUNK := 2   ## STRUCTURE_DELTA payload {id u16, mask u64} — sub-cell alive-mask (M11)
+const OP_PROGRESS := 3   ## STRUCTURE_DELTA payload {id u16, progress u16} — build-site progress tick (M12-P2)
 
 # GADGET_ACTION sub-actions.
 const GA_C4_PLACE := 0
@@ -218,6 +219,8 @@ static func _put_record(buf: StreamPeerBuffer, rec: Dictionary) -> void:
 	buf.put_u64(int(rec["chunks"]))
 	buf.put_u16(int(rec["building_id"]))
 	buf.put_u16(int(rec["owner"]))
+	buf.put_u8(int(rec.get("under_construction", 0)))                       # M12-P2
+	buf.put_u16(clampi(int(rec.get("build_progress", 0)), 0, 65535))        # M12-P2
 
 
 static func _get_record(r: StreamPeerBuffer) -> Dictionary:
@@ -228,7 +231,9 @@ static func _get_record(r: StreamPeerBuffer) -> Dictionary:
 	var chunks := r.get_u64()
 	var building_id := r.get_u16()
 	var owner := r.get_u16()
-	return {"id": id, "type": type, "cell": cell, "yaw": yaw, "chunks": chunks, "building_id": building_id, "owner": owner}
+	var uc := r.get_u8() if r.get_available_bytes() > 0 else 0
+	var prog := r.get_u16() if r.get_available_bytes() > 0 else 0
+	return {"id": id, "type": type, "cell": cell, "yaw": yaw, "chunks": chunks, "building_id": building_id, "owner": owner, "under_construction": uc, "build_progress": prog}
 
 
 static func encode_structure_delta(op: int, rec: Dictionary) -> PackedByteArray:
@@ -253,7 +258,19 @@ static func decode_structure_delta(bytes: PackedByteArray) -> Dictionary:
 	elif op == OP_CHUNK:
 		var id := r.get_u16()
 		return {"op": op, "id": id, "mask": r.get_u64()}
+	elif op == OP_PROGRESS:
+		var id := r.get_u16()
+		return {"op": op, "id": id, "progress": r.get_u16()}
 	return {"op": op, "id": r.get_u16()}
+
+
+static func encode_structure_progress(id: int, progress: int) -> PackedByteArray:
+	var buf := StreamPeerBuffer.new()
+	buf.put_u8(Msg.STRUCTURE_DELTA)
+	buf.put_u8(OP_PROGRESS)
+	buf.put_u16(id)
+	buf.put_u16(clampi(progress, 0, 65535))
+	return buf.data_array
 
 
 static func encode_collapse(building_id: int) -> PackedByteArray:

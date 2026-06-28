@@ -375,3 +375,26 @@ func test_melee_message_encodes() -> void:
 	var b := Protocol.encode_melee()
 	assert_eq(b[0], Protocol.Msg.MELEE)
 	assert_eq(b.size(), 1, "MELEE is a zero-payload trigger")
+
+func test_record_carries_under_construction_and_progress() -> void:
+	var rec := {"id": 7, "type": 1, "cell": Vector3i(2, 0, 3), "yaw": 1, "chunks": -1,
+		"building_id": 0, "owner": 5, "under_construction": 1, "build_progress": 250}
+	var bytes := Protocol.encode_structure_delta(Protocol.OP_PLACE, rec)
+	var d := Protocol.decode_structure_delta(bytes)
+	assert_eq(d["op"], Protocol.OP_PLACE)
+	assert_eq(int(d["rec"]["under_construction"]), 1, "ghost flag round-trips")
+	assert_eq(int(d["rec"]["build_progress"]), 250, "progress round-trips")
+
+func test_finished_record_defaults_zero() -> void:
+	var rec := {"id": 8, "type": 0, "cell": Vector3i(0, 0, 0), "yaw": 0, "chunks": -1,
+		"building_id": 0, "owner": 1}
+	var d := Protocol.decode_structure_delta(Protocol.encode_structure_delta(Protocol.OP_PLACE, rec))
+	assert_eq(int(d["rec"]["under_construction"]), 0, "missing flag encodes as finished")
+	assert_eq(int(d["rec"]["build_progress"]), 0)
+
+func test_op_progress_round_trip() -> void:
+	var bytes := Protocol.encode_structure_progress(7, 412)
+	var d := Protocol.decode_structure_delta(bytes)
+	assert_eq(d["op"], Protocol.OP_PROGRESS)
+	assert_eq(int(d["id"]), 7)
+	assert_eq(int(d["progress"]), 412)
