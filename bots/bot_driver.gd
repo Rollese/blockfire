@@ -17,7 +17,8 @@ const WALL_TYPE := 1                # small piece (min_builders 1) shovel-drille
 const SHOVEL_APPROACH := BuildSite.SHOVEL_RANGE * 0.8   # stop+shovel once this close to the site centre
 const BUILD_COMMIT_TICKS := 90     # ticks a driller stays on a just-placed cell awaiting its site delta
 const SHOVEL_SEEK_RANGE := 28.0    # m: build-capped drillers roam to a structure within this to repair/dismantle
-const WALL_OFFSET := 3.5           # m ahead a small driller drops its wall (> CELL_SIZE so it never hits self-cell)
+const SMALL_LANES := 13            # per-team lane slots a small driller scans for a clear near-base build cell
+const SMALL_BUILD_DEPTH := 6.0     # m in front of the base (toward map centre) where small build lanes sit
 const GRENADE_COOLDOWN_TICKS := 300   # match server GRENADE_COOLDOWN_TICKS (10s, shared frag/smoke)
 const MAX_BOT_GRENADES := 1           # per-bot lifetime FRAG cap (convergence/over-destruction knob)
 const MAX_BOT_SMOKES := 1             # per-bot lifetime SMOKE cap (exercises the smoke path)
@@ -416,6 +417,7 @@ func _drive_shovel_driller(bot: Dictionary, me: EntityState) -> void:
 			if me.pos.distance_to(BuildGrid.world_of(target_cell)) <= StructureStore.BUILD_RANGE - 0.5:
 				_place_site(bot, me, _heavy_type, target_cell)
 	else:
+		var have_base: bool = _map != null and not _map.base_for(int(me.team)).is_empty()
 		# (P1) Commit to a sticky own build cell until the site finishes (or proves rejected/decayed).
 		#      This is what stops the structure-dense map's branch-(P3) shovel from diverting a driller
 		#      off its half-built wall every tick.
@@ -430,18 +432,32 @@ func _drive_shovel_driller(bot: Dictionary, me: EntityState) -> void:
 			elif int(bot["server_tick"]) - int(bot.get("build_set_tick", 0)) < BUILD_COMMIT_TICKS:
 				target_cell = bc; have_target = true            # placed; site delta in flight -> hold
 			else:
-				bot["has_build"] = false                        # never appeared (rejected) -> retry
-		# (P2) Place a fresh wall ahead and commit to it (until the per-life build cap is spent).
-		if not have_target:
-			var cell := _wall_cell(me)
-			if _place_site(bot, me, WALL_TYPE, cell):
-				bot["has_build"] = true
-				bot["build_cell"] = cell
-				bot["build_set_tick"] = int(bot["server_tick"])
-				target_cell = cell; have_target = true
-		# (P3) Fallback (build-capped): seek the nearest known structure in range and shovel it — the
-		#      server repairs it (friendly + holed) or dismantles it (enemy). Wide range so a driller
-		#      that has finished building roams to a real structure instead of idling.
+				# Placed but the site never appeared (cell occupied / lost race on the dense gate map):
+				# shift to a fresh lane next pass and refund the cap (nothing was actually built).
+				bot["has_build"] = false
+				bot["build_attempt"] = int(bot.get("build_attempt", 0)) + 1
+				bot["builds_made"] = maxi(0, int(bot["builds_made"]) - 1)
+		# (P2) Head to a CLEAR per-driller lane cell near the team base and place a wall there once in
+		#      BUILD_RANGE. Ahead-of-facing placement (old _wall_cell) collided with the dense map's
+		#      prebuilt pieces and got rejected -> built_small never fired; a clear near-base lane fixes it.
+		if not have_target and have_base and int(bot["builds_made"]) < MAX_BOT_BUILDS:
+			var seed: int = int(bot["id"]) + int(bot.get("build_attempt", 0))   # id is globally unique
+			var bc := Vector3i.ZERO
+			var clear := false
+			for k in SMALL_LANES:
+				var cand := _small_build_cell(int(me.team), seed + k)
+				if _struct_at(structs, cand).is_empty():
+					bc = cand; clear = true; break
+			if clear:
+				target_cell = bc; have_target = true
+				if me.pos.distance_to(BuildGrid.world_of(bc)) <= StructureStore.BUILD_RANGE - 0.5:
+					if _place_site(bot, me, WALL_TYPE, bc):
+						bot["has_build"] = true
+						bot["build_cell"] = bc
+						bot["build_set_tick"] = int(bot["server_tick"])
+		# (P3) Fallback (build done / capped / no base): seek the nearest known structure in range and
+		#      shovel it — the server repairs it (friendly + holed) or dismantles it (enemy). Wide range
+		#      so a driller that has finished building roams to a real structure instead of idling.
 		if not have_target:
 			var best_d := SHOVEL_SEEK_RANGE
 			for sid in structs:
@@ -486,15 +502,21 @@ func _shared_large_cell(team: int) -> Vector3i:
 	var p := bpos + toward.normalized() * 4.0
 	return BuildGrid.cell_of(Vector3(p.x, 0.0, p.z))
 
-## Cell a small driller drops its wall in: WALL_OFFSET ahead of its facing, snapped to a build cell.
-## The offset exceeds CELL_SIZE so the cell is never the player's own cell (server rejects self-cell);
-## if rounding still lands on it, push one cell further along the facing.
-func _wall_cell(me: EntityState) -> Vector3i:
-	var fwd := Vector3(sin(me.yaw), 0.0, cos(me.yaw))
-	var cell := BuildGrid.cell_of(me.pos + fwd * WALL_OFFSET)
-	if cell == BuildGrid.cell_of(Vector3(me.pos.x, 0.0, me.pos.z)):
-		cell = BuildGrid.cell_of(me.pos + fwd * (WALL_OFFSET + BuildGrid.CELL_SIZE))
-	return cell
+## A clear per-driller wall cell near the team base: SMALL_BUILD_DEPTH in front of the base toward the
+## map centre, then offset laterally into a lane derived from `seed` (per-driller, so drillers don't
+## stack), snapped to a build cell. Mirrors _shared_large_cell but spreads small drillers into lanes.
+## The caller scans SMALL_LANES consecutive seeds for the first cell with no known structure, so the
+## dense gate map's prebuilt pieces (and other drillers' walls) are avoided instead of colliding.
+func _small_build_cell(team: int, seed: int) -> Vector3i:
+	var bpos: Vector3 = _map.base_for(team)["pos"]
+	var toward := Vector3(-bpos.x, 0.0, -bpos.z)
+	if toward.length() < 0.01:
+		toward = Vector3(0.0, 0.0, 1.0)
+	toward = toward.normalized()
+	var perp := Vector3(-toward.z, 0.0, toward.x)       # lateral axis across the base->centre line
+	var lane := (seed % SMALL_LANES) - SMALL_LANES / 2  # spread both sides of the approach line
+	var p := bpos + toward * SMALL_BUILD_DEPTH + perp * (float(lane) * BuildGrid.CELL_SIZE)
+	return BuildGrid.cell_of(Vector3(p.x, 0.0, p.z))
 
 ## The known structure/site record at `cell` (empty Dictionary if none).
 func _struct_at(structs: Dictionary, cell: Vector3i) -> Dictionary:
