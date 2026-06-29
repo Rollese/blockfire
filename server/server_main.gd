@@ -1026,28 +1026,35 @@ func _select_spawn(id: int) -> Vector3:
 		var mp: Pawn = _sim.world.get_pawn(mid)
 		if mp != null and mp.alive: mates.append(mp.pos)
 	var fob_pos = _spawnable_fob_pos(team, int(c["squad"]))
+	# fob_disabled is a spawn-DECISION counter: a built+alive FOB exists but was enemy-suppressed.
+	# Tally it here (the spawn path), NOT inside _spawnable_fob_pos — that helper is also called every
+	# tick per human client by _send_fob_lists/_fob_candidates, which would turn the metric into
+	# disabled-render-frames. _fob_built_alive distinguishes "disabled" from "absent/destroyed".
+	if fob_pos == null and _fob_built_alive(team, int(c["squad"])):
+		_fob_disabled += 1
 	var fobs: Array = [fob_pos] if fob_pos != null else []
 	var r := SpawnSelect.choose(team, _map, _conquest, mates, obj, fobs)
 	if int(r["kind"]) == SpawnSelect.SRC_FOB:
 		_fob_spawns += 1
 	return r["pos"]
 
-## The squad's FOB world position IFF built + alive + enemy-free; else null. Tallies fob_disabled
-## when a built+alive FOB exists but an enemy is within VICINITY_RADIUS.
-func _spawnable_fob_pos(team: int, squad: int):
+## True if the squad has a completed, not-yet-destroyed FOB structure (regardless of enemy proximity).
+func _fob_built_alive(team: int, squad: int) -> bool:
 	var rec := _fob_for(team, squad)
-	if rec.is_empty() or not bool(rec["built"]): return null
-	if _store.get_record(int(rec["id"])).is_empty(): return null   # destroyed (reconcile may lag a tick)
+	return not rec.is_empty() and bool(rec["built"]) and not _store.get_record(int(rec["id"])).is_empty()
+
+## The squad's FOB world position IFF built + alive + enemy-free; else null. Pure query (no side
+## effects) — fob_disabled is tallied by the caller on the spawn-decision path (see _select_spawn).
+func _spawnable_fob_pos(team: int, squad: int):
+	if not _fob_built_alive(team, squad): return null
+	var rec := _fob_for(team, squad)
 	var center := BuildGrid.world_of(rec["cell"])
 	var enemies: Array = []
 	for oid in _clients:
 		var op: Pawn = _sim.world.get_pawn(oid)
 		if op != null and op.alive and op.team != team:
 			enemies.append(op.pos)
-	if Fob.spawn_enabled(center, enemies):
-		return center
-	_fob_disabled += 1
-	return null
+	return center if Fob.spawn_enabled(center, enemies) else null
 
 func _objective_for(team: int) -> Vector3:
 	var base := _map.base_for(team)

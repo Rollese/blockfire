@@ -49,8 +49,6 @@ var _global_seed: int = 12345
 var _perf_us: float = 0.0
 var _perf_frames: int = 0
 
-var _heavy_type: int = 22   # heavy_barricade catalog index (large, min_builders 2); resolved in _ready
-
 func configure(args: Dictionary) -> void:
 	_server_ip = String(args.get("connect", _server_ip))
 	_port = int(args.get("port", _port))
@@ -63,13 +61,6 @@ func _ready() -> void:
 	_map = MapDef.load_file(_map_path)
 	if _map == null:
 		push_error("[bots] failed to load map %s" % _map_path)
-	# Resolve the large-cooperation piece index once so the shovel-drill stays correct if the catalog
-	# re-orders (falls back to the known last index 22 if the lookup fails).
-	var cat := PieceCatalog.load_file(PIECES_PATH)
-	if cat != null:
-		var hi := cat.index_of("heavy_barricade")
-		if hi >= 0:
-			_heavy_type = hi
 	print("[bots] spawning %d bot(s) -> %s:%d" % [_bot_count, _server_ip, _port])
 	print("[bots] ai seed=%d" % _global_seed)
 	# Deterministic bot headings for reproducible gate runs (seed wired from --seed).
@@ -537,13 +528,6 @@ func _struct_at(structs: Dictionary, cell: Vector3i) -> Dictionary:
 		if (structs[sid]["cell"] as Vector3i) == cell:
 			return structs[sid]
 	return {}
-
-## True if a known structure/site already occupies `cell` (so a driller shovels it instead of re-placing).
-func _cell_known(structs: Dictionary, cell: Vector3i) -> bool:
-	for sid in structs:
-		if (structs[sid]["cell"] as Vector3i) == cell:
-			return true
-	return false
 
 ## Send a BUILD_REQUEST for `type` at `cell` if the per-bot cap + cooldown allow. Returns true if sent.
 ## The server independently validates range/occupancy/cooldown, so a rejected request is harmless.

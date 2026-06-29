@@ -47,6 +47,9 @@ static func spawn_enabled(fob_pos: Vector3, enemy_positions: Array) -> bool:
 ## Leader = the lowest client id in the squad. IDs are assigned sequentially on join and squads fill
 ## in join order, so the first member (the leader) always holds the minimum id among its squadmates.
 ## `visible_squad_ids` is what the inferring agent can see (must include its own id).
+## NOTE: this lowest-id == first-member identity holds for auto-assigned squads; a manual squad switch
+## (SquadManager.join) can append a member out of id order, so the server stays authoritative via
+## SquadManager.leader_of(). This helper is the bots' / future M7 client's best-effort inference only.
 static func is_squad_leader(my_id: int, visible_squad_ids: Array) -> bool:
 	for other in visible_squad_ids:
 		if int(other) < my_id:
