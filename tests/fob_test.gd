@@ -46,3 +46,21 @@ func test_leader_is_lowest_id_in_squad() -> void:
 	assert_true(Fob.is_squad_leader(7, [7, 12, 30]), "lowest id is the leader")
 	assert_false(Fob.is_squad_leader(12, [7, 12, 30]), "non-min id is not the leader")
 	assert_true(Fob.is_squad_leader(7, [7]), "sole member is its own leader")
+
+func _cat() -> PieceCatalog:
+	return PieceCatalog.load_file("res://pieces/pieces.json")
+
+func _idx(cat: PieceCatalog, id: String) -> int:
+	for i in cat.size():
+		if cat.name_of(i) == id:
+			return i
+	return -1
+
+func test_fob_piece_matches_constants() -> void:
+	var cat := _cat()
+	var fi := _idx(cat, "fob")
+	assert_true(fi >= 0, "fob piece exists in the catalog")
+	assert_eq(cat.build_cost_of(fi), Fob.BUILD_COST, "catalog build_cost matches Fob.BUILD_COST")
+	assert_eq(cat.min_builders_of(fi), Fob.MIN_BUILDERS, "catalog min_builders matches Fob.MIN_BUILDERS")
+	assert_eq(cat.health_of(fi), Fob.HEALTH, "catalog health matches Fob.HEALTH")
+	assert_false(cat.is_structural(fi), "fob is a fortification, not a building piece")

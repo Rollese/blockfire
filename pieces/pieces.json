@@ -320,6 +320,21 @@
         "explosive",
         "melee"
       ]
+    },
+    {
+      "id": "fob",
+      "height": "full",
+      "health": 2500,
+      "blocks": "both",
+      "material": "METAL_THICK",
+      "chunk_grid": 8,
+      "structural": false,
+      "build_cost": 800,
+      "min_builders": 2,
+      "damage": [
+        "explosive",
+        "melee"
+      ]
     }
   ]
 }
