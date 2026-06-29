@@ -48,6 +48,9 @@ enum Msg {
 	GRENADE_FX = 35,        ## server -> human clients: a remote pawn threw a grenade (cosmetic arcing object)
 	GADGET_LIST = 36,       ## server -> human clients: authoritative list of deployed gadgets (C4/mine/bag) to render
 	SUPPORT_LIST = 37,      ## server -> human clients: active support links (heal/ammo/repair/revive) -> beam + aura
+	PLACE_FOB = 38,         ## client -> server: squad leader requests a FOB build site at a cell
+	REMOVE_FOB = 39,        ## client -> server: squad leader removes their squad's FOB (site or built)
+	FOB_LIST = 40,          ## server -> human clients: their team's FOBs {squad, structure_id, uc, enabled}
 }
 
 const OP_PLACE := 0
@@ -721,3 +724,48 @@ static func encode_melee() -> PackedByteArray:
 	var buf := StreamPeerBuffer.new()
 	buf.put_u8(Msg.MELEE)
 	return buf.data_array
+
+
+static func encode_place_fob(cell: Vector3i, yaw: int) -> PackedByteArray:
+	var buf := StreamPeerBuffer.new()
+	buf.put_u8(Msg.PLACE_FOB)
+	buf.put_16(cell.x); buf.put_16(cell.y); buf.put_16(cell.z)
+	buf.put_u8(yaw & 0xFF)
+	return buf.data_array
+
+static func decode_place_fob(bytes: PackedByteArray) -> Dictionary:
+	var r := body_reader(bytes)
+	var cell := Vector3i(r.get_16(), r.get_16(), r.get_16())
+	return {"cell": cell, "yaw": r.get_u8()}
+
+static func encode_remove_fob() -> PackedByteArray:
+	var buf := StreamPeerBuffer.new()
+	buf.put_u8(Msg.REMOVE_FOB)
+	return buf.data_array
+
+## Server -> human clients (own team): the team's FOBs. squad u8, structure_id u16,
+## flags u8 (bit0 under_construction, bit1 enabled). Rebuilt + sent on change like GADGET_LIST.
+static func encode_fob_list(list: Array) -> PackedByteArray:
+	var buf := StreamPeerBuffer.new()
+	buf.put_u8(Msg.FOB_LIST)
+	var n: int = mini(list.size(), 255)
+	buf.put_u8(n)
+	for i in range(n):
+		var f: Dictionary = list[i]
+		buf.put_u8(int(f["squad"]) & 0xFF)
+		buf.put_u16(int(f["structure_id"]) & 0xFFFF)
+		var flags := (int(f["under_construction"]) & 1) | ((int(f["enabled"]) & 1) << 1)
+		buf.put_u8(flags)
+	return buf.data_array
+
+static func decode_fob_list(bytes: PackedByteArray) -> Array:
+	var r := body_reader(bytes)
+	var n := r.get_u8()
+	var out: Array = []
+	for i in range(n):
+		var squad := r.get_u8()
+		var sid := r.get_u16()
+		var flags := r.get_u8()
+		out.append({"squad": squad, "structure_id": sid,
+			"under_construction": flags & 1, "enabled": (flags >> 1) & 1})
+	return out

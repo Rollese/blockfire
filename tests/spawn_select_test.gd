@@ -42,3 +42,27 @@ func test_skips_owned_point_contested_by_enemy() -> void:
 	var pos := SpawnSelect.select(0, m, c, [], Vector3(100, 0, 0))
 	assert_true(pos.distance_to(Vector3(-900, 0, 0)) <= SpawnSelect.JITTER * 1.5,
 		"contested owned point is skipped -> falls back to home base (no spawning on a contested flag)")
+
+# --- Task 4: choose() with FOB source + chosen-kind ---
+
+func _m() -> MapDef:
+	# MapDef requires at least one point; use a far neutral point so it is never an owned source.
+	var json := '{"points":[{"id":"X","pos":[0,0,500],"radius":15,"start_owner":-1}],"bases":[{"team":0,"pos":[-100,0,0],"radius":10},{"team":1,"pos":[100,0,0],"radius":10}]}'
+	return MapDef.from_json_string(json)["map"]
+
+func _c(m: MapDef) -> ConquestState:
+	return ConquestState.new(m)
+
+func test_choose_prefers_nearest_fob_over_far_base() -> void:
+	var m := _m()
+	var c := _c(m)
+	var objective := Vector3(20, 0, 0)
+	# FOB at (15,0,0) is far nearer the objective than the base at (-100,0,0).
+	var r := SpawnSelect.choose(0, m, c, [], objective, [Vector3(15, 0, 0)])
+	assert_eq(r["kind"], SpawnSelect.SRC_FOB, "the nearer FOB is chosen")
+
+func test_choose_base_when_no_other_source() -> void:
+	var m := _m()
+	var c := _c(m)
+	var r := SpawnSelect.choose(0, m, c, [], Vector3(20, 0, 0), [])
+	assert_eq(r["kind"], SpawnSelect.SRC_BASE, "base is the fallback source")

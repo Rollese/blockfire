@@ -117,6 +117,12 @@ var _built_large := 0
 var _build_blocked_solo := 0
 var _dismantled := 0
 var _repaired := 0
+# M12-P3: squad-leader FOB registry. "team:squad" -> {squad, team, id, cell, built: bool}
+var _fobs: Dictionary = {}
+var _fobs_built := 0           # per-telemetry-window (reset each log)
+var _fob_spawns := 0
+var _fob_disabled := 0
+var _fobs_destroyed := 0
 var _shots_blocked := 0
 var _pen := 0                 # bullet penetrations through a piece this window
 var _dmg := 0                 # damage events applied this window
@@ -308,6 +314,7 @@ func _physics_process(delta: float) -> void:
 		_broadcast_roster()
 	_broadcast_gadget_list()
 	_broadcast_support_list()
+	_send_fob_lists()
 	var t_snap := Time.get_ticks_usec()
 	_phase_us["poll"] += t_poll - t0
 	_phase_us["move"] += t_move - t_poll
@@ -1018,7 +1025,36 @@ func _select_spawn(id: int) -> Vector3:
 		if mid == id: continue
 		var mp: Pawn = _sim.world.get_pawn(mid)
 		if mp != null and mp.alive: mates.append(mp.pos)
-	return SpawnSelect.select(team, _map, _conquest, mates, obj)
+	var fob_pos = _spawnable_fob_pos(team, int(c["squad"]))
+	# fob_disabled is a spawn-DECISION counter: a built+alive FOB exists but was enemy-suppressed.
+	# Tally it here (the spawn path), NOT inside _spawnable_fob_pos — that helper is also called every
+	# tick per human client by _send_fob_lists/_fob_candidates, which would turn the metric into
+	# disabled-render-frames. _fob_built_alive distinguishes "disabled" from "absent/destroyed".
+	if fob_pos == null and _fob_built_alive(team, int(c["squad"])):
+		_fob_disabled += 1
+	var fobs: Array = [fob_pos] if fob_pos != null else []
+	var r := SpawnSelect.choose(team, _map, _conquest, mates, obj, fobs)
+	if int(r["kind"]) == SpawnSelect.SRC_FOB:
+		_fob_spawns += 1
+	return r["pos"]
+
+## True if the squad has a completed, not-yet-destroyed FOB structure (regardless of enemy proximity).
+func _fob_built_alive(team: int, squad: int) -> bool:
+	var rec := _fob_for(team, squad)
+	return not rec.is_empty() and bool(rec["built"]) and not _store.get_record(int(rec["id"])).is_empty()
+
+## The squad's FOB world position IFF built + alive + enemy-free; else null. Pure query (no side
+## effects) — fob_disabled is tallied by the caller on the spawn-decision path (see _select_spawn).
+func _spawnable_fob_pos(team: int, squad: int):
+	if not _fob_built_alive(team, squad): return null
+	var rec := _fob_for(team, squad)
+	var center := BuildGrid.world_of(rec["cell"])
+	var enemies: Array = []
+	for oid in _clients:
+		var op: Pawn = _sim.world.get_pawn(oid)
+		if op != null and op.alive and op.team != team:
+			enemies.append(op.pos)
+	return center if Fob.spawn_enabled(center, enemies) else null
 
 func _objective_for(team: int) -> Vector3:
 	var base := _map.base_for(team)
@@ -1139,6 +1175,8 @@ func _on_packet(peer: ENetPacketPeer, _channel: int, bytes: PackedByteArray) -> 
 		Protocol.Msg.HELLO: _handle_hello(peer, bytes)
 		Protocol.Msg.INPUT: _handle_input(peer, bytes)
 		Protocol.Msg.BUILD_REQUEST: _handle_build_request(peer, bytes)
+		Protocol.Msg.PLACE_FOB: _handle_place_fob(peer, bytes)
+		Protocol.Msg.REMOVE_FOB: _handle_remove_fob(peer)
 		Protocol.Msg.BUILD_REMOVE: _handle_build_remove(peer, bytes)
 		Protocol.Msg.GRENADE_THROW: _handle_grenade_throw(peer, bytes)
 		Protocol.Msg.REVIVE_ACTION: _handle_revive_action(peer, bytes)
@@ -1234,6 +1272,17 @@ func _vehicle_candidates(team: int) -> Array:
 		out.append({"slot": vid - Vehicle.ID_BASE, "pos": v.pos, "team": v.team, "free_seats": v.seat_count() - v.occupant_ids().size()})
 	return out
 
+## M12-P3: one entry per built FOB owned by a squad on `team` (enabled = currently spawnable).
+func _fob_candidates(team: int) -> Array:
+	var out: Array = []
+	for key in _fobs:
+		var rec: Dictionary = _fobs[key]
+		if int(rec["team"]) != team or not bool(rec["built"]): continue
+		var pos = _spawnable_fob_pos(team, int(rec["squad"]))
+		out.append({"squad": int(rec["squad"]), "pos": BuildGrid.world_of(rec["cell"]),
+			"enabled": pos != null})
+	return out
+
 func _throwables_for(c: Dictionary) -> Array:
 	var ready := 1 if _sim.tick - int(c["last_grenade_tick"]) >= GRENADE_COOLDOWN_TICKS else 0
 	var list: Array = [{"kind": Grenade.FRAG, "count": ready}, {"kind": Grenade.SMOKE, "count": ready}]
@@ -1251,8 +1300,11 @@ func _handle_deploy_request(peer: ENetPacketPeer, bytes: PackedByteArray) -> voi
 	var ref := int(Protocol.decode_deploy_request(bytes)["spawn_ref"])
 	var mates := _squad_candidates(id, int(c["team"]), int(c["squad"]))
 	var vehs := _vehicle_candidates(int(c["team"]))
-	if not DeploySpawn.is_valid(int(c["team"]), ref, _map, _conquest, mates, vehs): return
-	p.pos = DeploySpawn.resolve(int(c["team"]), ref, _map, _conquest, mates, vehs)
+	var fobs := _fob_candidates(int(c["team"]))
+	if not DeploySpawn.is_valid(int(c["team"]), ref, _map, _conquest, mates, vehs, fobs): return
+	var dpos := DeploySpawn.resolve(int(c["team"]), ref, _map, _conquest, mates, vehs, fobs)
+	if ref >= DeploySpawn.FOB_BASE: _fob_spawns += 1
+	p.pos = dpos
 	p.velocity = Vector3.ZERO
 	p.health = 100
 	p.alive = true
@@ -1410,6 +1462,95 @@ func _emit_structure_progress(id: int, progress: int, cell: Vector3i) -> void:
 		if _clients[cid]["known_regions"].has(region):
 			_net.send_to(_clients[cid]["peer"], NetHost.CHANNEL_CONTROL, bytes, ENetPacketPeer.FLAG_RELIABLE)
 
+## M12-P3 FOB registry helpers.
+func _fob_key(team: int, squad: int) -> String:
+	return "%d:%d" % [team, squad]
+
+func _fob_for(team: int, squad: int) -> Dictionary:
+	return _fobs.get(_fob_key(team, squad), {})
+
+func _fob_type_index() -> int:
+	for i in _catalog.size():
+		if _catalog.name_of(i) == "fob":
+			return i
+	return -1
+
+## M12-P3: squad leader places a FOB build site. Leader-only, one-per-squad (replace), CP/base
+## exclusion, then reuses the M12-P2 cooperative build path (promotes to a bunker on completion).
+func _handle_place_fob(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
+	var id = _peer_to_id.get(peer, 0)
+	if id == 0 or not _clients.has(id): return
+	var c = _clients[id]
+	var p: Pawn = _sim.world.get_pawn(id)
+	if p == null or not p.alive: return
+	var team: int = int(c["team"])
+	var squad: int = int(c["squad"])
+	if _squads.leader_of(team, squad) != id: return    # leader-only (authoritative)
+	var d := Protocol.decode_place_fob(bytes)
+	if int(d["yaw"]) < 0 or int(d["yaw"]) >= BuildGrid.YAW_STEPS: return
+	var cell: Vector3i = d["cell"]
+	var center := BuildGrid.world_of(cell)
+	if not Fob.placement_ok(center, team, _map, _conquest): return
+	var v := _store.validate_place(cell, p.pos, _sim.tick, c["last_build_tick"], Pawn.WORLD_HALF)
+	if not v["ok"]: return
+	if _sites.occupied(cell): return
+	var fob_type := _fob_type_index()
+	if fob_type < 0: return
+	# One FOB per squad: drop the existing site/structure first.
+	_remove_squad_fob(team, squad)
+	var sid := _next_struct_id
+	_next_struct_id += 1
+	c["last_build_tick"] = _sim.tick
+	var site := {"id": sid, "owner": id, "team": team, "type": fob_type, "cell": cell, "yaw": int(d["yaw"]),
+		"build_progress": 0.0, "build_cost": _catalog.build_cost_of(fob_type),
+		"min_builders": _catalog.min_builders_of(fob_type), "last_work_tick": _sim.tick}
+	_sites.add(site)
+	_fobs[_fob_key(team, squad)] = {"squad": squad, "team": team, "id": sid, "cell": cell, "built": false}
+	_emit_structure_delta(Protocol.OP_PLACE, _site_wire_record(site), cell)
+
+func _handle_remove_fob(peer: ENetPacketPeer) -> void:
+	var id = _peer_to_id.get(peer, 0)
+	if id == 0 or not _clients.has(id): return
+	var c = _clients[id]
+	var team: int = int(c["team"]); var squad: int = int(c["squad"])
+	if _squads.leader_of(team, squad) != id: return
+	_remove_squad_fob(team, squad)
+
+## Remove a squad's FOB entity (under-construction site OR completed structure) + registry record.
+func _remove_squad_fob(team: int, squad: int) -> void:
+	var rec := _fob_for(team, squad)
+	if rec.is_empty(): return
+	var fid := int(rec["id"])
+	var cell: Vector3i = rec["cell"]
+	if _sites.get_site(fid).is_empty() == false:
+		_sites.remove(fid)
+		_emit_structure_delta(Protocol.OP_REMOVE, {"id": fid}, cell)
+	elif _store.get_record(fid).is_empty() == false:
+		_store.remove(fid)
+		_emit_structure_delta(Protocol.OP_REMOVE, {"id": fid}, cell)
+	_fobs.erase(_fob_key(team, squad))
+
+## M12-P3: detect FOB lifecycle transitions against the live stores (robust to every removal path):
+## site->built (tally fobs_built), built->gone (tally fobs_destroyed), site->gone-before-built (decay).
+func _reconcile_fobs() -> void:
+	if _fobs.is_empty(): return
+	var drop: Array = []
+	for key in _fobs:
+		var rec: Dictionary = _fobs[key]
+		var fid := int(rec["id"])
+		if not bool(rec["built"]):
+			if not _store.get_record(fid).is_empty():
+				rec["built"] = true
+				_fobs_built += 1
+			elif _sites.get_site(fid).is_empty():
+				drop.append(key)   # site decayed/removed before completing
+		else:
+			if _store.get_record(fid).is_empty():
+				_fobs_destroyed += 1
+				drop.append(key)   # bunker destroyed via M4 path / dismantle / recycle
+	for key in drop:
+		_fobs.erase(key)
+
 ## M12-P2: advance build sites from eligible shovellers; complete -> promote to StructureStore;
 ## decay abandoned sites; then repair/dismantle finished structures for the remaining shovellers.
 func _step_build_sites() -> void:
@@ -1461,6 +1602,7 @@ func _step_build_sites() -> void:
 		_sites.remove(int(id))
 		_emit_structure_delta(Protocol.OP_REMOVE, {"id": int(id)}, dcell)
 	_step_shovel_structures(shov, busy)
+	_reconcile_fobs()   # M12-P3: detect FOB site->built / built->destroyed / pre-build decay
 
 func _complete_site(id: int) -> void:
 	var s: Dictionary = _sites.get_site(id)
@@ -1752,6 +1894,25 @@ func _broadcast_support_list() -> void:
 		if bool(c.get("auto_deploy", true)):
 			continue   # bot client — does not render
 		_net.send_to(c["peer"], NetHost.CHANNEL_CONTROL, pkt, ENetPacketPeer.FLAG_RELIABLE)
+
+## M12-P3: per-team FOB list (squad/structure_id/under_construction/enabled) for human clients to
+## render. Bots (auto_deploy) are skipped → zero cost in the headless gate.
+func _send_fob_lists() -> void:
+	for cid in _clients:
+		var c = _clients[cid]
+		if bool(c.get("auto_deploy", true)): continue   # bots don't render; skip (zero gate cost)
+		var team: int = int(c["team"])
+		var list: Array = []
+		for key in _fobs:
+			var rec: Dictionary = _fobs[key]
+			if int(rec["team"]) != team: continue
+			var built: bool = bool(rec["built"])
+			var enabled := false
+			if built:
+				enabled = _spawnable_fob_pos(team, int(rec["squad"])) != null
+			list.append({"squad": int(rec["squad"]), "structure_id": int(rec["id"]),
+				"under_construction": 0 if built else 1, "enabled": 1 if enabled else 0})
+		_net.send_to(c["peer"], NetHost.CHANNEL_CONTROL, Protocol.encode_fob_list(list), ENetPacketPeer.FLAG_RELIABLE)
 
 ## Cosmetic remote thrown-grenade hint. Sent only to HUMAN clients, excluding the thrower (who already
 ## arcs their own grenade from client_main). Unreliable/droppable, like the other *_FX broadcasts.
@@ -2261,8 +2422,8 @@ func _log_telemetry() -> void:
 	var pts := ""
 	for pt in _conquest.points:
 		pts += "." if pt["owner"] == -1 else str(pt["owner"])
-	print("[telemetry] players=%d alive=%d tick_mean=%.2fms tick_p99=%.2fms agg=%.1fMbit/s kills=%d shots=%d hit_rate=%.2f starv=%d rewind_clamped=%d t0=%d t1=%d pts=%s cap_events=%d struct=%d bld=%d rmv=%d blk=%d pen=%d dmg=%d destroyed=%d collapsed=%d nades=%d splash=%d smoke=%d rockets=%d rstruct=%d proj=%d projhit=%d projlive=%d projdrop=%d downed=%d bleedouts=%d revives=%d c4=%d mines=%d heals=%d ammo=%d bags=%d bagx=%d climbs=%d vaults=%d dropblk=%d enters=%d exits=%d veh_dead=%d repairs=%d repair_oh=%d rkt_veh=%d transport_m=%.1f ac_viol=%d swaps=%d supp=%d melees=%d backstabs=%d sledge=%d flashes=%d flashblinds=%d impacts=%d built_small=%d built_large=%d bsolo=%d dismantled=%d repaired=%d"
-		% [n, alive, _tele.mean_tick_ms(), _tele.p99_tick_ms(), mbit, _kills, _shots, hit_rate, _tele.starvation, _rewind_clamped, _conquest.tickets_int(0), _conquest.tickets_int(1), pts, _cap_events, _store.count(), _builds, _removes, _shots_blocked, _pen, _dmg, _destroyed, _collapsed, _nades, _splash_kills, _smokes, _rockets_det, _rstruct, _proj_fired, _proj_hits, _proj_live_max, _proj_dropped, _downed, _bleedouts, _revives, _c4_det, _mine_trips, _heals, _ammo_gives, _bags_thrown, _bags_exhausted, _climbs, _vaults, _drop_shoot_blocked, _enters, _exits, _veh_destroyed, _repairs, _repair_overheats, _rkt_vs_veh, _transport_max, _ac_viol, _swaps, _suppress_events, _melees, _backstabs, _sledge_hits, _flashes, _flash_blinds, _impacts, _built_small, _built_large, _build_blocked_solo, _dismantled, _repaired])
+	print("[telemetry] players=%d alive=%d tick_mean=%.2fms tick_p99=%.2fms agg=%.1fMbit/s kills=%d shots=%d hit_rate=%.2f starv=%d rewind_clamped=%d t0=%d t1=%d pts=%s cap_events=%d struct=%d bld=%d rmv=%d blk=%d pen=%d dmg=%d destroyed=%d collapsed=%d nades=%d splash=%d smoke=%d rockets=%d rstruct=%d proj=%d projhit=%d projlive=%d projdrop=%d downed=%d bleedouts=%d revives=%d c4=%d mines=%d heals=%d ammo=%d bags=%d bagx=%d climbs=%d vaults=%d dropblk=%d enters=%d exits=%d veh_dead=%d repairs=%d repair_oh=%d rkt_veh=%d transport_m=%.1f ac_viol=%d swaps=%d supp=%d melees=%d backstabs=%d sledge=%d flashes=%d flashblinds=%d impacts=%d built_small=%d built_large=%d bsolo=%d dismantled=%d repaired=%d fobs_built=%d fob_spawns=%d fob_disabled=%d fobs_destroyed=%d"
+		% [n, alive, _tele.mean_tick_ms(), _tele.p99_tick_ms(), mbit, _kills, _shots, hit_rate, _tele.starvation, _rewind_clamped, _conquest.tickets_int(0), _conquest.tickets_int(1), pts, _cap_events, _store.count(), _builds, _removes, _shots_blocked, _pen, _dmg, _destroyed, _collapsed, _nades, _splash_kills, _smokes, _rockets_det, _rstruct, _proj_fired, _proj_hits, _proj_live_max, _proj_dropped, _downed, _bleedouts, _revives, _c4_det, _mine_trips, _heals, _ammo_gives, _bags_thrown, _bags_exhausted, _climbs, _vaults, _drop_shoot_blocked, _enters, _exits, _veh_destroyed, _repairs, _repair_overheats, _rkt_vs_veh, _transport_max, _ac_viol, _swaps, _suppress_events, _melees, _backstabs, _sledge_hits, _flashes, _flash_blinds, _impacts, _built_small, _built_large, _build_blocked_solo, _dismantled, _repaired, _fobs_built, _fob_spawns, _fob_disabled, _fobs_destroyed])
 	var pt := maxi(_phase_ticks, 1)
 	print("[perf] us/tick: poll=%d move=%d veh=%d lag=%d interest=%d fire=%d respawn=%d conquest=%d match=%d snap=%d (ticks=%d)"
 		% [_phase_us["poll"] / pt, _phase_us["move"] / pt, _phase_us["veh"] / pt, _phase_us["lag"] / pt, _phase_us["interest"] / pt, _phase_us["fire"] / pt, _phase_us["respawn"] / pt, _phase_us["conquest"] / pt, _phase_us["match"] / pt, _phase_us["snap"] / pt, _phase_ticks])
@@ -2278,3 +2439,4 @@ func _log_telemetry() -> void:
 	_suppress_events = 0
 	_melees = 0; _backstabs = 0; _sledge_hits = 0; _flashes = 0; _flash_blinds = 0; _impacts = 0
 	_built_small = 0; _built_large = 0; _build_blocked_solo = 0; _dismantled = 0; _repaired = 0
+	_fobs_built = 0; _fob_spawns = 0; _fob_disabled = 0; _fobs_destroyed = 0
