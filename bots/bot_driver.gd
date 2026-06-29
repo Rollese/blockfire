@@ -31,6 +31,9 @@ const VEHICLE_RPG_RANGE := 120.0   # fire an RPG at an enemy vehicle within this
 const RPG_FIRE_COOLDOWN := 120     # ticks between RPG fire attempts (matches server cooldown_ticks)
 const ROCKET_SPEED := 150.0  # keep in sync with data/gadgets.json rpg.rocket_speed (bot lead math)
 const ROCKET_GRAVITY := 20.0  # matches Grenade.GRAVITY; bots aim higher by 1/2 g t^2 to counter rocket drop
+const FOB_DRILL_MAX_TICKS := 30 * 30   # M12-P3: safety deadline (~30s) a squad leader drills its FOB
+                                       # before giving up and falling through to normal AI (placement
+                                       # may keep failing on a contested/occupied cell — don't babysit).
 
 var _map: MapDef
 var _map_path: String = MAP_PATH   # --map=<name> overrides (must match server + client)
@@ -83,6 +86,7 @@ func _spawn_bot(index: int) -> void:
 		"yaw": randf() * TAU, "pitch": 0.0, "heading": randf() * TAU, "turn_timer": 0.0,
 		"reload_until": 0, "burst_start": -1,
 		"last_build_tick": -100000, "structs": {}, "builds_made": 0,
+		"last_fob_tick": -100000, "fob_drill_start": -1,
 		"last_grenade_tick": -100000, "nades_thrown": 0, "smokes_thrown": 0,
 		"flashes_thrown": 0, "impacts_thrown": 0, "last_melee_tick": -100000,
 		"class": 0, "rpg_last_tick": -100000, "c4_placed": false, "c4_detonated": false,
@@ -134,6 +138,7 @@ func _drive(bot: Dictionary, delta: float) -> void:
 		bot["in_vehicle"] = 0
 		bot["fire_mode_set"] = false
 		bot["has_build"] = false   # shovel-driller: drop any stale build-commit cell from the past life
+		bot["fob_drill_start"] = -1   # M12-P3: re-evaluate the FOB drill fresh on the next spawn
 		bot["cur_swap_slot"] = 0   # server resets active_slot to 0 on (re)spawn; mirror it
 		_send(bot, 0.0, 0.0, bot["yaw"], 0.0, 0)
 		return
@@ -207,6 +212,14 @@ func _drive(bot: Dictionary, delta: float) -> void:
 					_send(bot, sin(yaw), cos(yaw), yaw, 0.0, 0)
 					return
 			# no vehicle in view -> fall through to normal infantry behavior
+
+	# M12-P3: squad leaders build their squad's FOB at the per-team shared cell until it is completed.
+	# Runs BEFORE the shovel-driller / combat dispatch (a leader that is also a driller does the FOB
+	# drill instead — fine; the FOB drill also shovels). The large shovel-drillers converge on the same
+	# cell and shovel it too, so leader + drillers exceed the FOB's min_builders=2 and it completes.
+	if me != null and me.alive and not me.is_downed and _fob_drill_active(bot, me):
+		_drive_fob_leader(bot, me)
+		return
 
 	# --- Shovel-driller logic: ~1 in 8 bots (index % 8 == 4, DISJOINT from the climb driller at
 	# %8==0) run a deterministic build/shovel drill so the fleet gate sees built_small/built_large/
@@ -411,11 +424,11 @@ func _drive_shovel_driller(bot: Dictionary, me: EntityState) -> void:
 
 	if is_large and _map != null and not _map.base_for(int(me.team)).is_empty():
 		# Large-cooperation: every large driller on the team locks the SAME shared cell so >=2 converge.
+		# M12-P3: the squad LEADERS place a FOB site at this cell (see _drive_fob_leader); the large
+		# drillers no longer place a heavy_barricade here — they just converge + shovel whatever site is
+		# there, adding builders to the FOB so it clears min_builders=2 and completes (built_large fires).
 		target_cell = _shared_large_cell(int(me.team))
 		have_target = true
-		if not _cell_known(structs, target_cell):
-			if me.pos.distance_to(BuildGrid.world_of(target_cell)) <= StructureStore.BUILD_RANGE - 0.5:
-				_place_site(bot, me, _heavy_type, target_cell)
 	else:
 		var have_base: bool = _map != null and not _map.base_for(int(me.team)).is_empty()
 		# (P1) Commit to a sticky own build cell until the site finishes (or proves rejected/decayed).
@@ -547,6 +560,82 @@ func _place_site(bot: Dictionary, me: EntityState, type: int, cell: Vector3i) ->
 	bot["last_build_tick"] = st
 	bot["builds_made"] = int(bot["builds_made"]) + 1
 	return true
+
+## M12-P3: true if this bot is its squad's leader — the lowest id among the visible same-team +
+## same-squad pawns (plus itself). The server independently re-checks leadership on PLACE_FOB, so a
+## false positive (a closer-but-not-actually-lowest id off-view) just yields a harmless rejected request.
+func _is_squad_leader(bot: Dictionary, me: EntityState) -> bool:
+	var ids: Array = [int(bot["id"])]
+	var view: Dictionary = bot["view"]
+	for id in view:
+		var e: EntityState = view[id]
+		if int(e.team) == int(me.team) and int(e.squad) == int(me.squad):
+			ids.append(int(id))
+	return Fob.is_squad_leader(int(bot["id"]), ids)
+
+## M12-P3: send a PLACE_FOB for `cell` if the per-bot FOB cooldown allows. PLACE_FOB is leader-only +
+## UNCAPPED server-side, so it does NOT consume the builds_made cap (unlike _place_site). Returns true
+## if sent. The server validates leader/occupancy/placement, so a rejected request is harmless.
+func _place_fob(bot: Dictionary, me: EntityState, cell: Vector3i) -> bool:
+	var st: int = bot["server_tick"]
+	if st - int(bot.get("last_fob_tick", -100000)) < BUILD_COOLDOWN_TICKS:
+		return false
+	var yaw_step := int(round(me.yaw / (TAU / float(BuildGrid.YAW_STEPS)))) % BuildGrid.YAW_STEPS
+	if yaw_step < 0: yaw_step += BuildGrid.YAW_STEPS
+	(bot["net"] as NetHost).send_to(bot["peer"], NetHost.CHANNEL_INPUT,
+		Protocol.encode_place_fob(cell, yaw_step), 0)
+	bot["last_fob_tick"] = st
+	return true
+
+## M12-P3: true if this bot should run the FOB drill — it is its squad's leader AND the per-team shared
+## cell does NOT yet hold a COMPLETED structure (empty or under_construction) AND it has not been drilling
+## past FOB_DRILL_MAX_TICKS. Tracks fob_drill_start (first active tick); resets it once the FOB completes
+## so a destroyed-then-absent FOB can be rebuilt on a fresh evaluation (respawn also resets it).
+func _fob_drill_active(bot: Dictionary, me: EntityState) -> bool:
+	if not _is_squad_leader(bot, me):
+		return false
+	var structs: Dictionary = bot["structs"]
+	var cell: Vector3i = _shared_large_cell(int(me.team))
+	var rec: Dictionary = _struct_at(structs, cell)
+	if not rec.is_empty() and int(rec.get("under_construction", 0)) == 0:
+		bot["fob_drill_start"] = -1   # FOB (or a structure) is up at the cell -> stop drilling, reset
+		return false
+	var now: int = int(bot["server_tick"])
+	var start: int = int(bot.get("fob_drill_start", -1))
+	if start < 0:
+		bot["fob_drill_start"] = now
+		start = now
+	if now - start > FOB_DRILL_MAX_TICKS:
+		return false   # deadline exceeded -> fall through to normal AI (never babysit a failing cell)
+	return true
+
+## M12-P3 FOB leader drill: a squad leader whose squad has no completed FOB yet steers to the per-team
+## shared cell, places a FOB site there (PLACE_FOB), and holds BTN_SHOVEL to build it. Mirrors the
+## shovel-driller's steer+shovel step; the large shovel-drillers converge on the SAME cell and shovel
+## it too, so leader + drillers exceed the FOB's min_builders=2 and it completes (fobs_built fires).
+## Self-contained: computes move + buttons and _sends, overriding combat until the FOB is up (or deadline).
+func _drive_fob_leader(bot: Dictionary, me: EntityState) -> void:
+	var structs: Dictionary = bot["structs"]
+	var cell: Vector3i = _shared_large_cell(int(me.team))
+	var center := BuildGrid.world_of(cell)
+	var to := center - me.pos
+	var flat := Vector2(to.x, to.z)
+	var dist := flat.length()
+	var move_x := 0.0
+	var move_y := 0.0
+	var buttons := 0
+	if dist > 0.001:
+		bot["yaw"] = atan2(to.x, to.z)
+	if dist > SHOVEL_APPROACH:
+		var n := flat / dist
+		move_x = n.x; move_y = n.y
+	# In build range + the shared cell is still empty -> drop the FOB site. The server rejects it if this
+	# bot is not really the leader or the cell is occupied (harmless — another leader / a later tick lands it).
+	if dist <= StructureStore.BUILD_RANGE - 0.5 and _struct_at(structs, cell).is_empty():
+		_place_fob(bot, me, cell)
+	if dist <= BuildSite.SHOVEL_RANGE:
+		buttons |= InputCommand.BTN_SHOVEL   # advances the FOB site once placed; all same-team builders count
+	_send(bot, move_x, move_y, bot["yaw"], 0.0, buttons)
 
 ## Throw a FRAG at an in-view enemy when a structure sits roughly on the line between us and them
 ## (so the blast clears cover) — shared cooldown + per-bot frag cap. Drives the blast/destruction gate.
