@@ -31,6 +31,11 @@ const KILL_SCORE := 100             # score points awarded to killer per kill
 const ROSTER_STRIDE_TICKS := 30    # broadcast roster every N ticks (~1 Hz @30Hz)
 const MATCH_END_DRAIN_TICKS := 60  # keep running ~2s after a win, then exit
 const MAX_STRUCTURE_DELTAS_PER_TICK := 64   # graceful degradation: cap delta SENDS/tick
+# Per-client per-tick cap on structure-baseline pieces. A fresh join / big move on a dense map (town =
+# 8324 pieces) otherwise floods one tick with the whole map's baselines (reliable) — measured p99 spike
+# to ~170ms at 48 bots. Structures are static, so streaming nearest-first over a few ticks (~0.5s on
+# the densest map) is imperceptible and keeps the per-tick snapshot cost bounded. See BaselinePacer.
+const MAX_STRUCTURE_BASELINE_PIECES_PER_TICK := 256
 const BULLET_CARVE_RADIUS := 0.30   # m: chunks a single blocked bullet clears (M11)
 const GRENADE_FUSE_TICKS := 45        # 1.5s @30Hz
 const GRENADE_COOLDOWN_TICKS := 300   # 10s between a player's throws (shared frag/smoke)
@@ -2443,19 +2448,27 @@ func _sync_structure_baselines(c: Dictionary, self_pos: Vector3) -> void:
 	var center := _grid.key_of(self_pos)
 	var span := int(ceil(INTEREST_RADIUS / CELL_SIZE))
 	var known: Dictionary = c["known_regions"]
+	# Collect the unknown, non-empty regions in interest range with their piece count + distance, then
+	# let the pacer pick a nearest-first subset within the per-tick budget (the rest stream next tick).
+	var candidates: Array = []
 	for dx in range(-span, span + 1):
 		for dz in range(-span, span + 1):
 			var region := Vector2i(center.x + dx, center.y + dz)
 			if known.has(region):
 				continue
-			var recs := _store.records_in_region(region)
-			for s in _sites.records_in_region(region):
-				recs.append(_site_wire_record(s))
-			if recs.is_empty():
-				continue
-			known[region] = true
-			var bytes := Protocol.encode_structure_baseline(region, recs)
-			_net.send_to(c["peer"], NetHost.CHANNEL_CONTROL, bytes, ENetPacketPeer.FLAG_RELIABLE)
+			var pieces := _store.region_count(region) + _sites.region_count(region)
+			if pieces == 0:
+				continue   # empty region: leave unknown (cheap to re-check; may gain pieces via deltas)
+			var rc := _grid.world_of_key(region)   # region centre, for nearest-first ordering
+			candidates.append({"region": region, "pieces": pieces, "dist2": self_pos.distance_squared_to(rc)})
+	for sel in BaselinePacer.pick(candidates, MAX_STRUCTURE_BASELINE_PIECES_PER_TICK):
+		var region: Vector2i = sel["region"]
+		var recs := _store.records_in_region(region)
+		for s in _sites.records_in_region(region):
+			recs.append(_site_wire_record(s))
+		known[region] = true
+		var bytes := Protocol.encode_structure_baseline(region, recs)
+		_net.send_to(c["peer"], NetHost.CHANNEL_CONTROL, bytes, ENetPacketPeer.FLAG_RELIABLE)
 
 func _on_peer_disconnected(peer: ENetPacketPeer) -> void:
 	var id = _peer_to_id.get(peer, 0)

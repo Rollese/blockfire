@@ -70,3 +70,7 @@ func records_in_region(region: Vector2i) -> Array:
 	for id in _by_region.get(region, {}):
 		out.append(_by_id[id])
 	return out
+
+## Site count in a region without materialising the records — for the baseline pacer's per-tick budget.
+func region_count(region: Vector2i) -> int:
+	return (_by_region.get(region, {}) as Dictionary).size()
