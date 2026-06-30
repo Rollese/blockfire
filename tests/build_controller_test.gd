@@ -61,6 +61,15 @@ func test_aimed_cell_clamps_reach_when_level() -> void:
 	assert_eq(cell.y, 0, "still ground layer")
 	assert_true(cell.z >= 1, "placed ahead, not at the eye")
 
+func test_aimed_cell_looking_up_projects_ahead_not_onto_self() -> void:
+	# Regression: looking up/level must place the cell AHEAD of the player, never snapped onto the
+	# eye's own cell (which would let you build on yourself).
+	var bc := BuildController.new(_cat())
+	var eye := Vector3(0, 1.7, 0)
+	var up := bc.aimed_cell(eye, Vector3(0, 0.6, 1).normalized())   # looking upward + forward
+	assert_true(up.z >= 1, "cell projected ahead in +Z, not onto the eye cell (z==0)")
+	assert_eq(up.y, 0, "still the ground layer")
+
 func test_placement_valid_rejects_occupied_cell() -> void:
 	var bc := BuildController.new(_cat())
 	var cell := Vector3i(2, 0, 3)

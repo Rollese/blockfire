@@ -36,15 +36,13 @@ func set_active(on: bool) -> void:
 func toggle() -> void:
 	active = not active
 
-## The piece types the player can cycle right now: fortifications, plus the FOB for a squad leader.
-func _cycle(is_leader: bool) -> Array:
-	var out: Array = _fort_types.duplicate()
-	if is_leader and _fob_type >= 0:
-		out.append(_fob_type)
-	return out
+## Length of the piece cycle right now: fortifications, plus the FOB for a squad leader. (No array
+## allocation — current_type/cycle call this every frame.)
+func _cycle_len(is_leader: bool) -> int:
+	return _fort_types.size() + (1 if is_leader and _fob_type >= 0 else 0)
 
 func cycle(dir: int, is_leader: bool) -> void:
-	var n := _cycle(is_leader).size()
+	var n := _cycle_len(is_leader)
 	if n > 0:
 		_index = wrapi(_index + dir, 0, n)
 
@@ -52,10 +50,11 @@ func rotate() -> void:
 	yaw = (yaw + 1) % BuildGrid.YAW_STEPS
 
 func current_type(is_leader: bool) -> int:
-	var c := _cycle(is_leader)
-	if c.is_empty():
+	var n := _cycle_len(is_leader)
+	if n == 0:
 		return -1
-	return int(c[_index % c.size()])
+	var i := _index % n
+	return _fob_type if i == _fort_types.size() else int(_fort_types[i])
 
 func current_is_fob(is_leader: bool) -> bool:
 	return is_leader and _fob_type >= 0 and current_type(is_leader) == _fob_type
@@ -69,7 +68,13 @@ func aimed_cell(eye: Vector3, fwd: Vector3) -> Vector3i:
 		var t: float = minf(-eye.y / fwd.y, BUILD_REACH)
 		p = eye + fwd * t
 	else:
-		p = eye + fwd * BUILD_REACH
+		# Looking level/up: project the HORIZONTAL aim out to reach so the cell is ahead of the player,
+		# never snapped onto their own feet (which would let you build on yourself looking level/up).
+		var h := Vector2(fwd.x, fwd.z)
+		if h.length() < 0.001:
+			h = Vector2(0.0, 1.0)   # degenerate (straight up/down): arbitrary forward
+		h = h.normalized() * BUILD_REACH
+		p = Vector3(eye.x + h.x, 0.0, eye.z + h.y)
 	p.y = 0.0
 	return BuildGrid.cell_of(p)
 
@@ -78,6 +83,24 @@ func aimed_cell(eye: Vector3, fwd: Vector3) -> Vector3i:
 ## `eye` is the player's eye (its X/Z match the feet the server measures from); pass Vector3.INF to
 ## skip the range check.
 func placement_valid(cell: Vector3i, structures: Dictionary, eye: Vector3 = Vector3.INF) -> bool:
+	return _geom_ok(cell, eye) and not _occupied(cell, structures)
+
+## PLACE on a valid empty cell, SHOVEL when aiming at a known under-construction site, else NONE.
+## Single pass over the structure set (called per tick AND per frame while build mode is active).
+func action_at(cell: Vector3i, structures: Dictionary, eye: Vector3 = Vector3.INF) -> int:
+	var occupied := false
+	for id_v: Variant in structures:
+		var rec: Dictionary = structures[id_v]
+		if (rec["cell"] as Vector3i) == cell:
+			if int(rec.get("under_construction", 0)) == 1:
+				return SHOVEL   # an under-construction site here -> shovel it
+			occupied = true     # a completed piece blocks placement
+	if not occupied and _geom_ok(cell, eye):
+		return PLACE
+	return NONE
+
+## Ground-layer + in-bounds + within the server's build range (no structure scan).
+func _geom_ok(cell: Vector3i, eye: Vector3) -> bool:
 	if cell.y != 0:
 		return false
 	if not BuildGrid.in_bounds(cell, Pawn.WORLD_HALF):
@@ -86,23 +109,7 @@ func placement_valid(cell: Vector3i, structures: Dictionary, eye: Vector3 = Vect
 		var c := BuildGrid.world_of(cell)
 		if Vector2(c.x - eye.x, c.z - eye.z).length() > StructureStore.BUILD_RANGE:
 			return false
-	return not _occupied(cell, structures)
-
-## PLACE on a valid empty cell, SHOVEL when aiming at a known under-construction site, else NONE.
-func action_at(cell: Vector3i, structures: Dictionary, eye: Vector3 = Vector3.INF) -> int:
-	if _site_id_at(cell, structures) != 0:
-		return SHOVEL
-	if placement_valid(cell, structures, eye):
-		return PLACE
-	return NONE
-
-## Struct id of an under-construction site occupying `cell`, or 0.
-func _site_id_at(cell: Vector3i, structures: Dictionary) -> int:
-	for id_v: Variant in structures:
-		var rec: Dictionary = structures[id_v]
-		if (rec["cell"] as Vector3i) == cell and int(rec.get("under_construction", 0)) == 1:
-			return int(id_v)
-	return 0
+	return true
 
 func _occupied(cell: Vector3i, structures: Dictionary) -> bool:
 	for id_v: Variant in structures:

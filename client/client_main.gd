@@ -296,11 +296,9 @@ func _physics_process(delta: float) -> void:
 				_build_ctrl.set_active(false)   # build mode never survives death/downed/entering a vehicle
 			else:
 				var bb := int(cmd["buttons"]) & ~(InputCommand.BTN_FIRE | InputCommand.BTN_RELOAD)
-				var ay := wrapf(float(cmd["yaw"]) + PI, -PI, PI)
-				var pp := float(cmd["pitch"])
-				var fwd := Vector3(sin(ay) * cos(pp), sin(pp), cos(ay) * cos(pp))
 				var beye := _pred.predicted.eye_position()
-				var bcell := _build_ctrl.aimed_cell(beye, fwd)
+				var bfwd := Combat._forward(wrapf(float(cmd["yaw"]) + PI, -PI, PI), float(cmd["pitch"]))
+				var bcell := _build_ctrl.aimed_cell(beye, bfwd)
 				if _build_ctrl.action_at(bcell, _wv.structures(), beye) == BuildController.SHOVEL \
 						and (Input.is_action_pressed("fire") or _build_test):
 					bb |= InputCommand.BTN_SHOVEL   # _build_test forces the shovel so the QA shot shows it rise
@@ -712,18 +710,24 @@ func _process(_dt: float) -> void:
 	# ---- C3: one-shot actions (throw / throwable_cycle / gadget / squad_menu) ----
 	var alive_and_deployed: bool = sss != null and sss.alive and not sss.is_downed
 	if alive_and_deployed and _peer != null:
+		# Build tool out = no combat: while build mode is active (or a menu is open) the combat
+		# one-shots below are locked, so a place-click / habitual keypress can't also fire, throw,
+		# melee, detonate, or change fire mode.
+		var building: bool = _build_ctrl != null and _build_ctrl.active
+		var combat_locked: bool = building or menu_open0
+
 		# Throwable cycle
-		if Input.is_action_just_pressed("throwable_cycle"):
+		if Input.is_action_just_pressed("throwable_cycle") and not combat_locked:
 			_hud_model.cycle_throwable(_throwables.size())
 
 		# Fire-mode select (V): cycle the predicted mode + tell the server so its gating matches.
-		if Input.is_action_just_pressed("fire_select"):
+		if Input.is_action_just_pressed("fire_select") and not combat_locked:
 			var new_mode: int = _wpred.cycle_fire_mode()
 			_net.send_to(_peer, NetHost.CHANNEL_CONTROL,
 				Protocol.encode_set_fire_mode(new_mode), ENetPacketPeer.FLAG_RELIABLE)
 
 		# Quick melee (C): send the swing + play the viewmodel swing. Server resolves the hit.
-		if Input.is_action_just_pressed("melee"):
+		if Input.is_action_just_pressed("melee") and not combat_locked:
 			_net.send_to(_peer, NetHost.CHANNEL_CONTROL, Protocol.encode_melee(), ENetPacketPeer.FLAG_RELIABLE)
 			if _renderer != null:
 				_renderer.play_viewmodel_swing(_elapsed)
@@ -746,52 +750,50 @@ func _process(_dt: float) -> void:
 			_build_ctrl.set_active(true)   # QA: drop straight into build mode for a placement-ghost shot
 			_build_test_arm = _elapsed
 			_input_ctrl.pitch = -0.42      # look down at nearby ground so the ghost is within build range
-		if Input.is_action_just_pressed("build_mode"):
+		if Input.is_action_just_pressed("build_mode") and not menu_open0:
 			_build_ctrl.toggle()
-		if _build_ctrl.active:
+		if _build_ctrl.active and not menu_open0:
 			var is_leader := _is_squad_leader(sss.team)
-			if _build_wheel != 0:
-				_build_ctrl.cycle(signi(_build_wheel), is_leader)
-				_build_wheel = 0
+			# Apply every accumulated wheel notch (one cycle step each), preserving net direction.
+			while _build_wheel != 0:
+				var step := signi(_build_wheel)
+				_build_ctrl.cycle(step, is_leader)
+				_build_wheel -= step
 			if Input.is_action_just_pressed("reload"):
 				_build_ctrl.rotate()
-			var ay := wrapf(_input_ctrl.yaw + PI, -PI, PI)
-			var pp := _input_ctrl.pitch
-			var fwd := Vector3(sin(ay) * cos(pp), sin(pp), cos(ay) * cos(pp))
+			var btype := _build_ctrl.current_type(is_leader)
 			var beye := _pred.predicted.eye_position()
-			var bcell := _build_ctrl.aimed_cell(beye, fwd)
+			var bfwd := Combat._forward(wrapf(_input_ctrl.yaw + PI, -PI, PI), _input_ctrl.pitch)
+			var bcell := _build_ctrl.aimed_cell(beye, bfwd)
 			var act := _build_ctrl.action_at(bcell, _wv.structures(), beye)
-			# QA: auto-place one piece ~1.5 s after entering build mode (proves the place round-trip;
-			# the forced shovel in _physics_process then builds it up for the screenshot).
-			if _build_test and not _build_test_placed and _build_test_arm >= 0.0 \
-					and _elapsed - _build_test_arm > 1.5 and act == BuildController.PLACE:
-				_build_test_placed = true
-				_net.send_to(_peer, NetHost.CHANNEL_CONTROL,
-					Protocol.encode_build_request(_build_ctrl.current_type(is_leader), bcell, _build_ctrl.yaw),
-					ENetPacketPeer.FLAG_RELIABLE)
-			if act == BuildController.PLACE and Input.is_action_just_pressed("fire") and not menu_open0:
-				if _build_ctrl.current_is_fob(is_leader):
+			if btype >= 0:   # empty/invalid cycle -> no place/preview (defensive; the catalog always has fortifications)
+				# QA: auto-place one piece ~1.5 s after entering build mode (proves the place round-trip;
+				# the forced shovel in _physics_process then builds it up for the screenshot).
+				if _build_test and not _build_test_placed and _build_test_arm >= 0.0 \
+						and _elapsed - _build_test_arm > 1.5 and act == BuildController.PLACE:
+					_build_test_placed = true
 					_net.send_to(_peer, NetHost.CHANNEL_CONTROL,
-						Protocol.encode_place_fob(bcell, _build_ctrl.yaw), ENetPacketPeer.FLAG_RELIABLE)
-				else:
-					_net.send_to(_peer, NetHost.CHANNEL_CONTROL,
-						Protocol.encode_build_request(_build_ctrl.current_type(is_leader), bcell, _build_ctrl.yaw),
-						ENetPacketPeer.FLAG_RELIABLE)
-			var piece_name := _piece_cat.name_of(_build_ctrl.current_type(is_leader))
-			if _renderer != null:
-				_renderer.set_build_preview(true, piece_name, bcell, _build_ctrl.yaw,
-					act == BuildController.PLACE)
-			if _hud_view != null:
-				var verb := "shovel" if act == BuildController.SHOVEL else "place"
-				_hud_view.set_build_hint("BUILD: %s  ·  wheel cycle  ·  R rotate  ·  LMB %s  ·  T exit"
-					% [piece_name.to_upper(), verb])
+						Protocol.encode_build_request(btype, bcell, _build_ctrl.yaw), ENetPacketPeer.FLAG_RELIABLE)
+				if act == BuildController.PLACE and Input.is_action_just_pressed("fire"):
+					if _build_ctrl.current_is_fob(is_leader):
+						_net.send_to(_peer, NetHost.CHANNEL_CONTROL,
+							Protocol.encode_place_fob(bcell, _build_ctrl.yaw), ENetPacketPeer.FLAG_RELIABLE)
+					else:
+						_net.send_to(_peer, NetHost.CHANNEL_CONTROL,
+							Protocol.encode_build_request(btype, bcell, _build_ctrl.yaw), ENetPacketPeer.FLAG_RELIABLE)
+				var piece_name := _piece_cat.name_of(btype)
+				if _renderer != null:
+					_renderer.set_build_preview(true, piece_name, bcell, _build_ctrl.yaw,
+						act == BuildController.PLACE)
+				if _hud_view != null:
+					var verb := "shovel" if act == BuildController.SHOVEL else "place"
+					_hud_view.set_build_hint("BUILD: %s  ·  wheel cycle  ·  R rotate  ·  LMB %s  ·  T exit"
+						% [piece_name.to_upper(), verb])
 		else:
-			_build_wheel = 0
-			if _hud_view != null:
-				_hud_view.set_build_hint("")
+			_build_wheel = 0   # preview + hint are cleared by the inactive-state tail block in _process
 
 		# Throw: send grenade or RPG based on active throwable kind
-		if Input.is_action_just_pressed("throw"):
+		if Input.is_action_just_pressed("throw") and not combat_locked:
 			var throwables_model: Dictionary = _model.get("throwables", {})
 			var tlist: Array = throwables_model.get("list", [])
 			var active_idx: int = int(throwables_model.get("active", 0))
@@ -819,7 +821,7 @@ func _process(_dt: float) -> void:
 
 		# Left-click also fires the RPG when it's the equipped weapon. The RPG isn't a hit-scan
 		# click weapon, so without this the primary-fire button feels dead for an RPG loadout.
-		if Input.is_action_just_pressed("fire") and _has_rpg_equipped():
+		if Input.is_action_just_pressed("fire") and _has_rpg_equipped() and not combat_locked:
 			var rad: Vector3 = -Vector3(sin(_input_ctrl.yaw), 0.0, cos(_input_ctrl.yaw)).normalized()
 			var rpit: float = _input_ctrl.pitch
 			rad = Vector3(rad.x * cos(rpit), sin(rpit), rad.z * cos(rpit)).normalized()
@@ -832,7 +834,7 @@ func _process(_dt: float) -> void:
 
 		# Gadget: non-throwable gadget action. Defaulting to C4 detonate; owner must verify
 		# if their class uses a different primary gadget (e.g. repair, bag throw).
-		if Input.is_action_just_pressed("gadget"):
+		if Input.is_action_just_pressed("gadget") and not combat_locked:
 			_net.send_to(_peer, NetHost.CHANNEL_CONTROL,
 				Protocol.encode_gadget_action(Protocol.GA_C4_DETONATE,
 					_pred.predicted.pos, Vector3.ZERO, 0), ENetPacketPeer.FLAG_RELIABLE)
@@ -855,13 +857,19 @@ func _process(_dt: float) -> void:
 		var settings_open: bool = _settings_menu != null and _settings_menu.visible
 		_deploy_menu.visible = not deployed and not settings_open
 
-	# M12: hide the build-tool ghost + hint whenever build mode isn't active (covers death/menu/vehicle —
-	# the active path drives the preview itself above).
-	if _build_ctrl != null and not _build_ctrl.active:
-		if _renderer != null:
-			_renderer.set_build_preview(false, "", Vector3i.ZERO, 0, false)
-		if _hud_view != null:
-			_hud_view.set_build_hint("")
+	# M12: hide the build-tool ghost + hint and drop any pending wheel whenever build mode isn't
+	# actively interactive — inactive, a menu is open, or the player isn't alive (covers the 1-frame
+	# gap before _physics_process force-clears build mode on death). The active path drives the
+	# preview itself above.
+	if _build_ctrl != null:
+		var bss: EntityState = _wv.self_state()
+		var build_live: bool = _build_ctrl.active and not menu_open0 and bss != null and bss.alive
+		if not build_live:
+			_build_wheel = 0
+			if _renderer != null:
+				_renderer.set_build_preview(false, "", Vector3i.ZERO, 0, false)
+			if _hud_view != null:
+				_hud_view.set_build_hint("")
 
 	# --- input/deploy diagnostic (1 Hz) ----------------------------------------
 	_dbg_accum += _dt
@@ -1486,11 +1494,15 @@ func _my_squad_id(_team: int) -> int:
 ## and the server authoritatively rejects PLACE_FOB from a non-leader regardless.
 func _is_squad_leader(team: int) -> bool:
 	var my_squad := _my_squad_id(team)
-	var lowest := my_id
+	var lowest := -1
+	var found := false   # require my_id to actually be in the roster (no FOB on a not-yet-known roster)
 	for rw in _wv.roster():
 		if int(rw.get("team", -1)) == team and int(rw.get("squad", -1)) == my_squad:
-			lowest = mini(lowest, int(rw["id"]))
-	return lowest == my_id
+			var rid := int(rw["id"])
+			if not found or rid < lowest:
+				lowest = rid
+				found = true
+	return found and lowest == my_id
 
 ## M12: collect raw mouse-wheel steps while the build tool is active (the wheel cycles the piece;
 ## InputEventMouseButton carries the direction the swap_weapon action can't).

@@ -2126,6 +2126,7 @@ func set_build_preview(active: bool, piece_id: String, cell: Vector3i, yaw_step:
 		return
 	if _build_preview == null or piece_id != _build_preview_key:
 		if _build_preview != null:
+			_build_preview.visible = false   # queue_free is deferred — hide now so it doesn't double-render this frame
 			_build_preview.queue_free()
 		_build_preview = StructureKit.build(piece_id, 3)   # always pristine bucket for the ghost
 		_build_preview_mat = StandardMaterial3D.new()
