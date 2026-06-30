@@ -174,6 +174,11 @@ const RELOAD_BOB := 0.05          # rad bob amplitude added to the forward lean
 var _melee_swing: Dictionary = {} # id -> expire time of the swing pose
 const MELEE_SWING_TTL := 0.32     # s the swing/lunge pose lasts
 const MELEE_SWING_PITCH := 0.34   # rad peak forward lunge on the swing
+# Remote vault: a remote pawn auto-vaulted (VAULT_FX). A brief deep forward clamber over the obstacle
+# (distinct from the upright airborne jump pose). Wins over the airborne inference for its window.
+var _vault_until: Dictionary = {} # id -> expire time of the mantle pose
+const VAULT_POSE_TTL := 0.5       # s the mantle pose lasts (~ a vault's duration)
+const VAULT_PITCH := 0.6          # rad deep forward clamber lean (deeper than jump/climb)
 var footstep_demo := false        # --footstep-test: pump footstep dust at ground in front of camera (QA)
 var _footstep_next := 0.0
 
@@ -196,6 +201,8 @@ var reloadpose_demo := false      # --remote-reload-test: pin a reload-posed dum
 var _reloadpose_demo_done := false
 var meleepose_demo := false       # --remote-melee-test: pin a melee-lunge-posed dummy beside an upright one (QA)
 var _meleepose_demo_done := false
+var vaultpose_demo := false       # --remote-vault-test: pin a mantle-posed dummy beside an upright one (QA)
+var _vaultpose_demo_done := false
 var glbshoot_demo := false        # --glbshoot-test: GLB hold vs holding-both-shoot clip A/B (QA)
 var _glbshoot_demo_done := false
 # M11-P4 destruction cosmetics: per-piece debris/dust + a whole-building collapse cinematic + shake.
@@ -632,6 +639,7 @@ func update(world_view: WorldView, predictor: Prediction, now: float, fov: float
 	_ensure_firepose_demo(now)
 	_ensure_reloadpose_demo(now)
 	_ensure_meleepose_demo(now)
+	_ensure_vaultpose_demo(now)
 	_ensure_heldweapon_demo(now)
 	_ensure_glbshoot_demo(now)
 	_ensure_destroy_demo(now)
@@ -1652,6 +1660,14 @@ func remote_melee(id: int, now: float) -> void:
 	if id > 0:
 		_melee_swing[id] = now + MELEE_SWING_TTL
 
+## Arm a brief mantle/clamber pose on a remote pawn's body (from VAULT_FX). View-only.
+func remote_vault(id: int, now: float) -> void:
+	if id > 0:
+		_vault_until[id] = now + VAULT_POSE_TTL
+
+func _is_vaulting_pose(id: int) -> bool:
+	return _now < float(_vault_until.get(id, 0.0))
+
 func _is_meleeing(id: int) -> bool:
 	return _now < float(_melee_swing.get(id, 0.0))
 
@@ -1810,6 +1826,21 @@ func _ensure_heldweapon_demo(now: float) -> void:
 		_camera.add_child(dummy)
 
 
+## Visual QA (--remote-vault-test): upright dummy next to one frozen in the mantle/clamber pose (a
+## deep forward lean over an obstacle) — the same forward pose a remote holds while auto-vaulting.
+func _ensure_vaultpose_demo(now: float) -> void:
+	if not vaultpose_demo or _vaultpose_demo_done or _camera == null or now < 1.0:
+		return
+	_vaultpose_demo_done = true
+	var upright := CharacterKit.build()
+	upright.position = Vector3(-0.8, -1.1, -3.0)
+	_camera.add_child(upright)
+	var mantling := CharacterKit.build()
+	mantling.transform.basis = Basis.IDENTITY.rotated(Vector3(1, 0, 0), VAULT_PITCH)   # deep forward clamber
+	mantling.position = Vector3(0.8, -1.1, -3.0)
+	_camera.add_child(mantling)
+
+
 ## Visual QA (--remote-melee-test): upright dummy next to one frozen at the peak melee lunge (a deep
 ## forward strike) — the peak of the procedural swing arc.
 func _ensure_meleepose_demo(now: float) -> void:
@@ -1942,6 +1973,7 @@ func _release_entity(id: int) -> void:
 	_fire_recoil.erase(id)
 	_reload_until.erase(id)
 	_melee_swing.erase(id)
+	_vault_until.erase(id)
 	_free_list.append(node)
 
 
@@ -2053,6 +2085,17 @@ func _pose_entity(id: int, node: Node3D, es: EntityState, render_delta: float) -
 		cb = cb.rotated(cb.x, CLIMB_PITCH)   # +X pitch = lean forward (same sign convention as prone)
 		node.position = Vector3(es.pos.x, es.pos.y, es.pos.z)
 		node.transform.basis = cb
+		node.scale = Vector3(1.0, height / CharacterKit.STAND_HEIGHT, 1.0)
+		return
+
+	if _is_vaulting_pose(id):
+		# Auto-vault (VAULT_FX): a deep forward clamber over the obstacle — distinct from the upright
+		# airborne jump tuck. Wins over the airborne inference (a vault lifts the pawn, which would
+		# otherwise read as a plain jump). Pitch about the feet, keeping the stance height scale.
+		var vb := Basis.IDENTITY.rotated(Vector3.UP, es.yaw)
+		vb = vb.rotated(vb.x, VAULT_PITCH)
+		node.position = Vector3(es.pos.x, es.pos.y, es.pos.z)
+		node.transform.basis = vb
 		node.scale = Vector3(1.0, height / CharacterKit.STAND_HEIGHT, 1.0)
 		return
 

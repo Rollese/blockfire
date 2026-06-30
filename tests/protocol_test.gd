@@ -72,6 +72,12 @@ func test_melee_fx_round_trip() -> void:
 	assert_eq(Protocol.msg_type(b), Protocol.Msg.MELEE_FX)
 	assert_eq(Protocol.decode_melee_fx(b)["melee_id"], 88, "swinger id preserved")
 
+func test_vault_fx_round_trip() -> void:
+	# Cosmetic remote-vault cue: just the vaulter id (the client plays a brief mantle pose).
+	var b := Protocol.encode_vault_fx(101)
+	assert_eq(Protocol.msg_type(b), Protocol.Msg.VAULT_FX)
+	assert_eq(Protocol.decode_vault_fx(b)["vault_id"], 101, "vaulter id preserved")
+
 func test_impact_fx_round_trip() -> void:
 	for kind in [Protocol.IMPACT_WALL, Protocol.IMPACT_DIRT]:
 		var b := Protocol.encode_impact_fx(Vector3(-14.3, 2.6, 9.1), kind)
