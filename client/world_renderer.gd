@@ -104,6 +104,8 @@ var _boom_next := 0.0
 var _boom_i := 0
 var wreck_demo := false           # --vehicle-test: blow up a transport in front of the camera (QA)
 var _wreck_demo_done := false
+var turret_demo := false          # --turret-test: an intact transport with its turret traversed off-axis (QA)
+var _turret_demo_done := false
 var casing_demo := false          # --casing-test: pump shell casings from the gun port (QA)
 var _casing_demo_next := 0.0
 var impact_demo := false          # --impact-test: pump bullet impacts in front of the camera (QA)
@@ -619,6 +621,7 @@ func update(world_view: WorldView, predictor: Prediction, now: float, fov: float
 	_ensure_support_demo(now)
 	_ensure_buildsite_demo(now)
 	_ensure_wreck_demo(now)
+	_ensure_turret_demo(now)
 	_ensure_casing_demo(now)
 	_ensure_climb_demo(now)
 	_ensure_jump_demo(now)
@@ -2618,6 +2621,16 @@ func _sync_vehicle_pool(vehicles: Dictionary, render_delta: float) -> void:
 		else:
 			node.position = node.position.lerp(target_pos, k)
 			node.rotation.y = lerp_angle(node.rotation.y, vs.heading, k)
+		# Traverse the turret toward the replicated gunner aim. turret_yaw is world-space and the hull
+		# already carries heading, so the turret's LOCAL yaw is the difference. Smoothed like the hull
+		# (snapshot rate). Skipped gracefully for vehicle kits that have no "Turret" child.
+		var turret: Node3D = node.get_node_or_null("Turret") as Node3D
+		if turret != null:
+			var local_yaw: float = wrapf(vs.turret_yaw - vs.heading, -PI, PI)
+			if is_new or k <= 0.0:
+				turret.rotation.y = local_yaw
+			else:
+				turret.rotation.y = lerp_angle(turret.rotation.y, local_yaw, k)
 		# Wreck state is self-correcting off the replicated HP: destroyed (hp<=0) reads as a burnt,
 		# tilted hulk; a respawn restores hp>0 and the intact look. Robust for vehicles that come
 		# into view already destroyed or respawn out of sight — no event needed for the persistent look.
@@ -2733,6 +2746,28 @@ func _ensure_vehicle_smoke(node: Node3D, ratio: float, now: float) -> void:
 		return
 	node.set_meta("veh_smoke_next", now + period)
 	_spawn_puff(node.position + Vector3(0, 1.6, 0), size, 1.6, now, color)
+
+
+## --turret-test: one intact transport sitting broadside with its turret traversed ~55° off the hull
+## axis, so a screenshot shows the turret aiming independently of the body (validates the traverse).
+func _ensure_turret_demo(now: float) -> void:
+	if not turret_demo or _turret_demo_done or _camera == null or now < 1.0:
+		return
+	var cb := _camera.global_transform
+	if not cb.origin.is_finite():
+		return
+	_turret_demo_done = true
+	var fwd := (-cb.basis.z).normalized()
+	var base := cb.origin + fwd * 9.0; base.y = 0.0
+	var hull_yaw := atan2(-fwd.x, -fwd.z) + PI * 0.5   # hull broadside so the turret traverse is visible
+	var veh := _make_vehicle_mesh()
+	add_child(veh)
+	veh.position = base
+	veh.rotation.y = hull_yaw
+	var turret: Node3D = veh.get_node_or_null("Turret") as Node3D
+	if turret != null:
+		turret.rotation.y = deg_to_rad(55.0)   # local traverse off the hull axis (barrel angles toward camera)
+	_vehicle_active[_DMG_DEMO_VID] = veh   # reuse the demo vid slot (camera-placed, not snapshot-driven)
 
 
 func _ensure_wreck_demo(now: float) -> void:

@@ -441,6 +441,9 @@ func _resolve_vehicle_fires() -> void:
 		if gp == null: continue
 		var origin := v.turret_muzzle()
 		var dir := Combat._forward(v.turret_yaw, gp.pitch)
+		# Cosmetic: tracer + muzzle flash + gunfire sound at the turret muzzle (the mounted gun was
+		# previously silent + flashless to everyone). Reuses the infantry SHOT_FX path.
+		_broadcast_shot_fx(gunner, origin, dir)
 		var max_range := float(v.mounted["range_m"])
 		var view_tick: int = int(inp["view_server_tick"])
 		var frame := _lag.rewind(view_tick)
@@ -464,7 +467,13 @@ func _resolve_vehicle_fires() -> void:
 		var victim: Pawn = _sim.world.get_pawn(best_victim)
 		if victim == null or not victim.alive: continue
 		_shots += 1; _hits += 1
+		_broadcast_impact_fx(origin + dir * best_t, Protocol.IMPACT_FLESH)   # cosmetic blood mist at the hit
 		_apply_pawn_damage(best_victim, victim, int(v.mounted["damage"]), best_head, Revive.Source.BULLET, gunner, 0)
+		# Hitmarker to a human gunner (lethal = killed or downed), mirroring the infantry fire path.
+		var gsc: Dictionary = _clients.get(gunner, {})
+		if not gsc.is_empty() and not gsc.get("auto_deploy", true):
+			var glethal: bool = (not victim.alive) or victim.is_downed
+			_net.send_to(gsc["peer"], NetHost.CHANNEL_CONTROL, Protocol.encode_hitmarker(best_head, glethal), 0)
 
 func _resolve_fires() -> void:
 	for id in _clients:

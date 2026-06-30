@@ -87,6 +87,7 @@ var _suppress_qa_on := true         # in suppress-test, gates the forced FX (A/B
 var _armor_demo := false            # --armor-demo: pin 3 armor-tier dummy soldiers in front of the camera
 var _boom_test := false             # --boom-test: pump frag explosions in front of the camera (visual QA)
 var _vehicle_test := false          # --vehicle-test: blow up a transport in front of the camera (visual QA)
+var _turret_test := false           # --turret-test: an intact transport with its turret traversed off-axis (visual QA)
 var _impact_test := false           # --impact-test: pump bullet impacts in front of the camera (visual QA)
 var _corpse_test := false           # --corpse-test: lay a few corpses in front of the camera (visual QA)
 var _footstep_test := false         # --footstep-test: pump footstep dust in front of the camera (visual QA)
@@ -171,6 +172,7 @@ func configure(args: Dictionary) -> void:
 	_armor_demo = args.has("armor-demo")            # visual QA: pin LIGHT/MEDIUM/HEAVY dummies in view
 	_boom_test = args.has("boom-test")              # visual QA: pump frag explosions in front of camera
 	_vehicle_test = args.has("vehicle-test")        # visual QA: blow up a transport in front of camera
+	_turret_test = args.has("turret-test")          # visual QA: turret traversed off the hull axis
 	_impact_test = args.has("impact-test")          # visual QA: pump bullet impacts in front of camera
 	_corpse_test = args.has("corpse-test")          # visual QA: lay corpses in front of camera
 	_footstep_test = args.has("footstep-test")      # visual QA: pump footstep dust in front of camera
@@ -1186,6 +1188,7 @@ func _build_scene() -> void:
 	_renderer.armor_demo = _armor_demo   # --armor-demo: pin armor-tier dummies for a QA screenshot
 	_renderer.boom_demo = _boom_test     # --boom-test: pump explosions for a QA screenshot
 	_renderer.wreck_demo = _vehicle_test # --vehicle-test: blow up a transport for a QA screenshot
+	_renderer.turret_demo = _turret_test # --turret-test: turret traversed off-axis for a QA screenshot
 	_renderer.casing_demo = _casing_test # --casing-test: pump shell casings for a QA screenshot
 	_renderer.climb_demo = _climb_test   # --climb-test: climbing-pose dummy for a QA screenshot
 	_renderer.jump_demo = _jump_test     # --jump-test: airborne-pose dummy for a QA screenshot
