@@ -52,6 +52,7 @@ enum Msg {
 	REMOVE_FOB = 39,        ## client -> server: squad leader removes their squad's FOB (site or built)
 	FOB_LIST = 40,          ## server -> human clients: their team's FOBs {squad, structure_id, uc, enabled}
 	RELOAD_FX = 41,         ## server -> human clients: a remote pawn started reloading (id + duration) -> reload pose
+	MELEE_FX = 42,          ## server -> human clients: a remote pawn swung melee (id) -> brief swing/lunge pose
 }
 
 const OP_PLACE := 0
@@ -415,6 +416,17 @@ static func encode_reload_fx(reloader_id: int, duration_ticks: int) -> PackedByt
 static func decode_reload_fx(bytes: PackedByteArray) -> Dictionary:
 	var r := body_reader(bytes)
 	return {"reloader_id": r.get_u32(), "duration_ticks": r.get_u16()}
+
+## Remote melee cue — a remote pawn swung (knife / sledgehammer). Just the swinger id; the client
+## plays a brief swing/lunge pose. View-only; sent only to human clients.
+static func encode_melee_fx(melee_id: int) -> PackedByteArray:
+	var buf := StreamPeerBuffer.new()
+	buf.put_u8(Msg.MELEE_FX)
+	buf.put_u32(melee_id)
+	return buf.data_array
+
+static func decode_melee_fx(bytes: PackedByteArray) -> Dictionary:
+	return {"melee_id": body_reader(bytes).get_u32()}
 
 ## RPG rocket launch — same wire shape as SHOT_FX (origin ×10, unit dir ×10000); the client rebuilds
 ## the velocity from the known rocket speed and flies a cosmetic projectile along the ballistic arc.

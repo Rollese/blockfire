@@ -8,11 +8,15 @@ extends Object
 const WALK_SPEED := 0.6     # m/s above which the figure is "moving"
 const SPRINT_SPEED := 4.5   # m/s above which it is "sprinting"
 
-static func clip_for(downed: bool, speed: float, _stance: int, firing: bool = false, reloading: bool = false) -> Dictionary:
+static func clip_for(downed: bool, speed: float, _stance: int, firing: bool = false, reloading: bool = false, meleeing: bool = false) -> Dictionary:
 	if downed:
 		# DBNO: alive but incapacitated. The renderer lays the body on its back (face-up); a calm
 		# looping idle reads as "downed, breathing" — not the `die` collapse clip (arm-flail).
 		return {"clip": "idle", "loop": true}
+	# A melee swing is a brief deliberate strike — the authored one-shot "attack-melee" clip wins over
+	# locomotion/fire/reload for its short window (the renderer clears the flag when it expires).
+	if meleeing:
+		return {"clip": "attack-melee", "loop": false}
 	if speed >= SPRINT_SPEED:
 		return {"clip": "sprint", "loop": true}
 	if speed >= WALK_SPEED:

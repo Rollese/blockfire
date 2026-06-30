@@ -165,6 +165,11 @@ var _reload_until: Dictionary = {} # id -> time the reload pose ends
 const RELOAD_PITCH := 0.22        # rad forward lean (head down over the gun) while reloading
 const RELOAD_BOB_HZ := 2.4        # work-the-mag bob frequency (Hz)
 const RELOAD_BOB := 0.05          # rad bob amplitude added to the forward lean
+# Remote melee: a remote pawn swung (MELEE_FX). A brief forward lunge that eases out — reads as a
+# strike. The GLB path swaps to the authored "attack-melee" clip for the swing window.
+var _melee_swing: Dictionary = {} # id -> expire time of the swing pose
+const MELEE_SWING_TTL := 0.32     # s the swing/lunge pose lasts
+const MELEE_SWING_PITCH := 0.34   # rad peak forward lunge on the swing
 var footstep_demo := false        # --footstep-test: pump footstep dust at ground in front of camera (QA)
 var _footstep_next := 0.0
 
@@ -185,6 +190,8 @@ var firepose_demo := false        # --firepose-test: pin a fire-recoil-posed dum
 var _firepose_demo_done := false
 var reloadpose_demo := false      # --remote-reload-test: pin a reload-posed dummy beside an upright one (QA)
 var _reloadpose_demo_done := false
+var meleepose_demo := false       # --remote-melee-test: pin a melee-lunge-posed dummy beside an upright one (QA)
+var _meleepose_demo_done := false
 var glbshoot_demo := false        # --glbshoot-test: GLB hold vs holding-both-shoot clip A/B (QA)
 var _glbshoot_demo_done := false
 # M11-P4 destruction cosmetics: per-piece debris/dust + a whole-building collapse cinematic + shake.
@@ -618,6 +625,7 @@ func update(world_view: WorldView, predictor: Prediction, now: float, fov: float
 	_ensure_land_demo(now)
 	_ensure_firepose_demo(now)
 	_ensure_reloadpose_demo(now)
+	_ensure_meleepose_demo(now)
 	_ensure_glbshoot_demo(now)
 	_ensure_destroy_demo(now)
 	_ensure_collapse_demo(now)
@@ -1632,6 +1640,23 @@ func _reload_pitch(id: int) -> float:
 		return 0.0
 	return RELOAD_PITCH + RELOAD_BOB * sin(_now * TAU * RELOAD_BOB_HZ)
 
+## Arm a brief melee-swing lunge on a remote pawn's body (from MELEE_FX). View-only.
+func remote_melee(id: int, now: float) -> void:
+	if id > 0:
+		_melee_swing[id] = now + MELEE_SWING_TTL
+
+func _is_meleeing(id: int) -> bool:
+	return _now < float(_melee_swing.get(id, 0.0))
+
+## Forward lunge pitch (rad) for a swinging pawn's standing pose: peaks early then eases out. 0 idle.
+func _melee_pitch(id: int) -> float:
+	var expire: float = _melee_swing.get(id, 0.0)
+	if _now >= expire:
+		return 0.0
+	var t := clampf((expire - _now) / MELEE_SWING_TTL, 0.0, 1.0)   # 1 at swing start -> 0 at end
+	# Symmetric lunge arc: 0 at the start, peak mid-swing, back to 0 — a single forward strike.
+	return MELEE_SWING_PITCH * sin(PI * (1.0 - t))
+
 
 ## Local-pawn footstep: the predicted pawn carries real velocity/grounded each render frame, so drive
 ## the cadence time-based (dist = speed * dt). Audio only (no dust — the local feet are below the eye);
@@ -1759,6 +1784,21 @@ func _ensure_reloadpose_demo(now: float) -> void:
 	_camera.add_child(reloading)
 
 
+## Visual QA (--remote-melee-test): upright dummy next to one frozen at the peak melee lunge (a deep
+## forward strike) — the peak of the procedural swing arc.
+func _ensure_meleepose_demo(now: float) -> void:
+	if not meleepose_demo or _meleepose_demo_done or _camera == null or now < 1.0:
+		return
+	_meleepose_demo_done = true
+	var upright := CharacterKit.build()
+	upright.position = Vector3(-0.8, -1.1, -3.0)
+	_camera.add_child(upright)
+	var swinging := CharacterKit.build()
+	swinging.transform.basis = Basis.IDENTITY.rotated(Vector3(1, 0, 0), MELEE_SWING_PITCH)   # peak lunge
+	swinging.position = Vector3(0.8, -1.1, -3.0)
+	_camera.add_child(swinging)
+
+
 ## Visual QA (--jump-test): upright dummy next to an airborne-posed (tuck + lean) one.
 func _ensure_jump_demo(now: float) -> void:
 	if not jump_demo or _jump_demo_done or _camera == null or now < 1.0:
@@ -1874,6 +1914,7 @@ func _release_entity(id: int) -> void:
 	_air_fell.erase(id)
 	_fire_recoil.erase(id)
 	_reload_until.erase(id)
+	_melee_swing.erase(id)
 	_free_list.append(node)
 
 
@@ -1945,10 +1986,10 @@ func _pose_entity(id: int, node: Node3D, es: EntityState, render_delta: float) -
 			speed = minf(flat.length() / SimLoop.DT, 20.0)   # 20 m/s cap: a respawn/teleport jump can't read as a sprint
 			_last_speed[id] = speed
 			_last_pos[id] = es.pos
-		# Firing (from SHOT_FX shooter_id) swaps the stationary hold to the authored shoot clip;
-		# reloading (RELOAD_FX) swaps the stationary hold to the two-handed "interact" gesture.
+		# Firing (SHOT_FX) -> shoot clip; reloading (RELOAD_FX) -> "interact"; meleeing (MELEE_FX) ->
+		# the authored "attack-melee" clip (wins over both — a deliberate strike).
 		var firing := _now < float(_fire_recoil.get(id, 0.0))
-		var sel: Dictionary = CharacterAnim.clip_for(es.is_downed, speed, es.stance, firing, _is_reloading(id))
+		var sel: Dictionary = CharacterAnim.clip_for(es.is_downed, speed, es.stance, firing, _is_reloading(id), _is_meleeing(id))
 		CharacterDriver.drive(_entity_ap.get(id) as AnimationPlayer, sel["clip"], sel["loop"])
 	# Airborne inference must run every frame (continuous vy estimate) — before the early-return poses.
 	var airborne := _update_airborne(id, es, render_delta, _now)
@@ -1997,9 +2038,17 @@ func _pose_entity(id: int, node: Node3D, es: EntityState, render_delta: float) -
 	var fb := Basis.IDENTITY.rotated(Vector3.UP, es.yaw)
 	# Body-pitch recoil twitch for the procedural body only — the GLB path uses the authored
 	# holding-both-shoot clip instead (applying both would double the recoil).
-	# Reloading wins over fire-recoil (the server blocks firing mid-reload, so they don't co-occur):
-	# a forward head-down-over-the-gun lean instead of the backward fire kick. Procedural body only.
-	var recoil := 0.0 if use_models else (_reload_pitch(id) if _is_reloading(id) else _fire_recoil_pitch(id))
+	# Body-pitch overlay for the procedural body (the GLB path uses authored clips instead). Priority:
+	# a melee swing lunge wins (deliberate strike), then the reload forward lean, then the fire kick —
+	# the server never lets firing co-occur with reloading, and a swing is brief.
+	var recoil := 0.0
+	if not use_models:
+		if _is_meleeing(id):
+			recoil = _melee_pitch(id)
+		elif _is_reloading(id):
+			recoil = _reload_pitch(id)
+		else:
+			recoil = _fire_recoil_pitch(id)
 	if recoil != 0.0:
 		fb = fb.rotated(fb.x, recoil)
 	if tilt != 0.0:

@@ -66,6 +66,12 @@ func test_reload_fx_clamps_long_duration() -> void:
 	assert_eq(d["reloader_id"], 3)
 	assert_eq(d["duration_ticks"], 65535, "duration clamps to u16 max")
 
+func test_melee_fx_round_trip() -> void:
+	# Cosmetic remote-melee cue: just the swinger id (the client plays a brief swing pose).
+	var b := Protocol.encode_melee_fx(88)
+	assert_eq(Protocol.msg_type(b), Protocol.Msg.MELEE_FX)
+	assert_eq(Protocol.decode_melee_fx(b)["melee_id"], 88, "swinger id preserved")
+
 func test_impact_fx_round_trip() -> void:
 	for kind in [Protocol.IMPACT_WALL, Protocol.IMPACT_DIRT]:
 		var b := Protocol.encode_impact_fx(Vector3(-14.3, 2.6, 9.1), kind)

@@ -522,6 +522,19 @@ func _broadcast_shot_fx(shooter_id: int, origin: Vector3, dir: Vector3) -> void:
 		_net.send_to(c["peer"], NetHost.CHANNEL_SNAPSHOT, pkt, 0)
 
 
+func _broadcast_melee_fx(melee_id: int) -> void:
+	# Cosmetic remote-melee cue. Sent to human clients except the swinger (they see their own swing via
+	# the viewmodel). Unreliable (droppable) — a missed cue just skips one swing pose.
+	var pkt := Protocol.encode_melee_fx(melee_id)
+	for cid in _clients:
+		if cid == melee_id:
+			continue
+		var c = _clients[cid]
+		if bool(c.get("auto_deploy", true)):
+			continue   # bot client — does not render
+		_net.send_to(c["peer"], NetHost.CHANNEL_SNAPSHOT, pkt, 0)
+
+
 func _broadcast_reload_fx(reloader_id: int, duration_ticks: int) -> void:
 	# Cosmetic remote-reload cue. Sent to human clients except the reloader (they see their own reload
 	# via the viewmodel + SELF_STATE). Unreliable (droppable) — a missed cue just skips one reload pose.
@@ -1724,6 +1737,7 @@ func _resolve_melee(id: int) -> void:
 	c["melee_ready_tick"] = _sim.tick + MELEE_COOLDOWN_TICKS
 	var atk: Pawn = _sim.world.get_pawn(id)
 	if atk == null or not atk.alive or atk.is_downed: return
+	_broadcast_melee_fx(id)   # cosmetic: a real swing happened (cooldown passed, attacker valid)
 	var melee_damage := MELEE_DAMAGE
 	# Engineer sledgehammer: demolish the structure cell under the crosshair first (heavy carve via
 	# SRC_MELEE). With no structure in reach it bonks a pawn for SLEDGE_PAWN_DAMAGE (knife path below).
