@@ -64,6 +64,15 @@ func apply_structure_delta(bytes: PackedByteArray) -> void:
 				_struct_fx.append({"cell": rrec["cell"], "yaw": int(rrec.get("yaw", 0)), "kind": "destroy"})
 				_structs.erase(rid)
 				_structs_version += 1
+		Protocol.OP_PROGRESS:
+			# M12-P2: a build site advanced its shovel progress. The wire carries only id+progress;
+			# the renderer derives the fill fraction from build_progress vs its own PieceCatalog cost.
+			var pid := int(d["id"])
+			if _structs.has(pid):
+				var prec: Dictionary = _structs[pid]
+				if int(prec.get("build_progress", -1)) != int(d["progress"]):
+					prec["build_progress"] = int(d["progress"])
+					_structs_version += 1
 		Protocol.OP_CHUNK:
 			var cid := int(d["id"])
 			if _structs.has(cid):
