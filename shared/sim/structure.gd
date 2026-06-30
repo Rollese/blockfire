@@ -55,6 +55,11 @@ func records_in_region(region: Vector2i) -> Array:
 		out.append(_by_id[id])
 	return out
 
+## Piece count in a region without materialising the records — for the baseline pacer's per-tick
+## budget (avoid building the full record array just to size a region).
+func region_count(region: Vector2i) -> int:
+	return (_by_region.get(region, {}) as Dictionary).size()
+
 ## Insert a record. Returns the record on success, {} if the cell is occupied.
 func place(id: int, type: int, cell: Vector3i, yaw: int, owner: int, building_id: int = 0) -> Dictionary:
 	if _occupancy.has(cell):

@@ -38,5 +38,9 @@ func query(center: Vector3, radius: float, positions: Dictionary) -> Array:
 func key_of(pos: Vector3) -> Vector2i:
 	return _key(pos)
 
+## World-space centre (XZ; y=0) of a region key — inverse of key_of, for nearest-first region ordering.
+func world_of_key(key: Vector2i) -> Vector3:
+	return Vector3((float(key.x) + 0.5) * cell_size, 0.0, (float(key.y) + 0.5) * cell_size)
+
 func _key(pos: Vector3) -> Vector2i:
 	return Vector2i(floori(pos.x / cell_size), floori(pos.z / cell_size))
