@@ -9,7 +9,9 @@ const NONE := 0
 const PLACE := 1
 const SHOVEL := 2
 
-const BUILD_REACH := 7.0   # m: max distance ahead the ghost can be placed/snapped
+# Match the server's authoritative placement range (StructureStore.BUILD_RANGE) so the green ghost
+# only appears where a BUILD_REQUEST will actually be accepted.
+const BUILD_REACH := StructureStore.BUILD_RANGE
 
 # Buildable fortifications a player can cycle (by catalog id, in cycle order). The FOB is appended
 # only for squad leaders (leader-only on the server too).
@@ -71,20 +73,26 @@ func aimed_cell(eye: Vector3, fwd: Vector3) -> Vector3i:
 	p.y = 0.0
 	return BuildGrid.cell_of(p)
 
-## Optimistic client-side validity for the green/red ghost: in bounds + the ground layer + the cell is
-## not already occupied by any known structure or site. Server is authoritative.
-func placement_valid(cell: Vector3i, structures: Dictionary) -> bool:
+## Optimistic client-side validity for the green/red ghost: in bounds + the ground layer + within the
+## server's placement range of the player + the cell is not already occupied. Server is authoritative.
+## `eye` is the player's eye (its X/Z match the feet the server measures from); pass Vector3.INF to
+## skip the range check.
+func placement_valid(cell: Vector3i, structures: Dictionary, eye: Vector3 = Vector3.INF) -> bool:
 	if cell.y != 0:
 		return false
 	if not BuildGrid.in_bounds(cell, Pawn.WORLD_HALF):
 		return false
+	if eye.is_finite():
+		var c := BuildGrid.world_of(cell)
+		if Vector2(c.x - eye.x, c.z - eye.z).length() > StructureStore.BUILD_RANGE:
+			return false
 	return not _occupied(cell, structures)
 
 ## PLACE on a valid empty cell, SHOVEL when aiming at a known under-construction site, else NONE.
-func action_at(cell: Vector3i, structures: Dictionary) -> int:
+func action_at(cell: Vector3i, structures: Dictionary, eye: Vector3 = Vector3.INF) -> int:
 	if _site_id_at(cell, structures) != 0:
 		return SHOVEL
-	if placement_valid(cell, structures):
+	if placement_valid(cell, structures, eye):
 		return PLACE
 	return NONE
 

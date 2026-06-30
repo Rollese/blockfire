@@ -125,6 +125,8 @@ var _buildsite_test := false         # --buildsite-test: ghost build site (in-pr
 var _fob_menu_test := false          # --fob-menu-test: seed a fake enabled FOB so the deploy screen shows it
 var _build_test := false             # --build-test: auto-enter build mode (placement ghost) for a QA shot
 var _build_test_done := false
+var _build_test_arm := -1.0          # _elapsed when build-test entered build mode (drives the auto-place)
+var _build_test_placed := false      # build-test sends one BUILD_REQUEST after a short delay
 var _grenade_danger_test := false   # --grenade-danger-test: pin a live grenade near the player (visual QA)
 var _capture_test := false          # --capture-test: pump capture-announcement banners (visual QA)
 var _capture_test_next := 0.0
@@ -297,10 +299,11 @@ func _physics_process(delta: float) -> void:
 				var ay := wrapf(float(cmd["yaw"]) + PI, -PI, PI)
 				var pp := float(cmd["pitch"])
 				var fwd := Vector3(sin(ay) * cos(pp), sin(pp), cos(ay) * cos(pp))
-				var bcell := _build_ctrl.aimed_cell(_pred.predicted.eye_position(), fwd)
-				if _build_ctrl.action_at(bcell, _wv.structures()) == BuildController.SHOVEL \
-						and Input.is_action_pressed("fire"):
-					bb |= InputCommand.BTN_SHOVEL
+				var beye := _pred.predicted.eye_position()
+				var bcell := _build_ctrl.aimed_cell(beye, fwd)
+				if _build_ctrl.action_at(bcell, _wv.structures(), beye) == BuildController.SHOVEL \
+						and (Input.is_action_pressed("fire") or _build_test):
+					bb |= InputCommand.BTN_SHOVEL   # _build_test forces the shovel so the QA shot shows it rise
 				cmd["buttons"] = bb
 		_pred.record_cmd(_client_tick, cmd)
 
@@ -741,6 +744,8 @@ func _process(_dt: float) -> void:
 		if _build_test and not _build_test_done:
 			_build_test_done = true
 			_build_ctrl.set_active(true)   # QA: drop straight into build mode for a placement-ghost shot
+			_build_test_arm = _elapsed
+			_input_ctrl.pitch = -0.42      # look down at nearby ground so the ghost is within build range
 		if Input.is_action_just_pressed("build_mode"):
 			_build_ctrl.toggle()
 		if _build_ctrl.active:
@@ -753,8 +758,17 @@ func _process(_dt: float) -> void:
 			var ay := wrapf(_input_ctrl.yaw + PI, -PI, PI)
 			var pp := _input_ctrl.pitch
 			var fwd := Vector3(sin(ay) * cos(pp), sin(pp), cos(ay) * cos(pp))
-			var bcell := _build_ctrl.aimed_cell(_pred.predicted.eye_position(), fwd)
-			var act := _build_ctrl.action_at(bcell, _wv.structures())
+			var beye := _pred.predicted.eye_position()
+			var bcell := _build_ctrl.aimed_cell(beye, fwd)
+			var act := _build_ctrl.action_at(bcell, _wv.structures(), beye)
+			# QA: auto-place one piece ~1.5 s after entering build mode (proves the place round-trip;
+			# the forced shovel in _physics_process then builds it up for the screenshot).
+			if _build_test and not _build_test_placed and _build_test_arm >= 0.0 \
+					and _elapsed - _build_test_arm > 1.5 and act == BuildController.PLACE:
+				_build_test_placed = true
+				_net.send_to(_peer, NetHost.CHANNEL_CONTROL,
+					Protocol.encode_build_request(_build_ctrl.current_type(is_leader), bcell, _build_ctrl.yaw),
+					ENetPacketPeer.FLAG_RELIABLE)
 			if act == BuildController.PLACE and Input.is_action_just_pressed("fire") and not menu_open0:
 				if _build_ctrl.current_is_fob(is_leader):
 					_net.send_to(_peer, NetHost.CHANNEL_CONTROL,
