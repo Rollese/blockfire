@@ -50,3 +50,15 @@ func test_reloading_while_moving_keeps_locomotion() -> void:
 
 func test_downed_overrides_reloading() -> void:
 	assert_eq(CharacterAnim.clip_for(true, 0.0, Stance.STAND, false, true)["clip"], "idle", "downed wins over reloading")
+
+func test_meleeing_uses_attack_clip() -> void:
+	var r := CharacterAnim.clip_for(false, 0.0, Stance.STAND, false, false, true)
+	assert_eq(r["clip"], "attack-melee", "meleeing -> authored attack-melee clip")
+	assert_false(r["loop"], "the swing is a one-shot, not looped")
+
+func test_meleeing_wins_over_movement_and_fire_and_reload() -> void:
+	# A melee swing is a deliberate strike — it overrides locomotion, firing, and reloading.
+	assert_eq(CharacterAnim.clip_for(false, 6.0, Stance.STAND, true, true, true)["clip"], "attack-melee", "melee wins over sprint+fire+reload")
+
+func test_downed_overrides_meleeing() -> void:
+	assert_eq(CharacterAnim.clip_for(true, 0.0, Stance.STAND, false, false, true)["clip"], "idle", "downed wins over meleeing")
