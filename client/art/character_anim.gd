@@ -8,7 +8,7 @@ extends Object
 const WALK_SPEED := 0.6     # m/s above which the figure is "moving"
 const SPRINT_SPEED := 4.5   # m/s above which it is "sprinting"
 
-static func clip_for(downed: bool, speed: float, _stance: int, firing: bool = false) -> Dictionary:
+static func clip_for(downed: bool, speed: float, _stance: int, firing: bool = false, reloading: bool = false) -> Dictionary:
 	if downed:
 		# DBNO: alive but incapacitated. The renderer lays the body on its back (face-up); a calm
 		# looping idle reads as "downed, breathing" — not the `die` collapse clip (arm-flail).
@@ -17,6 +17,10 @@ static func clip_for(downed: bool, speed: float, _stance: int, firing: bool = fa
 		return {"clip": "sprint", "loop": true}
 	if speed >= WALK_SPEED:
 		return {"clip": "walk", "loop": true}
+	# Stationary + reloading: no authored reload clip exists, so the two-handed "interact" gesture
+	# (hands working at chest height) stands in — reads as "doing something with the weapon".
+	if reloading:
+		return {"clip": "interact", "loop": true}
 	# Stationary + firing: the authored two-handed shoot clip (recoil), looped so sustained auto-fire
 	# keeps cycling it; a moving shooter keeps its locomotion clip (+ the body-pitch recoil twitch).
 	if firing:

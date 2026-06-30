@@ -51,6 +51,7 @@ enum Msg {
 	PLACE_FOB = 38,         ## client -> server: squad leader requests a FOB build site at a cell
 	REMOVE_FOB = 39,        ## client -> server: squad leader removes their squad's FOB (site or built)
 	FOB_LIST = 40,          ## server -> human clients: their team's FOBs {squad, structure_id, uc, enabled}
+	RELOAD_FX = 41,         ## server -> human clients: a remote pawn started reloading (id + duration) -> reload pose
 }
 
 const OP_PLACE := 0
@@ -401,6 +402,19 @@ static func decode_shot_fx(bytes: PackedByteArray) -> Dictionary:
 	var dir := Vector3(float(r.get_16()) / 10000.0, float(r.get_16()) / 10000.0, float(r.get_16()) / 10000.0)
 	var shooter_id := r.get_u32() if r.get_available_bytes() > 0 else 0   # trailing, backward-compatible
 	return {"origin": origin, "dir": dir, "shooter_id": shooter_id}
+
+## Remote reload cue — a remote pawn began reloading. id + how long (ticks) the reload runs so the
+## client can hold a reload pose for the right duration. View-only; sent only to human clients.
+static func encode_reload_fx(reloader_id: int, duration_ticks: int) -> PackedByteArray:
+	var buf := StreamPeerBuffer.new()
+	buf.put_u8(Msg.RELOAD_FX)
+	buf.put_u32(reloader_id)
+	buf.put_u16(clampi(duration_ticks, 0, 65535))
+	return buf.data_array
+
+static func decode_reload_fx(bytes: PackedByteArray) -> Dictionary:
+	var r := body_reader(bytes)
+	return {"reloader_id": r.get_u32(), "duration_ticks": r.get_u16()}
 
 ## RPG rocket launch — same wire shape as SHOT_FX (origin ×10, unit dir ×10000); the client rebuilds
 ## the velocity from the known rocket speed and flies a cosmetic projectile along the ballistic arc.

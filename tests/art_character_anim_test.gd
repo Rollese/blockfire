@@ -37,3 +37,16 @@ func test_firing_while_moving_keeps_locomotion() -> void:
 
 func test_not_firing_stationary_is_plain_hold() -> void:
 	assert_eq(CharacterAnim.clip_for(false, 0.0, Stance.STAND, false)["clip"], "holding-both", "stationary idle -> plain hold")
+
+func test_reloading_stationary_uses_interact_clip() -> void:
+	var r := CharacterAnim.clip_for(false, 0.0, Stance.STAND, false, true)
+	assert_eq(r["clip"], "interact", "stationary + reloading -> interact gesture (no authored reload clip)")
+	assert_true(r["loop"], "reload gesture loops for the reload span")
+
+func test_reloading_while_moving_keeps_locomotion() -> void:
+	# A reloading-on-the-move pawn keeps walk/sprint; the reload gesture only stands in when stationary.
+	assert_eq(CharacterAnim.clip_for(false, 1.5, Stance.STAND, false, true)["clip"], "walk", "walking+reloading stays walk")
+	assert_eq(CharacterAnim.clip_for(false, 6.0, Stance.STAND, false, true)["clip"], "sprint", "sprinting+reloading stays sprint")
+
+func test_downed_overrides_reloading() -> void:
+	assert_eq(CharacterAnim.clip_for(true, 0.0, Stance.STAND, false, true)["clip"], "idle", "downed wins over reloading")
