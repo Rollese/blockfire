@@ -115,9 +115,12 @@ var _grenade_test := false          # --grenade-test: lob cosmetic grenades acro
 var _gadget_test := false           # --gadget-test: place sample deployed gadgets in view (visual QA)
 var _gadget_bytes := PackedByteArray()   # last GADGET_LIST bytes — skip the rebuild on an unchanged heartbeat
 var _support_bytes := PackedByteArray()  # last SUPPORT_LIST bytes — skip the rebuild on an unchanged heartbeat
+var _fob_bytes := PackedByteArray()      # last FOB_LIST bytes — skip rework on an unchanged heartbeat
+var _team_fobs: Array = []               # M12-P3: own-team FOBs {squad, under_construction, enabled} for deploy
 var _revive_marker_test := false    # --revive-marker-test: downed friendly + revive marker (visual QA)
 var _support_test := false           # --support-test: support beam + aura between two soldiers (visual QA)
 var _buildsite_test := false         # --buildsite-test: ghost build site (in-progress shovel construction)
+var _fob_menu_test := false          # --fob-menu-test: seed a fake enabled FOB so the deploy screen shows it
 var _grenade_danger_test := false   # --grenade-danger-test: pin a live grenade near the player (visual QA)
 var _capture_test := false          # --capture-test: pump capture-announcement banners (visual QA)
 var _capture_test_next := 0.0
@@ -185,6 +188,7 @@ func configure(args: Dictionary) -> void:
 	_revive_marker_test = args.has("revive-marker-test")   # visual QA: downed friendly + revive marker
 	_support_test = args.has("support-test")        # visual QA: support beam + aura between two soldiers
 	_buildsite_test = args.has("buildsite-test")    # visual QA: ghost build site (shovel construction)
+	_fob_menu_test = args.has("fob-menu-test")      # visual QA: deploy screen with a Squad FOB option
 	_grenade_danger_test = args.has("grenade-danger-test") # visual QA: pin a live grenade near the player
 	_capture_test = args.has("capture-test")        # visual QA: pump capture-announcement banners
 	_killfeed_test = args.has("killfeed-test")      # visual QA: pump named killfeed entries
@@ -867,6 +871,13 @@ func _on_packet(_from: ENetPacketPeer, _channel: int, bytes: PackedByteArray) ->
 				_support_bytes = bytes   # skip the rebuild on an unchanged 1 Hz heartbeat
 				if _renderer != null:
 					_renderer.set_support_links(Protocol.decode_support_list(bytes))
+		Protocol.Msg.FOB_LIST:
+			# M12-P3: the team's FOBs (squad/under_construction/enabled). Refresh the deploy menu when
+			# the set changes so an enabled squad FOB appears (or vanishes) as a spawn option.
+			if bytes != _fob_bytes:
+				_fob_bytes = bytes   # skip rework on the unchanged 1 Hz heartbeat
+				_team_fobs = Protocol.decode_fob_list(bytes)
+				_deploy_menu_populated = false   # re-enumerate spawns with the new FOB set
 		Protocol.Msg.DETONATION:
 			var det: Dictionary = Protocol.decode_detonation(bytes)
 			if _renderer != null:
@@ -971,7 +982,8 @@ func _handle_snapshot(bytes: PackedByteArray) -> void:
 				var my_squad: int = _my_squad_id(ss.team)
 				_deploy_menu.populate(ss.team, _map, _conquest,
 					_build_squadmate_candidates(ss.team, my_squad),
-					_build_vehicle_candidates(ss.team))
+					_build_vehicle_candidates(ss.team),
+					_build_fob_candidates())
 				_deploy_menu_populated = true
 			_deploy_menu.visible = false
 			_awaiting_deploy = false   # deploy confirmed — clear awaiting state
@@ -992,7 +1004,8 @@ func _handle_snapshot(bytes: PackedByteArray) -> void:
 				var my_squad: int = _my_squad_id(ss.team)
 				_deploy_menu.populate(ss.team, _map, _conquest,
 					_build_squadmate_candidates(ss.team, my_squad),
-					_build_vehicle_candidates(ss.team))
+					_build_vehicle_candidates(ss.team),
+					_build_fob_candidates())
 				_deploy_menu_populated = true
 			_deploy_menu.visible = true
 			if not _awaiting_deploy:
@@ -1440,6 +1453,16 @@ func _build_vehicle_candidates(my_team: int) -> Array:
 			"free_seats": free_count,
 			"type_name": "transport",   # single vehicle type today; extend when catalog grows
 		})
+	return out
+
+## M12-P3: the team's FOBs from the latest FOB_LIST, mapped to DeploySpawn.enumerate's shape
+## ({squad, enabled}). The server re-validates; the position is resolved server-side from the squad.
+func _build_fob_candidates() -> Array:
+	if _fob_menu_test:
+		return [{"squad": 0, "enabled": true}]   # --fob-menu-test: a fake enabled FOB for a deploy-screen QA shot
+	var out: Array = []
+	for f in _team_fobs:
+		out.append({"squad": int(f["squad"]), "enabled": int(f.get("enabled", 0)) == 1})
 	return out
 
 ## Called when the deploy menu emits squad_selected(squad_id) (Task 20 hook).

@@ -82,7 +82,9 @@ func _build_layout() -> void:
 ##   for display. Built by client_main from WorldView.roster() + remotes_at().
 ## vehicles: Array of {pos, team, free_seats, ...} — may include an optional "type_name" key.
 ##   Built by client_main from WorldView.vehicles(). "team" is best-effort (server re-validates).
-func populate(team: int, map: MapDef, conquest: ConquestState, squadmates: Array = [], vehicles: Array = []) -> void:
+## fobs: Array of {squad, enabled} — the team's FOBs (from Msg.FOB_LIST). Only enabled ones are
+##   offered (the server re-validates). A FOB spawns its squad's forward bunker.
+func populate(team: int, map: MapDef, conquest: ConquestState, squadmates: Array = [], vehicles: Array = [], fobs: Array = []) -> void:
 	refs = []
 	# Ensure the layout exists even when called before _ready (e.g. DeployMenu.new() in tests).
 	if _vbox == null:
@@ -95,11 +97,13 @@ func populate(team: int, map: MapDef, conquest: ConquestState, squadmates: Array
 	for child in _vbox.get_children():
 		child.queue_free()
 
-	var enumerated: Array = DeploySpawn.enumerate(team, map, conquest, squadmates, vehicles)
+	var enumerated: Array = DeploySpawn.enumerate(team, map, conquest, squadmates, vehicles, fobs)
 	for ref: int in enumerated:
 		refs.append(ref)
 		var label: String
-		if ref >= DeploySpawn.VEHICLE_BASE:
+		if ref >= DeploySpawn.FOB_BASE:
+			label = "Squad FOB (%d)" % (ref - DeploySpawn.FOB_BASE)
+		elif ref >= DeploySpawn.VEHICLE_BASE:
 			# ref - VEHICLE_BASE is the vehicle's stable slot (not an array index); look it up.
 			var slot: int = ref - DeploySpawn.VEHICLE_BASE
 			var type_name: String = ""

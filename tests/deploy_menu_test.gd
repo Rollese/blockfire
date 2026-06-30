@@ -19,3 +19,15 @@ func test_populate_lists_enumerated_refs_and_emits_on_press() -> void:
 	menu.emit_deploy(expected[1])   # see helper below
 	assert_eq(got["ref"], expected[1], "pressing a spawn emits its ref")
 	menu.free()
+
+func test_populate_offers_enabled_squad_fob() -> void:
+	# M12-P3: a built+enabled FOB for squad 2 should appear as a spawn ref (FOB_BASE + 2); a disabled
+	# (enemy-suppressed) FOB must NOT.
+	var m := _map()
+	var c := ConquestState.new(m)
+	var menu := DeployMenu.new()
+	var fobs := [{"squad": 2, "enabled": true}, {"squad": 5, "enabled": false}]
+	menu.populate(0, m, c, [], [], fobs)
+	assert_true(menu.refs.has(DeploySpawn.FOB_BASE + 2), "enabled squad-2 FOB offered as a spawn")
+	assert_false(menu.refs.has(DeploySpawn.FOB_BASE + 5), "disabled squad-5 FOB not offered")
+	menu.free()
