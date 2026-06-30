@@ -117,6 +117,7 @@ var _gadget_bytes := PackedByteArray()   # last GADGET_LIST bytes — skip the r
 var _support_bytes := PackedByteArray()  # last SUPPORT_LIST bytes — skip the rebuild on an unchanged heartbeat
 var _revive_marker_test := false    # --revive-marker-test: downed friendly + revive marker (visual QA)
 var _support_test := false           # --support-test: support beam + aura between two soldiers (visual QA)
+var _buildsite_test := false         # --buildsite-test: ghost build site (in-progress shovel construction)
 var _grenade_danger_test := false   # --grenade-danger-test: pin a live grenade near the player (visual QA)
 var _capture_test := false          # --capture-test: pump capture-announcement banners (visual QA)
 var _capture_test_next := 0.0
@@ -183,6 +184,7 @@ func configure(args: Dictionary) -> void:
 	_gadget_test = args.has("gadget-test")          # visual QA: place sample deployed gadgets in view
 	_revive_marker_test = args.has("revive-marker-test")   # visual QA: downed friendly + revive marker
 	_support_test = args.has("support-test")        # visual QA: support beam + aura between two soldiers
+	_buildsite_test = args.has("buildsite-test")    # visual QA: ghost build site (shovel construction)
 	_grenade_danger_test = args.has("grenade-danger-test") # visual QA: pin a live grenade near the player
 	_capture_test = args.has("capture-test")        # visual QA: pump capture-announcement banners
 	_killfeed_test = args.has("killfeed-test")      # visual QA: pump named killfeed entries
@@ -1077,6 +1079,8 @@ func _build_scene() -> void:
 	_renderer.gadget_demo = _gadget_test # --gadget-test: place sample gadgets for a QA screenshot
 	_renderer.revive_demo = _revive_marker_test # --revive-marker-test: downed friendly + revive marker
 	_renderer.support_demo = _support_test   # --support-test: support beam + aura between two soldiers
+	_renderer.piece_catalog = _piece_cat     # M12: lets the renderer derive build-site fill fractions
+	_renderer.buildsite_demo = _buildsite_test  # --buildsite-test: ghost in-progress shovel construction
 	_renderer.destroy_demo = _destroy_test   # --destroy-test: pump piece destruction debris/dust
 	_renderer.collapse_demo = _collapse_test # --collapse-test: play a building collapse cinematic
 	_renderer.vm_swing_test = _swing_test # --swing-test: freeze the viewmodel mid-swing

@@ -11,12 +11,12 @@ const NEUTRAL_COLOR := Color(0.6, 0.6, 0.6)
 # -- structure type -> PieceCatalog id (array order == wire `type` int; see pieces/pieces.json) -----
 # pieces.json order: 0 = sandbag, 1 = wall, 2+ = building pieces. Unknown/extra types fall back to "wall"
 # (StructureKit also falls back to "wall" for any id it doesn't know).
-const STRUCT_TYPE_ID := ["sandbag", "wall", "bwall", "bwall_window", "bwall_door", "bfloor", "bstair", "bcolumn", "brailing", "prop_crate", "bwall_half", "bwall_brick", "bwall_metal", "bwall_wood", "bwall_garage", "bwall_glass", "prop_table", "prop_chair", "prop_shelf", "prop_locker", "prop_barrel", "bwall_corner"]
+const STRUCT_TYPE_ID := ["sandbag", "wall", "bwall", "bwall_window", "bwall_door", "bfloor", "bstair", "bcolumn", "brailing", "prop_crate", "bwall_half", "bwall_brick", "bwall_metal", "bwall_wood", "bwall_garage", "bwall_glass", "prop_table", "prop_chair", "prop_shelf", "prop_locker", "prop_barrel", "bwall_corner", "heavy_barricade", "fob"]
 
 # -- structure type -> chunk-grid (mirror of pieces/pieces.json `chunk_grid`) ----------
 # Needed to turn a piece's live chunk alive-mask into a damage tier. Keep aligned with STRUCT_TYPE_ID
 # order; unknown types fall back to the 8x8 fortification grid.
-const STRUCT_TYPE_GRID := [8, 8, 8, 8, 8, 8, 8, 8, 4, 1, 8, 8, 8, 8, 8, 8, 1, 1, 1, 1, 1, 8]
+const STRUCT_TYPE_GRID := [8, 8, 8, 8, 8, 8, 8, 8, 4, 1, 8, 8, 8, 8, 8, 8, 1, 1, 1, 1, 1, 8, 8, 8]
 
 # -- structure feedback timing ------------------------------------------------
 const STRUCT_LIFT := 0.06          # m: lift buildings onto a thin foundation (no grass z-fight)
@@ -132,6 +132,16 @@ var _support_demo_beam: MeshInstance3D = null
 var _support_demo_beam_mat: StandardMaterial3D = null
 var _support_demo_aura: MeshInstance3D = null
 var _support_demo_aura_mat: StandardMaterial3D = null
+# M12-P2 build-site ghosts: under-construction pieces render as a translucent silhouette of the
+# target piece with an amber fill that rises from the ground in proportion to shovel progress.
+# Set by client_main so the renderer can read each piece's build_cost (the wire only ships progress).
+var piece_catalog: PieceCatalog = null
+var _buildsite_nodes: Dictionary = {}   # struct id -> {root:Node3D, fill:MeshInstance3D, height, base_y, last_frac}
+const BUILDSITE_FILL_COLOR := Color(0.95, 0.7, 0.2)     # amber "under construction" scaffold
+# --buildsite-test QA: a camera-parented ghost FOB whose fill animates 0..1 for a screenshot.
+var buildsite_demo := false
+var _buildsite_demo_node_entry: Variant = null
+var _buildsite_demo_done := false
 const AIR_JUMP_VY := 2.2          # |vy| above this reads as airborne (jump/fall pose)
 const AIR_FALL_VY := 3.5          # falling faster than this arms a landing dust burst
 const AIR_LAND_VY := 1.0          # settle below this = grounded again
@@ -586,6 +596,7 @@ func update(world_view: WorldView, predictor: Prediction, now: float, fov: float
 	_ensure_gadget_demo(now)
 	_ensure_revive_demo(now)
 	_ensure_support_demo(now)
+	_ensure_buildsite_demo(now)
 	_ensure_wreck_demo(now)
 	_ensure_casing_demo(now)
 	_ensure_climb_demo(now)
@@ -1175,6 +1186,31 @@ func _ensure_support_demo(now: float) -> void:
 	_support_demo_aura.scale = Vector3(grow, grow, grow)
 	_support_demo_aura_mat.albedo_color = Color(col.r, col.g, col.b, 0.22)
 	_support_demo_aura_mat.emission = col
+
+
+## --buildsite-test QA: a camera-parented ghost FOB build site whose shovel fill cycles 0..1 so a
+## screenshot shows the under-construction look (translucent silhouette + rising amber fill).
+func _ensure_buildsite_demo(now: float) -> void:
+	if not buildsite_demo or _camera == null:
+		return
+	if not _buildsite_demo_done:
+		_buildsite_demo_done = true
+		# Type 23 = "fob" (the large squad bunker) — the most representative build site.
+		var rec := {"type": 23, "cell": Vector3i(0, 0, 0), "yaw": 0, "build_progress": 0,
+			"under_construction": 1}
+		var entry := _build_buildsite_ghost(rec)
+		var root: Node3D = entry["root"]
+		# Re-parent under the camera: in front, lowered to the ground, and yawed for a 3/4 read of the
+		# bunker silhouette + the rising fill.
+		remove_child(root)
+		root.position = Vector3(0.2, -1.7, -6.0)
+		root.rotation = Vector3(0.0, PI * 0.15, 0.0)
+		_camera.add_child(root)
+		_buildsite_demo_node_entry = entry
+	if _buildsite_demo_node_entry != null:
+		# Hold a fixed, clearly-partial fill so the screenshot deterministically shows the rising
+		# scaffold (the live in-game site animates with real shovel progress instead).
+		_set_buildsite_fraction(_buildsite_demo_node_entry, 0.6)
 
 
 # =============================================================================
@@ -1984,10 +2020,20 @@ func _rebuild_structure_batches(structs: Dictionary) -> void:
 	_struct_key_of.clear()
 	_building_centroid.clear()
 
+	# M12-P2: under-construction build sites are NOT batched — each renders as an individual ghost
+	# (translucent target silhouette + a progress fill). Split them out before grouping the rest.
+	var under: Dictionary = {}
+	for id_v: Variant in structs:
+		if int((structs[id_v] as Dictionary).get("under_construction", 0)) == 1:
+			under[id_v] = structs[id_v]
+	_sync_buildsite_ghosts(under)
+
 	# Group piece world-transforms by visual key; track a per-building centroid for collapse rubble.
 	var groups: Dictionary = {}   # key -> {sample: rec, xforms: Array[Transform3D]}
 	for id_v: Variant in structs:
 		var rec: Dictionary = structs[id_v]
+		if int(rec.get("under_construction", 0)) == 1:
+			continue   # rendered as a ghost above
 		var key: String = _struct_visual_key(rec)
 		if not groups.has(key):
 			groups[key] = {"sample": rec, "xforms": []}
@@ -2018,6 +2064,81 @@ func _rebuild_structure_batches(structs: Dictionary) -> void:
 			mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON
 			add_child(mmi)
 			_struct_batches.append(mmi)
+
+
+## M12-P2: reconcile the per-id build-site ghosts against the current under-construction set. A site
+## leaves this set when it completes (the server resends it as a finished piece — the batch path takes
+## over) or is removed/decayed, so anything no longer present is freed. New sites build a ghost; known
+## ones just re-aim their fill to the latest progress fraction.
+func _sync_buildsite_ghosts(under: Dictionary) -> void:
+	var drop: Array = []
+	for id_v: Variant in _buildsite_nodes:
+		if not under.has(id_v):
+			drop.append(id_v)
+	for id_v: Variant in drop:
+		(_buildsite_nodes[id_v]["root"] as Node3D).queue_free()
+		_buildsite_nodes.erase(id_v)
+	for id_v: Variant in under:
+		var rec: Dictionary = under[id_v]
+		if not _buildsite_nodes.has(id_v):
+			_buildsite_nodes[id_v] = _build_buildsite_ghost(rec)
+			(_buildsite_nodes[id_v]["root"] as Node3D).transform = _structure_xform(rec)
+		_set_buildsite_fraction(_buildsite_nodes[id_v], _buildsite_fraction(rec))
+
+
+## Shovel-progress fraction (0..1) for a build site, derived from build_progress vs the piece's
+## catalog build_cost (the wire ships only progress). Clamped to a visible minimum so a just-placed
+## site still shows a footing slab.
+func _buildsite_fraction(rec: Dictionary) -> float:
+	var cost := 60
+	if piece_catalog != null:
+		cost = piece_catalog.build_cost_of(int(rec.get("type", 0)))
+	var frac := float(int(rec.get("build_progress", 0))) / float(maxi(cost, 1))
+	return clampf(frac, 0.04, 1.0)
+
+
+## Build the node for a build site: the real target-piece geometry skinned in an amber "scaffold"
+## material, vertically scaled so the structure RISES from the ground as shovel progress accrues
+## (BattleBit-style). No overlapping translucent layers (those wash out), so the silhouette stays
+## crisp. Returns the bookkeeping dict stored in _buildsite_nodes.
+func _build_buildsite_ghost(rec: Dictionary) -> Dictionary:
+	var root := Node3D.new()
+	var geom := _make_structure_node(rec)
+	_skin_meshes(geom, _buildsite_material())
+	root.add_child(geom)
+	add_child(root)
+	return {"root": root, "geom": geom, "last_frac": -1.0}
+
+
+## Re-aim a build site to a progress fraction: vertically scale the target geometry from the ground so
+## it grows as it is shovelled in. Piece geometry sits with its base at y==0, so a plain Y-scale about
+## the root grows it upward from the footing.
+func _set_buildsite_fraction(entry: Dictionary, frac: float) -> void:
+	if absf(frac - float(entry["last_frac"])) < 0.005:
+		return
+	entry["last_frac"] = frac
+	(entry["geom"] as Node3D).scale = Vector3(1.0, maxf(frac, 0.04), 1.0)
+
+
+## Amber, lightly-translucent "under construction" scaffold material (single layer per face — no
+## overlapping translucent silhouette, so it reads crisply and never washes the screen).
+func _buildsite_material() -> StandardMaterial3D:
+	var m := StandardMaterial3D.new()
+	m.albedo_color = BUILDSITE_FILL_COLOR
+	m.emission_enabled = true
+	m.emission = BUILDSITE_FILL_COLOR
+	m.emission_energy_multiplier = 0.35
+	return m
+
+
+## Override every MeshInstance3D under a node with one shared material (used to skin a piece template).
+func _skin_meshes(node: Node3D, mat: StandardMaterial3D) -> void:
+	if node is MeshInstance3D:
+		(node as MeshInstance3D).material_override = mat
+		(node as MeshInstance3D).cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	for child in node.get_children():
+		if child is Node3D:
+			_skin_meshes(child as Node3D, mat)
 
 
 ## Visual key: pieces with the same id + damage bucket + skirt are byte-identical geometry, so they

@@ -49,6 +49,26 @@ func test_structure_op_chunk_updates_mask() -> void:
 	assert_true(wv.structures().has(7), "record still exists after chunk update")
 	assert_eq(wv.structures()[7]["chunks"], newmask, "chunk mask updated by OP_CHUNK")
 
+func test_op_progress_updates_build_progress() -> void:
+	# M12 client: an under-construction build site advances its build_progress via OP_PROGRESS
+	# (the server only sends id+progress; the renderer derives the fill fraction from its catalog).
+	var wv := WorldView.new()
+	wv.apply_structure_delta(Protocol.encode_structure_delta(Protocol.OP_PLACE,
+		{"id": 12, "type": 0, "cell": Vector3i(3, 0, 4), "yaw": 0, "chunks": ChunkMask.full_mask(8),
+		"building_id": 0, "owner": 1, "under_construction": 1, "build_progress": 0}))
+	assert_true(wv.structures().has(12), "build site placed")
+	assert_eq(int(wv.structures()[12]["under_construction"]), 1, "site flagged under construction")
+	var v0 := wv.structs_version()
+	wv.apply_structure_delta(Protocol.encode_structure_progress(12, 42))
+	assert_eq(int(wv.structures()[12]["build_progress"]), 42, "build_progress advanced by OP_PROGRESS")
+	assert_eq(int(wv.structures()[12]["under_construction"]), 1, "still under construction mid-build")
+	assert_true(wv.structs_version() > v0, "OP_PROGRESS bumps the structs version so the renderer re-poses")
+
+func test_op_progress_unknown_id_is_ignored() -> void:
+	var wv := WorldView.new()
+	wv.apply_structure_delta(Protocol.encode_structure_progress(999, 10))  # no such site
+	assert_false(wv.structures().has(999), "progress for an unknown id must not create a record")
+
 func test_collapse_drops_buildings_pieces() -> void:
 	var wv := WorldView.new()
 	wv._structs[1] = {"id": 1, "type": 2, "cell": Vector3i(0,0,0), "yaw": 0, "chunks": -1, "building_id": 7}
