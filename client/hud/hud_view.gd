@@ -42,6 +42,7 @@ var _blind_overlay: ColorRect     # M5.5-P3 flashbang white-out (topmost; alpha 
 var _arc_pool: Array[Control] = []
 var _grenade_marker: _ArcMarker   # orange directional warning for a live grenade near the player
 var _prompt_label: Label          # placeholder interaction hook
+var _build_hint: Label            # M12 build-tool hint (piece + controls), shown only in build mode
 var _hitmarker: _Hitmarker        # brief crosshair flash when your shot lands
 # DBNO downed screen
 var _downed_root: Control
@@ -592,6 +593,19 @@ func _build_prompt() -> void:
 	_prompt_label.mouse_filter = MOUSE_FILTER_IGNORE
 	add_child(_prompt_label)
 
+	# M12 build tool: a small bottom-centre hint shown only while build mode is active.
+	_build_hint = Label.new()
+	_build_hint.anchor_left = 0.5
+	_build_hint.anchor_top = 0.86
+	_build_hint.anchor_right = 0.5
+	_build_hint.offset_left = -240.0
+	_build_hint.offset_right = 240.0
+	_build_hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_build_hint.text = ""
+	_build_hint.visible = false
+	_build_hint.mouse_filter = MOUSE_FILTER_IGNORE
+	add_child(_build_hint)
+
 
 func _build_downed() -> void:
 	# DBNO overlay: red wash + bleed-out countdown + nearest-friendly + hold-to-give-up bar.
@@ -702,6 +716,14 @@ func _build_perf() -> void:
 func set_perf_visible(v: bool) -> void:
 	if _perf_label != null:
 		_perf_label.visible = v
+
+
+## M12 build tool: drive the bottom-centre build hint. Empty text hides it.
+func set_build_hint(text: String) -> void:
+	if _build_hint == null:
+		return
+	_build_hint.text = text
+	_build_hint.visible = text != ""
 
 
 ## Show/hide the alive-only combat HUD (ammo + throwable selector). Call each frame with
