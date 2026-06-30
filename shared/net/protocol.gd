@@ -53,6 +53,7 @@ enum Msg {
 	FOB_LIST = 40,          ## server -> human clients: their team's FOBs {squad, structure_id, uc, enabled}
 	RELOAD_FX = 41,         ## server -> human clients: a remote pawn started reloading (id + duration) -> reload pose
 	MELEE_FX = 42,          ## server -> human clients: a remote pawn swung melee (id) -> brief swing/lunge pose
+	VAULT_FX = 43,          ## server -> human clients: a remote pawn vaulted (id) -> brief mantle/clamber pose
 }
 
 const OP_PLACE := 0
@@ -427,6 +428,17 @@ static func encode_melee_fx(melee_id: int) -> PackedByteArray:
 
 static func decode_melee_fx(bytes: PackedByteArray) -> Dictionary:
 	return {"melee_id": body_reader(bytes).get_u32()}
+
+## Remote vault cue — a remote pawn auto-vaulted an obstacle. Just the vaulter id; the client plays
+## a brief mantle/clamber pose. View-only; sent only to human clients.
+static func encode_vault_fx(vault_id: int) -> PackedByteArray:
+	var buf := StreamPeerBuffer.new()
+	buf.put_u8(Msg.VAULT_FX)
+	buf.put_u32(vault_id)
+	return buf.data_array
+
+static func decode_vault_fx(bytes: PackedByteArray) -> Dictionary:
+	return {"vault_id": body_reader(bytes).get_u32()}
 
 ## RPG rocket launch — same wire shape as SHOT_FX (origin ×10, unit dir ×10000); the client rebuilds
 ## the velocity from the known rocket speed and flies a cosmetic projectile along the ballistic arc.

@@ -270,6 +270,7 @@ func _physics_process(delta: float) -> void:
 			_climbs += 1
 		if (cur & 2) != 0 and (prv & 2) == 0:
 			_vaults += 1
+			_broadcast_vault_fx(id)   # cosmetic: a vault just started -> remote mantle pose
 		_prev_climb_vault[id] = cur
 	var t_move := Time.get_ticks_usec()
 	_sim.step_vehicles(_build_vehicle_inputs(), _map.world_half)
@@ -524,6 +525,18 @@ func _broadcast_shot_fx(shooter_id: int, origin: Vector3, dir: Vector3) -> void:
 	var pkt := Protocol.encode_shot_fx(origin, dir, shooter_id)
 	for cid in _clients:
 		if cid == shooter_id:
+			continue
+		var c = _clients[cid]
+		if bool(c.get("auto_deploy", true)):
+			continue   # bot client — does not render
+		_net.send_to(c["peer"], NetHost.CHANNEL_SNAPSHOT, pkt, 0)
+
+
+func _broadcast_vault_fx(vault_id: int) -> void:
+	# Cosmetic remote-vault cue. Sent to human clients except the vaulter. Unreliable (droppable).
+	var pkt := Protocol.encode_vault_fx(vault_id)
+	for cid in _clients:
+		if cid == vault_id:
 			continue
 		var c = _clients[cid]
 		if bool(c.get("auto_deploy", true)):
