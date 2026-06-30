@@ -106,6 +106,8 @@ var wreck_demo := false           # --vehicle-test: blow up a transport in front
 var _wreck_demo_done := false
 var turret_demo := false          # --turret-test: an intact transport with its turret traversed off-axis (QA)
 var _turret_demo_done := false
+var heldweapon_demo := false      # --held-weapon-test: 5 side-on dummies, one per weapon silhouette (QA)
+var _heldweapon_demo_done := false
 var casing_demo := false          # --casing-test: pump shell casings from the gun port (QA)
 var _casing_demo_next := 0.0
 var impact_demo := false          # --impact-test: pump bullet impacts in front of the camera (QA)
@@ -216,6 +218,7 @@ var use_models: bool = false
 var _last_pos: Dictionary = {}        # id(int) -> Vector3
 var _last_speed: Dictionary = {}      # id(int) -> float (held between sim ticks; see _pose_entity)
 var _armor_tier: Dictionary = {}      # id(int) -> last-applied armor tier (re-tint only on change)
+var _held_weapon: Dictionary = {}     # id(int) -> last-applied held-weapon id (re-shape GunMount on change)
 var armor_demo := false               # --armor-demo: pin LIGHT/MEDIUM/HEAVY dummies in front of camera
 var _armor_demo_done := false
 var _entity_ap: Dictionary = {}       # id(int) -> AnimationPlayer (only when use_models)
@@ -629,6 +632,7 @@ func update(world_view: WorldView, predictor: Prediction, now: float, fov: float
 	_ensure_firepose_demo(now)
 	_ensure_reloadpose_demo(now)
 	_ensure_meleepose_demo(now)
+	_ensure_heldweapon_demo(now)
 	_ensure_glbshoot_demo(now)
 	_ensure_destroy_demo(now)
 	_ensure_collapse_demo(now)
@@ -1787,6 +1791,25 @@ func _ensure_reloadpose_demo(now: float) -> void:
 	_camera.add_child(reloading)
 
 
+## Visual QA (--held-weapon-test): five soldiers in a row, side-on to the camera, each carrying a
+## different weapon (AR/SMG/DMR/RPG/PISTOL) so the per-weapon GunMount silhouettes are comparable.
+func _ensure_heldweapon_demo(now: float) -> void:
+	if not heldweapon_demo or _heldweapon_demo_done or _camera == null or now < 1.0:
+		return
+	_heldweapon_demo_done = true
+	var weapons := [Weapon.AR, Weapon.SMG, Weapon.DMR, Weapon.RPG, Weapon.PISTOL]
+	for i in weapons.size():
+		var dummy := CharacterKit.build()
+		dummy.position = Vector3(-2.6 + 1.3 * float(i), -1.4, -4.0)
+		dummy.rotation.y = PI * 0.5   # side-on so the barrel length/girth shows in profile
+		var gun: Node3D = dummy.get_node_or_null("GunMount") as Node3D
+		if gun != null:
+			var gx: Dictionary = CharacterKit.held_weapon_xform(int(weapons[i]))
+			gun.scale = gx["scale"]
+			gun.position.z = gx["pos_z"]
+		_camera.add_child(dummy)
+
+
 ## Visual QA (--remote-melee-test): upright dummy next to one frozen at the peak melee lunge (a deep
 ## forward strike) — the peak of the procedural swing arc.
 func _ensure_meleepose_demo(now: float) -> void:
@@ -1910,6 +1933,7 @@ func _release_entity(id: int) -> void:
 	_last_pos.erase(id)
 	_last_speed.erase(id)
 	_armor_tier.erase(id)
+	_held_weapon.erase(id)
 	_step_accum.erase(id)
 	_step_prev.erase(id)
 	_air_y.erase(id)
@@ -1976,6 +2000,15 @@ func _pose_entity(id: int, node: Node3D, es: EntityState, render_delta: float) -
 	if _armor_tier.get(id, -1) != es.armor_class:
 		ArmorVisual.apply(node, es.armor_class)
 		_armor_tier[id] = es.armor_class
+	# Per-weapon held-gun silhouette (procedural body only; the GLB path carries its own HeldWeapon).
+	# Re-shape the "GunMount" stub when this pooled node's weapon changes, same recycle guard as armor.
+	if not use_models and _held_weapon.get(id, -1) != es.weapon:
+		var gun: Node3D = node.get_node_or_null("GunMount") as Node3D
+		if gun != null:
+			var gx: Dictionary = CharacterKit.held_weapon_xform(es.weapon)
+			gun.scale = gx["scale"]
+			gun.position.z = gx["pos_z"]
+		_held_weapon[id] = es.weapon
 	if use_models:
 		# Horizontal speed estimate from frame-to-frame position (velocity isn't replicated).
 		# The interpolated position only advances on SIM ticks (`now` steps at 30 Hz), so dividing by

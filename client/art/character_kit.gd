@@ -30,6 +30,29 @@ static func build(_team: int = 0) -> Node3D:
 	root.add_child(gun)
 	return root
 
+const _GUNMOUNT_LEN := 0.6     # base GunMount Z length (see build())
+const _GUNMOUNT_GRIP_Z := 0.15 # base grip (back) end Z — kept fixed so the muzzle grows forward
+
+## Per-weapon GunMount silhouette: returns {"scale": Vector3, "pos_z": float} for the "GunMount" node so
+## a remote's weapon is identifiable from its outline (a core BattleBit readability cue). x/y scale =
+## girth, z scale = barrel length; pos_z keeps the grip at the body and extends the muzzle forward.
+## Pure (testable). Unknown ids fall back to the AR profile.
+static func held_weapon_xform(weapon_id: int) -> Dictionary:
+	var profile := {            # weapon_id -> [girth_mult, length_mult]
+		0: [1.0, 1.0],          # AR     — baseline rifle
+		1: [1.05, 0.62],        # SMG    — short, a touch fatter
+		2: [0.85, 1.55],        # DMR    — long, thin marksman barrel
+		3: [2.3, 1.4],          # RPG    — fat, long launcher tube
+		4: [0.9, 0.34],         # PISTOL — stubby sidearm
+	}
+	var p: Array = profile.get(weapon_id, profile[0])
+	var girth: float = float(p[0])
+	var length: float = float(p[1])
+	return {
+		"scale": Vector3(girth, girth, length),
+		"pos_z": _GUNMOUNT_GRIP_Z + 0.5 * _GUNMOUNT_LEN * length,
+	}
+
 static func _box(name: String, size: Vector3, pos: Vector3, mat: StandardMaterial3D) -> MeshInstance3D:
 	var mi := MeshInstance3D.new()
 	mi.name = name

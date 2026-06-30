@@ -14,6 +14,7 @@ var is_downed: bool = false
 var climbing: bool = false
 var squad: int = 0
 var armor_class: int = 0   # M5.5-P2 tier (LIGHT/MEDIUM/HEAVY); immutable per life, replicated on ENTER
+var weapon: int = 0        # equipped weapon id (Weapon.AR/SMG/DMR/RPG/PISTOL); replicated on ENTER for the held-weapon silhouette
 
 func clone() -> EntityState:
 	var e := EntityState.new()
@@ -29,4 +30,5 @@ func clone() -> EntityState:
 	e.climbing = climbing
 	e.squad = squad
 	e.armor_class = armor_class
+	e.weapon = weapon
 	return e
