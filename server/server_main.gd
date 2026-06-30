@@ -1128,6 +1128,12 @@ func _track_and_broadcast_match_state() -> void:
 
 func _send_snapshots() -> void:
 	var state := _sim.world.state_map()
+	# Stamp the live equipped weapon (kept in the client record, not the pawn) onto each entity so it
+	# rides the snapshot ENTER record like armor_class — lets remotes render the right weapon
+	# silhouette. Once per tick (state_map is shared across all clients' sends this tick).
+	for sid in state:
+		if _clients.has(sid):
+			(state[sid] as EntityState).weapon = int(_clients[sid].get("weapon", Weapon.AR))
 	var vstate := _sim.world.vehicle_state_map()
 	for id in _clients:
 		# Stagger sends across ticks so the per-tick snapshot encode cost (the dominant tick

@@ -111,6 +111,27 @@ func test_armor_class_retained_across_a_changed_delta() -> void:
 	assert_almost_eq(view[5].pos.x, 1.0, 0.01, "moved")
 	assert_eq(view[5].armor_class, Armor.HEAVY, "tier retained through a CHANGED delta")
 
+func test_weapon_replicates_on_enter() -> void:
+	# Equipped weapon rides the ENTER record (after the armor byte) so remotes show the right gun.
+	var cur := {}
+	var e := EntityState.new(); e.armor_class = Armor.HEAVY; e.weapon = Weapon.DMR
+	cur[3] = e
+	var bytes := Snapshot.encode(1, 1, 0, 0, cur, {})   # keyframe -> ENTER
+	var view := {}
+	Snapshot.decode_apply(bytes, view)
+	assert_eq((view[3] as EntityState).weapon, Weapon.DMR, "weapon survives ENTER")
+	assert_eq((view[3] as EntityState).armor_class, Armor.HEAVY, "armor byte still correct alongside weapon")
+
+func test_weapon_retained_across_a_changed_delta() -> void:
+	# A later CHANGED record (movement) carries no weapon byte; the client keeps the cached weapon.
+	var base := EntityState.new(); base.weapon = Weapon.RPG; base.pos = Vector3(0, 0, 0)
+	var cur := EntityState.new(); cur.weapon = Weapon.RPG; cur.pos = Vector3(1, 0, 0)  # only moved
+	var bytes := Snapshot.encode(2, 2, 1, 0, {5: cur}, {5: base})
+	var view := {5: EntityState.new()}; view[5].weapon = Weapon.RPG; view[5].pos = Vector3(0, 0, 0)
+	Snapshot.decode_apply(bytes, view)
+	assert_almost_eq(view[5].pos.x, 1.0, 0.01, "moved")
+	assert_eq(view[5].weapon, Weapon.RPG, "weapon retained through a CHANGED delta")
+
 func test_downed_replicates_through_state_byte() -> void:
 	var cur := {}
 	var down := EntityState.new()

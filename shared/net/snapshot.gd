@@ -53,6 +53,7 @@ static func encode(server_tick: int, seq: int, baseline_seq: int, last_input_tic
 			count += 1
 			recs.put_u32(id); recs.put_u8(FLAG_ENTER); _put_fields(recs, cur, F_ALL)
 			recs.put_u8(cur.armor_class & 3)   # immutable per life — ENTER-only, no field-mask bit
+			recs.put_u8(cur.weapon & 0xFF)     # equipped weapon — ENTER-only (held-weapon silhouette)
 	for id in baseline:
 		if not current.has(id):
 			count += 1
@@ -110,7 +111,9 @@ static func decode_apply(bytes: PackedByteArray, view: Dictionary, view_v: Dicti
 			e.climbing = ((sb >> 7) & 1) == 1
 		if mask & F_HEALTH: e.health = buf.get_u8()
 		if mask & F_SQUAD: e.squad = buf.get_u8()
-		if flags & FLAG_ENTER: e.armor_class = buf.get_u8()   # ENTER-only armor tier (matches encode)
+		if flags & FLAG_ENTER:
+			e.armor_class = buf.get_u8()   # ENTER-only armor tier (matches encode)
+			e.weapon = buf.get_u8()        # ENTER-only equipped weapon (matches encode)
 	var vcount := buf.get_u16()
 	for _j in vcount:
 		var vid := buf.get_u32()
