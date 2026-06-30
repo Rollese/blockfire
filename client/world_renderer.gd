@@ -138,6 +138,12 @@ var _support_demo_aura_mat: StandardMaterial3D = null
 var piece_catalog: PieceCatalog = null
 var _buildsite_nodes: Dictionary = {}   # struct id -> {root:Node3D, fill:MeshInstance3D, height, base_y, last_frac}
 const BUILDSITE_FILL_COLOR := Color(0.95, 0.7, 0.2)     # amber "under construction" scaffold
+# M12 build-placement preview ("hologram" of the piece about to be built).
+const BUILD_OK_COLOR := Color(0.35, 1.0, 0.45)          # valid placement (green)
+const BUILD_BAD_COLOR := Color(1.0, 0.35, 0.3)          # blocked placement (red)
+var _build_preview: Node3D = null
+var _build_preview_mat: StandardMaterial3D = null
+var _build_preview_key := ""
 # --buildsite-test QA: a camera-parented ghost FOB whose fill animates 0..1 for a screenshot.
 var buildsite_demo := false
 var _buildsite_demo_node_entry: Variant = null
@@ -2108,6 +2114,31 @@ func _build_buildsite_ghost(rec: Dictionary) -> Dictionary:
 	root.add_child(geom)
 	add_child(root)
 	return {"root": root, "geom": geom, "last_frac": -1.0}
+
+
+## M12 build-placement: a single pooled "hologram" of the piece the player is about to build,
+## re-posed to the aimed cell each frame and tinted green (valid) / red (invalid). Hidden when the
+## build tool is not active. Geometry is rebuilt only when the selected piece/bucket changes.
+func set_build_preview(active: bool, piece_id: String, cell: Vector3i, yaw_step: int, valid: bool) -> void:
+	if not active:
+		if _build_preview != null:
+			_build_preview.visible = false
+		return
+	if _build_preview == null or piece_id != _build_preview_key:
+		if _build_preview != null:
+			_build_preview.visible = false   # queue_free is deferred — hide now so it doesn't double-render this frame
+			_build_preview.queue_free()
+		_build_preview = StructureKit.build(piece_id, 3)   # always pristine bucket for the ghost
+		_build_preview_mat = StandardMaterial3D.new()
+		_build_preview_mat.emission_enabled = true
+		_skin_meshes(_build_preview, _build_preview_mat)
+		add_child(_build_preview)
+		_build_preview_key = piece_id
+	_build_preview.visible = true
+	_build_preview.transform = _structure_xform({"cell": cell, "yaw": yaw_step})
+	var col := BUILD_OK_COLOR if valid else BUILD_BAD_COLOR
+	_build_preview_mat.albedo_color = col
+	_build_preview_mat.emission = col
 
 
 ## Re-aim a build site to a progress fraction: vertically scale the target geometry from the ground so

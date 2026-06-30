@@ -53,6 +53,8 @@ var _wv: WorldView
 var _pred: Prediction
 var _wpred: WeaponPredictor
 var _input_ctrl: InputController
+var _build_ctrl: BuildController       # M12: build-tool state (build mode / selected piece / ghost yaw)
+var _build_wheel := 0                  # pending wheel-cycle steps from _input (consumed each tick)
 var _hud_model: HudModel
 
 # ---- scene nodes (created after WELCOME) ------------------------------------
@@ -121,6 +123,10 @@ var _revive_marker_test := false    # --revive-marker-test: downed friendly + re
 var _support_test := false           # --support-test: support beam + aura between two soldiers (visual QA)
 var _buildsite_test := false         # --buildsite-test: ghost build site (in-progress shovel construction)
 var _fob_menu_test := false          # --fob-menu-test: seed a fake enabled FOB so the deploy screen shows it
+var _build_test := false             # --build-test: auto-enter build mode (placement ghost) for a QA shot
+var _build_test_done := false
+var _build_test_arm := -1.0          # _elapsed when build-test entered build mode (drives the auto-place)
+var _build_test_placed := false      # build-test sends one BUILD_REQUEST after a short delay
 var _grenade_danger_test := false   # --grenade-danger-test: pin a live grenade near the player (visual QA)
 var _capture_test := false          # --capture-test: pump capture-announcement banners (visual QA)
 var _capture_test_next := 0.0
@@ -189,6 +195,7 @@ func configure(args: Dictionary) -> void:
 	_support_test = args.has("support-test")        # visual QA: support beam + aura between two soldiers
 	_buildsite_test = args.has("buildsite-test")    # visual QA: ghost build site (shovel construction)
 	_fob_menu_test = args.has("fob-menu-test")      # visual QA: deploy screen with a Squad FOB option
+	_build_test = args.has("build-test")            # visual QA: auto-enter build mode (placement ghost)
 	_grenade_danger_test = args.has("grenade-danger-test") # visual QA: pin a live grenade near the player
 	_capture_test = args.has("capture-test")        # visual QA: pump capture-announcement banners
 	_killfeed_test = args.has("killfeed-test")      # visual QA: pump named killfeed entries
@@ -217,6 +224,7 @@ func _ready() -> void:
 	# Client mirror of the server's piece catalog, so prediction can collide with structures (walls).
 	# Built from STRUCTURE_BASELINE/DELTA; without it the client predicts through walls and rubber-bands.
 	_piece_cat = PieceCatalog.load_file("res://pieces/pieces.json")
+	_build_ctrl = BuildController.new(_piece_cat)   # M12: build-tool state machine
 	_wpred = WeaponPredictor.new()
 	_hud_model = HudModel.new()
 
@@ -279,6 +287,22 @@ func _physics_process(delta: float) -> void:
 			cmd["buttons"] = int(cmd["buttons"]) & InputCommand.BTN_FIRE
 			_pred.predicted.pos = ss.pos
 			_pred.predicted.velocity = Vector3.ZERO
+		# M12 build tool: while build mode is active, the player never shoots/reloads — fire becomes
+		# place/shovel and reload becomes rotate. Mask those bits and set BTN_SHOVEL when holding the
+		# build tool on an under-construction site (the server advances it). Place/rotate/cycle are
+		# handled at render rate in _process; here we only shape the authoritative input bits.
+		if _build_ctrl != null and _build_ctrl.active:
+			if ss == null or not ss.alive or ss.is_downed or _in_vehicle() >= 0:
+				_build_ctrl.set_active(false)   # build mode never survives death/downed/entering a vehicle
+			else:
+				var bb := int(cmd["buttons"]) & ~(InputCommand.BTN_FIRE | InputCommand.BTN_RELOAD)
+				var beye := _pred.predicted.eye_position()
+				var bfwd := Combat._forward(wrapf(float(cmd["yaw"]) + PI, -PI, PI), float(cmd["pitch"]))
+				var bcell := _build_ctrl.aimed_cell(beye, bfwd)
+				if _build_ctrl.action_at(bcell, _wv.structures(), beye) == BuildController.SHOVEL \
+						and (Input.is_action_pressed("fire") or _build_test):
+					bb |= InputCommand.BTN_SHOVEL   # _build_test forces the shovel so the QA shot shows it rise
+				cmd["buttons"] = bb
 		_pred.record_cmd(_client_tick, cmd)
 
 		var buttons: int = int(cmd["buttons"])
@@ -686,18 +710,24 @@ func _process(_dt: float) -> void:
 	# ---- C3: one-shot actions (throw / throwable_cycle / gadget / squad_menu) ----
 	var alive_and_deployed: bool = sss != null and sss.alive and not sss.is_downed
 	if alive_and_deployed and _peer != null:
+		# Build tool out = no combat: while build mode is active (or a menu is open) the combat
+		# one-shots below are locked, so a place-click / habitual keypress can't also fire, throw,
+		# melee, detonate, or change fire mode.
+		var building: bool = _build_ctrl != null and _build_ctrl.active
+		var combat_locked: bool = building or menu_open0
+
 		# Throwable cycle
-		if Input.is_action_just_pressed("throwable_cycle"):
+		if Input.is_action_just_pressed("throwable_cycle") and not combat_locked:
 			_hud_model.cycle_throwable(_throwables.size())
 
 		# Fire-mode select (V): cycle the predicted mode + tell the server so its gating matches.
-		if Input.is_action_just_pressed("fire_select"):
+		if Input.is_action_just_pressed("fire_select") and not combat_locked:
 			var new_mode: int = _wpred.cycle_fire_mode()
 			_net.send_to(_peer, NetHost.CHANNEL_CONTROL,
 				Protocol.encode_set_fire_mode(new_mode), ENetPacketPeer.FLAG_RELIABLE)
 
 		# Quick melee (C): send the swing + play the viewmodel swing. Server resolves the hit.
-		if Input.is_action_just_pressed("melee"):
+		if Input.is_action_just_pressed("melee") and not combat_locked:
 			_net.send_to(_peer, NetHost.CHANNEL_CONTROL, Protocol.encode_melee(), ENetPacketPeer.FLAG_RELIABLE)
 			if _renderer != null:
 				_renderer.play_viewmodel_swing(_elapsed)
@@ -706,13 +736,64 @@ func _process(_dt: float) -> void:
 
 		# Quick-swap primary/secondary (mouse wheel): toggle the slot; the swap anim plays when the
 		# weapon actually changes (SELF_STATE → set_viewmodel_weapon), so client and server stay in step.
-		if Input.is_action_just_pressed("swap_weapon"):
+		# Suppressed in build mode, where the wheel cycles the selected piece instead.
+		if Input.is_action_just_pressed("swap_weapon") and not _build_ctrl.active:
 			_active_slot = 1 - _active_slot
 			_net.send_to(_peer, NetHost.CHANNEL_CONTROL,
 				Protocol.encode_swap_weapon(_active_slot), ENetPacketPeer.FLAG_RELIABLE)
 
+		# M12 build tool (T toggles): in build mode the wheel cycles the piece, reload rotates it 90°,
+		# and a fire click on a valid empty cell places it (BUILD_REQUEST, or PLACE_FOB for a leader's
+		# FOB). The held-shovel + fire/reload suppression happen in _physics_process.
+		if _build_test and not _build_test_done:
+			_build_test_done = true
+			_build_ctrl.set_active(true)   # QA: drop straight into build mode for a placement-ghost shot
+			_build_test_arm = _elapsed
+			_input_ctrl.pitch = -0.42      # look down at nearby ground so the ghost is within build range
+		if Input.is_action_just_pressed("build_mode") and not menu_open0:
+			_build_ctrl.toggle()
+		if _build_ctrl.active and not menu_open0:
+			var is_leader := _is_squad_leader(sss.team)
+			# Apply every accumulated wheel notch (one cycle step each), preserving net direction.
+			while _build_wheel != 0:
+				var step := signi(_build_wheel)
+				_build_ctrl.cycle(step, is_leader)
+				_build_wheel -= step
+			if Input.is_action_just_pressed("reload"):
+				_build_ctrl.rotate()
+			var btype := _build_ctrl.current_type(is_leader)
+			var beye := _pred.predicted.eye_position()
+			var bfwd := Combat._forward(wrapf(_input_ctrl.yaw + PI, -PI, PI), _input_ctrl.pitch)
+			var bcell := _build_ctrl.aimed_cell(beye, bfwd)
+			var act := _build_ctrl.action_at(bcell, _wv.structures(), beye)
+			if btype >= 0:   # empty/invalid cycle -> no place/preview (defensive; the catalog always has fortifications)
+				# QA: auto-place one piece ~1.5 s after entering build mode (proves the place round-trip;
+				# the forced shovel in _physics_process then builds it up for the screenshot).
+				if _build_test and not _build_test_placed and _build_test_arm >= 0.0 \
+						and _elapsed - _build_test_arm > 1.5 and act == BuildController.PLACE:
+					_build_test_placed = true
+					_net.send_to(_peer, NetHost.CHANNEL_CONTROL,
+						Protocol.encode_build_request(btype, bcell, _build_ctrl.yaw), ENetPacketPeer.FLAG_RELIABLE)
+				if act == BuildController.PLACE and Input.is_action_just_pressed("fire"):
+					if _build_ctrl.current_is_fob(is_leader):
+						_net.send_to(_peer, NetHost.CHANNEL_CONTROL,
+							Protocol.encode_place_fob(bcell, _build_ctrl.yaw), ENetPacketPeer.FLAG_RELIABLE)
+					else:
+						_net.send_to(_peer, NetHost.CHANNEL_CONTROL,
+							Protocol.encode_build_request(btype, bcell, _build_ctrl.yaw), ENetPacketPeer.FLAG_RELIABLE)
+				var piece_name := _piece_cat.name_of(btype)
+				if _renderer != null:
+					_renderer.set_build_preview(true, piece_name, bcell, _build_ctrl.yaw,
+						act == BuildController.PLACE)
+				if _hud_view != null:
+					var verb := "shovel" if act == BuildController.SHOVEL else "place"
+					_hud_view.set_build_hint("BUILD: %s  ·  wheel cycle  ·  R rotate  ·  LMB %s  ·  T exit"
+						% [piece_name.to_upper(), verb])
+		else:
+			_build_wheel = 0   # preview + hint are cleared by the inactive-state tail block in _process
+
 		# Throw: send grenade or RPG based on active throwable kind
-		if Input.is_action_just_pressed("throw"):
+		if Input.is_action_just_pressed("throw") and not combat_locked:
 			var throwables_model: Dictionary = _model.get("throwables", {})
 			var tlist: Array = throwables_model.get("list", [])
 			var active_idx: int = int(throwables_model.get("active", 0))
@@ -740,7 +821,7 @@ func _process(_dt: float) -> void:
 
 		# Left-click also fires the RPG when it's the equipped weapon. The RPG isn't a hit-scan
 		# click weapon, so without this the primary-fire button feels dead for an RPG loadout.
-		if Input.is_action_just_pressed("fire") and _has_rpg_equipped():
+		if Input.is_action_just_pressed("fire") and _has_rpg_equipped() and not combat_locked:
 			var rad: Vector3 = -Vector3(sin(_input_ctrl.yaw), 0.0, cos(_input_ctrl.yaw)).normalized()
 			var rpit: float = _input_ctrl.pitch
 			rad = Vector3(rad.x * cos(rpit), sin(rpit), rad.z * cos(rpit)).normalized()
@@ -753,7 +834,7 @@ func _process(_dt: float) -> void:
 
 		# Gadget: non-throwable gadget action. Defaulting to C4 detonate; owner must verify
 		# if their class uses a different primary gadget (e.g. repair, bag throw).
-		if Input.is_action_just_pressed("gadget"):
+		if Input.is_action_just_pressed("gadget") and not combat_locked:
 			_net.send_to(_peer, NetHost.CHANNEL_CONTROL,
 				Protocol.encode_gadget_action(Protocol.GA_C4_DETONATE,
 					_pred.predicted.pos, Vector3.ZERO, 0), ENetPacketPeer.FLAG_RELIABLE)
@@ -775,6 +856,20 @@ func _process(_dt: float) -> void:
 		var deployed: bool = ss != null and ss.alive
 		var settings_open: bool = _settings_menu != null and _settings_menu.visible
 		_deploy_menu.visible = not deployed and not settings_open
+
+	# M12: hide the build-tool ghost + hint and drop any pending wheel whenever build mode isn't
+	# actively interactive — inactive, a menu is open, or the player isn't alive (covers the 1-frame
+	# gap before _physics_process force-clears build mode on death). The active path drives the
+	# preview itself above.
+	if _build_ctrl != null:
+		var bss: EntityState = _wv.self_state()
+		var build_live: bool = _build_ctrl.active and not menu_open0 and bss != null and bss.alive
+		if not build_live:
+			_build_wheel = 0
+			if _renderer != null:
+				_renderer.set_build_preview(false, "", Vector3i.ZERO, 0, false)
+			if _hud_view != null:
+				_hud_view.set_build_hint("")
 
 	# --- input/deploy diagnostic (1 Hz) ----------------------------------------
 	_dbg_accum += _dt
@@ -1393,6 +1488,31 @@ func _my_squad_id(_team: int) -> int:
 		if int(rw["id"]) == my_id:
 			return int(rw.get("squad", 0))
 	return 0
+
+## M12: optimistic squad-leader check for the build cycle's FOB entry. Leadership isn't replicated
+## (the server tracks join order), so we approximate it as "lowest id in my squad" — the common case,
+## and the server authoritatively rejects PLACE_FOB from a non-leader regardless.
+func _is_squad_leader(team: int) -> bool:
+	var my_squad := _my_squad_id(team)
+	var lowest := -1
+	var found := false   # require my_id to actually be in the roster (no FOB on a not-yet-known roster)
+	for rw in _wv.roster():
+		if int(rw.get("team", -1)) == team and int(rw.get("squad", -1)) == my_squad:
+			var rid := int(rw["id"])
+			if not found or rid < lowest:
+				lowest = rid
+				found = true
+	return found and lowest == my_id
+
+## M12: collect raw mouse-wheel steps while the build tool is active (the wheel cycles the piece;
+## InputEventMouseButton carries the direction the swap_weapon action can't).
+func _input(event: InputEvent) -> void:
+	if _build_ctrl == null or not _build_ctrl.active:
+		return
+	if event is InputEventMouseButton and (event as InputEventMouseButton).pressed:
+		match (event as InputEventMouseButton).button_index:
+			MOUSE_BUTTON_WHEEL_UP: _build_wheel += 1
+			MOUSE_BUTTON_WHEEL_DOWN: _build_wheel -= 1
 
 ## Build squadmate candidate array for DeploySpawn.enumerate().
 ## Filters WorldView roster to same-team + same-squad (excluding self), then joins with
