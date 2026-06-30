@@ -480,6 +480,7 @@ func _resolve_fires() -> void:
 			if (inp["buttons"] & InputCommand.BTN_RELOAD) and not c["reloading"] and int(c["rockets"]) < rpg_max:
 				c["reloading"] = true
 				c["reload_done_tick"] = _sim.tick + int(round(RPG_RELOAD_SECS * TICK_RATE))
+				_broadcast_reload_fx(id, int(c["reload_done_tick"]) - _sim.tick)
 			continue
 		var firing: bool = (inp["buttons"] & InputCommand.BTN_FIRE) != 0
 		if not firing:
@@ -487,6 +488,7 @@ func _resolve_fires() -> void:
 			if (inp["buttons"] & InputCommand.BTN_RELOAD) and not c["reloading"] and c["ammo"] < Weapon.get_def(c["weapon"])["mag_size"]:
 				c["reloading"] = true
 				c["reload_done_tick"] = _sim.tick + int(round(Weapon.get_def(c["weapon"])["reload_secs"] * TICK_RATE))
+				_broadcast_reload_fx(id, int(c["reload_done_tick"]) - _sim.tick)
 			continue
 		var now := float(_sim.tick) * SimLoop.DT
 		var ready: bool = now - c["last_fire_time"] >= Weapon.fire_interval(c["weapon"])
@@ -513,6 +515,19 @@ func _broadcast_shot_fx(shooter_id: int, origin: Vector3, dir: Vector3) -> void:
 	var pkt := Protocol.encode_shot_fx(origin, dir, shooter_id)
 	for cid in _clients:
 		if cid == shooter_id:
+			continue
+		var c = _clients[cid]
+		if bool(c.get("auto_deploy", true)):
+			continue   # bot client — does not render
+		_net.send_to(c["peer"], NetHost.CHANNEL_SNAPSHOT, pkt, 0)
+
+
+func _broadcast_reload_fx(reloader_id: int, duration_ticks: int) -> void:
+	# Cosmetic remote-reload cue. Sent to human clients except the reloader (they see their own reload
+	# via the viewmodel + SELF_STATE). Unreliable (droppable) — a missed cue just skips one reload pose.
+	var pkt := Protocol.encode_reload_fx(reloader_id, duration_ticks)
+	for cid in _clients:
+		if cid == reloader_id:
 			continue
 		var c = _clients[cid]
 		if bool(c.get("auto_deploy", true)):

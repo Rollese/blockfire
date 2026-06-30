@@ -101,6 +101,7 @@ var _jump_test := false            # --jump-test: pin an airborne-posed dummy be
 var _land_test := false            # --land-test: pump landing dust + viewmodel dip
 var _downed_test := false          # --downed-test: force the DBNO overlay (bandage prompt/stabilized)
 var _firepose_test := false        # --firepose-test: pin a fire-recoil-posed dummy beside an upright one
+var _reloadpose_test := false      # --remote-reload-test: pin a reload-posed dummy beside an upright one
 var _glbshoot_test := false        # --glbshoot-test: GLB hold vs holding-both-shoot clip A/B
 var _ads_t := 0.0                   # 0..1 eased aim-down-sights blend (client-only visual zoom/pose)
 const ADS_RATE := 16.0              # ADS ease speed (per second); ~1/e in ~60 ms
@@ -183,6 +184,7 @@ func configure(args: Dictionary) -> void:
 	_land_test = args.has("land-test")              # visual QA: landing dust + viewmodel dip
 	_downed_test = args.has("downed-test")          # visual QA: force the DBNO bandage overlay
 	_firepose_test = args.has("firepose-test")      # visual QA: fire-recoil pose vs upright dummy
+	_reloadpose_test = args.has("remote-reload-test")  # visual QA: reload pose vs upright dummy
 	_glbshoot_test = args.has("glbshoot-test")      # visual QA: GLB hold vs holding-both-shoot clip
 	_engine_test = args.has("engine-test")          # audio QA: force the vehicle engine loop on
 	_sprint_test = args.has("sprint-test")          # visual QA: freeze the viewmodel sprint-lowered
@@ -947,6 +949,11 @@ func _on_packet(_from: ENetPacketPeer, _channel: int, bytes: PackedByteArray) ->
 					var pb: Dictionary = BulletPassby.classify(fx["origin"], fx["dir"], _pred.predicted.eye_position())
 					if pb["kind"] != "":
 						_audio.play_at(pb["kind"], pb["point"])
+		Protocol.Msg.RELOAD_FX:
+			var rl: Dictionary = Protocol.decode_reload_fx(bytes)
+			if _renderer != null:
+				# duration is in sim ticks; the pose holds for that wall-clock span.
+				_renderer.remote_reload(int(rl["reloader_id"]), _elapsed, float(rl["duration_ticks"]) * SimLoop.DT)
 		Protocol.Msg.ROCKET_FX:
 			var rfx: Dictionary = Protocol.decode_rocket_fx(bytes)
 			if _renderer != null:
@@ -1178,6 +1185,7 @@ func _build_scene() -> void:
 	_renderer.jump_demo = _jump_test     # --jump-test: airborne-pose dummy for a QA screenshot
 	_renderer.land_demo = _land_test     # --land-test: landing dust + viewmodel dip for a QA screenshot
 	_renderer.firepose_demo = _firepose_test  # --firepose-test: fire-recoil pose dummy for a QA screenshot
+	_renderer.reloadpose_demo = _reloadpose_test  # --remote-reload-test: reload pose dummy for a QA screenshot
 	_renderer.glbshoot_demo = _glbshoot_test  # --glbshoot-test: GLB shoot-clip A/B for a QA screenshot
 	_renderer.impact_demo = _impact_test # --impact-test: pump bullet impacts for a QA screenshot
 	_renderer.corpse_demo = _corpse_test # --corpse-test: lay corpses for a QA screenshot

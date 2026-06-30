@@ -159,6 +159,12 @@ const LAND_DIP_DECAY := 8.0       # per-second ease of the land dip back to rest
 var _fire_recoil: Dictionary = {} # id -> expire time of the fire-recoil twitch
 const FIRE_RECOIL_TTL := 0.13     # s the body recoil twitch lasts
 const FIRE_RECOIL_PITCH := 0.12   # rad peak backward lean on firing
+# Remote reload: a remote pawn started reloading (RELOAD_FX). The procedural body tips forward over
+# its weapon with a slow work-the-mag bob; the GLB path swaps to the "interact" clip.
+var _reload_until: Dictionary = {} # id -> time the reload pose ends
+const RELOAD_PITCH := 0.22        # rad forward lean (head down over the gun) while reloading
+const RELOAD_BOB_HZ := 2.4        # work-the-mag bob frequency (Hz)
+const RELOAD_BOB := 0.05          # rad bob amplitude added to the forward lean
 var footstep_demo := false        # --footstep-test: pump footstep dust at ground in front of camera (QA)
 var _footstep_next := 0.0
 
@@ -177,6 +183,8 @@ var land_demo := false            # --land-test: pump landing dust + viewmodel d
 var _land_demo_next := 0.0
 var firepose_demo := false        # --firepose-test: pin a fire-recoil-posed dummy beside an upright one (QA)
 var _firepose_demo_done := false
+var reloadpose_demo := false      # --remote-reload-test: pin a reload-posed dummy beside an upright one (QA)
+var _reloadpose_demo_done := false
 var glbshoot_demo := false        # --glbshoot-test: GLB hold vs holding-both-shoot clip A/B (QA)
 var _glbshoot_demo_done := false
 # M11-P4 destruction cosmetics: per-piece debris/dust + a whole-building collapse cinematic + shake.
@@ -609,6 +617,7 @@ func update(world_view: WorldView, predictor: Prediction, now: float, fov: float
 	_ensure_jump_demo(now)
 	_ensure_land_demo(now)
 	_ensure_firepose_demo(now)
+	_ensure_reloadpose_demo(now)
 	_ensure_glbshoot_demo(now)
 	_ensure_destroy_demo(now)
 	_ensure_collapse_demo(now)
@@ -1608,6 +1617,21 @@ func _fire_recoil_pitch(id: int) -> float:
 	var rt := clampf((expire - _now) / FIRE_RECOIL_TTL, 0.0, 1.0)   # 1 at the shot -> 0 at the end
 	return -FIRE_RECOIL_PITCH * rt   # negative = lean back (b.x pitch: +forward, -back)
 
+## Arm a remote-reload pose lasting `dur` seconds (RELOAD_FX duration). View-only; ignored for dur<=0.
+func remote_reload(id: int, now: float, dur: float) -> void:
+	if id > 0 and dur > 0.0:
+		_reload_until[id] = now + dur
+
+func _is_reloading(id: int) -> bool:
+	return _now < float(_reload_until.get(id, 0.0))
+
+## Forward pitch (rad) for a reloading pawn's standing pose: a steady head-down-over-the-gun lean with
+## a slow work-the-mag bob. Positive = forward (b.x pitch: +forward). 0 when not reloading.
+func _reload_pitch(id: int) -> float:
+	if not _is_reloading(id):
+		return 0.0
+	return RELOAD_PITCH + RELOAD_BOB * sin(_now * TAU * RELOAD_BOB_HZ)
+
 
 ## Local-pawn footstep: the predicted pawn carries real velocity/grounded each render frame, so drive
 ## the cadence time-based (dist = speed * dt). Audio only (no dust — the local feet are below the eye);
@@ -1718,6 +1742,21 @@ func _ensure_firepose_demo(now: float) -> void:
 	firing.transform.basis = Basis.IDENTITY.rotated(Vector3(1, 0, 0), -FIRE_RECOIL_PITCH)   # peak lean-back
 	firing.position = Vector3(0.8, -1.1, -3.0)
 	_camera.add_child(firing)
+
+
+## Visual QA (--remote-reload-test): upright dummy next to one pitched forward at the reload lean
+## (head down over the gun) — the same forward pose the procedural body holds while reloading.
+func _ensure_reloadpose_demo(now: float) -> void:
+	if not reloadpose_demo or _reloadpose_demo_done or _camera == null or now < 1.0:
+		return
+	_reloadpose_demo_done = true
+	var upright := CharacterKit.build()
+	upright.position = Vector3(-0.8, -1.1, -3.0)
+	_camera.add_child(upright)
+	var reloading := CharacterKit.build()
+	reloading.transform.basis = Basis.IDENTITY.rotated(Vector3(1, 0, 0), RELOAD_PITCH)   # forward lean
+	reloading.position = Vector3(0.8, -1.1, -3.0)
+	_camera.add_child(reloading)
 
 
 ## Visual QA (--jump-test): upright dummy next to an airborne-posed (tuck + lean) one.
@@ -1834,6 +1873,7 @@ func _release_entity(id: int) -> void:
 	_air_vy.erase(id)
 	_air_fell.erase(id)
 	_fire_recoil.erase(id)
+	_reload_until.erase(id)
 	_free_list.append(node)
 
 
@@ -1905,9 +1945,10 @@ func _pose_entity(id: int, node: Node3D, es: EntityState, render_delta: float) -
 			speed = minf(flat.length() / SimLoop.DT, 20.0)   # 20 m/s cap: a respawn/teleport jump can't read as a sprint
 			_last_speed[id] = speed
 			_last_pos[id] = es.pos
-		# Firing (from SHOT_FX shooter_id) swaps the stationary hold to the authored shoot clip.
+		# Firing (from SHOT_FX shooter_id) swaps the stationary hold to the authored shoot clip;
+		# reloading (RELOAD_FX) swaps the stationary hold to the two-handed "interact" gesture.
 		var firing := _now < float(_fire_recoil.get(id, 0.0))
-		var sel: Dictionary = CharacterAnim.clip_for(es.is_downed, speed, es.stance, firing)
+		var sel: Dictionary = CharacterAnim.clip_for(es.is_downed, speed, es.stance, firing, _is_reloading(id))
 		CharacterDriver.drive(_entity_ap.get(id) as AnimationPlayer, sel["clip"], sel["loop"])
 	# Airborne inference must run every frame (continuous vy estimate) — before the early-return poses.
 	var airborne := _update_airborne(id, es, render_delta, _now)
@@ -1956,7 +1997,9 @@ func _pose_entity(id: int, node: Node3D, es: EntityState, render_delta: float) -
 	var fb := Basis.IDENTITY.rotated(Vector3.UP, es.yaw)
 	# Body-pitch recoil twitch for the procedural body only — the GLB path uses the authored
 	# holding-both-shoot clip instead (applying both would double the recoil).
-	var recoil := 0.0 if use_models else _fire_recoil_pitch(id)
+	# Reloading wins over fire-recoil (the server blocks firing mid-reload, so they don't co-occur):
+	# a forward head-down-over-the-gun lean instead of the backward fire kick. Procedural body only.
+	var recoil := 0.0 if use_models else (_reload_pitch(id) if _is_reloading(id) else _fire_recoil_pitch(id))
 	if recoil != 0.0:
 		fb = fb.rotated(fb.x, recoil)
 	if tilt != 0.0:

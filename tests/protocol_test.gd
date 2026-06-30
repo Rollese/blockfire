@@ -52,6 +52,20 @@ func test_shot_fx_round_trip() -> void:
 	assert_almost_eq(d["dir"].z, 1.0, 0.001, "aim dir preserved")
 	assert_eq(d["shooter_id"], 42, "shooter id preserved for the remote fire pose")
 
+func test_reload_fx_round_trip() -> void:
+	# Cosmetic remote-reload cue: reloader id + how many ticks the reload lasts.
+	var b := Protocol.encode_reload_fx(57, 45)
+	assert_eq(Protocol.msg_type(b), Protocol.Msg.RELOAD_FX)
+	var d := Protocol.decode_reload_fx(b)
+	assert_eq(d["reloader_id"], 57, "reloader id preserved")
+	assert_eq(d["duration_ticks"], 45, "reload duration (ticks) preserved")
+
+func test_reload_fx_clamps_long_duration() -> void:
+	# A pathological duration must not overflow the u16; it clamps, never wraps.
+	var d := Protocol.decode_reload_fx(Protocol.encode_reload_fx(3, 999999))
+	assert_eq(d["reloader_id"], 3)
+	assert_eq(d["duration_ticks"], 65535, "duration clamps to u16 max")
+
 func test_impact_fx_round_trip() -> void:
 	for kind in [Protocol.IMPACT_WALL, Protocol.IMPACT_DIRT]:
 		var b := Protocol.encode_impact_fx(Vector3(-14.3, 2.6, 9.1), kind)
