@@ -22,6 +22,15 @@ func test_is_bled_out_at_floor() -> void:
 	assert_true(Revive.is_bled_out(Revive.BLEEDOUT_FLOOR))
 	assert_false(Revive.is_bled_out(Revive.BLEEDOUT_FLOOR + 1))
 
+func test_bleed_frac_full_at_down() -> void:
+	assert_eq(Revive.bleed_frac_u8(0), 255, "just-downed pawn shows full bleed fraction")
+
+func test_bleed_frac_zero_at_floor() -> void:
+	assert_eq(Revive.bleed_frac_u8(Revive.BLEEDOUT_FLOOR), 0, "at the bleed-out floor the marker is empty")
+
+func test_bleed_frac_half_at_midpoint() -> void:
+	assert_almost_eq(Revive.bleed_frac_u8(Revive.BLEEDOUT_FLOOR / 2), 128, 2, "midway is ~half")
+
 func test_medic_revives_at_double_speed() -> void:
 	assert_eq(Revive.revive_ticks(true), Revive.REVIVE_TICKS / 2)
 	assert_eq(Revive.revive_ticks(false), Revive.REVIVE_TICKS)

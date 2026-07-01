@@ -118,6 +118,28 @@ func test_empty_gadget_list_round_trip() -> void:
 	var b := Protocol.encode_gadget_list([])
 	assert_eq(Protocol.decode_gadget_list(b).size(), 0, "empty list clears the client's gadgets")
 
+func test_downed_list_round_trip() -> void:
+	var list := [
+		{"id": 7, "frac": 255, "halted": false},
+		{"id": 42, "frac": 128, "halted": false},
+		{"id": 99, "frac": 10, "halted": true},
+	]
+	var b := Protocol.encode_downed_list(list)
+	assert_eq(Protocol.msg_type(b), Protocol.Msg.DOWNED_LIST)
+	var d := Protocol.decode_downed_list(b)
+	assert_eq(d.size(), 3, "all downed pawns survive the round trip")
+	assert_eq(d[0]["id"], 7)
+	assert_eq(d[0]["frac"], 255, "just-downed pawn = full bleed fraction")
+	assert_eq(d[0]["halted"], false)
+	assert_eq(d[1]["frac"], 128, "mid bleed fraction preserved")
+	assert_eq(d[2]["id"], 99)
+	assert_eq(d[2]["frac"], 10, "near-death bleed fraction preserved")
+	assert_eq(d[2]["halted"], true, "self-bandage halted flag preserved")
+
+func test_empty_downed_list_round_trip() -> void:
+	var b := Protocol.encode_downed_list([])
+	assert_eq(Protocol.decode_downed_list(b).size(), 0, "empty list clears the client's downed urgency")
+
 func test_hitmarker_round_trip() -> void:
 	for hs in [false, true]:
 		for lethal in [false, true]:

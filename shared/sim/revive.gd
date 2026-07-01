@@ -35,6 +35,12 @@ static func bleed_step(bleed_health: int, halted: bool) -> int:
 static func is_bled_out(bleed_health: int) -> bool:
 	return bleed_health <= BLEEDOUT_FLOOR
 
+## Bleed-out urgency as a 0..255 byte for the wire (M7 revive marker): 255 the instant a pawn goes
+## down (bleed_health 0), draining to 0 at the bleed-out floor. Drives the marker's colour/pulse.
+static func bleed_frac_u8(bleed_health: int) -> int:
+	var f := float(bleed_health - BLEEDOUT_FLOOR) / float(-BLEEDOUT_FLOOR)
+	return clampi(roundi(f * 255.0), 0, 255)
+
 ## Revive hold duration; Medic is 2× speed.
 static func revive_ticks(is_medic: bool) -> int:
 	return (REVIVE_TICKS / 2) if is_medic else REVIVE_TICKS
