@@ -165,6 +165,13 @@ const LAND_DIP_DECAY := 8.0       # per-second ease of the land dip back to rest
 # Remote fire-recoil: a brief body lean-back twitch on a remote pawn when it shoots (SHOT_FX).
 var _fire_recoil: Dictionary = {} # id -> expire time of the fire-recoil twitch
 const FIRE_RECOIL_TTL := 0.13     # s the body recoil twitch lasts
+# Remote hit-flinch: a brief forward body jerk when a remote pawn's replicated health DROPS (took
+# damage). health is in every snapshot, so this is pure client inference — no wire. Distinct from the
+# backward fire-recoil (a flinch is a forward stagger); composes on top of it.
+var _flinch: Dictionary = {}       # id -> expire time of the hit-flinch jerk
+var _prev_health_r: Dictionary = {}   # id -> last-seen replicated health (to detect a drop)
+const FLINCH_TTL := 0.16          # s the flinch jerk lasts
+const FLINCH_PITCH := 0.16        # rad forward stagger at the moment of the hit
 const FIRE_RECOIL_PITCH := 0.12   # rad peak backward lean on firing
 # Remote reload: a remote pawn started reloading (RELOAD_FX). The procedural body tips forward over
 # its weapon with a slow work-the-mag bob; the GLB path swaps to the "interact" clip.
@@ -200,6 +207,8 @@ var land_demo := false            # --land-test: pump landing dust + viewmodel d
 var _land_demo_next := 0.0
 var firepose_demo := false        # --firepose-test: pin a fire-recoil-posed dummy beside an upright one (QA)
 var _firepose_demo_done := false
+var flinch_demo := false          # --flinch-test: pin a hit-flinch-posed dummy beside an upright one (QA)
+var _flinch_demo_done := false
 var reloadpose_demo := false      # --remote-reload-test: pin a reload-posed dummy beside an upright one (QA)
 var _reloadpose_demo_done := false
 var meleepose_demo := false       # --remote-melee-test: pin a melee-lunge-posed dummy beside an upright one (QA)
@@ -661,6 +670,7 @@ func update(world_view: WorldView, predictor: Prediction, now: float, fov: float
 	_ensure_jump_demo(now)
 	_ensure_land_demo(now)
 	_ensure_firepose_demo(now)
+	_ensure_flinch_demo(now)
 	_ensure_reloadpose_demo(now)
 	_ensure_meleepose_demo(now)
 	_ensure_vaultpose_demo(now)
@@ -822,6 +832,23 @@ func _age_rockets(now: float, delta: float) -> void:
 			live.append(r)
 		_rockets = live
 	_age_puffs(now)
+
+
+## Despawn any cosmetic rocket within `radius` of a real detonation point. The client rocket flies a
+## pure ballistic arc (no structure march), so a rocket the server detonated against a wall would keep
+## flying visually through it; when the authoritative DETONATION lands we cull the matching cosmetic
+## rocket so the real blast (spawn_explosion) is the only artifact at the impact. View-only.
+func cull_rockets_near(pos: Vector3, radius: float) -> void:
+	if _rockets.is_empty():
+		return
+	var live: Array = []
+	for r: Dictionary in _rockets:
+		var node: Node3D = r["node"]
+		if node.position.distance_to(pos) <= radius:
+			node.queue_free()
+		else:
+			live.append(r)
+	_rockets = live
 
 
 func _make_rocket() -> Node3D:
@@ -1722,6 +1749,14 @@ func flash_fire(id: int, now: float) -> void:
 	if id > 0:
 		_fire_recoil[id] = now + FIRE_RECOIL_TTL
 
+## Forward flinch pitch (rad) for a pawn's standing pose: a stagger that eases out, 0 when not hit.
+func _flinch_pitch(id: int) -> float:
+	var expire: float = _flinch.get(id, 0.0)
+	if _now >= expire:
+		return 0.0
+	var t := clampf((expire - _now) / FLINCH_TTL, 0.0, 1.0)   # 1 at the hit -> 0 at the end
+	return FLINCH_PITCH * t   # positive = forward stagger (b.x pitch: +forward, -back)
+
 ## Signed recoil pitch (rad) for a pawn's standing pose: a backward lean that eases out, 0 when idle.
 func _fire_recoil_pitch(id: int) -> float:
 	var expire: float = _fire_recoil.get(id, 0.0)
@@ -1880,6 +1915,20 @@ func _ensure_firepose_demo(now: float) -> void:
 	firing.transform.basis = Basis.IDENTITY.rotated(Vector3(1, 0, 0), -FIRE_RECOIL_PITCH)   # peak lean-back
 	firing.position = Vector3(0.8, -1.1, -3.0)
 	_camera.add_child(firing)
+
+
+## Visual QA (--flinch-test): upright dummy next to one frozen at peak hit-flinch (forward stagger).
+func _ensure_flinch_demo(now: float) -> void:
+	if not flinch_demo or _flinch_demo_done or _camera == null or now < 1.0:
+		return
+	_flinch_demo_done = true
+	var upright := CharacterKit.build()
+	upright.position = Vector3(-0.8, -1.1, -3.0)
+	_camera.add_child(upright)
+	var hit := CharacterKit.build()
+	hit.transform.basis = Basis.IDENTITY.rotated(Vector3(1, 0, 0), FLINCH_PITCH)   # peak forward stagger
+	hit.position = Vector3(0.8, -1.1, -3.0)
+	_camera.add_child(hit)
 
 
 ## Visual QA (--remote-reload-test): upright dummy next to one pitched forward at the reload lean
@@ -2061,6 +2110,8 @@ func _release_entity(id: int) -> void:
 	_air_vy.erase(id)
 	_air_fell.erase(id)
 	_fire_recoil.erase(id)
+	_flinch.erase(id)
+	_prev_health_r.erase(id)
 	_reload_until.erase(id)
 	_melee_swing.erase(id)
 	_vault_until.erase(id)
@@ -2117,6 +2168,12 @@ func _make_friend_marker() -> MeshInstance3D:
 
 
 func _pose_entity(id: int, node: Node3D, es: EntityState, render_delta: float) -> void:
+	# Hit-flinch: arm a brief forward stagger when this pawn's replicated health dropped since the last
+	# snapshot (took damage from anyone). health holds steady between sim ticks, so the drop fires once.
+	var ph: int = _prev_health_r.get(id, es.health)
+	if es.health < ph and es.alive and not es.is_downed:
+		_flinch[id] = _now + FLINCH_TTL
+	_prev_health_r[id] = es.health
 	# Armor-tier vest/helmet (M5.5-P2). Re-apply only when this (pooled) node's tier changes — a node
 	# recycled from the free list may still carry the previous id's tier. Cheap + before any return.
 	if _armor_tier.get(id, -1) != es.armor_class:
@@ -2232,6 +2289,11 @@ func _pose_entity(id: int, node: Node3D, es: EntityState, render_delta: float) -
 			recoil = _fire_recoil_pitch(id)
 	if recoil != 0.0:
 		fb = fb.rotated(fb.x, recoil)
+	# Hit-flinch composes on top of any recoil/reload/melee lean (you can be shot mid-anything).
+	if not use_models:
+		var flinch := _flinch_pitch(id)
+		if flinch != 0.0:
+			fb = fb.rotated(fb.x, flinch)
 	if tilt != 0.0:
 		fb = fb.rotated(fb.z, tilt)
 	node.transform.basis = fb
