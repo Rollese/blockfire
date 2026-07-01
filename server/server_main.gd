@@ -20,6 +20,14 @@ const MAX_SNAPSHOT_ENTITIES := 32   # over this many entities in interest range,
 const MAX_ENEMY_SNAPSHOT := 24      # max enemies per snapshot (nearest-first) once the cull runs —
                                     # the only set with a wallhack concern; bounds the O(N^2) peak.
                                     # Total snapshot ≈ (teammates in range) + ≤24 enemies.
+# M8-P3 adaptive graceful degradation: these two snapshot levers become dynamic, driven by the
+# Degrade ladder off windowed tick_mean. Level 0 == the consts above (no change under budget); when
+# tick_mean breaches the high-water mark the server sheds snapshot rate + distant enemies to recover.
+var _degrade_level := 0
+var _snapshot_stride := SNAPSHOT_STRIDE
+var _max_enemy_snapshot := MAX_ENEMY_SNAPSHOT
+var _degrade_high_ms := Degrade.HIGH_MS   # --degrade-high-ms override (lower it to force-trigger in a test)
+var _degrade_low_ms := Degrade.LOW_MS     # --degrade-low-ms override
 const RESPAWN_DELAY_TICKS := 150   # 5s @30Hz
 const FIRE_CONE_DOT := 0.985       # broad-phase: target within ~10deg of ray
 const FIRE_CONE_SKIP_RANGE := 8.0  # below this, skip the cone cull — feet/chest parallax exceeds the half-angle at point blank
@@ -200,6 +208,8 @@ func configure(args: Dictionary) -> void:
 	if args.has("map"):
 		_map_path = "res://maps/%s.json" % String(args["map"])
 	_human_rpg = args.has("human-rpg")
+	_degrade_high_ms = float(args.get("degrade-high-ms", _degrade_high_ms))
+	_degrade_low_ms = float(args.get("degrade-low-ms", _degrade_low_ms))
 
 func _ready() -> void:
 	_map = MapDef.load_file(_map_path)
@@ -1172,7 +1182,7 @@ func _send_snapshots() -> void:
 	for id in _clients:
 		# Stagger sends across ticks so the per-tick snapshot encode cost (the dominant tick
 		# cost at high player counts) is ~clients/SNAPSHOT_STRIDE rather than O(clients).
-		if (_sim.tick + id) % SNAPSHOT_STRIDE != 0:
+		if (_sim.tick + id) % _snapshot_stride != 0:
 			continue
 		var c = _clients[id]
 		var self_pawn = _sim.world.get_pawn(id)
@@ -1199,7 +1209,7 @@ func _send_snapshots() -> void:
 			enemies.sort()   # nearest enemies first
 			var enemy_kept := 0
 			for pair in enemies:
-				if enemy_kept >= MAX_ENEMY_SNAPSHOT:
+				if enemy_kept >= _max_enemy_snapshot:
 					break
 				kept[pair[1]] = true
 				enemy_kept += 1
@@ -2553,6 +2563,14 @@ func _log_telemetry() -> void:
 	var pt := maxi(_phase_ticks, 1)
 	print("[perf] us/tick: poll=%d move=%d veh=%d lag=%d interest=%d fire=%d respawn=%d conquest=%d match=%d snap=%d (ticks=%d)"
 		% [_phase_us["poll"] / pt, _phase_us["move"] / pt, _phase_us["veh"] / pt, _phase_us["lag"] / pt, _phase_us["interest"] / pt, _phase_us["fire"] / pt, _phase_us["respawn"] / pt, _phase_us["conquest"] / pt, _phase_us["match"] / pt, _phase_us["snap"] / pt, _phase_ticks])
+	# M8-P3 adaptive degradation: re-evaluate the ladder off this window's mean tick (before reset).
+	var new_level := Degrade.next_level(_tele.mean_tick_ms(), _degrade_level, _degrade_high_ms, _degrade_low_ms)
+	if new_level != _degrade_level:
+		_degrade_level = new_level
+		_snapshot_stride = Degrade.stride_for(new_level)
+		_max_enemy_snapshot = Degrade.enemy_cap_for(new_level)
+		print("[degrade] level=%d tick_mean=%.2fms -> snapshot_stride=%d max_enemy_snapshot=%d"
+			% [new_level, _tele.mean_tick_ms(), _snapshot_stride, _max_enemy_snapshot])
 	for k in _phase_us: _phase_us[k] = 0
 	_phase_ticks = 0
 	_tele.reset_window()
