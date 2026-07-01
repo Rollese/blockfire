@@ -21,6 +21,7 @@ const _THROWABLE_LABELS: Dictionary = {
 }
 
 # ---- node references --------------------------------------------------
+var _repair_gauge: _RepairGauge   # Engineer repair-tool heat/overheat gauge (bottom-centre)
 var _ammo_label: Label
 var _reload_label: Label
 var _firemode_label: Label   # AUTO/SEMI/BURST glyph above the ammo count (M5.5-P1 fire-mode)
@@ -124,6 +125,7 @@ func render(model: Dictionary) -> void:
 	_render_interaction_prompt(model.get("interaction_prompt"))
 	_render_throwables(model.get("throwables", {}))
 	_render_death_recap(model.get("death_recap"))
+	_render_repair_gauge(model.get("repair_heat", {}))
 
 
 # -----------------------------------------------------------------------
@@ -149,6 +151,7 @@ func _build_tree() -> void:
 	_build_scope()         # sniper scope mask + reticle (over the world, under the flashbang/blind)
 	_hitmarker = _Hitmarker.new()
 	add_child(_hitmarker)
+	_build_repair_gauge()
 	_build_ammo()
 	_build_compass()
 	_build_tickets()
@@ -1089,6 +1092,32 @@ func _render_throwables(throwables: Dictionary) -> void:
 		lbl.visible = true
 
 
+func _build_repair_gauge() -> void:
+	# Bottom-centre, just above the crosshair line — a weapon-overheat-style bar. Hidden unless the
+	# engineer is actively repairing or in the overheat lockout.
+	_repair_gauge = _RepairGauge.new()
+	_repair_gauge.anchor_left = 0.5
+	_repair_gauge.anchor_right = 0.5
+	_repair_gauge.anchor_top = 1.0
+	_repair_gauge.anchor_bottom = 1.0
+	_repair_gauge.offset_left = -70.0
+	_repair_gauge.offset_right = 70.0
+	_repair_gauge.offset_top = -130.0
+	_repair_gauge.offset_bottom = -104.0
+	_repair_gauge.mouse_filter = MOUSE_FILTER_IGNORE
+	_repair_gauge.visible = false
+	add_child(_repair_gauge)
+
+
+func _render_repair_gauge(rh: Dictionary) -> void:
+	if _repair_gauge == null:
+		return
+	var vis := bool(rh.get("visible", false))
+	_repair_gauge.visible = vis
+	if vis:
+		_repair_gauge.set_state(float(rh.get("heat", 0.0)), float(rh.get("cooldown", 0.0)), bool(rh.get("overheated", false)))
+
+
 func _build_death_recap() -> void:
 	# Left side, vertically centered — kept clear of the centered respawn options and the
 	# top compass (earlier center/top placements overlapped both).
@@ -1370,6 +1399,42 @@ class _Hitmarker extends Control:
 		for d in [Vector2(1, 1), Vector2(-1, 1), Vector2(1, -1), Vector2(-1, -1)]:
 			var dir: Vector2 = d.normalized()
 			draw_line(ctr + dir * inner, ctr + dir * outer, c, 2.0)
+
+
+## Engineer repair-tool heat gauge: a small labelled bar. Fills amber→red as heat accrues; on
+## overheat it flips to a red "OVERHEAT" lockout that drains as the cooldown expires. Purely a
+## tool-state readout (like a reload bar) — not health/damage, so it respects the no-health-bar rule.
+class _RepairGauge extends Control:
+	var _heat: float = 0.0
+	var _cooldown: float = 0.0
+	var _overheated: bool = false
+
+	func set_state(heat: float, cooldown: float, overheated: bool) -> void:
+		_heat = clampf(heat, 0.0, 1.0)
+		_cooldown = clampf(cooldown, 0.0, 1.0)
+		_overheated = overheated
+		queue_redraw()
+
+	func _draw() -> void:
+		var w := size.x
+		var h := size.y
+		var bar_h := 8.0
+		var bar_y := h - bar_h
+		# Backdrop track.
+		draw_rect(Rect2(0, bar_y, w, bar_h), Color(0, 0, 0, 0.55))
+		if _overheated:
+			# Lockout: a red bar draining right-to-left as the cooldown expires + "OVERHEAT" text.
+			draw_rect(Rect2(0, bar_y, w * _cooldown, bar_h), Color(0.9, 0.2, 0.15, 0.95))
+			var f := ThemeDB.fallback_font
+			draw_string(f, Vector2(0, bar_y - 6), "OVERHEAT", HORIZONTAL_ALIGNMENT_CENTER, w, 13, Color(1.0, 0.4, 0.3))
+		else:
+			# Heating: amber→red fill by heat amount.
+			var col := Color(0.95, 0.75, 0.2).lerp(Color(0.95, 0.25, 0.1), _heat)
+			draw_rect(Rect2(0, bar_y, w * _heat, bar_h), col)
+			var f := ThemeDB.fallback_font
+			draw_string(f, Vector2(0, bar_y - 6), "REPAIR", HORIZONTAL_ALIGNMENT_CENTER, w, 12, Color(0.8, 0.85, 0.9, 0.9))
+		# Border.
+		draw_rect(Rect2(0, bar_y, w, bar_h), Color(1, 1, 1, 0.25), false, 1.0)
 
 
 class _ArcMarker extends Control:

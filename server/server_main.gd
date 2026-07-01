@@ -999,6 +999,19 @@ func _step_repairs() -> void:
 	for eid in done:
 		_repairing.erase(eid)
 
+## Owner-facing repair-tool gauge fractions for pawn `id`: (heat 0..1 toward overheat, cooldown 0..1
+## of the lockout remaining). Zero for non-engineers / not repairing (early-out skips the def lookup
+## for the ~127 clients who aren't repairing). Feeds encode_self_state → M7 HUD heat gauge.
+func _repair_gauge_for(id: int) -> Vector2:
+	var raw_heat := int(_repair_heat.get(id, 0))
+	var cd_ticks := maxi(0, int(_repair_cd.get(id, 0)) - _sim.tick)
+	if raw_heat <= 0 and cd_ticks <= 0:
+		return Vector2.ZERO
+	var rdef: Dictionary = _gadgets.def_of_kind(Gadget.KIND_REPAIR)
+	var overheat := maxi(1, int(rdef["overheat_ticks"]))
+	var cool := maxi(1, int(rdef["cooldown_ticks"]))
+	return Vector2(clampf(float(raw_heat) / float(overheat), 0.0, 1.0), clampf(float(cd_ticks) / float(cool), 0.0, 1.0))
+
 func _nearest_friendly_damaged_vehicle(ep: Pawn, rng: float) -> Vehicle:
 	var best: Vehicle = null
 	var bestd := rng
@@ -1208,8 +1221,9 @@ func _send_snapshots() -> void:
 		var reload_remaining: int = maxi(0, int(c["reload_done_tick"]) - _sim.tick) if c["reloading"] else 0
 		# Reliable so the authoritative ammo/reload always reaches the owner — otherwise dropped
 		# SELF_STATE packets (lossy links) leave the client predicting phantom ammo it doesn't have.
+		var rgauge := _repair_gauge_for(id)
 		_net.send_to(c["peer"], NetHost.CHANNEL_CONTROL,
-			Protocol.encode_self_state(int(c["ammo"]), bool(c["reloading"]), reload_remaining, int(c["weapon"]), _throwables_for(c), _being_revived.has(id), self_pawn.suppression, clampi(self_pawn.blind_until_tick - _sim.tick, 0, 255), self_pawn.bandage_count, self_pawn.bleed_halted),
+			Protocol.encode_self_state(int(c["ammo"]), bool(c["reloading"]), reload_remaining, int(c["weapon"]), _throwables_for(c), _being_revived.has(id), self_pawn.suppression, clampi(self_pawn.blind_until_tick - _sim.tick, 0, 255), self_pawn.bandage_count, self_pawn.bleed_halted, rgauge.x, rgauge.y),
 			ENetPacketPeer.FLAG_RELIABLE)
 		c["history"][seq] = current
 		c["history_v"][seq] = current_v

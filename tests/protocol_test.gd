@@ -287,12 +287,21 @@ func test_self_state_roundtrip() -> void:
 	# Defaults when not supplied (backward-compatible trailing fields).
 	assert_eq(d["bandage_count"], 0)
 	assert_false(d["bleed_halted"])
+	assert_eq(d["repair_heat"], 0.0)
+	assert_eq(d["repair_cooldown"], 0.0)
 
 func test_self_state_carries_bandage_state() -> void:
 	var b := Protocol.encode_self_state(17, false, 0, Weapon.AR, [], false, 0.0, 0, 3, true)
 	var d := Protocol.decode_self_state(b)
 	assert_eq(d["bandage_count"], 3)
 	assert_true(d["bleed_halted"])
+
+func test_self_state_carries_repair_heat() -> void:
+	# repair_heat/cooldown are 0..1, quantized to a byte (255ths) — assert within one quantum.
+	var b := Protocol.encode_self_state(17, false, 0, Weapon.AR, [], false, 0.0, 0, 0, false, 0.6, 1.0)
+	var d := Protocol.decode_self_state(b)
+	assert_true(absf(float(d["repair_heat"]) - 0.6) <= 1.0 / 255.0, "repair_heat round-trips ~0.6")
+	assert_eq(float(d["repair_cooldown"]), 1.0, "full cooldown round-trips exactly")
 
 func test_hello_carries_auto_deploy_default_true() -> void:
 	var b := Protocol.encode_hello("Bot")

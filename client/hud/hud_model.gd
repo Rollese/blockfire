@@ -126,7 +126,16 @@ func _grenade_danger(ctx: Dictionary):
 
 func build(ctx: Dictionary) -> Dictionary:
 	var dmg := _damage(ctx)
-	return {"ammo": _ammo(ctx), "compass": _compass(ctx), "tickets": _tickets(ctx), "capture": _capture(ctx), "killfeed": _killfeed_current(ctx), "damage_arcs": dmg["arcs"], "vignette": dmg["vignette"], "scoreboard": _scoreboard(ctx), "squad_roster": _squad_roster(ctx), "interaction_prompt": _interaction_prompt(ctx), "throwables": _throwables(ctx), "death_recap": _death_recap(ctx), "grenade_danger": _grenade_danger(ctx), "capture_feed": _capture_feed_current(ctx)}
+	return {"ammo": _ammo(ctx), "compass": _compass(ctx), "tickets": _tickets(ctx), "capture": _capture(ctx), "killfeed": _killfeed_current(ctx), "damage_arcs": dmg["arcs"], "vignette": dmg["vignette"], "scoreboard": _scoreboard(ctx), "squad_roster": _squad_roster(ctx), "interaction_prompt": _interaction_prompt(ctx), "throwables": _throwables(ctx), "death_recap": _death_recap(ctx), "grenade_danger": _grenade_danger(ctx), "capture_feed": _capture_feed_current(ctx), "repair_heat": _repair_heat(ctx)}
+
+## Engineer repair-tool heat gauge. Visible only while heating or in the overheat-lockout cooldown
+## (so it never shows for non-engineers). `overheated` drives the red lockout look; the beam is
+## disabled until the cooldown drains. Pure — reads the SELF_STATE fractions from ctx.
+func _repair_heat(ctx: Dictionary) -> Dictionary:
+	var heat := clampf(float(ctx.get("repair_heat", 0.0)), 0.0, 1.0)
+	var cooldown := clampf(float(ctx.get("repair_cooldown", 0.0)), 0.0, 1.0)
+	var overheated := cooldown > 0.0
+	return {"visible": heat > 0.0 or overheated, "heat": heat, "cooldown": cooldown, "overheated": overheated}
 
 func cycle_throwable(count: int) -> void:
 	if count <= 0:

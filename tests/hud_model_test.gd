@@ -243,3 +243,22 @@ func test_suppression_intensity_threshold_and_ramp() -> void:
 	var hi := HudModel.suppression_intensity(0.8)
 	assert_true(lo > 0.0 and lo < 1.0, "above threshold ramps in (0,1)")
 	assert_true(hi > lo, "monotonic increasing with suppression")
+
+func test_repair_heat_hidden_when_idle() -> void:
+	var m := HudModel.new()
+	var out := m.build({"tick": 0})
+	assert_false(out["repair_heat"]["visible"], "no gauge for non-engineers / not repairing")
+
+func test_repair_heat_visible_while_heating() -> void:
+	var m := HudModel.new()
+	var out := m.build({"tick": 0, "repair_heat": 0.4})
+	assert_true(out["repair_heat"]["visible"], "gauge shows while heat accrues")
+	assert_false(out["repair_heat"]["overheated"], "not overheated below lockout")
+	assert_eq(out["repair_heat"]["heat"], 0.4)
+
+func test_repair_heat_overheated_during_cooldown() -> void:
+	var m := HudModel.new()
+	var out := m.build({"tick": 0, "repair_heat": 0.0, "repair_cooldown": 0.8})
+	assert_true(out["repair_heat"]["visible"], "gauge stays up during the lockout")
+	assert_true(out["repair_heat"]["overheated"], "cooldown>0 reads as overheated")
+	assert_eq(out["repair_heat"]["cooldown"], 0.8)

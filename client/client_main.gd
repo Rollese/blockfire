@@ -159,6 +159,9 @@ var _suppression: float = 0.0      # latest own-suppression scalar from SELF_STA
 var _blind_ticks: int = 0          # latest remaining flashbang-blind ticks from SELF_STATE (M5.5-P3 white-out)
 var _bandage_count: int = 0        # latest self-bandage charges from SELF_STATE (DBNO self-bandage UI)
 var _bleed_halted: bool = false    # latest bleed-halted flag from SELF_STATE (downed: bandaged = stabilized)
+var _repair_heat: float = 0.0      # latest Engineer repair-tool heat fraction from SELF_STATE (HUD gauge)
+var _repair_cooldown: float = 0.0  # latest repair overheat-lockout remaining fraction from SELF_STATE
+var _repair_heat_test := false     # --repair-heat-test: drive a demo heat/cooldown cycle for a QA screenshot
 var _revive_hold: float = 0.0      # seconds the interact key has been held on a revive target
 
 # ---- configure (called by bootstrap before add_child) -----------------------
@@ -200,6 +203,7 @@ func configure(args: Dictionary) -> void:
 	_engine_test = args.has("engine-test")          # audio QA: force the vehicle engine loop on
 	_sprint_test = args.has("sprint-test")          # visual QA: freeze the viewmodel sprint-lowered
 	_vm_climb_test = args.has("vm-climb-test")      # visual QA: freeze the viewmodel climb/vault-lowered
+	_repair_heat_test = args.has("repair-heat-test") # visual QA: cycle the repair-tool heat gauge
 	_reload_test = args.has("reload-test")          # visual QA: freeze the viewmodel mid-reload
 	_whiz_test = args.has("whiz-test")              # audio+visual QA: synthetic near-miss crack/whiz rounds
 	_smoke_test = args.has("smoke-test")            # visual QA: pop a smoke cloud in front of the camera
@@ -596,7 +600,17 @@ func _process(_dt: float) -> void:
 		"throwables": _throwables,
 		"downed_mates": _downed_mates(),
 		"vehicles_near": _vehicles_near(),
+		"repair_heat": _repair_heat,
+		"repair_cooldown": _repair_cooldown,
 	}
+	if _repair_heat_test:   # visual QA: cycle heat 0->overheat->cooldown so the gauge is on-screen
+		var phase: float = fmod(_elapsed, 6.0)
+		if phase < 4.0:
+			ctx["repair_heat"] = phase / 4.0   # ramp to overheat over 4s
+			ctx["repair_cooldown"] = 0.0
+		else:
+			ctx["repair_heat"] = 0.0
+			ctx["repair_cooldown"] = (6.0 - phase) / 2.0   # lockout draining over 2s
 	if _capture_test and _elapsed >= _capture_test_next:   # visual QA: keep one of each banner fresh
 		_capture_test_next = _elapsed + 2.0
 		_hud_model.push_capture_events([
@@ -1148,6 +1162,8 @@ func _handle_self_state(bytes: PackedByteArray) -> void:
 	_blind_ticks = int(d.get("blind_ticks", 0))            # M5.5-P3: remaining flashbang-blind ticks (white-out)
 	_bandage_count = int(d.get("bandage_count", 0))        # DBNO self-bandage charges
 	_bleed_halted = bool(d.get("bleed_halted", false))     # downed: bleed-out halted by a bandage
+	_repair_heat = float(d.get("repair_heat", 0.0))        # Engineer repair-tool heat (HUD gauge)
+	_repair_cooldown = float(d.get("repair_cooldown", 0.0))# repair overheat-lockout remaining fraction
 
 # ---- MATCH_STATE ------------------------------------------------------------
 func _handle_match_state(bytes: PackedByteArray) -> void:

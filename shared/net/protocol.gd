@@ -621,7 +621,7 @@ static func decode_damage_event(bytes: PackedByteArray) -> Dictionary:
 	return {"bearing": Quantize.dec_angle(r.get_u16()), "amount": r.get_u8()}
 
 
-static func encode_self_state(mag: int, reloading: bool, reload_remaining: int, weapon: int, throwables: Array = [], being_revived: bool = false, suppression: float = 0.0, blind_ticks: int = 0, bandage_count: int = 0, bleed_halted: bool = false) -> PackedByteArray:
+static func encode_self_state(mag: int, reloading: bool, reload_remaining: int, weapon: int, throwables: Array = [], being_revived: bool = false, suppression: float = 0.0, blind_ticks: int = 0, bandage_count: int = 0, bleed_halted: bool = false, repair_heat: float = 0.0, repair_cooldown: float = 0.0) -> PackedByteArray:
 	var buf := StreamPeerBuffer.new()
 	buf.put_u8(Msg.SELF_STATE)
 	buf.put_u8(clampi(mag, 0, 255))
@@ -645,6 +645,11 @@ static func encode_self_state(mag: int, reloading: bool, reload_remaining: int, 
 	# Owner-only (rides SELF_STATE), appended last so older decoders ignore it.
 	buf.put_u8(clampi(bandage_count, 0, 255))
 	buf.put_u8(1 if bleed_halted else 0)
+	# Engineer repair-tool heat (M7 HUD gauge): current heat toward overheat and, once overheated,
+	# the remaining cooldown-lockout fraction — both 0..1 quantized to a byte. Owner-only (rides
+	# SELF_STATE), appended last so older decoders ignore them. Zero for non-engineers / not repairing.
+	buf.put_u8(int(round(clampf(repair_heat, 0.0, 1.0) * 255.0)))
+	buf.put_u8(int(round(clampf(repair_cooldown, 0.0, 1.0) * 255.0)))
 	return buf.data_array
 
 static func decode_self_state(bytes: PackedByteArray) -> Dictionary:
@@ -659,6 +664,8 @@ static func decode_self_state(bytes: PackedByteArray) -> Dictionary:
 	var blind_ticks := 0
 	var bandage_count := 0
 	var bleed_halted := false
+	var repair_heat := 0.0
+	var repair_cooldown := 0.0
 	if r.get_available_bytes() > 0:
 		being_revived = r.get_u8() == 1
 	if r.get_available_bytes() > 0:
@@ -673,7 +680,11 @@ static func decode_self_state(bytes: PackedByteArray) -> Dictionary:
 		bandage_count = r.get_u8()
 	if r.get_available_bytes() > 0:
 		bleed_halted = r.get_u8() == 1
-	return {"mag": mag, "reloading": reloading, "reload_remaining": reload_remaining, "weapon": weapon, "throwables": throwables, "being_revived": being_revived, "suppression": suppression, "blind_ticks": blind_ticks, "bandage_count": bandage_count, "bleed_halted": bleed_halted}
+	if r.get_available_bytes() > 0:
+		repair_heat = float(r.get_u8()) / 255.0
+	if r.get_available_bytes() > 0:
+		repair_cooldown = float(r.get_u8()) / 255.0
+	return {"mag": mag, "reloading": reloading, "reload_remaining": reload_remaining, "weapon": weapon, "throwables": throwables, "being_revived": being_revived, "suppression": suppression, "blind_ticks": blind_ticks, "bandage_count": bandage_count, "bleed_halted": bleed_halted, "repair_heat": repair_heat, "repair_cooldown": repair_cooldown}
 
 
 static func encode_roster(rows: Array) -> PackedByteArray:
