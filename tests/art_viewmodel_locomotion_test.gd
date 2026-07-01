@@ -23,3 +23,11 @@ func test_bob_dips_down_each_step() -> void:
 func test_sprint_lower_drops_the_gun() -> void:
 	assert_true(ViewmodelAnim.SPRINT_LOWER_POS.y < 0.0, "sprint lowers the gun (−Y)")
 	assert_true(ViewmodelAnim.SPRINT_LOWER_ROT.x > 0.0, "sprint angles the muzzle down (+pitch)")
+
+func test_climb_lower_drops_deeper_than_sprint() -> void:
+	# Climbing a ladder / vaulting frees both hands onto the rungs/ledge, so the gun drops further
+	# out of the aim than the sprint-lower (and angles the muzzle down harder).
+	assert_true(ViewmodelAnim.CLIMB_LOWER_POS.y < 0.0, "climb lowers the gun (−Y)")
+	assert_true(ViewmodelAnim.CLIMB_LOWER_ROT.x > 0.0, "climb angles the muzzle down (+pitch)")
+	assert_true(ViewmodelAnim.CLIMB_LOWER_POS.y < ViewmodelAnim.SPRINT_LOWER_POS.y, "climb drops lower than sprint")
+	assert_true(ViewmodelAnim.CLIMB_LOWER_ROT.x > ViewmodelAnim.SPRINT_LOWER_ROT.x, "climb cants the muzzle down harder than sprint")
