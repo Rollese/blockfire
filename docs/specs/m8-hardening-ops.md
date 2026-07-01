@@ -54,7 +54,13 @@ exists piecemeal (rich `[telemetry]` log line; a parametrized Docker `docker-com
   time limit, **map rotation** list). Loaded at boot; **CLI args override file**; file absent →
   current CLI/const defaults (back-compatible). Map rotation advances between matches.
 - **Graceful shutdown**: SIGTERM → stop accepting joins, end/abort the current match cleanly,
-  disconnect peers with a reason, flush telemetry, exit 0.
+  disconnect peers with a reason, flush telemetry, exit 0. **[2026-07-01: investigated — NOT
+  feasible in pure GDScript on headless Godot 4.6.** POSIX signals are not delivered as
+  `NOTIFICATION_WM_CLOSE_REQUEST` without a display server, and GDScript exposes no signal-handler
+  API; a `set_auto_accept_quit(false)` + `_notification` handler was verified inert (process took
+  the OS default, exit 143/130). Needs a **native GDExtension signal handler** or an **admin
+  control-channel `SHUTDOWN` command** (ties to the M7.5 admin-allowlist, deferred). **Deferred** —
+  benign for a LAN server (no persistence; `docker stop` SIGKILLs after grace).]
 - **Adaptive graceful degradation**: when windowed `tick_mean` breaches a high-water mark, raise
   `SNAPSHOT_STRIDE` / lower the relevance cap by one step; restore (hysteresis) once recovered.
   Log each transition (`[degrade] …`). Pure decision helper (input tick_mean + current level →
