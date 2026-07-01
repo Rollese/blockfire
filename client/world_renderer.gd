@@ -226,6 +226,9 @@ var _last_pos: Dictionary = {}        # id(int) -> Vector3
 var _last_speed: Dictionary = {}      # id(int) -> float (held between sim ticks; see _pose_entity)
 var _armor_tier: Dictionary = {}      # id(int) -> last-applied armor tier (re-tint only on change)
 var _held_weapon: Dictionary = {}     # id(int) -> last-applied held-weapon id (re-shape GunMount on change)
+var _seated_ids: Dictionary = {}      # id(int) -> {heading, seat}; vehicle occupants, posed seated (SeatPose)
+var seat_pose_demo := false           # --seat-pose-test: pin a seated dummy beside an upright one (QA)
+var _seat_pose_demo_done := false
 var armor_demo := false               # --armor-demo: pin LIGHT/MEDIUM/HEAVY dummies in front of camera
 var _armor_demo_done := false
 var _entity_ap: Dictionary = {}       # id(int) -> AnimationPlayer (only when use_models)
@@ -586,6 +589,9 @@ func update(world_view: WorldView, predictor: Prediction, now: float, fov: float
 	var remotes: Dictionary = world_view.remotes_at(now)
 	var self_es: EntityState = world_view.self_state()
 	var local_team: int = self_es.team if self_es != null else -1
+	# Occupant map (pawn id -> seat/heading) so _pose_entity can seat riders instead of standing them
+	# upright at the seat. Cross-referenced from the already-replicated VehicleState.seats — no wire.
+	_seated_ids = SeatPose.occupants(world_view.vehicles())
 	_sync_entity_pool(remotes, local_team, render_delta, now)
 
 	# 1b. Support-link beams (heal/ammo/repair/revive) — resolve giver/target by id from the same
@@ -620,6 +626,7 @@ func update(world_view: WorldView, predictor: Prediction, now: float, fov: float
 
 	# 5. QA: armor-tier dummies (--armor-demo) + explosion pump (--boom-test) + corpses (--corpse-test)
 	_ensure_armor_demo()
+	_ensure_seat_pose_demo()
 	_ensure_boom_demo(now)
 	_ensure_impact_demo(now)
 	_ensure_corpse_demo(now)
@@ -660,6 +667,27 @@ func _ensure_armor_demo() -> void:
 		dummy.position = Vector3(xs[i], -1.4, -7.0)   # camera-local: in front (-Z), lowered to show feet
 		dummy.rotation = Vector3(0, PI, 0)            # face the camera
 		_camera.add_child(dummy)
+
+
+## Visual QA (--seat-pose-test): pin an upright dummy (left) beside one posed with the SeatPose
+## seated transform (right), camera-parented, so a screenshot A/Bs the standing-vs-seated silhouette.
+func _ensure_seat_pose_demo() -> void:
+	if not seat_pose_demo or _seat_pose_demo_done or _camera == null:
+		return
+	_seat_pose_demo_done = true
+	# Left: a normal standing figure (control).
+	var standing := CharacterKit.build()
+	standing.position = Vector3(-1.9, -1.35, -4.6)
+	standing.rotation = Vector3(0, PI, 0)
+	_camera.add_child(standing)
+	# Right: the same figure with the seated transform (lower + compress + recline) applied.
+	var seated := CharacterKit.build()
+	var sb := Basis.IDENTITY.rotated(Vector3.UP, PI)          # face the camera (matches standing)
+	sb = sb.rotated(sb.x, -SeatPose.SIT_RECLINE)
+	seated.transform.basis = sb
+	seated.scale = Vector3(1.0, SeatPose.SIT_HEIGHT_SCALE, 1.0)
+	seated.position = Vector3(-0.5, -1.35 + SeatPose.SIT_LIFT, -4.6)
+	_camera.add_child(seated)
 
 
 ## Spawn a brief tracer beam along the camera's aim. Called when the weapon predictor reports a
@@ -2076,6 +2104,18 @@ func _pose_entity(id: int, node: Node3D, es: EntityState, render_delta: float) -
 		node.transform.basis = b
 		node.scale = Vector3.ONE
 		node.position = Vector3(es.pos.x, es.pos.y + PRONE_LIFT, es.pos.z)
+		return
+
+	if _seated_ids.has(id):
+		# Vehicle occupant: sit the figure onto the seat instead of standing it upright at (and poking
+		# through) the hull. Lower + compress to a shorter, slightly reclined silhouette; keep the
+		# rider's own yaw so a gunner still faces where they aim. Cross-referenced from VehicleState.seats
+		# (SeatPose) — no wire change. Wins over airborne/climb inference (a seat-slaved pos can jitter).
+		var sb := Basis.IDENTITY.rotated(Vector3.UP, es.yaw)
+		sb = sb.rotated(sb.x, -SeatPose.SIT_RECLINE)   # negative X = recline backward (sitting), not a crouch
+		node.position = Vector3(es.pos.x, es.pos.y + SeatPose.SIT_LIFT, es.pos.z)
+		node.transform.basis = sb
+		node.scale = Vector3(1.0, SeatPose.SIT_HEIGHT_SCALE, 1.0)
 		return
 
 	if es.climbing:

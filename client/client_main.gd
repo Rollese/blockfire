@@ -89,6 +89,7 @@ var _boom_test := false             # --boom-test: pump frag explosions in front
 var _vehicle_test := false          # --vehicle-test: blow up a transport in front of the camera (visual QA)
 var _turret_test := false           # --turret-test: an intact transport with its turret traversed off-axis (visual QA)
 var _heldweapon_test := false       # --held-weapon-test: 5 side-on dummies, one per weapon silhouette (visual QA)
+var _seat_pose_test := false        # --seat-pose-test: standing-vs-seated dummy A/B (vehicle occupant pose QA)
 var _impact_test := false           # --impact-test: pump bullet impacts in front of the camera (visual QA)
 var _corpse_test := false           # --corpse-test: lay a few corpses in front of the camera (visual QA)
 var _footstep_test := false         # --footstep-test: pump footstep dust in front of the camera (visual QA)
@@ -176,6 +177,7 @@ func configure(args: Dictionary) -> void:
 	_vehicle_test = args.has("vehicle-test")        # visual QA: blow up a transport in front of camera
 	_turret_test = args.has("turret-test")          # visual QA: turret traversed off the hull axis
 	_heldweapon_test = args.has("held-weapon-test") # visual QA: per-weapon held-gun silhouettes
+	_seat_pose_test = args.has("seat-pose-test")    # visual QA: standing-vs-seated occupant pose
 	_impact_test = args.has("impact-test")          # visual QA: pump bullet impacts in front of camera
 	_corpse_test = args.has("corpse-test")          # visual QA: lay corpses in front of camera
 	_footstep_test = args.has("footstep-test")      # visual QA: pump footstep dust in front of camera
@@ -1198,6 +1200,7 @@ func _build_scene() -> void:
 	_renderer.wreck_demo = _vehicle_test # --vehicle-test: blow up a transport for a QA screenshot
 	_renderer.turret_demo = _turret_test # --turret-test: turret traversed off-axis for a QA screenshot
 	_renderer.heldweapon_demo = _heldweapon_test # --held-weapon-test: per-weapon silhouettes for a QA screenshot
+	_renderer.seat_pose_demo = _seat_pose_test   # --seat-pose-test: standing-vs-seated dummy A/B for a QA screenshot
 	_renderer.casing_demo = _casing_test # --casing-test: pump shell casings for a QA screenshot
 	_renderer.climb_demo = _climb_test   # --climb-test: climbing-pose dummy for a QA screenshot
 	_renderer.jump_demo = _jump_test     # --jump-test: airborne-pose dummy for a QA screenshot
