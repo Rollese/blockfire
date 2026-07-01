@@ -104,6 +104,7 @@ var _jump_test := false            # --jump-test: pin an airborne-posed dummy be
 var _land_test := false            # --land-test: pump landing dust + viewmodel dip
 var _downed_test := false          # --downed-test: force the DBNO overlay (bandage prompt/stabilized)
 var _firepose_test := false        # --firepose-test: pin a fire-recoil-posed dummy beside an upright one
+var _flinch_test := false          # --flinch-test: pin a hit-flinch-posed dummy beside an upright one
 var _reloadpose_test := false      # --remote-reload-test: pin a reload-posed dummy beside an upright one
 var _meleepose_test := false       # --remote-melee-test: pin a melee-lunge-posed dummy beside an upright one
 var _vaultpose_test := false       # --remote-vault-test: pin a mantle-posed dummy beside an upright one
@@ -198,6 +199,7 @@ func configure(args: Dictionary) -> void:
 	_land_test = args.has("land-test")              # visual QA: landing dust + viewmodel dip
 	_downed_test = args.has("downed-test")          # visual QA: force the DBNO bandage overlay
 	_firepose_test = args.has("firepose-test")      # visual QA: fire-recoil pose vs upright dummy
+	_flinch_test = args.has("flinch-test")          # visual QA: hit-flinch pose vs upright dummy
 	_reloadpose_test = args.has("remote-reload-test")  # visual QA: reload pose vs upright dummy
 	_meleepose_test = args.has("remote-melee-test")    # visual QA: melee lunge pose vs upright dummy
 	_vaultpose_test = args.has("remote-vault-test")    # visual QA: mantle pose vs upright dummy
@@ -1025,6 +1027,8 @@ func _on_packet(_from: ENetPacketPeer, _channel: int, bytes: PackedByteArray) ->
 		Protocol.Msg.DETONATION:
 			var det: Dictionary = Protocol.decode_detonation(bytes)
 			if _renderer != null:
+				if int(det["kind"]) == Protocol.DET_EXPLOSION:
+					_renderer.cull_rockets_near(det["pos"], 4.0)   # kill the fly-through cosmetic rocket at a real blast
 				_renderer.spawn_explosion(det["pos"], int(det["kind"]), _elapsed)
 			if _audio != null:
 				# Flashbang has its own bright-pop cue (was a dead catalog entry — every detonation
@@ -1232,6 +1236,7 @@ func _build_scene() -> void:
 	_renderer.jump_demo = _jump_test     # --jump-test: airborne-pose dummy for a QA screenshot
 	_renderer.land_demo = _land_test     # --land-test: landing dust + viewmodel dip for a QA screenshot
 	_renderer.firepose_demo = _firepose_test  # --firepose-test: fire-recoil pose dummy for a QA screenshot
+	_renderer.flinch_demo = _flinch_test      # --flinch-test: hit-flinch pose dummy for a QA screenshot
 	_renderer.reloadpose_demo = _reloadpose_test  # --remote-reload-test: reload pose dummy for a QA screenshot
 	_renderer.meleepose_demo = _meleepose_test  # --remote-melee-test: melee lunge pose dummy for a QA screenshot
 	_renderer.vaultpose_demo = _vaultpose_test  # --remote-vault-test: mantle pose dummy for a QA screenshot

@@ -2082,6 +2082,7 @@ func _detonate_c4(id: int) -> void:
 		_c4_det += 1
 		_blast_at(c4["pos"], id, team, int(cdef["pawn_damage"]), float(cdef["pawn_radius"]),
 			int(cdef["struct_damage"]), float(cdef["struct_radius"]), C4_VEHICLE_DMG)
+		_broadcast_detonation(c4["pos"], Protocol.DET_EXPLOSION)   # blast VFX/audio (same as frag)
 	_c4.erase(id)
 
 ## Drop any placed C4 whose ground cell matches a just-destroyed structure cell (spec §"C4").
@@ -2260,6 +2261,7 @@ func _step_rockets() -> void:
 			_blast_at(nxt, int(r["owner"]), int(r["team"]),
 				int(rdef["pawn_damage"]), float(rdef["pawn_radius"]),
 				int(rdef["struct_damage"]), float(rdef["struct_radius"]), RPG_VEHICLE_DMG)
+			_broadcast_detonation(nxt, Protocol.DET_EXPLOSION)   # blast at the TRUE impact (client culls its fly-through cosmetic rocket)
 			continue
 		r["pos"] = nxt; r["vel"] = s["vel"]
 		still.append(r)
@@ -2287,6 +2289,7 @@ func _step_mines() -> void:
 			_mine_trips += 1
 			_blast_at(m["pos"], int(m["owner"]), int(m["team"]), int(mdef["pawn_damage"]),
 				float(mdef["pawn_radius"]), 0, 0.0)
+			_broadcast_detonation(m["pos"], Protocol.DET_EXPLOSION)   # blast VFX/audio (same as frag)
 		else:
 			still.append(m)
 	_mines = still
