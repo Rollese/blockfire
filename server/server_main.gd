@@ -273,6 +273,12 @@ func _ready() -> void:
 	if err != OK:
 		push_error("[server] bind failed on %d: %s" % [_port, error_string(err)]); get_tree().quit(1); return
 	print("[server] listening on %d, tick=%dHz, max=%d map=%s" % [_port, TICK_RATE, MAX_PLAYERS, _map.name])
+	# NOTE (M8-P3): graceful SIGTERM/SIGINT shutdown is NOT implemented — verified that headless
+	# Godot 4.6 does not deliver POSIX signals as NOTIFICATION_WM_CLOSE_REQUEST (no display server),
+	# and GDScript has no signal-handler API, so the process takes the OS default (exit 143/130).
+	# A clean teardown needs either a native GDExtension signal handler or an admin control-channel
+	# SHUTDOWN command; deferred. For a LAN dedicated server this is benign — a terminated match just
+	# ends (no persistence), peers ENet-timeout, and `docker stop` SIGKILLs after its grace period.
 
 func _physics_process(delta: float) -> void:
 	var t0 := Time.get_ticks_usec()

@@ -27,8 +27,12 @@
 > inert under budget. `--degrade-high-ms`/`--degrade-low-ms` CLI overrides (force-trigger for tests).
 > Validated: suite 961/0; forced-trigger boot climbs 0→1→2 with `[degrade]` logs; **no-regression
 > fleet gate PASS** (128p, peak tick 18.27ms, winner=1, **zero `[degrade]` under budget**;
-> `docker/srvlog-m8p3-20260701-234519.log`). **Remaining P3: config file + map rotation; graceful
-> (SIGTERM) shutdown.**
+> `docker/srvlog-m8p3-20260701-234519.log`). **Graceful (SIGTERM) shutdown investigated
+> 2026-07-01 → NOT feasible in pure GDScript** (headless Godot 4.6 doesn't deliver POSIX signals as
+> `NOTIFICATION_WM_CLOSE_REQUEST`; no GDScript signal API — verified exit 143/130, handler inert).
+> Deferred: needs a native GDExtension signal handler or an admin control-channel `SHUTDOWN` command
+> (benign for a LAN server — `docker stop` SIGKILLs after grace). **Remaining P3: config file + map
+> rotation** (the persistent multi-match loop — highest blast radius, own focused session).
 
 **Objective:** Make the server and bot fleet operable, observable, and repeatably stress-testable.
 
