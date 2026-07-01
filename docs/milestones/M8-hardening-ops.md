@@ -16,7 +16,19 @@
 > server reads `peer.get_statistic(PEER_PACKET_LOSS)` per client) — the one genuinely-missing
 > health field. Emit validated (server boots, line carries `pktloss=0.00%`, no format error; suite
 > 954/0). The opt-in `--telemetry-json` NDJSON sink is specced but **deferred (YAGNI — no dashboard
-> consumer yet)**. **P3 (server-ops: config file + graceful shutdown + adaptive degradation) remains.**
+> consumer yet)**. **P3 below.**
+
+> **P3 — server-ops — in progress.** **Adaptive graceful degradation DONE 2026-07-01** (the
+> "shed snapshot rate under overload" gate item): pure `server/degrade.gd` hysteresis ladder
+> (`next_level`, thresholds injectable; `tests/degrade_test.gd` 7 tests) — over HIGH_MS (30) climbs
+> a step (longer send stride + fewer distant enemies), under LOW_MS (26) restores, holds in-band.
+> Wired into `server_main` (`SNAPSHOT_STRIDE`/`MAX_ENEMY_SNAPSHOT` → dynamic `_snapshot_stride`/
+> `_max_enemy_snapshot`, re-evaluated per telemetry window); **level 0 == the old consts** so it's
+> inert under budget. `--degrade-high-ms`/`--degrade-low-ms` CLI overrides (force-trigger for tests).
+> Validated: suite 961/0; forced-trigger boot climbs 0→1→2 with `[degrade]` logs; **no-regression
+> fleet gate PASS** (128p, peak tick 18.27ms, winner=1, **zero `[degrade]` under budget**;
+> `docker/srvlog-m8p3-20260701-234519.log`). **Remaining P3: config file + map rotation; graceful
+> (SIGTERM) shutdown.**
 
 **Objective:** Make the server and bot fleet operable, observable, and repeatably stress-testable.
 
