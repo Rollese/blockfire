@@ -1,6 +1,14 @@
 # M8 — Hardening & Ops
 
-**Status:** todo · **Blocked by:** M7 gate
+**Status:** in-progress — **P1 (stress harness + runbooks) done ✅ 2026-07-01**; P2 (telemetry schema) + P3 (server ops) remain · Spec: [`docs/specs/m8-hardening-ops.md`](../specs/m8-hardening-ops.md)
+
+> **P1 — one-command stress run + runbooks (satisfies the literal gate) — DONE 2026-07-01 (game2).**
+> `docker/stress.sh` (canonical operator entrypoint, built on the new shared `docker/_gate_lib.sh`
+> = launch/wait/scrape/verdict) spins server + 128 bots, plays a full Conquest match, prints a
+> PASS/FAIL verdict + telemetry summary. **`STRESS GATE: PASS`**: `winner=1 elapsed=274s peak
+> tick=20.53ms<33.3 agg=13.6Mbit/s players=128 kills=10`, bot-perf `ai_us_mean=996µs` (scales to
+> 128); `docker/srvlog-m8stress-20260701-232731.log`. Runbooks: `docs/runbooks/running-a-stress-test.md`
+> + `docs/runbooks/reading-telemetry.md` (full `[telemetry]` field glossary). **P2/P3 below.**
 
 **Objective:** Make the server and bot fleet operable, observable, and repeatably stress-testable.
 
