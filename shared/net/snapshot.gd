@@ -43,8 +43,11 @@ static func encode(server_tick: int, seq: int, baseline_seq: int, last_input_tic
 	var count := 0
 	for id in current:
 		var cur: EntityState = current[id]
+		if not cur.q_baked: cur.bake()   # quantize once per fresh state (see EntityState.bake)
 		if baseline.has(id):
-			var mask := _diff_mask(baseline[id], cur)
+			var base: EntityState = baseline[id]
+			if not base.q_baked: base.bake()
+			var mask := _diff_mask(base, cur)
 			if mask == 0:
 				continue
 			count += 1
@@ -140,26 +143,29 @@ static func decode_apply(bytes: PackedByteArray, view: Dictionary, view_v: Dicti
 		if vmask & VF_TYPE: ve.type = buf.get_u8()
 	return {"server_tick": server_tick, "seq": seq, "baseline_seq": baseline_seq, "last_input_tick": last_input_tick}
 
+# Both a and b are assumed baked (encode() bakes current + baseline before calling). Cached
+# quantized ints make the diff pure integer compares — no per-call Quantize float math.
 static func _diff_mask(a: EntityState, b: EntityState) -> int:
 	var m := 0
-	if Quantize.enc_pos(a.pos.x) != Quantize.enc_pos(b.pos.x): m |= F_POS_X
-	if Quantize.enc_pos(a.pos.y) != Quantize.enc_pos(b.pos.y): m |= F_POS_Y
-	if Quantize.enc_pos(a.pos.z) != Quantize.enc_pos(b.pos.z): m |= F_POS_Z
-	if Quantize.enc_angle(a.yaw) != Quantize.enc_angle(b.yaw): m |= F_YAW
-	if Quantize.enc_angle(a.pitch) != Quantize.enc_angle(b.pitch): m |= F_PITCH
-	if _state_byte(a) != _state_byte(b): m |= F_STATE
+	if a.q_px != b.q_px: m |= F_POS_X
+	if a.q_py != b.q_py: m |= F_POS_Y
+	if a.q_pz != b.q_pz: m |= F_POS_Z
+	if a.q_yaw != b.q_yaw: m |= F_YAW
+	if a.q_pitch != b.q_pitch: m |= F_PITCH
+	if a.q_state != b.q_state: m |= F_STATE
 	if a.health != b.health: m |= F_HEALTH
 	if a.squad != b.squad: m |= F_SQUAD
 	return m
 
+# e is assumed baked (encode() bakes before calling). Writes cached quantized ints directly.
 static func _put_fields(buf: StreamPeerBuffer, e: EntityState, mask: int) -> void:
 	buf.put_u8(mask)
-	if mask & F_POS_X: buf.put_32(Quantize.enc_pos(e.pos.x))
-	if mask & F_POS_Y: buf.put_32(Quantize.enc_pos(e.pos.y))
-	if mask & F_POS_Z: buf.put_32(Quantize.enc_pos(e.pos.z))
-	if mask & F_YAW:   buf.put_u16(Quantize.enc_angle(e.yaw))
-	if mask & F_PITCH: buf.put_u16(Quantize.enc_angle(e.pitch))
-	if mask & F_STATE: buf.put_u8(_state_byte(e))
+	if mask & F_POS_X: buf.put_32(e.q_px)
+	if mask & F_POS_Y: buf.put_32(e.q_py)
+	if mask & F_POS_Z: buf.put_32(e.q_pz)
+	if mask & F_YAW:   buf.put_u16(e.q_yaw)
+	if mask & F_PITCH: buf.put_u16(e.q_pitch)
+	if mask & F_STATE: buf.put_u8(e.q_state)
 	if mask & F_HEALTH: buf.put_u8(clampi(e.health, 0, 255))
 	if mask & F_SQUAD: buf.put_u8(e.squad & 0xFF)
 
