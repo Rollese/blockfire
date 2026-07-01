@@ -14,6 +14,7 @@ Emit site: `server/server_main.gd` `_log_telemetry`. Format: space-separated `ke
 | `tick_mean` | mean server step time this window (ms) | **< 33.3 ms** = 30 Hz held. The gate metric — take the **max across windows** (peak) for a run. |
 | `tick_p99` | 99th-percentile step time (ms) | spikiness; a high p99 with low mean = intermittent stalls (GC, a heavy tick). |
 | `agg` | aggregate egress across all clients (Mbit/s) | 128p sits ~13–21 Mbit/s. Sudden growth = a replication regression. |
+| `pktloss` | mean per-peer ENet packet loss (%) | ~0 on a clean LAN; sustained non-zero = network stress / a saturated link. |
 | `starv` | ticks this window where a client's input was missing (server reused the last frame) | rises when the bot fleet can't feed 128 inputs at 30 Hz; a few hundred/window at 128 is tolerable, sustained high = add `BOT_REPLICAS`. Not a gate criterion. |
 | `players` / `alive` | connected pawns / currently-alive | should reach the fleet size (128). |
 | `rewind_clamped` | lag-comp rewinds clamped to the history horizon | occasional is fine; sustained = clients far behind. |

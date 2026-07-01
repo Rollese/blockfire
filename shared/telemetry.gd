@@ -7,6 +7,18 @@ var _tick_samples: Array[float] = []
 var bytes_sent_per_client: Dictionary = {}   # id -> int (this window)
 var starvation: int = 0
 
+## ENet's PEER_PACKET_LOSS statistic is a rolling mean scaled by 65536 (full loss). Given the raw
+## per-peer values (one per connected client), return the mean loss as a percentage. Pure — the
+## server reads `peer.get_statistic(ENetPacketPeer.PEER_PACKET_LOSS)` per client and passes the list.
+const PACKET_LOSS_SCALE := 65536.0
+static func mean_packet_loss_pct(raw_losses: Array) -> float:
+	if raw_losses.is_empty():
+		return 0.0
+	var sum := 0.0
+	for v in raw_losses:
+		sum += float(v)
+	return (sum / float(raw_losses.size())) / PACKET_LOSS_SCALE * 100.0
+
 func record_tick_ms(ms: float) -> void:
 	_tick_samples.append(ms)
 

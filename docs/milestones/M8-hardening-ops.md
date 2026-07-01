@@ -10,6 +10,14 @@
 > 128); `docker/srvlog-m8stress-20260701-232731.log`. Runbooks: `docs/runbooks/running-a-stress-test.md`
 > + `docs/runbooks/reading-telemetry.md` (full `[telemetry]` field glossary). **P2/P3 below.**
 
+> **P2 — telemetry schema + export — DONE 2026-07-01.** `docs/specs/telemetry.md` = the
+> authoritative `[telemetry]` schema-of-record (stable key order, append-only field contract).
+> Added `pktloss` — mean per-peer ENet packet loss % (`Telemetry.mean_packet_loss_pct`, unit-tested;
+> server reads `peer.get_statistic(PEER_PACKET_LOSS)` per client) — the one genuinely-missing
+> health field. Emit validated (server boots, line carries `pktloss=0.00%`, no format error; suite
+> 954/0). The opt-in `--telemetry-json` NDJSON sink is specced but **deferred (YAGNI — no dashboard
+> consumer yet)**. **P3 (server-ops: config file + graceful shutdown + adaptive degradation) remains.**
+
 **Objective:** Make the server and bot fleet operable, observable, and repeatably stress-testable.
 
 ## Scope
