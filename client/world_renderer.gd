@@ -517,8 +517,10 @@ func play_viewmodel_recoil(now: float) -> void:
 var _vm_loco_pos := Vector3.ZERO   # current locomotion offset (bob + eased sprint-lower)
 var _vm_loco_rot := Vector3.ZERO
 var _vm_sprint_t := 0.0            # 0..1 eased sprint-lower amount
+var _vm_climb_t := 0.0             # 0..1 eased climb/vault-lower amount (gun drops out of view on a ladder/mantle)
 var _vm_bob_phase := 0.0           # step cycle phase, advanced by distance travelled
 var vm_sprint_test := false        # QA: force the sprint-lowered viewmodel for a screenshot
+var vm_climb_test := false         # QA: force the climb/vault-lowered viewmodel for a screenshot
 const SPRINT_FOV_ADD := 8.0        # degrees of FOV widening at full sprint (eased via _vm_sprint_t)
 
 ## Continuous viewmodel locomotion: a subtle walk bob + an eased sprint-lower, from the predicted
@@ -528,13 +530,19 @@ func _update_viewmodel_locomotion(pawn: Pawn, dt: float) -> void:
 		return
 	var vel: Vector3 = pawn.velocity
 	var speed := Vector2(vel.x, vel.z).length()
-	var sprinting: bool = vm_sprint_test or (pawn.grounded and pawn.stance == Stance.STAND and speed > 6.5)
+	# Climbing a ladder / auto-vaulting: both hands are on the rungs/ledge, so drop the gun out of the
+	# aim (deeper than sprint-lower). Predicted client-side (pawn.climbing/vaulting), so it tracks the
+	# local player's own mantle 1:1. Suppresses the sprint-lower + bob so the two don't compound.
+	var climbing: bool = vm_climb_test or pawn.climbing or pawn.vaulting
+	_vm_climb_t = lerpf(_vm_climb_t, 1.0 if climbing else 0.0, clampf(dt * 9.0, 0.0, 1.0))
+	var sprinting: bool = not climbing and (vm_sprint_test or (pawn.grounded and pawn.stance == Stance.STAND and speed > 6.5))
 	var speed_norm := 1.0 if vm_sprint_test else clampf(speed / 6.0, 0.0, 1.0)
+	speed_norm *= (1.0 - _vm_climb_t)   # damp the walk bob while climbing (feet aren't striding)
 	_vm_sprint_t = lerpf(_vm_sprint_t, 1.0 if sprinting else 0.0, clampf(dt * 9.0, 0.0, 1.0))
 	_vm_bob_phase = fmod(_vm_bob_phase + speed * dt * 1.7, TAU)
 	var bob := ViewmodelAnim.walk_bob(speed_norm, _vm_bob_phase)
-	_vm_loco_pos = (bob["pos"] as Vector3) + ViewmodelAnim.SPRINT_LOWER_POS * _vm_sprint_t
-	_vm_loco_rot = (bob["rot"] as Vector3) + ViewmodelAnim.SPRINT_LOWER_ROT * _vm_sprint_t
+	_vm_loco_pos = (bob["pos"] as Vector3) + ViewmodelAnim.SPRINT_LOWER_POS * _vm_sprint_t + ViewmodelAnim.CLIMB_LOWER_POS * _vm_climb_t
+	_vm_loco_rot = (bob["rot"] as Vector3) + ViewmodelAnim.SPRINT_LOWER_ROT * _vm_sprint_t + ViewmodelAnim.CLIMB_LOWER_ROT * _vm_climb_t
 	# Land dip: a quick downward kick on touchdown that eases back to rest (set by play_land_dip).
 	_vm_land_dip = lerpf(_vm_land_dip, 0.0, clampf(dt * LAND_DIP_DECAY, 0.0, 1.0))
 	_vm_loco_pos.y -= _vm_land_dip

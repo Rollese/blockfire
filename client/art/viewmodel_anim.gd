@@ -57,6 +57,8 @@ static func _recoil(t: float) -> Dictionary:
 
 const SPRINT_LOWER_POS := Vector3(0.04, -0.06, 0.05)   # gun dips + shifts out of the aim when sprinting (stays partly in frame)
 const SPRINT_LOWER_ROT := Vector3(0.50, -0.30, 0.16)   # muzzle angled down/across (can't fire while sprinting)
+const CLIMB_LOWER_POS := Vector3(0.05, -0.09, 0.08)    # ladder/vault: gun drops low but stays partly in frame (deeper than sprint, clearly lowered)
+const CLIMB_LOWER_ROT := Vector3(0.60, -0.34, 0.20)    # muzzle canted well down — deeper than sprint (not a firing pose)
 const BOB_X := 0.015     # m lateral sway at full speed
 const BOB_Y := 0.018     # m vertical dip at full speed
 const BOB_ROLL := 0.025  # rad roll sway at full speed

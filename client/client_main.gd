@@ -116,6 +116,7 @@ const LAND_VY := 3.5                # min downward speed (m/s) for a landing to 
 const ENGINE_AUDIO_RANGE := 200.0  # m: voice the engine of the nearest running vehicle within this
 var _engine_test := false          # --engine-test: force the engine loop on (audio QA, no vehicle needed)
 var _sprint_test := false           # --sprint-test: freeze the viewmodel sprint-lowered for a visual QA shot
+var _vm_climb_test := false          # --vm-climb-test: freeze the viewmodel climb/vault-lowered for a visual QA shot
 var _reload_test := false           # --reload-test: freeze the viewmodel mid-reload for a visual QA shot
 var _whiz_test := false             # --whiz-test: pump synthetic near-miss rounds across the view (crack/whiz QA)
 var _smoke_test := false            # --smoke-test: pop a smoke cloud in front of the camera (visual QA)
@@ -198,6 +199,7 @@ func configure(args: Dictionary) -> void:
 	_glbshoot_test = args.has("glbshoot-test")      # visual QA: GLB hold vs holding-both-shoot clip
 	_engine_test = args.has("engine-test")          # audio QA: force the vehicle engine loop on
 	_sprint_test = args.has("sprint-test")          # visual QA: freeze the viewmodel sprint-lowered
+	_vm_climb_test = args.has("vm-climb-test")      # visual QA: freeze the viewmodel climb/vault-lowered
 	_reload_test = args.has("reload-test")          # visual QA: freeze the viewmodel mid-reload
 	_whiz_test = args.has("whiz-test")              # audio+visual QA: synthetic near-miss crack/whiz rounds
 	_smoke_test = args.has("smoke-test")            # visual QA: pop a smoke cloud in front of the camera
@@ -1225,6 +1227,7 @@ func _build_scene() -> void:
 	_renderer.vm_swing_test = _swing_test # --swing-test: freeze the viewmodel mid-swing
 	_renderer.vm_recoil_test = _recoil_test # --recoil-test: freeze the viewmodel mid-recoil-kick
 	_renderer.vm_sprint_test = _sprint_test # --sprint-test: freeze the viewmodel sprint-lowered
+	_renderer.vm_climb_test = _vm_climb_test # --vm-climb-test: freeze the viewmodel climb/vault-lowered
 	_renderer.vm_reload_test = _reload_test # --reload-test: freeze the viewmodel mid-reload
 
 	# HUD layer
