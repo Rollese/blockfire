@@ -54,6 +54,7 @@ enum Msg {
 	RELOAD_FX = 41,         ## server -> human clients: a remote pawn started reloading (id + duration) -> reload pose
 	MELEE_FX = 42,          ## server -> human clients: a remote pawn swung melee (id) -> brief swing/lunge pose
 	VAULT_FX = 43,          ## server -> human clients: a remote pawn vaulted (id) -> brief mantle/clamber pose
+	DOWNED_LIST = 44,       ## server -> human clients: downed pawns {id, bleed_frac, halted} -> revive-marker urgency
 }
 
 const OP_PLACE := 0
@@ -534,6 +535,35 @@ static func decode_support_list(bytes: PackedByteArray) -> Array:
 		var target := r.get_u32()
 		var kind := r.get_u8()
 		out.append({"giver": giver, "target": target, "kind": kind})
+	return out
+
+## Downed pawns (M7 revive urgency): each entry is id u32 + bleed_frac u8 + flags u8
+## (bit0 = bleed halted by self-bandage). bleed_frac is 255 at the moment of going down and drains
+## to 0 at the bleed-out floor — it drives the revive marker's colour/pulse so a client can tell how
+## close a downed teammate is to dying. No coordinates: the client resolves the id from its own
+## snapshot (it already renders the downed marker) and skips ids it can't see. Rebuilt + sent on
+## change like GADGET_LIST/SUPPORT_LIST; view-only.
+static func encode_downed_list(list: Array) -> PackedByteArray:
+	var buf := StreamPeerBuffer.new()
+	buf.put_u8(Msg.DOWNED_LIST)
+	var n: int = mini(list.size(), 255)
+	buf.put_u8(n)
+	for i in range(n):
+		var e: Dictionary = list[i]
+		buf.put_u32(int(e["id"]))
+		buf.put_u8(clampi(int(e["frac"]), 0, 255))
+		buf.put_u8(1 if bool(e.get("halted", false)) else 0)
+	return buf.data_array
+
+static func decode_downed_list(bytes: PackedByteArray) -> Array:
+	var r := body_reader(bytes)
+	var n := r.get_u8()
+	var out: Array = []
+	for i in range(n):
+		var id := r.get_u32()
+		var frac := r.get_u8()
+		var halted := r.get_u8() != 0
+		out.append({"id": id, "frac": frac, "halted": halted})
 	return out
 
 # Bullet impact VFX kind (which cosmetic puff the client spawns at the hit point).

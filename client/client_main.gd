@@ -124,9 +124,11 @@ var _grenade_test := false          # --grenade-test: lob cosmetic grenades acro
 var _gadget_test := false           # --gadget-test: place sample deployed gadgets in view (visual QA)
 var _gadget_bytes := PackedByteArray()   # last GADGET_LIST bytes — skip the rebuild on an unchanged heartbeat
 var _support_bytes := PackedByteArray()  # last SUPPORT_LIST bytes — skip the rebuild on an unchanged heartbeat
+var _downed_bytes := PackedByteArray()   # last DOWNED_LIST bytes — skip the rebuild on an unchanged heartbeat
 var _fob_bytes := PackedByteArray()      # last FOB_LIST bytes — skip rework on an unchanged heartbeat
 var _team_fobs: Array = []               # M12-P3: own-team FOBs {squad, under_construction, enabled} for deploy
 var _revive_marker_test := false    # --revive-marker-test: downed friendly + revive marker (visual QA)
+var _downed_urgency_test := false   # --downed-urgency-test: row of downed dummies at varying bleed urgency (visual QA)
 var _support_test := false           # --support-test: support beam + aura between two soldiers (visual QA)
 var _buildsite_test := false         # --buildsite-test: ghost build site (in-progress shovel construction)
 var _fob_menu_test := false          # --fob-menu-test: seed a fake enabled FOB so the deploy screen shows it
@@ -210,6 +212,7 @@ func configure(args: Dictionary) -> void:
 	_grenade_test = args.has("grenade-test")        # visual QA: lob cosmetic grenades across the view
 	_gadget_test = args.has("gadget-test")          # visual QA: place sample deployed gadgets in view
 	_revive_marker_test = args.has("revive-marker-test")   # visual QA: downed friendly + revive marker
+	_downed_urgency_test = args.has("downed-urgency-test")  # visual QA: downed dummies at varying bleed urgency
 	_support_test = args.has("support-test")        # visual QA: support beam + aura between two soldiers
 	_buildsite_test = args.has("buildsite-test")    # visual QA: ghost build site (shovel construction)
 	_fob_menu_test = args.has("fob-menu-test")      # visual QA: deploy screen with a Squad FOB option
@@ -1007,6 +1010,11 @@ func _on_packet(_from: ENetPacketPeer, _channel: int, bytes: PackedByteArray) ->
 				_support_bytes = bytes   # skip the rebuild on an unchanged 1 Hz heartbeat
 				if _renderer != null:
 					_renderer.set_support_links(Protocol.decode_support_list(bytes))
+		Protocol.Msg.DOWNED_LIST:
+			if bytes != _downed_bytes:
+				_downed_bytes = bytes   # skip the rebuild on an unchanged heartbeat
+				if _renderer != null:
+					_renderer.set_downed_urgency(Protocol.decode_downed_list(bytes))
 		Protocol.Msg.FOB_LIST:
 			# M12-P3: the team's FOBs (squad/under_construction/enabled). Refresh the deploy menu when
 			# the set changes so an enabled squad FOB appears (or vanishes) as a spawn option.
@@ -1235,6 +1243,7 @@ func _build_scene() -> void:
 	_renderer.grenade_demo = _grenade_test # --grenade-test: lob cosmetic grenades for a QA screenshot
 	_renderer.gadget_demo = _gadget_test # --gadget-test: place sample gadgets for a QA screenshot
 	_renderer.revive_demo = _revive_marker_test # --revive-marker-test: downed friendly + revive marker
+	_renderer.downed_urgency_demo = _downed_urgency_test  # --downed-urgency-test: downed dummies at varying urgency
 	_renderer.support_demo = _support_test   # --support-test: support beam + aura between two soldiers
 	_renderer.piece_catalog = _piece_cat     # M12: lets the renderer derive build-site fill fractions
 	_renderer.buildsite_demo = _buildsite_test  # --buildsite-test: ghost in-progress shovel construction

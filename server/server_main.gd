@@ -175,6 +175,8 @@ var _giving: Dictionary = {}   # giver_id -> tick the give began (latched; clear
 var _support_links_this_tick: Array = []   # [{giver, target, kind}] the give/repair/revive steps actually acted on
 var _support_pkt_sent: PackedByteArray = PackedByteArray()   # last SUPPORT_LIST sent (resend only on change)
 var _support_hb_tick := 0                                    # last support heartbeat tick (late joiners)
+var _downed_pkt_sent: PackedByteArray = PackedByteArray()    # last DOWNED_LIST sent (resend only on change)
+var _downed_hb_tick := 0                                     # last downed-list heartbeat tick (late joiners)
 var _repairing := {}        # engineer_id -> true (latched)
 var _repair_heat := {}      # engineer_id -> int
 var _repair_cd := {}        # engineer_id -> cooldown_until tick
@@ -320,6 +322,7 @@ func _physics_process(delta: float) -> void:
 		_broadcast_roster()
 	_broadcast_gadget_list()
 	_broadcast_support_list()
+	_broadcast_downed_list()
 	_send_fob_lists()
 	var t_snap := Time.get_ticks_usec()
 	_phase_us["poll"] += t_poll - t0
@@ -1965,6 +1968,35 @@ func _broadcast_support_list() -> void:
 		return
 	_support_pkt_sent = pkt
 	_support_hb_tick = _sim.tick
+	for cid in _clients:
+		var c = _clients[cid]
+		if bool(c.get("auto_deploy", true)):
+			continue   # bot client — does not render
+		_net.send_to(c["peer"], NetHost.CHANNEL_CONTROL, pkt, ENetPacketPeer.FLAG_RELIABLE)
+
+## Downed pawns + their bleed-out urgency (M7 revive marker). Same change+heartbeat shape as the
+## gadget/support lists; skipped when no human is connected. The list is naturally tiny (only DOWNED
+## pawns), so it's cheap even at 128p. The client drives the revive marker colour/pulse from `frac`.
+func _broadcast_downed_list() -> void:
+	var has_human := false
+	for cid in _clients:
+		if not bool(_clients[cid].get("auto_deploy", true)):
+			has_human = true
+			break
+	if not has_human:
+		return
+	var list: Array = []
+	for id in _sim.world.pawns:
+		var p: Pawn = _sim.world.pawns[id]
+		if p.is_downed:
+			list.append({"id": id, "frac": Revive.bleed_frac_u8(p.bleed_health), "halted": p.bleed_halted})
+	var pkt := Protocol.encode_downed_list(list)
+	var changed := pkt != _downed_pkt_sent
+	var heartbeat := list.size() > 0 and _sim.tick - _downed_hb_tick >= GADGET_HEARTBEAT_TICKS
+	if not changed and not heartbeat:
+		return
+	_downed_pkt_sent = pkt
+	_downed_hb_tick = _sim.tick
 	for cid in _clients:
 		var c = _clients[cid]
 		if bool(c.get("auto_deploy", true)):

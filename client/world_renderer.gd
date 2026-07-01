@@ -54,6 +54,7 @@ const SUPPORT_COLORS := {
 	3: Color(0.65, 1.0, 0.78),     # REVIVE — white-green
 }
 var _support_links: Array = []     # raw [{giver, target, kind}] from the last SUPPORT_LIST
+var _downed_urgency: Dictionary = {}   # id -> {frac: float 0..1, halted: bool} from the last DOWNED_LIST
 var _support_slots: Array = []     # [{beam, beam_mat, aura, aura_mat}] persistent pool
 
 # -- muzzle flash pool (MuzzleFlashKit; mirrors the tracer pool) ---------------
@@ -99,6 +100,8 @@ var gadget_demo := false          # --gadget-test: place sample gadgets in front
 var _gadget_demo_next := 0.0
 var revive_demo := false          # --revive-marker-test: a downed friendly + revive marker in view (QA)
 var _revive_demo_marker: MeshInstance3D = null
+var downed_urgency_demo := false  # --downed-urgency-test: a row of downed dummies at varying bleed urgency (QA)
+var _downed_urgency_markers: Array = []
 var boom_demo := false            # --boom-test: pump frag explosions in front of the camera (QA)
 var _boom_next := 0.0
 var _boom_i := 0
@@ -251,6 +254,11 @@ var _friend_markers: Dictionary = {}
 var _marker_free_list: Array = []
 const FRIEND_MARKER_Y := 2.35    # world height above the pawn's feet (fixed; ignores stance squash)
 const REVIVE_MARKER_COLOR := Color(1.0, 0.32, 0.22)   # downed teammate (needs revive) — stands out from blue
+# Bleed-out urgency tint (M7 DOWNED_LIST): calm amber the instant a teammate goes down, ramping to
+# bright red as they near the bleed-out floor; a self-bandaged (halted) pawn is a stabilised cyan.
+const REVIVE_CALM_COLOR := Color(1.0, 0.58, 0.16)     # just downed — plenty of bleed-out time left
+const REVIVE_URGENT_COLOR := Color(1.0, 0.10, 0.06)   # about to bleed out — revive NOW
+const REVIVE_STABLE_COLOR := Color(0.36, 0.78, 1.0)   # self-bandaged: bleed halted, not dying
 const PRONE_LIFT := 0.3          # small lift so a flat-lying prone/downed body rests on the ground
 const CLIMB_PITCH := 0.32        # rad (~18°) forward lean of a figure climbing a ladder (vs. bolt-upright)
 # active vehicle nodes: vid(int) -> Node3D (VehicleKit transport; VehicleState carries no team)
@@ -643,6 +651,7 @@ func update(world_view: WorldView, predictor: Prediction, now: float, fov: float
 	_ensure_grenade_demo(now)
 	_ensure_gadget_demo(now)
 	_ensure_revive_demo(now)
+	_ensure_downed_urgency_demo(now)
 	_ensure_support_demo(now)
 	_ensure_buildsite_demo(now)
 	_ensure_wreck_demo(now)
@@ -1054,6 +1063,13 @@ func _ensure_grenade_demo(now: float) -> void:
 func set_support_links(list: Array) -> void:
 	_support_links = list
 
+## Ingest the latest DOWNED_LIST: map id -> {frac 0..1, halted}. Drives the downed-teammate revive
+## marker's colour + bob urgency so you can triage who's about to bleed out. View-only.
+func set_downed_urgency(list: Array) -> void:
+	_downed_urgency.clear()
+	for e in list:
+		_downed_urgency[int(e["id"])] = {"frac": float(int(e["frac"])) / 255.0, "halted": bool(e["halted"])}
+
 ## Resolve each active support link's endpoints from the current snapshot and drive the beam + aura
 ## pool. A link whose giver OR target isn't visible this frame (left interest, dead) is simply not
 ## drawn. Endpoint = chest height (pos + SUPPORT_CHEST_Y); for the local player we use the predicted
@@ -1190,6 +1206,33 @@ func _ensure_revive_demo(now: float) -> void:
 		(_revive_demo_marker.material_override as StandardMaterial3D).albedo_color = REVIVE_MARKER_COLOR
 		_camera.add_child(_revive_demo_marker)
 	_revive_demo_marker.position = Vector3(0.0, -0.4 + RevivePulse.bob(now), -5.0)   # bob above the body
+
+
+## Visual QA (--downed-urgency-test): four downed dummies side-on, each at a different bleed-out
+## urgency so the marker colour + bob ramp is visible at a glance — left to right: just-downed (calm
+## amber, slow bob), mid (orange), near-death (bright red, fast/high bob), and self-bandaged
+## (stabilised cyan, calm). Mirrors the live DOWNED_LIST branch's colour + urgency_bob.
+func _ensure_downed_urgency_demo(now: float) -> void:
+	if not downed_urgency_demo or _camera == null:
+		return
+	# [frac, halted, local-x]
+	var specs := [[1.0, false, -3.0], [0.5, false, -1.0], [0.0, false, 1.0], [0.6, true, 3.0]]
+	if _downed_urgency_markers.is_empty():
+		for spec in specs:
+			var dummy := CharacterKit.build()
+			dummy.position = Vector3(spec[2], -1.5, -5.0)
+			dummy.rotation = Vector3(-PI * 0.5, 0.0, 0.0)   # on its back (downed = face-up)
+			_camera.add_child(dummy)
+			var mk := _make_friend_marker()
+			_camera.add_child(mk)
+			_downed_urgency_markers.append(mk)
+	for i in range(specs.size()):
+		var frac: float = specs[i][0]
+		var halted: bool = specs[i][1]
+		var mk: MeshInstance3D = _downed_urgency_markers[i]
+		(mk.material_override as StandardMaterial3D).albedo_color = \
+			REVIVE_STABLE_COLOR if halted else REVIVE_CALM_COLOR.lerp(REVIVE_URGENT_COLOR, 1.0 - frac)
+		mk.position = Vector3(specs[i][2], -0.2 + RevivePulse.urgency_bob(now, frac, halted), -5.0)
 
 
 ## Visual QA (--gadget-test): once deployed, keep a C4 / mine / bag laid out in front of the camera
@@ -1612,8 +1655,19 @@ func _sync_entity_pool(remotes: Dictionary, local_team: int, render_delta: float
 			# pick out who needs picking up; an alive teammate is the steady blue friendly marker.
 			var mk_mat := marker.material_override as StandardMaterial3D
 			if es.is_downed:
-				mk_mat.albedo_color = REVIVE_MARKER_COLOR
-				marker.position = Vector3(es.pos.x, es.pos.y + FRIEND_MARKER_Y + RevivePulse.bob(now), es.pos.z)
+				# Colour + bob track bleed-out urgency (DOWNED_LIST): amber -> red as they near the
+				# floor; stabilised cyan + calm bob once self-bandaged. Falls back to the flat revive
+				# tint + calm bob if the urgency packet hasn't arrived yet for this id.
+				var u: Dictionary = _downed_urgency.get(int(id), {})
+				if u.is_empty():
+					mk_mat.albedo_color = REVIVE_MARKER_COLOR
+					marker.position = Vector3(es.pos.x, es.pos.y + FRIEND_MARKER_Y + RevivePulse.bob(now), es.pos.z)
+				else:
+					var frac: float = u["frac"]
+					var halted: bool = u["halted"]
+					mk_mat.albedo_color = REVIVE_STABLE_COLOR if halted else REVIVE_CALM_COLOR.lerp(REVIVE_URGENT_COLOR, 1.0 - frac)
+					var bob: float = RevivePulse.urgency_bob(now, frac, halted)
+					marker.position = Vector3(es.pos.x, es.pos.y + FRIEND_MARKER_Y + bob, es.pos.z)
 			else:
 				mk_mat.albedo_color = ArtPalette.FRIENDLY
 				marker.position = Vector3(es.pos.x, es.pos.y + FRIEND_MARKER_Y, es.pos.z)
