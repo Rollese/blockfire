@@ -20,8 +20,6 @@ const STRUCT_TYPE_GRID := [8, 8, 8, 8, 8, 8, 8, 8, 4, 1, 8, 8, 8, 8, 8, 8, 1, 1,
 
 # -- structure feedback timing ------------------------------------------------
 const STRUCT_LIFT := 0.06          # m: lift buildings onto a thin foundation (no grass z-fight)
-const STRUCT_SPAWN_DUR := 0.18     # seconds for build pop scale-up
-const STRUCT_DESTROY_DUR := 0.14   # seconds for destroy pop scale-down before release
 
 # -- viewmodel placeholder dimensions -----------------------------------------
 const VM_OFFSET := Vector3(0.15, -0.12, -0.28)   # right / down / forward in camera space (pulled back from -0.40 — was too far forward)
@@ -68,6 +66,13 @@ var _flash_idx: int = 0
 const ROCKET_SPEED := 150.0       # MUST match data/gadgets.json rpg rocket_speed
 const ROCKET_LIFETIME := 5.0      # s safety cap before a cosmetic rocket self-despawns
 const ROCKET_TRAIL_DT := 0.03     # s between trail puffs
+# Transient-FX pool caps: TTLs normally drain these far below the caps; the caps only bite in
+# pathological bursts (128p destruction fights), where the OLDEST effect is evicted first.
+const MAX_ROCKETS := 64
+const MAX_THROWN := 64
+const MAX_PUFFS := 256
+const MAX_BLASTS := 32
+const MAX_DEBRIS := 384
 var _rockets: Array = []          # [{node: Node3D, vel: Vector3, die: float, next_puff: float}]
 # thrown-grenade cosmetics (M7, view-only): the local thrower sees their own frag/smoke fly the
 # shared Grenade ballistic arc (matching the server's eye-origin + launch_velocity) and vanish on
@@ -245,9 +250,6 @@ var armor_demo := false               # --armor-demo: pin LIGHT/MEDIUM/HEAVY dum
 var _armor_demo_done := false
 var _entity_ap: Dictionary = {}       # id(int) -> AnimationPlayer (only when use_models)
 
-# active structure nodes: id(int) -> Node3D (StructureKit piece) — legacy per-piece path, now only
-# freed on the first batched rebuild; rendering is via _struct_groups below.
-var _struct_active: Dictionary = {}
 # Batched structure render: visual key -> {ids: {piece_id: true}, mmis: Array[MultiMeshInstance3D]}.
 # Persistent group state so a structure delta rebuilds ONLY the affected key's MultiMeshes —
 # a full regroup of ~8k pieces per delta was the render-side twin of the M11 encode cliff.
@@ -258,8 +260,6 @@ var _struct_key_of: Dictionary = {}
 # (structures are static, so re-acquiring/re-posing ~thousands of pieces every frame was the
 # dominant client cost on dense maps — 35 ms/frame on conquest_town's 77 buildings).
 var _struct_synced_ver: int = -1
-# set by _acquire_structure when it (re)builds a node, so we only re-pose changed pieces
-var _struct_rebuilt: bool = false
 # friend markers: id(int) -> MeshInstance3D (blue triangle above teammates; BattleBit-style)
 var _friend_markers: Dictionary = {}
 var _marker_free_list: Array = []
@@ -279,8 +279,6 @@ const VEHICLE_SMOOTH_RATE := 16.0                # higher = snappier; ~1/e catch
 var _wreck_mat: StandardMaterial3D = null        # shared burnt-out material for destroyed vehicles
 const _WRECK_DEMO_VID := -424242                 # synthetic vid for the --vehicle-test wreck
 const _DMG_DEMO_VID := -424243                   # synthetic vid for the --vehicle-test damaged transport
-# structures pending a destroy pop: id(int) -> {node:Node3D, die:float, tween:Tween}
-var _struct_dying: Dictionary = {}
 # M11: building_id(int) -> last-posed piece position; rubble spawns here on COLLAPSE.
 var _building_centroid: Dictionary = {}
 
@@ -410,12 +408,7 @@ func setup(map: MapDef, camera: Camera3D) -> void:
 		var tmesh := BoxMesh.new()
 		tmesh.size = Vector3(0.06, 0.06, TRACER_LEN)
 		tn.mesh = tmesh
-		var tmat := StandardMaterial3D.new()
-		tmat.albedo_color = TRACER_COLOR
-		tmat.emission_enabled = true
-		tmat.emission = TRACER_COLOR
-		tmat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-		tmat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		var tmat := fx_material(TRACER_COLOR, true, true, TRACER_COLOR)
 		tn.material_override = tmat
 		tn.visible = false
 		tn.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
@@ -429,10 +422,7 @@ func setup(map: MapDef, camera: Camera3D) -> void:
 		var bmesh := BoxMesh.new()
 		bmesh.size = Vector3(0.07, 0.07, 1.0)   # local -Z spans the link; scaled to the gap each frame
 		beam.mesh = bmesh
-		var bmat := StandardMaterial3D.new()
-		bmat.emission_enabled = true
-		bmat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-		bmat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		var bmat := fx_material(Color.WHITE, true, true)   # colour assigned per link kind each frame
 		beam.material_override = bmat
 		beam.visible = false
 		beam.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
@@ -441,10 +431,7 @@ func setup(map: MapDef, camera: Camera3D) -> void:
 		var amesh := SphereMesh.new()
 		amesh.radius = 0.5; amesh.height = 1.0
 		aura.mesh = amesh
-		var amat := StandardMaterial3D.new()
-		amat.emission_enabled = true
-		amat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-		amat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		var amat := fx_material(Color.WHITE, true, true)
 		aura.material_override = amat
 		aura.visible = false
 		aura.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
@@ -808,7 +795,35 @@ func fire_rocket(origin: Vector3, dir: Vector3, now: float) -> void:
 	node.global_transform = Transform3D(Basis.looking_at(d, up), origin)
 	add_child(node)
 	_spawn_flash(origin, d, now)   # launch flash
-	_rockets.append({"node": node, "vel": d * ROCKET_SPEED, "die": now + ROCKET_LIFETIME, "next_puff": now})
+	_pool_push(_rockets, {"node": node, "vel": d * ROCKET_SPEED, "die": now + ROCKET_LIFETIME, "next_puff": now}, MAX_ROCKETS)
+
+
+## One factory for the unshaded FX material recipe that was hand-rolled ~12x (tracers,
+## puffs, support beams, blast cores, zone rings…). Emission defaults stay at the engine
+## defaults (BLACK / 1.0) because pool materials get their colour assigned per frame.
+static func fx_material(albedo: Color, alpha := false, emissive := false,
+		emission := Color.BLACK, energy := 1.0) -> StandardMaterial3D:
+	var m := StandardMaterial3D.new()
+	m.albedo_color = albedo
+	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	if alpha:
+		m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	if emissive:
+		m.emission_enabled = true
+		m.emission = emission
+		m.emission_energy_multiplier = energy
+	return m
+
+
+## Append a transient-FX entry, evicting (freeing) the oldest past `cap`. Every pool entry
+## carries its scene node under "node".
+func _pool_push(pool: Array, entry: Dictionary, cap: int) -> void:
+	pool.append(entry)
+	while pool.size() > cap:
+		var old: Dictionary = pool.pop_front()
+		var n = old.get("node")
+		if n is Node and is_instance_valid(n):
+			(n as Node).free()   # immediate: the pool entry is the only reference to these one-shots
 
 
 func _age_rockets(now: float, delta: float) -> void:
@@ -895,7 +910,7 @@ func throw_grenade(origin: Vector3, vel: Vector3, kind: int, now: float) -> void
 	var node := _make_grenade(kind)
 	node.position = origin
 	add_child(node)
-	_thrown.append({"node": node, "vel": vel, "die": now + GRENADE_FUSE, "kind": kind, "next_trail": now})
+	_pool_push(_thrown, {"node": node, "vel": vel, "die": now + GRENADE_FUSE, "kind": kind, "next_trail": now}, MAX_THROWN)
 
 
 func _age_thrown(now: float, delta: float) -> void:
@@ -952,14 +967,11 @@ func _spawn_puff(pos: Vector3, size: float, ttl: float, now: float, color := Col
 	var sm := SphereMesh.new(); sm.radius = size * 0.5; sm.height = size; sm.radial_segments = 6; sm.rings = 3
 	node.mesh = sm
 	node.position = pos
-	var mat := StandardMaterial3D.new()
-	mat.albedo_color = color
-	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	var mat := fx_material(color, true)
 	node.material_override = mat
 	node.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	add_child(node)
-	_puffs.append({"node": node, "mat": mat, "die": now + ttl, "ttl": ttl})
+	_pool_push(_puffs, {"node": node, "mat": mat, "die": now + ttl, "ttl": ttl}, MAX_PUFFS)
 
 
 func _age_puffs(now: float) -> void:
@@ -1012,10 +1024,7 @@ func spawn_smoke(pos: Vector3, radius: float, duration: float, now: float) -> vo
 		sm.radius = size * 0.5; sm.height = size; sm.radial_segments = 7; sm.rings = 4
 		node.mesh = sm
 		node.position = off
-		var mat := StandardMaterial3D.new()
-		mat.albedo_color = Color(SMOKE_COLOR.r, SMOKE_COLOR.g, SMOKE_COLOR.b, 0.0)
-		mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-		mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		var mat := fx_material(Color(SMOKE_COLOR.r, SMOKE_COLOR.g, SMOKE_COLOR.b, 0.0), true)
 		node.material_override = mat
 		node.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		root.add_child(node)
@@ -1303,10 +1312,7 @@ func _ensure_support_demo(now: float) -> void:
 		_support_demo_beam = MeshInstance3D.new()
 		var bmesh := BoxMesh.new(); bmesh.size = Vector3(1.0, 0.08, 0.08)
 		_support_demo_beam.mesh = bmesh
-		_support_demo_beam_mat = StandardMaterial3D.new()
-		_support_demo_beam_mat.emission_enabled = true
-		_support_demo_beam_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-		_support_demo_beam_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		_support_demo_beam_mat = fx_material(Color.WHITE, true, true)
 		_support_demo_beam.material_override = _support_demo_beam_mat
 		_support_demo_beam.position = Vector3(0.0, -1.4 + SUPPORT_CHEST_Y, -6.0)
 		_support_demo_beam.scale = Vector3(3.2, 1.0, 1.0)   # span between the two chests
@@ -1315,10 +1321,7 @@ func _ensure_support_demo(now: float) -> void:
 		_support_demo_aura = MeshInstance3D.new()
 		var amesh := SphereMesh.new(); amesh.radius = 0.5; amesh.height = 1.0
 		_support_demo_aura.mesh = amesh
-		_support_demo_aura_mat = StandardMaterial3D.new()
-		_support_demo_aura_mat.emission_enabled = true
-		_support_demo_aura_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-		_support_demo_aura_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		_support_demo_aura_mat = fx_material(Color.WHITE, true, true)
 		_support_demo_aura.material_override = _support_demo_aura_mat
 		_support_demo_aura.position = Vector3(1.6, -1.4 + SUPPORT_CHEST_Y, -6.0)
 		_support_demo_aura.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
@@ -1410,9 +1413,7 @@ func spawn_impact(pos: Vector3, kind: int, now: float) -> void:
 func _spawn_impact_chips(pos: Vector3, now: float, color: Color, count := 4) -> void:
 	if count <= 0:
 		return
-	var mat := StandardMaterial3D.new()
-	mat.albedo_color = Color(color.r, color.g, color.b, 1.0)
-	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	var mat := fx_material(Color(color.r, color.g, color.b, 1.0))
 	for i in range(count):
 		var node := MeshInstance3D.new()
 		var bmesh := BoxMesh.new(); bmesh.size = Vector3(0.06, 0.06, 0.06)
@@ -1421,7 +1422,7 @@ func _spawn_impact_chips(pos: Vector3, now: float, color: Color, count := 4) -> 
 		add_child(node)
 		var ang := TAU * float(i) / float(count)
 		var vel := Vector3(cos(ang) * 2.2, 2.6 + float(i % 2) * 1.0, sin(ang) * 2.2)
-		_debris.append({"node": node, "vel": vel, "die": now + DEBRIS_TTL * 0.5})
+		_pool_push(_debris, {"node": node, "vel": vel, "die": now + DEBRIS_TTL * 0.5}, MAX_DEBRIS)
 
 
 ## An emissive sphere that expands start_size -> end_size and fades over ttl. Unshaded so it reads as
@@ -1431,18 +1432,12 @@ func _spawn_blast(pos: Vector3, color: Color, start_size: float, end_size: float
 	var sm := SphereMesh.new(); sm.radius = 0.5; sm.height = 1.0; sm.radial_segments = 8; sm.rings = 4
 	node.mesh = sm
 	node.position = pos
-	var mat := StandardMaterial3D.new()
-	mat.albedo_color = color
-	mat.emission_enabled = true
-	mat.emission = color
-	mat.emission_energy_multiplier = 2.5
-	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	var mat := fx_material(color, true, true, color, 2.5)
 	node.material_override = mat
 	node.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	add_child(node)
-	_blasts.append({"node": node, "mat": mat, "born": now, "die": now + ttl, "ttl": ttl,
-		"s0": start_size, "s1": end_size, "color": color})
+	_pool_push(_blasts, {"node": node, "mat": mat, "born": now, "die": now + ttl, "ttl": ttl,
+		"s0": start_size, "s1": end_size, "color": color}, MAX_BLASTS)
 
 
 func _age_blasts(now: float) -> void:
@@ -1465,9 +1460,7 @@ func _age_blasts(now: float) -> void:
 
 
 func _spawn_debris(pos: Vector3, now: float) -> void:
-	var dark := StandardMaterial3D.new()
-	dark.albedo_color = Color(0.18, 0.16, 0.14)
-	dark.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	var dark := fx_material(Color(0.18, 0.16, 0.14))
 	for i in range(7):
 		var node := MeshInstance3D.new()
 		var bmesh := BoxMesh.new(); bmesh.size = Vector3(0.12, 0.12, 0.12)
@@ -1477,7 +1470,7 @@ func _spawn_debris(pos: Vector3, now: float) -> void:
 		# Fan outward + up; vary by index so each piece flies differently (no per-frame RNG).
 		var ang := TAU * float(i) / 7.0
 		var vel := Vector3(cos(ang) * 5.0, 6.0 + float(i % 3) * 1.5, sin(ang) * 5.0)
-		_debris.append({"node": node, "vel": vel, "die": now + DEBRIS_TTL})
+		_pool_push(_debris, {"node": node, "vel": vel, "die": now + DEBRIS_TTL}, MAX_DEBRIS)
 
 
 func _age_debris(now: float, delta: float) -> void:
@@ -2155,9 +2148,7 @@ func _make_friend_marker() -> MeshInstance3D:
 	mesh.height = 0.26
 	mi.mesh = mesh
 	mi.rotation = Vector3(PI, 0.0, 0.0)   # flip apex to point down toward the head
-	var mat := StandardMaterial3D.new()
-	mat.albedo_color = ArtPalette.FRIENDLY
-	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	var mat := fx_material(ArtPalette.FRIENDLY)
 	# Always visible — even through walls/objects (BattleBit friendly markers). Ignore the depth
 	# buffer and route through the transparent pass with max render priority so it draws on top of
 	# all opaque geometry.
@@ -2308,19 +2299,6 @@ func _pose_entity(id: int, node: Node3D, es: EntityState, render_delta: float) -
 # =============================================================================
 
 func _sync_structure_pool(world_view: WorldView, now: float) -> void:
-	# Tick dying pops — release when their tween has finished (tracked by die time). Cheap and
-	# tween-driven, so it runs every frame regardless of whether the structure set changed.
-	var to_finish: Array = []
-	for id: int in _struct_dying:
-		var entry: Dictionary = _struct_dying[id]
-		if now >= float(entry["die"]):
-			to_finish.append(id)
-	for id: int in to_finish:
-		var entry: Dictionary = _struct_dying[id]
-		var node: Node3D = entry["node"] as Node3D
-		_struct_dying.erase(id)
-		node.queue_free()
-
 	# M11-P4: drain per-piece destruction cosmetics — a removed piece bursts brick debris + dust,
 	# a freshly-carved piece kicks a small dust puff (the batched renderer can't see per-piece changes).
 	for ev_v: Variant in world_view.take_struct_fx():
@@ -2361,10 +2339,6 @@ func _rebuild_structure_batches(structs: Dictionary) -> void:
 		for n: Node3D in _struct_groups[key]["mmis"]:
 			n.queue_free()
 	_struct_groups.clear()
-	# Drop any legacy per-piece nodes from the old path (first rebuild after connect).
-	for id_v: Variant in _struct_active:
-		(_struct_active[id_v] as Node3D).queue_free()
-	_struct_active.clear()
 	_struct_key_of.clear()
 	_building_centroid.clear()
 
@@ -2606,23 +2580,6 @@ func _collect_mesh_slots(node: Node3D, parent_xform: Transform3D, slots: Array) 
 			_collect_mesh_slots(child as Node3D, here, slots)
 
 
-func _acquire_structure(id: int, rec: Dictionary) -> Node3D:
-	var key := _struct_key(rec)
-	if _struct_active.has(id):
-		if String(_struct_key_of.get(id, "")) == key:
-			_struct_rebuilt = false
-			return _struct_active[id] as Node3D
-		# Piece type or damage bucket changed — the kit bakes geometry + tint at build time, so
-		# rebuild rather than re-tint (a heavier bucket also adds a chip in silhouette).
-		(_struct_active[id] as Node3D).queue_free()
-		_struct_active.erase(id)
-		_struct_key_of.erase(id)   # keep the two dicts moving together
-	var node := _make_structure_node(rec)
-	add_child(node)
-	_struct_active[id] = node
-	_struct_key_of[id] = key
-	_struct_rebuilt = true
-	return node
 
 
 func _struct_key(rec: Dictionary) -> String:
@@ -2657,25 +2614,8 @@ static func damage_bucket(chunks: int, grid: int) -> int:
 	return 0
 
 
-func _start_destroy_pop(id: int, now: float) -> void:
-	# If already in dying list (e.g. double remove), skip
-	if _struct_dying.has(id):
-		return
-	var node: Node3D = _struct_active[id] as Node3D
-	_struct_active.erase(id)
-	_struct_key_of.erase(id)
-	# Scale-down tween as destroy feedback
-	var tw: Tween = create_tween()
-	tw.tween_property(node, "scale", Vector3.ZERO, STRUCT_DESTROY_DUR)
-	_struct_dying[id] = {"node": node, "die": now + STRUCT_DESTROY_DUR, "tween": tw}
 
 
-func _start_build_pop(node: Node3D) -> void:
-	# Scale-up from near-zero as spawn feedback; reuses create_tween() (Godot 4 Node method)
-	node.scale = Vector3(0.05, 0.05, 0.05)
-	var tw: Tween = create_tween()
-	tw.tween_property(node, "scale", Vector3.ONE, STRUCT_SPAWN_DUR) \
-		.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 
 
 func _pose_structure(node: Node3D, rec: Dictionary) -> void:
@@ -2800,7 +2740,7 @@ func _spawn_brick_debris(pos: Vector3, now: float, count: int, box: float, sprea
 		var ang := TAU * float(i) / float(count) + float(i) * 0.7
 		var rad := spread * (0.5 + 0.5 * float((i + 1) % 3))
 		var vel := Vector3(cos(ang) * rad, lift + float(i % 3) * 1.2, sin(ang) * rad)
-		_debris.append({"node": node, "vel": vel, "die": now + BRICK_DEBRIS_TTL})
+		_pool_push(_debris, {"node": node, "vel": vel, "die": now + BRICK_DEBRIS_TTL}, MAX_DEBRIS)
 
 ## Whole-building collapse cinematic: a rolling ground dust cloud, a heavy debris burst, a screen
 ## shake if the player is close, then the persistent rubble mound. Public-ish so the QA demo reuses it.
@@ -2864,13 +2804,7 @@ func _make_ring_marker(radius: float, tube: float, color: Color) -> MeshInstance
 	mesh.rings = 48          # smooth circle around the zone
 	mesh.ring_segments = 6   # cheap tube cross-section (it's flat on the ground)
 	mi.mesh = mesh
-	var mat := StandardMaterial3D.new()
-	mat.albedo_color = Color(color.r, color.g, color.b, 0.55)
-	mat.emission_enabled = true
-	mat.emission = color
-	mat.emission_energy_multiplier = 1.3
-	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	var mat := fx_material(Color(color.r, color.g, color.b, 0.55), true, true, color, 1.3)
 	mi.material_override = mat
 	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	return mi
