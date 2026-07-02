@@ -461,3 +461,66 @@ func test_op_progress_round_trip() -> void:
 	assert_eq(d["op"], Protocol.OP_PROGRESS)
 	assert_eq(int(d["id"]), 7)
 	assert_eq(int(d["progress"]), 412)
+
+# ---- batch-5 codec dedup: shared pos/dir packing helpers + registry completeness ----
+
+func test_pos10_roundtrip_and_clamp() -> void:
+	var buf := StreamPeerBuffer.new()
+	Protocol.put_pos10(buf, Vector3(123.45, -6.7, 890.12))
+	Protocol.put_pos10(buf, Vector3(9999.0, -9999.0, 0.0))   # out of i16/10 range -> clamps, no wrap
+	buf.seek(0)
+	var p := Protocol.get_pos10(buf)
+	assert_almost_eq(p.x, 123.45, 0.051, "0.1 m quantization")
+	assert_almost_eq(p.y, -6.7, 0.051)
+	assert_almost_eq(p.z, 890.12, 0.051)
+	var q := Protocol.get_pos10(buf)
+	assert_almost_eq(q.x, 3276.7, 0.01, "clamped to i16 max, not wrapped")
+	assert_almost_eq(q.y, -3276.8, 0.01, "clamped to i16 min")
+
+func test_dir10k_roundtrip_and_clamp() -> void:
+	var buf := StreamPeerBuffer.new()
+	Protocol.put_dir10k(buf, Vector3(0.267, -0.534, 0.802))
+	Protocol.put_dir10k(buf, Vector3(4.0, -4.0, 0.0))   # non-unit garbage -> clamps, no wrap
+	buf.seek(0)
+	var d := Protocol.get_dir10k(buf)
+	assert_almost_eq(d.x, 0.267, 0.0002, "1e-4 quantization")
+	assert_almost_eq(d.y, -0.534, 0.0002)
+	assert_almost_eq(d.z, 0.802, 0.0002)
+	var e := Protocol.get_dir10k(buf)
+	assert_almost_eq(e.x, 3.2767, 0.001, "clamped to i16 max, not wrapped")
+	assert_almost_eq(e.y, -3.2768, 0.001, "clamped to i16 min")
+
+## Golden bytes captured from the pre-refactor encoders (2026-07-02) — the dedup must be
+## bit-identical on the wire for in-range values. pos=(123.45,-6.7,890.12) dir=(0.267,-0.534,0.802).
+func test_codec_dedup_golden_bytes() -> void:
+	var pos := Vector3(123.45, -6.7, 890.12)
+	var dir := Vector3(0.267, -0.534, 0.802)
+	assert_eq(Protocol.encode_gadget_action(2, pos, dir, 77).hex_encode(),
+		"1102d204bdffc5226e0a23eb551f4d000000", "gadget_action bytes stable")
+	assert_eq(Protocol.encode_shot_fx(pos, dir, 9).hex_encode(),
+		"1cd204bdffc5226e0a24eb541f09000000", "shot_fx bytes stable (dir NOT normalized here)")
+	assert_eq(Protocol.encode_rocket_fx(pos, dir).hex_encode(),
+		"1ed204bdffc5226e0a24eb541f", "rocket_fx bytes stable")
+	assert_eq(Protocol.encode_grenade_fx(pos, dir, 1).hex_encode(),
+		"23d204bdffc5226e0a24eb541f01", "grenade_fx bytes stable")
+	assert_eq(Protocol.encode_grenade_throw(dir, 1).hex_encode(),
+		"0c6e0a23eb551f01", "grenade_throw bytes stable (dir normalized here)")
+	assert_eq(Protocol.encode_detonation(pos, 1).hex_encode(),
+		"0dd204bdffc52201", "detonation bytes stable")
+	assert_eq(Protocol.encode_impact_fx(pos, 2).hex_encode(),
+		"22d204bdffc52202", "impact_fx bytes stable")
+	assert_eq(Protocol.encode_gadget_list([{"id": 5, "kind": 1, "owner": 3, "team": 0, "pos": pos}]).hex_encode(),
+		"240101d204bdffc52200000000", "gadget_list bytes stable")
+
+func test_decode_hello_in_registry() -> void:
+	# HELLO decode lived inline in server_main._handle_hello — the only C->S message whose
+	# decoder wasn't in Protocol. Now: decode_hello -> {ver, name, auto_deploy}.
+	var d := Protocol.decode_hello(Protocol.encode_hello("rifleman-7", false))
+	assert_eq(int(d["ver"]), Protocol.VERSION)
+	assert_eq(String(d["name"]), "rifleman-7")
+	assert_false(bool(d["auto_deploy"]))
+	var d2 := Protocol.decode_hello(Protocol.encode_hello("bot-1"))
+	assert_true(bool(d2["auto_deploy"]), "auto_deploy defaults true")
+
+func test_decode_reject_in_registry() -> void:
+	assert_eq(Protocol.decode_reject(Protocol.encode_reject("server full")), "server full")

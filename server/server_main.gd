@@ -1293,10 +1293,10 @@ func _on_packet(peer: ENetPacketPeer, _channel: int, bytes: PackedByteArray) -> 
 		_: pass
 
 func _handle_hello(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
-	var r := Protocol.body_reader(bytes)
-	var ver := r.get_u16()
-	var pname := r.get_utf8_string()
-	var auto_deploy: bool = (r.get_u8() == 1) if r.get_available_bytes() > 0 else true
+	var hello := Protocol.decode_hello(bytes)
+	var ver := int(hello["ver"])
+	var pname := String(hello["name"])
+	var auto_deploy := bool(hello["auto_deploy"])
 	if ver != Protocol.VERSION:
 		_net.send_to(peer, NetHost.CHANNEL_CONTROL, Protocol.encode_reject("version mismatch"), ENetPacketPeer.FLAG_RELIABLE)
 		peer.peer_disconnect_later(); return

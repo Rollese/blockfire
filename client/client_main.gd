@@ -931,7 +931,7 @@ func _on_packet(_from: ENetPacketPeer, _channel: int, bytes: PackedByteArray) ->
 		Protocol.Msg.WELCOME:
 			_handle_welcome(bytes)
 		Protocol.Msg.REJECT:
-			print("[client] REJECTED: %s" % Protocol.body_reader(bytes).get_utf8_string())
+			print("[client] REJECTED: %s" % Protocol.decode_reject(bytes))
 		Protocol.Msg.SNAPSHOT:
 			_handle_snapshot(bytes)
 		Protocol.Msg.SELF_STATE:

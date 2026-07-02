@@ -75,5 +75,7 @@ Direction key: `c→s` client to server · `s→c` server to one client · `s→
   vehicle `40000+slot`, FOB `50000+squad`. See `shared/sim/deploy_spawn.gd`.
 - **Entity id spaces in SNAPSHOT**: pawns use raw server ids; vehicles are offset by
   `Vehicle.ID_BASE = 0x40000000` (disjoint ranges multiplexed into one record stream).
-- Two decoders still live outside `protocol.gd` (HELLO inline in `server_main.gd`, REJECT
-  reason inline in `client_main.gd`) — a known wart; keep any new decode inside the registry.
+- Every encoder/decoder lives in `protocol.gd` (the last two strays — HELLO, REJECT — moved
+  in 2026-07-02's codec dedup). Shared field codecs `put_pos10/get_pos10` (0.1 m i16) and
+  `put_dir10k/get_dir10k` (1e-4 i16, clamped) pack every pos/dir payload; normalize at the
+  call site when the message wants a unit vector.

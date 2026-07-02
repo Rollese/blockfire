@@ -127,6 +127,45 @@ static func msg_type(bytes: PackedByteArray) -> int:
 	return bytes[0] if not bytes.is_empty() else 0
 
 
+## HELLO body: protocol version + player name + auto_deploy (trailing byte, legacy default true).
+static func decode_hello(bytes: PackedByteArray) -> Dictionary:
+	var r := body_reader(bytes)
+	var ver := r.get_u16()
+	var pname := r.get_utf8_string()
+	var auto_deploy: bool = (r.get_u8() == 1) if r.get_available_bytes() > 0 else true
+	return {"ver": ver, "name": pname, "auto_deploy": auto_deploy}
+
+
+static func decode_reject(bytes: PackedByteArray) -> String:
+	return body_reader(bytes).get_utf8_string()
+
+
+# ---- shared field codecs ----------------------------------------------------
+# World position at 0.1 m in i16 (±3276.7 m — covers the ±1000 m world_half) and unit
+# direction at 1e-4 in i16. One implementation for the 9 messages that carry pos/dir;
+# clamped (the old per-message copies wrapped in one variant). Callers that want the dir
+# normalized do it before put_dir10k — some messages ship the raw aim vector on purpose.
+
+static func put_pos10(buf: StreamPeerBuffer, v: Vector3) -> void:
+	buf.put_16(clampi(roundi(v.x * 10.0), -32768, 32767))
+	buf.put_16(clampi(roundi(v.y * 10.0), -32768, 32767))
+	buf.put_16(clampi(roundi(v.z * 10.0), -32768, 32767))
+
+
+static func get_pos10(r: StreamPeerBuffer) -> Vector3:
+	return Vector3(float(r.get_16()) / 10.0, float(r.get_16()) / 10.0, float(r.get_16()) / 10.0)
+
+
+static func put_dir10k(buf: StreamPeerBuffer, v: Vector3) -> void:
+	buf.put_16(clampi(roundi(v.x * 10000.0), -32768, 32767))
+	buf.put_16(clampi(roundi(v.y * 10000.0), -32768, 32767))
+	buf.put_16(clampi(roundi(v.z * 10000.0), -32768, 32767))
+
+
+static func get_dir10k(r: StreamPeerBuffer) -> Vector3:
+	return Vector3(float(r.get_16()) / 10000.0, float(r.get_16()) / 10000.0, float(r.get_16()) / 10000.0)
+
+
 ## Returns a buffer seeked past the 1-byte type, ready to read the body fields.
 static func body_reader(bytes: PackedByteArray) -> StreamPeerBuffer:
 	var buf := StreamPeerBuffer.new()
@@ -304,20 +343,14 @@ static func decode_collapse(bytes: PackedByteArray) -> int:
 static func encode_grenade_throw(dir: Vector3, type: int) -> PackedByteArray:
 	var buf := StreamPeerBuffer.new()
 	buf.put_u8(Msg.GRENADE_THROW)
-	var d := dir.normalized()
-	buf.put_16(roundi(d.x * 10000.0))
-	buf.put_16(roundi(d.y * 10000.0))
-	buf.put_16(roundi(d.z * 10000.0))
+	put_dir10k(buf, dir.normalized())
 	buf.put_u8(type)
 	return buf.data_array
 
 
 static func decode_grenade_throw(bytes: PackedByteArray) -> Dictionary:
 	var r := body_reader(bytes)
-	var x := float(r.get_16()) / 10000.0
-	var y := float(r.get_16()) / 10000.0
-	var z := float(r.get_16()) / 10000.0
-	return {"dir": Vector3(x, y, z), "type": r.get_u8()}
+	return {"dir": get_dir10k(r), "type": r.get_u8()}
 
 
 static func encode_smoke_deployed(pos: Vector3, radius: float, expire_tick: int) -> PackedByteArray:
@@ -359,9 +392,8 @@ static func encode_gadget_action(action: int, pos: Vector3, dir: Vector3, target
 	buf.put_u8(Msg.GADGET_ACTION)
 	buf.put_u8(action)
 	# pos quantized at 0.1 m (i16 ×10 → ±3276 m, covers the ±1000 m world_half; spec sketch)
-	buf.put_16(roundi(pos.x * 10.0)); buf.put_16(roundi(pos.y * 10.0)); buf.put_16(roundi(pos.z * 10.0))
-	var dn := dir.normalized() if dir.length() > 0.0001 else Vector3.ZERO
-	buf.put_16(roundi(dn.x * 10000.0)); buf.put_16(roundi(dn.y * 10000.0)); buf.put_16(roundi(dn.z * 10000.0))
+	put_pos10(buf, pos)   # was the one unclamped copy — clamped now like every sibling
+	put_dir10k(buf, dir.normalized() if dir.length() > 0.0001 else Vector3.ZERO)
 	buf.put_u32(target_id)
 	return buf.data_array
 
@@ -369,8 +401,8 @@ static func encode_gadget_action(action: int, pos: Vector3, dir: Vector3, target
 static func decode_gadget_action(bytes: PackedByteArray) -> Dictionary:
 	var r := body_reader(bytes)
 	var action := r.get_u8()
-	var pos := Vector3(float(r.get_16()) / 10.0, float(r.get_16()) / 10.0, float(r.get_16()) / 10.0)
-	var dir := Vector3(float(r.get_16()) / 10000.0, float(r.get_16()) / 10000.0, float(r.get_16()) / 10000.0)
+	var pos := get_pos10(r)
+	var dir := get_dir10k(r)
 	return {"action": action, "pos": pos, "dir": dir, "target": r.get_u32()}
 
 
@@ -384,36 +416,29 @@ const DET_FLASH := 1       # flashbang — bright white pop
 static func encode_detonation(pos: Vector3, kind: int) -> PackedByteArray:
 	var buf := StreamPeerBuffer.new()
 	buf.put_u8(Msg.DETONATION)
-	buf.put_16(clampi(roundi(pos.x * 10.0), -32768, 32767))
-	buf.put_16(clampi(roundi(pos.y * 10.0), -32768, 32767))
-	buf.put_16(clampi(roundi(pos.z * 10.0), -32768, 32767))
+	put_pos10(buf, pos)
 	buf.put_u8(kind & 0xFF)
 	return buf.data_array
 
 
 static func decode_detonation(bytes: PackedByteArray) -> Dictionary:
 	var r := body_reader(bytes)
-	var pos := Vector3(float(r.get_16()) / 10.0, float(r.get_16()) / 10.0, float(r.get_16()) / 10.0)
-	return {"pos": pos, "kind": r.get_u8()}
+	return {"pos": get_pos10(r), "kind": r.get_u8()}
 
 
 static func encode_shot_fx(origin: Vector3, dir: Vector3, shooter_id: int = 0) -> PackedByteArray:
 	var buf := StreamPeerBuffer.new()
 	buf.put_u8(Msg.SHOT_FX)
-	buf.put_16(clampi(roundi(origin.x * 10.0), -32768, 32767))
-	buf.put_16(clampi(roundi(origin.y * 10.0), -32768, 32767))
-	buf.put_16(clampi(roundi(origin.z * 10.0), -32768, 32767))
-	buf.put_16(clampi(roundi(dir.x * 10000.0), -32768, 32767))
-	buf.put_16(clampi(roundi(dir.y * 10000.0), -32768, 32767))
-	buf.put_16(clampi(roundi(dir.z * 10000.0), -32768, 32767))
+	put_pos10(buf, origin)
+	put_dir10k(buf, dir)
 	buf.put_u32(shooter_id)   # bind the FX to the firing pawn (remote fire-recoil pose)
 	return buf.data_array
 
 
 static func decode_shot_fx(bytes: PackedByteArray) -> Dictionary:
 	var r := body_reader(bytes)
-	var origin := Vector3(float(r.get_16()) / 10.0, float(r.get_16()) / 10.0, float(r.get_16()) / 10.0)
-	var dir := Vector3(float(r.get_16()) / 10000.0, float(r.get_16()) / 10000.0, float(r.get_16()) / 10000.0)
+	var origin := get_pos10(r)
+	var dir := get_dir10k(r)
 	var shooter_id := r.get_u32() if r.get_available_bytes() > 0 else 0   # trailing, backward-compatible
 	return {"origin": origin, "dir": dir, "shooter_id": shooter_id}
 
@@ -457,39 +482,27 @@ static func decode_vault_fx(bytes: PackedByteArray) -> Dictionary:
 static func encode_rocket_fx(origin: Vector3, dir: Vector3) -> PackedByteArray:
 	var buf := StreamPeerBuffer.new()
 	buf.put_u8(Msg.ROCKET_FX)
-	buf.put_16(clampi(roundi(origin.x * 10.0), -32768, 32767))
-	buf.put_16(clampi(roundi(origin.y * 10.0), -32768, 32767))
-	buf.put_16(clampi(roundi(origin.z * 10.0), -32768, 32767))
-	buf.put_16(clampi(roundi(dir.x * 10000.0), -32768, 32767))
-	buf.put_16(clampi(roundi(dir.y * 10000.0), -32768, 32767))
-	buf.put_16(clampi(roundi(dir.z * 10000.0), -32768, 32767))
+	put_pos10(buf, origin)
+	put_dir10k(buf, dir)
 	return buf.data_array
 
 static func decode_rocket_fx(bytes: PackedByteArray) -> Dictionary:
 	var r := body_reader(bytes)
-	var origin := Vector3(float(r.get_16()) / 10.0, float(r.get_16()) / 10.0, float(r.get_16()) / 10.0)
-	var dir := Vector3(float(r.get_16()) / 10000.0, float(r.get_16()) / 10000.0, float(r.get_16()) / 10000.0)
-	return {"origin": origin, "dir": dir}
+	return {"origin": get_pos10(r), "dir": get_dir10k(r)}
 
 ## Remote thrown grenade — same wire shape as ROCKET_FX (origin ×10, look dir ×10000) plus a kind
 ## byte (Grenade.FRAG/SMOKE); the client rebuilds the launch velocity and arcs a cosmetic grenade.
 static func encode_grenade_fx(origin: Vector3, dir: Vector3, kind: int) -> PackedByteArray:
 	var buf := StreamPeerBuffer.new()
 	buf.put_u8(Msg.GRENADE_FX)
-	buf.put_16(clampi(roundi(origin.x * 10.0), -32768, 32767))
-	buf.put_16(clampi(roundi(origin.y * 10.0), -32768, 32767))
-	buf.put_16(clampi(roundi(origin.z * 10.0), -32768, 32767))
-	buf.put_16(clampi(roundi(dir.x * 10000.0), -32768, 32767))
-	buf.put_16(clampi(roundi(dir.y * 10000.0), -32768, 32767))
-	buf.put_16(clampi(roundi(dir.z * 10000.0), -32768, 32767))
+	put_pos10(buf, origin)
+	put_dir10k(buf, dir)
 	buf.put_u8(clampi(kind, 0, 255))
 	return buf.data_array
 
 static func decode_grenade_fx(bytes: PackedByteArray) -> Dictionary:
 	var r := body_reader(bytes)
-	var origin := Vector3(float(r.get_16()) / 10.0, float(r.get_16()) / 10.0, float(r.get_16()) / 10.0)
-	var dir := Vector3(float(r.get_16()) / 10000.0, float(r.get_16()) / 10000.0, float(r.get_16()) / 10000.0)
-	return {"origin": origin, "dir": dir, "kind": r.get_u8()}
+	return {"origin": get_pos10(r), "dir": get_dir10k(r), "kind": r.get_u8()}
 
 ## Authoritative deployed-gadget list — each entry: kind byte (GadgetList.C4/MINE/BAG), pos ×10,
 ## facing x/z ×10000 (zero for C4/bags). The client replaces its rendered gadget set on each receipt.
@@ -503,9 +516,8 @@ static func encode_gadget_list(list: Array) -> PackedByteArray:
 		var pos: Vector3 = g["pos"]
 		var face: Vector3 = g.get("face", Vector3.ZERO)
 		buf.put_u8(clampi(int(g["kind"]), 0, 255))
-		buf.put_16(clampi(roundi(pos.x * 10.0), -32768, 32767))
-		buf.put_16(clampi(roundi(pos.y * 10.0), -32768, 32767))
-		buf.put_16(clampi(roundi(pos.z * 10.0), -32768, 32767))
+		put_pos10(buf, pos)
+		# face is x/z only (2 components, yaw plane) — not the shared 3-component dir codec.
 		buf.put_16(clampi(roundi(face.x * 10000.0), -32768, 32767))
 		buf.put_16(clampi(roundi(face.z * 10000.0), -32768, 32767))
 	return buf.data_array
@@ -516,7 +528,7 @@ static func decode_gadget_list(bytes: PackedByteArray) -> Array:
 	var out: Array = []
 	for i in range(n):
 		var kind := r.get_u8()
-		var pos := Vector3(float(r.get_16()) / 10.0, float(r.get_16()) / 10.0, float(r.get_16()) / 10.0)
+		var pos := get_pos10(r)
 		var face := Vector3(float(r.get_16()) / 10000.0, 0.0, float(r.get_16()) / 10000.0)
 		out.append({"kind": kind, "pos": pos, "face": face})
 	return out
@@ -587,17 +599,13 @@ const IMPACT_FLESH := 2  # bullet hit a pawn — red blood mist puff
 static func encode_impact_fx(pos: Vector3, kind: int) -> PackedByteArray:
 	var buf := StreamPeerBuffer.new()
 	buf.put_u8(Msg.IMPACT_FX)
-	buf.put_16(clampi(roundi(pos.x * 10.0), -32768, 32767))
-	buf.put_16(clampi(roundi(pos.y * 10.0), -32768, 32767))
-	buf.put_16(clampi(roundi(pos.z * 10.0), -32768, 32767))
+	put_pos10(buf, pos)
 	buf.put_u8(kind)
 	return buf.data_array
 
 static func decode_impact_fx(bytes: PackedByteArray) -> Dictionary:
 	var r := body_reader(bytes)
-	var pos := Vector3(float(r.get_16()) / 10.0, float(r.get_16()) / 10.0, float(r.get_16()) / 10.0)
-	var kind := r.get_u8()
-	return {"pos": pos, "kind": kind}
+	return {"pos": get_pos10(r), "kind": r.get_u8()}
 
 
 static func encode_structure_baseline(region: Vector2i, records: Array) -> PackedByteArray:
