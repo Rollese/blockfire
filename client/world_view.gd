@@ -14,6 +14,10 @@ var _structs_version: int = 0   # bumped on every structure mutation; renderer s
 var _collapsed_buildings: Array = []   # M11: building_ids that COLLAPSED this window — drained by the renderer to spawn rubble
 var _struct_fx: Array = []   # M11-P4: cosmetic destruction events {cell, yaw, kind:"destroy"|"damage"} drained by renderer
 var _roster: Array = []
+# Single-entry memo for remotes_at(): the interp clock advances at 30 Hz but callers sample
+# up to 4x per render frame with the same `now` — each miss clones the whole remote set.
+var _remotes_memo_now: float = -INF
+var _remotes_memo: Dictionary = {}
 
 func set_local_id(id: int) -> void:
 	_local_id = id
@@ -28,10 +32,17 @@ func apply_snapshot(bytes: PackedByteArray, now: float) -> Dictionary:
 		if id != _local_id:
 			remotes[id] = (_view[id] as EntityState).clone()
 	_interp.push(now, remotes, int(last_header.get("server_tick", 0)))
+	_remotes_memo_now = -INF   # new data: same-`now` samples must re-run
 	return last_header
 
+## Interpolated remote set at `now`. Memoized per `now` (invalidated on apply_snapshot) —
+## callers treat the returned dict + states as READ-ONLY within the frame.
 func remotes_at(now: float) -> Dictionary:
-	return _interp.sample(now)
+	if now == _remotes_memo_now:
+		return _remotes_memo
+	_remotes_memo = _interp.sample(now)
+	_remotes_memo_now = now
+	return _remotes_memo
 
 ## Server tick the local player is currently RENDERING remotes at (now - interp DELAY). Sent as
 ## view_server_tick so lag-comp rewinds enemies to where they were seen (no leading required).
