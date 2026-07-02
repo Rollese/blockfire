@@ -32,3 +32,4 @@ export_presets.cfg.local
 
 # Local Claude Code settings (per-developer)
 /.claude/settings.local.json
+__pycache__/

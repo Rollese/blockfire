@@ -1,6 +1,6 @@
 # Building Overhaul — Diagnosis & Design Proposal (for review)
 
-**Status:** PROPOSAL, not ratified — needs owner design decisions + a playtest-driven iteration loop
+**Status:** EXECUTED in substance (2026-06-20/21 building-overhaul sessions — see `docs/sessions/2026-06-20-playtest-building-overhaul.md` + `docs/runbooks/building-kit.md`); never formally ratified — treat the shipped code as authoritative where this text diverges — needs owner design decisions + a playtest-driven iteration loop
 (buildings are visual; each pass needs an eyeball). Written 2026-06-19 from playtest feedback. Pairs
 with M14 (walkable multi-floor, done) and supersedes the round-1/round-2 ad-hoc prefab edits.
 

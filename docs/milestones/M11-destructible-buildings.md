@@ -83,7 +83,7 @@ Every Gate A criterion met: chunks destroyed + pieces removed + **cascade + coll
 
 **Mechanic proof remains authoritative regardless of emergent staging (AGENTS.md §10):** `tests/server_buildings_functional_test.gd` (damage→cascade→orphan→collapse loop), `tests/support_test.gd`, `tests/protocol_collapse_test.gd`.
 
-**Map-scale finding (separate from M11 logic):** buildings-dense maps push the snapshot-baseline cost toward the ceiling — `conquest_arena_buildings` (768 pieces) gates with destruction firing hard (destroyed≈51–70) but peak tick rides the edge (**33.10 ms**, just under budget); `conquest_showcase` (2463 pieces) and `conquest_town` (8324 pieces) exceed it. This is replication cost from piece count, not the cascade/collapse path. Tracked as a follow-up (snapshot-cost optimisation) if those richer maps are wanted at 128p.
+**Map-scale finding (separate from M11 logic):** buildings-dense maps push the snapshot-baseline cost toward the ceiling — `conquest_arena_buildings` (768 pieces) gates with destruction firing hard (destroyed≈51–70) but peak tick rides the edge (**33.10 ms**, just under budget); `conquest_showcase` (2463 pieces) and `conquest_town` (8324 pieces) exceed it. This is replication cost from piece count, not the cascade/collapse path. **RESOLVED 2026-07-01:** profiling showed the delta ENCODER dominated; `EntityState.bake()` quantizes wire fields once per send (encode −52%, bit-identical) and `conquest_town` (8324 pieces) now PASSES the 128-bot gate at 27.31 ms (`docker/srvlog-m11-20260701-160937.log`, branch `m11-snapshot-encode-bake`).
 
 **Gate B (feel — owner playtest of holes/debris/collapse cinematic) still pending. P4 client cosmetics — first pass landed (2026-06-27).**
 
