@@ -21,6 +21,11 @@ func record(server_tick: int, world: World) -> void:
 		if t < cutoff:
 			_hist.erase(t)
 
+## True if rewind(server_tick) would clamp — i.e. the caller asked for a tick older than the
+## MAX_REWIND horizon (client very far behind). Feeds the `rewind_clamped` telemetry counter.
+func clamped(server_tick: int) -> bool:
+	return _newest >= 0 and server_tick < _newest - MAX_REWIND
+
 ## Returns the recorded frame {id -> state} for a tick, clamped into [now-MAX_REWIND, now].
 func rewind(server_tick: int) -> Dictionary:
 	if _newest < 0:

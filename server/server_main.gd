@@ -95,7 +95,7 @@ var _next_struct_id := 1
 var _next_id := 1
 var _tele_accum := 0.0
 # Per-phase tick profiling (mean usec/tick over the telemetry window).
-var _phase_us := {"poll": 0, "move": 0, "veh": 0, "lag": 0, "interest": 0, "fire": 0, "respawn": 0, "conquest": 0, "match": 0, "snap": 0}
+var _phase_us := {"poll": 0, "move": 0, "veh": 0, "lag": 0, "interest": 0, "fire": 0, "ordnance": 0, "support": 0, "build": 0, "respawn": 0, "conquest": 0, "match": 0, "snap": 0}
 var _phase_ticks := 0
 var _team_counts := {0: 0, 1: 0}
 var _positions := {}               # id -> Vector3, rebuilt each tick before fires
@@ -210,6 +210,13 @@ func configure(args: Dictionary) -> void:
 	_human_rpg = args.has("human-rpg")
 	_degrade_high_ms = float(args.get("degrade-high-ms", _degrade_high_ms))
 	_degrade_low_ms = float(args.get("degrade-low-ms", _degrade_low_ms))
+	if _degrade_low_ms >= _degrade_high_ms:
+		# An inverted band makes Degrade.next_level climb one window and descend the next,
+		# thrashing the snapshot stride every second. Operator error -> safe defaults.
+		push_warning("[server] --degrade-low-ms (%.1f) must be < --degrade-high-ms (%.1f); using defaults %0.1f/%0.1f"
+			% [_degrade_low_ms, _degrade_high_ms, Degrade.LOW_MS, Degrade.HIGH_MS])
+		_degrade_high_ms = Degrade.HIGH_MS
+		_degrade_low_ms = Degrade.LOW_MS
 
 func _ready() -> void:
 	_map = MapDef.load_file(_map_path)
@@ -315,14 +322,19 @@ func _physics_process(delta: float) -> void:
 	_step_grenades()
 	_step_rockets()
 	_step_mines()
+	var t_ord := Time.get_ticks_usec()
 	_support_links_this_tick.clear()   # rebuilt by the give/repair/revive steps below for SUPPORT_LIST
 	_step_active_give()
 	_step_repairs()
-	_step_build_sites()   # M12-P2: cooperative shovel construction / repair / dismantle
 	_step_bags()
 	_expire_smoke_zones()
 	_step_revives()
 	_step_downed()
+	var t_supp := Time.get_ticks_usec()
+	# Build sites moved below the support steps for profiler-bucket contiguity — safe: none of
+	# give/repairs/bags/smoke/revives/downed read the structure store, and cascades/deltas run later.
+	_step_build_sites()   # M12-P2: cooperative shovel construction / repair / dismantle
+	var t_build := Time.get_ticks_usec()
 	_handle_respawns()
 	_step_vehicle_respawns()
 	var t_resp := Time.get_ticks_usec()
@@ -347,7 +359,10 @@ func _physics_process(delta: float) -> void:
 	_phase_us["lag"] += t_lag - t_veh
 	_phase_us["interest"] += t_int - t_lag
 	_phase_us["fire"] += t_fire - t_int
-	_phase_us["respawn"] += t_resp - t_fire
+	_phase_us["ordnance"] += t_ord - t_fire
+	_phase_us["support"] += t_supp - t_ord
+	_phase_us["build"] += t_build - t_supp
+	_phase_us["respawn"] += t_resp - t_build
 	_phase_us["conquest"] += t_conq - t_resp
 	_phase_us["match"] += t_match - t_conq
 	_phase_us["snap"] += t_snap - t_match
@@ -471,6 +486,8 @@ func _resolve_vehicle_fires() -> void:
 		_broadcast_shot_fx(gunner, origin, dir)
 		var max_range := float(v.mounted["range_m"])
 		var view_tick: int = int(inp["view_server_tick"])
+		if _lag.clamped(view_tick):
+			_rewind_clamped += 1   # gunner's view older than the rewind horizon (telemetry)
 		var frame := _lag.rewind(view_tick)
 		var candidates: Array = _grid.query(origin, max_range + FIRE_RANGE_MARGIN, _positions)
 		var best_t := max_range + 1.0
@@ -2591,8 +2608,8 @@ func _log_telemetry() -> void:
 	print("[telemetry] players=%d alive=%d tick_mean=%.2fms tick_p99=%.2fms agg=%.1fMbit/s pktloss=%.2f%% kills=%d shots=%d hit_rate=%.2f starv=%d rewind_clamped=%d t0=%d t1=%d pts=%s cap_events=%d struct=%d bld=%d rmv=%d blk=%d pen=%d dmg=%d destroyed=%d collapsed=%d nades=%d splash=%d smoke=%d rockets=%d rstruct=%d proj=%d projhit=%d projlive=%d projdrop=%d downed=%d bleedouts=%d revives=%d c4=%d mines=%d heals=%d ammo=%d bags=%d bagx=%d climbs=%d vaults=%d dropblk=%d enters=%d exits=%d veh_dead=%d repairs=%d repair_oh=%d rkt_veh=%d transport_m=%.1f ac_viol=%d swaps=%d supp=%d melees=%d backstabs=%d sledge=%d flashes=%d flashblinds=%d impacts=%d built_small=%d built_large=%d bsolo=%d dismantled=%d repaired=%d fobs_built=%d fob_spawns=%d fob_disabled=%d fobs_destroyed=%d"
 		% [n, alive, _tele.mean_tick_ms(), _tele.p99_tick_ms(), mbit, pktloss, _kills, _shots, hit_rate, _tele.starvation, _rewind_clamped, _conquest.tickets_int(0), _conquest.tickets_int(1), pts, _cap_events, _store.count(), _builds, _removes, _shots_blocked, _pen, _dmg, _destroyed, _collapsed, _nades, _splash_kills, _smokes, _rockets_det, _rstruct, _proj_fired, _proj_hits, _proj_live_max, _proj_dropped, _downed, _bleedouts, _revives, _c4_det, _mine_trips, _heals, _ammo_gives, _bags_thrown, _bags_exhausted, _climbs, _vaults, _drop_shoot_blocked, _enters, _exits, _veh_destroyed, _repairs, _repair_overheats, _rkt_vs_veh, _transport_max, _ac_viol, _swaps, _suppress_events, _melees, _backstabs, _sledge_hits, _flashes, _flash_blinds, _impacts, _built_small, _built_large, _build_blocked_solo, _dismantled, _repaired, _fobs_built, _fob_spawns, _fob_disabled, _fobs_destroyed])
 	var pt := maxi(_phase_ticks, 1)
-	print("[perf] us/tick: poll=%d move=%d veh=%d lag=%d interest=%d fire=%d respawn=%d conquest=%d match=%d snap=%d (ticks=%d)"
-		% [_phase_us["poll"] / pt, _phase_us["move"] / pt, _phase_us["veh"] / pt, _phase_us["lag"] / pt, _phase_us["interest"] / pt, _phase_us["fire"] / pt, _phase_us["respawn"] / pt, _phase_us["conquest"] / pt, _phase_us["match"] / pt, _phase_us["snap"] / pt, _phase_ticks])
+	print("[perf] us/tick: poll=%d move=%d veh=%d lag=%d interest=%d fire=%d ordnance=%d support=%d build=%d respawn=%d conquest=%d match=%d snap=%d (ticks=%d)"
+		% [_phase_us["poll"] / pt, _phase_us["move"] / pt, _phase_us["veh"] / pt, _phase_us["lag"] / pt, _phase_us["interest"] / pt, _phase_us["fire"] / pt, _phase_us["ordnance"] / pt, _phase_us["support"] / pt, _phase_us["build"] / pt, _phase_us["respawn"] / pt, _phase_us["conquest"] / pt, _phase_us["match"] / pt, _phase_us["snap"] / pt, _phase_ticks])
 	# M8-P3 adaptive degradation: re-evaluate the ladder off this window's mean tick (before reset).
 	var new_level := Degrade.next_level(_tele.mean_tick_ms(), _degrade_level, _degrade_high_ms, _degrade_low_ms)
 	if new_level != _degrade_level:

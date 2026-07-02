@@ -36,3 +36,18 @@ func test_ladder_params_shed_load_monotonically() -> void:
 	assert_true(Degrade.enemy_cap_for(1) < Degrade.enemy_cap_for(0), "enemy cap shrinks with level")
 	assert_true(Degrade.stride_for(2) >= Degrade.stride_for(1))
 	assert_true(Degrade.enemy_cap_for(2) <= Degrade.enemy_cap_for(1))
+
+func test_inverted_degrade_band_from_cli_reverts_to_defaults() -> void:
+	# --degrade-high-ms/--degrade-low-ms were unvalidated: an inverted band (low >= high)
+	# makes Degrade.next_level climb one window and descend the next, thrashing the
+	# snapshot stride every second. Operator error must fall back to the safe defaults.
+	var srv = preload("res://server/server_main.gd").new()
+	srv.configure({"degrade-high-ms": 10.0, "degrade-low-ms": 20.0})
+	assert_almost_eq(srv._degrade_high_ms, Degrade.HIGH_MS, 0.001, "inverted band: high reverts to default")
+	assert_almost_eq(srv._degrade_low_ms, Degrade.LOW_MS, 0.001, "inverted band: low reverts to default")
+	srv.free()
+	var ok = preload("res://server/server_main.gd").new()
+	ok.configure({"degrade-high-ms": 28.0, "degrade-low-ms": 22.0})
+	assert_almost_eq(ok._degrade_high_ms, 28.0, 0.001, "valid band accepted (high)")
+	assert_almost_eq(ok._degrade_low_ms, 22.0, 0.001, "valid band accepted (low)")
+	ok.free()
