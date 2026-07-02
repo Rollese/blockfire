@@ -151,10 +151,13 @@ func test_not_downed_default_replicates_false() -> void:
 	assert_false((view[8] as EntityState).is_downed)
 
 func test_climbing_packs_into_state_byte_bit7() -> void:
+	# Packs via EntityState.bake() — the production packer (Snapshot._state_byte was a
+	# duplicated test-only twin; a field added to one but not the other would ship a
+	# silent wire desync that tests of the dead copy would miss).
 	var e := EntityState.new()
 	e.climbing = true
-	var b := Snapshot._state_byte(e)
-	assert_eq((b >> 7) & 1, 1)   # bit 7 set
+	e.bake()
+	assert_eq((e.q_state >> 7) & 1, 1)   # bit 7 set
 
 func test_climbing_survives_snapshot_roundtrip() -> void:
 	# Full encode -> decode_apply: the climbing flag must survive the wire, not just pack.

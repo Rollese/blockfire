@@ -50,3 +50,19 @@ func test_resolve_movement_passes_through_free_space() -> void:
 	var s := _store()
 	var out := s.resolve_movement(Vector3(0.0, 0.0, 0.0), Vector3(10.0, 0.0, 10.0))
 	assert_eq(out, Vector3(10.0, 0.0, 10.0))
+
+func test_march_hits_corner_clipped_cell() -> void:
+	# Regression: 0.5 m point-sampling could step OVER a cell the ray crossed for only
+	# ~0.14 m (corner clip) — occasional through-the-corner bullets on every cover check
+	# (fire, rockets, flash LOS, sledge). This diagonal crosses cell (1,0,1) for
+	# t in [2.83, 2.97) — exactly between the t=2.5 and t=3.0 samples.
+	var s := _store()
+	s.place(1, 1, Vector3i(1, 0, 1), 0, 7)   # wall AABB x:[2,4] y:[0,2] z:[2,4]
+	var r := s.march(Vector3(0.0, 1.0, 1.9), Vector3(1, 0, 1).normalized(), 10.0)
+	assert_eq(r["hit"], true, "corner-clipped wall must stop the bullet")
+	assert_almost_eq(float(r["dist"]), 2.828, 0.01, "entry on the x=2 face")
+
+func test_march_zero_direction_is_safe() -> void:
+	var s := _store()
+	s.place(1, 1, Vector3i(2, 0, 0), 0, 7)
+	assert_eq(s.march(Vector3(0.0, 1.0, 1.0), Vector3.ZERO, 10.0)["hit"], false, "degenerate dir: no hit, no hang")

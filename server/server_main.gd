@@ -98,6 +98,10 @@ var _tele_accum := 0.0
 var _phase_us := {"poll": 0, "move": 0, "veh": 0, "lag": 0, "interest": 0, "fire": 0, "ordnance": 0, "support": 0, "build": 0, "respawn": 0, "conquest": 0, "match": 0, "snap": 0}
 var _phase_ticks := 0
 var _team_counts := {0: 0, 1: 0}
+# Client ids with auto_deploy=false (rendered humans). Maintained on hello/disconnect so the
+# eleven cosmetic/list broadcasters fan out O(humans) instead of scanning all 128 clients
+# per event to skip bots.
+var _human_ids: Array = []
 var _positions := {}               # id -> Vector3, rebuilt each tick before fires
 var _prev_climb_vault: Dictionary = {}   # id -> int bitmask: bit0=climbing, bit1=vaulting (edge counting)
 
@@ -185,6 +189,8 @@ var _support_pkt_sent: PackedByteArray = PackedByteArray()   # last SUPPORT_LIST
 var _support_hb_tick := 0                                    # last support heartbeat tick (late joiners)
 var _downed_pkt_sent: PackedByteArray = PackedByteArray()    # last DOWNED_LIST sent (resend only on change)
 var _downed_hb_tick := 0                                     # last downed-list heartbeat tick (late joiners)
+var _fob_pkt_sent := {}                                      # team -> last FOB_LIST sent (resend only on change)
+var _fob_hb_tick := 0                                        # last FOB-list heartbeat tick (late joiners)
 var _repairing := {}        # engineer_id -> true (latched)
 var _repair_heat := {}      # engineer_id -> int
 var _repair_cd := {}        # engineer_id -> cooldown_until tick
@@ -306,7 +312,13 @@ func _physics_process(delta: float) -> void:
 	_sim.step_vehicles(_build_vehicle_inputs(), _map.world_half)
 	_track_transport_distance()
 	var t_veh := Time.get_ticks_usec()
-	_lag.record(_sim.tick, _sim.world)
+	# The mounted gun is the ONLY remaining rewind consumer (bullets went present-time in
+	# M5.5-P1), so recording ~129 dicts/tick for all pawns is wasted unless a gunner is
+	# actually seated. History is cleared on pause so a remount can't rewind into stale frames.
+	if _mounted_gunner_exists():
+		_lag.record(_sim.tick, _sim.world)
+	elif _lag.has_history():
+		_lag.clear()
 	var t_lag := Time.get_ticks_usec()
 	_build_interest()
 	var t_int := Time.get_ticks_usec()
@@ -463,6 +475,18 @@ func _spawn_map_vehicles() -> void:
 ## Gunner-seat mounted gun: hit-scan from the turret muzzle along the gunner's aim, reusing the
 ## lag-comp frame + Hitbox path (FF-off, present rewind to the gunner's view tick). Rate-limited
 ## by the weapon fire_interval. v1 = anti-infantry only.
+## True while any live mounted-gun vehicle has its gunner seat occupied — gates lag-comp
+## recording (see the tick loop). Vehicle counts are tiny (~4), so this scan is cheap.
+func _mounted_gunner_exists() -> bool:
+	for vid in _sim.world.vehicles:
+		var v: Vehicle = _sim.world.vehicles[vid]
+		if not v.alive or v.mounted.is_empty():
+			continue
+		for seat in v.seats.size():
+			if int(v.seat_roles[seat]) == Vehicle.ROLE_GUNNER and int(v.seats[seat]) != 0:
+				return true
+	return false
+
 func _resolve_vehicle_fires() -> void:
 	for vid in _sim.world.vehicles:
 		var v: Vehicle = _sim.world.vehicles[vid]
@@ -560,72 +584,41 @@ func _resolve_fires() -> void:
 		_shots += 1
 		_fire_shot(id, shooter, inp, shot_index)
 
-func _broadcast_shot_fx(shooter_id: int, origin: Vector3, dir: Vector3) -> void:
-	# Cosmetic remote-tracer hint. Sent only to HUMAN clients (auto_deploy=false) — bots don't
-	# render, and skipping them keeps the fan-out tiny at bot scale. Unreliable (droppable).
-	var pkt := Protocol.encode_shot_fx(origin, dir, shooter_id)
-	for cid in _clients:
-		if cid == shooter_id:
+## Send `pkt` to every HUMAN client (auto_deploy=false), optionally excluding one id (the
+## actor, who renders its own effect locally). Bots don't render — the cached _human_ids
+## list keeps every cosmetic/list fan-out O(humans) instead of an O(128) skip-scan per event.
+func _broadcast_humans(channel: int, pkt: PackedByteArray, flags: int = 0, exclude: int = 0) -> void:
+	for cid in _human_ids:
+		if cid == exclude:
 			continue
-		var c = _clients[cid]
-		if bool(c.get("auto_deploy", true)):
-			continue   # bot client — does not render
-		_net.send_to(c["peer"], NetHost.CHANNEL_SNAPSHOT, pkt, 0)
+		_net.send_to(_clients[cid]["peer"], channel, pkt, flags)
 
+func _broadcast_shot_fx(shooter_id: int, origin: Vector3, dir: Vector3) -> void:
+	# Cosmetic remote-tracer hint. Unreliable (droppable); shooter excluded (renders its own).
+	_broadcast_humans(NetHost.CHANNEL_SNAPSHOT, Protocol.encode_shot_fx(origin, dir, shooter_id), 0, shooter_id)
 
 func _broadcast_vault_fx(vault_id: int) -> void:
-	# Cosmetic remote-vault cue. Sent to human clients except the vaulter. Unreliable (droppable).
-	var pkt := Protocol.encode_vault_fx(vault_id)
-	for cid in _clients:
-		if cid == vault_id:
-			continue
-		var c = _clients[cid]
-		if bool(c.get("auto_deploy", true)):
-			continue   # bot client — does not render
-		_net.send_to(c["peer"], NetHost.CHANNEL_SNAPSHOT, pkt, 0)
-
+	# Cosmetic remote-vault cue. Unreliable (droppable); vaulter excluded.
+	_broadcast_humans(NetHost.CHANNEL_SNAPSHOT, Protocol.encode_vault_fx(vault_id), 0, vault_id)
 
 func _broadcast_melee_fx(melee_id: int) -> void:
-	# Cosmetic remote-melee cue. Sent to human clients except the swinger (they see their own swing via
-	# the viewmodel). Unreliable (droppable) — a missed cue just skips one swing pose.
-	var pkt := Protocol.encode_melee_fx(melee_id)
-	for cid in _clients:
-		if cid == melee_id:
-			continue
-		var c = _clients[cid]
-		if bool(c.get("auto_deploy", true)):
-			continue   # bot client — does not render
-		_net.send_to(c["peer"], NetHost.CHANNEL_SNAPSHOT, pkt, 0)
-
+	# Cosmetic remote-melee cue. Unreliable; swinger excluded (sees its own viewmodel swing).
+	_broadcast_humans(NetHost.CHANNEL_SNAPSHOT, Protocol.encode_melee_fx(melee_id), 0, melee_id)
 
 func _broadcast_reload_fx(reloader_id: int, duration_ticks: int) -> void:
-	# Cosmetic remote-reload cue. Sent to human clients except the reloader (they see their own reload
-	# via the viewmodel + SELF_STATE). Unreliable (droppable) — a missed cue just skips one reload pose.
-	var pkt := Protocol.encode_reload_fx(reloader_id, duration_ticks)
-	for cid in _clients:
-		if cid == reloader_id:
-			continue
-		var c = _clients[cid]
-		if bool(c.get("auto_deploy", true)):
-			continue   # bot client — does not render
-		_net.send_to(c["peer"], NetHost.CHANNEL_SNAPSHOT, pkt, 0)
-
+	# Cosmetic remote-reload cue. Unreliable; reloader excluded (viewmodel + SELF_STATE cover it).
+	_broadcast_humans(NetHost.CHANNEL_SNAPSHOT, Protocol.encode_reload_fx(reloader_id, duration_ticks), 0, reloader_id)
 
 const MAX_IMPACT_FX_PER_TICK := 24   # bound the cosmetic-impact fan-out per tick at bot scale
 var _impact_fx_this_tick := 0
 
 ## Cosmetic bullet-impact puff at world geometry. Sent to ALL human clients (the shooter wants to
-## see their own rounds chip the wall too). Unreliable + per-tick capped; bots skipped (don't render).
+## see their own rounds chip the wall too). Unreliable + per-tick capped.
 func _broadcast_impact_fx(pos: Vector3, kind: int) -> void:
 	if _impact_fx_this_tick >= MAX_IMPACT_FX_PER_TICK:
 		return
 	_impact_fx_this_tick += 1
-	var pkt := Protocol.encode_impact_fx(pos, kind)
-	for cid in _clients:
-		var c = _clients[cid]
-		if bool(c.get("auto_deploy", true)):
-			continue   # bot client — does not render
-		_net.send_to(c["peer"], NetHost.CHANNEL_SNAPSHOT, pkt, 0)
+	_broadcast_humans(NetHost.CHANNEL_SNAPSHOT, Protocol.encode_impact_fx(pos, kind))
 
 
 func _fire_shot(shooter_id: int, shooter: Pawn, inp: Dictionary, shot_index: int) -> void:
@@ -1349,6 +1342,8 @@ func _handle_hello(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
 		"name": pname, "kills": 0, "deaths": 0, "score": 0, "dmg_ledger": {},
 	}
 	_build_weapon_slots(_clients[id])
+	if not auto_deploy:
+		_human_ids.append(id)   # rendered client: joins the cosmetic/list broadcast fan-out
 	var p := _sim.world.spawn(id)
 	p.team = team
 	p.squad = squad
@@ -1956,25 +1951,13 @@ func _fire_rocket(id: int, p: Pawn, dir: Vector3) -> void:
 	_broadcast_rocket_fx(id, p.eye_position(), dir.normalized())
 
 func _broadcast_rocket_fx(shooter_id: int, origin: Vector3, dir: Vector3) -> void:
-	var pkt := Protocol.encode_rocket_fx(origin, dir)
-	for cid in _clients:
-		if cid == shooter_id:
-			continue
-		var c = _clients[cid]
-		if bool(c.get("auto_deploy", true)):
-			continue   # bot client — does not render
-		_net.send_to(c["peer"], NetHost.CHANNEL_SNAPSHOT, pkt, 0)
+	_broadcast_humans(NetHost.CHANNEL_SNAPSHOT, Protocol.encode_rocket_fx(origin, dir), 0, shooter_id)
 
 ## Authoritative deployed-gadget list (C4/mines/bags) for human clients to render. Rebuilt from the
 ## live stores each tick and sent (reliably) only when it CHANGES, plus a ~1 Hz heartbeat while
 ## non-empty so a late-joining human catches up. Skipped entirely when no human is connected.
 func _broadcast_gadget_list() -> void:
-	var has_human := false
-	for cid in _clients:
-		if not bool(_clients[cid].get("auto_deploy", true)):
-			has_human = true
-			break
-	if not has_human:
+	if _human_ids.is_empty():
 		return
 	var list := GadgetList.build(_c4, _mines, _bags)
 	var pkt := Protocol.encode_gadget_list(list)
@@ -1984,23 +1967,14 @@ func _broadcast_gadget_list() -> void:
 		return
 	_gadget_pkt_sent = pkt
 	_gadget_hb_tick = _sim.tick
-	for cid in _clients:
-		var c = _clients[cid]
-		if bool(c.get("auto_deploy", true)):
-			continue   # bot client — does not render
-		_net.send_to(c["peer"], NetHost.CHANNEL_CONTROL, pkt, ENetPacketPeer.FLAG_RELIABLE)
+	_broadcast_humans(NetHost.CHANNEL_CONTROL, pkt, ENetPacketPeer.FLAG_RELIABLE)
 
 ## Active support links (heal/ammo/repair/revive) for human clients to draw a beam + target aura.
 ## Same shape as the gadget list: rebuilt each tick from what the support steps actually acted on,
 ## sent reliably only when it CHANGES, plus a ~1 Hz heartbeat while non-empty for late joiners.
 ## Skipped entirely when no human is connected.
 func _broadcast_support_list() -> void:
-	var has_human := false
-	for cid in _clients:
-		if not bool(_clients[cid].get("auto_deploy", true)):
-			has_human = true
-			break
-	if not has_human:
+	if _human_ids.is_empty():
 		return
 	var list := SupportLinks.build(_support_links_this_tick)
 	var pkt := Protocol.encode_support_list(list)
@@ -2010,22 +1984,13 @@ func _broadcast_support_list() -> void:
 		return
 	_support_pkt_sent = pkt
 	_support_hb_tick = _sim.tick
-	for cid in _clients:
-		var c = _clients[cid]
-		if bool(c.get("auto_deploy", true)):
-			continue   # bot client — does not render
-		_net.send_to(c["peer"], NetHost.CHANNEL_CONTROL, pkt, ENetPacketPeer.FLAG_RELIABLE)
+	_broadcast_humans(NetHost.CHANNEL_CONTROL, pkt, ENetPacketPeer.FLAG_RELIABLE)
 
 ## Downed pawns + their bleed-out urgency (M7 revive marker). Same change+heartbeat shape as the
 ## gadget/support lists; skipped when no human is connected. The list is naturally tiny (only DOWNED
 ## pawns), so it's cheap even at 128p. The client drives the revive marker colour/pulse from `frac`.
 func _broadcast_downed_list() -> void:
-	var has_human := false
-	for cid in _clients:
-		if not bool(_clients[cid].get("auto_deploy", true)):
-			has_human = true
-			break
-	if not has_human:
+	if _human_ids.is_empty():
 		return
 	var list: Array = []
 	for id in _sim.world.pawns:
@@ -2039,19 +2004,17 @@ func _broadcast_downed_list() -> void:
 		return
 	_downed_pkt_sent = pkt
 	_downed_hb_tick = _sim.tick
-	for cid in _clients:
-		var c = _clients[cid]
-		if bool(c.get("auto_deploy", true)):
-			continue   # bot client — does not render
-		_net.send_to(c["peer"], NetHost.CHANNEL_CONTROL, pkt, ENetPacketPeer.FLAG_RELIABLE)
+	_broadcast_humans(NetHost.CHANNEL_CONTROL, pkt, ENetPacketPeer.FLAG_RELIABLE)
 
 ## M12-P3: per-team FOB list (squad/structure_id/under_construction/enabled) for human clients to
-## render. Bots (auto_deploy) are skipped → zero cost in the headless gate.
+## render. Same changed+heartbeat shape as the gadget/support/downed lists — this one used to send
+## a RELIABLE packet to every human EVERY tick and recompute _spawnable_fob_pos per human.
 func _send_fob_lists() -> void:
-	for cid in _clients:
-		var c = _clients[cid]
-		if bool(c.get("auto_deploy", true)): continue   # bots don't render; skip (zero gate cost)
-		var team: int = int(c["team"])
+	if _human_ids.is_empty():
+		return
+	var pkts := {}
+	var total := 0
+	for team in [0, 1]:
 		var list: Array = []
 		for key in _fobs:
 			var rec: Dictionary = _fobs[key]
@@ -2062,19 +2025,22 @@ func _send_fob_lists() -> void:
 				enabled = _spawnable_fob_pos(team, int(rec["squad"])) != null
 			list.append({"squad": int(rec["squad"]), "structure_id": int(rec["id"]),
 				"under_construction": 0 if built else 1, "enabled": 1 if enabled else 0})
-		_net.send_to(c["peer"], NetHost.CHANNEL_CONTROL, Protocol.encode_fob_list(list), ENetPacketPeer.FLAG_RELIABLE)
+		total += list.size()
+		pkts[team] = Protocol.encode_fob_list(list)
+	var changed: bool = pkts[0] != _fob_pkt_sent.get(0) or pkts[1] != _fob_pkt_sent.get(1)
+	var heartbeat: bool = total > 0 and _sim.tick - _fob_hb_tick >= GADGET_HEARTBEAT_TICKS
+	if not changed and not heartbeat:
+		return
+	_fob_pkt_sent = pkts
+	_fob_hb_tick = _sim.tick
+	for cid in _human_ids:
+		var c = _clients[cid]
+		_net.send_to(c["peer"], NetHost.CHANNEL_CONTROL, pkts[int(c["team"])], ENetPacketPeer.FLAG_RELIABLE)
 
 ## Cosmetic remote thrown-grenade hint. Sent only to HUMAN clients, excluding the thrower (who already
 ## arcs their own grenade from client_main). Unreliable/droppable, like the other *_FX broadcasts.
 func _broadcast_grenade_fx(thrower_id: int, origin: Vector3, dir: Vector3, kind: int) -> void:
-	var pkt := Protocol.encode_grenade_fx(origin, dir, kind)
-	for cid in _clients:
-		if cid == thrower_id:
-			continue
-		var c = _clients[cid]
-		if bool(c.get("auto_deploy", true)):
-			continue   # bot client — does not render
-		_net.send_to(c["peer"], NetHost.CHANNEL_SNAPSHOT, pkt, 0)
+	_broadcast_humans(NetHost.CHANNEL_SNAPSHOT, Protocol.encode_grenade_fx(origin, dir, kind), 0, thrower_id)
 
 func _place_c4(id: int, p: Pawn, pos: Vector3) -> void:
 	if Loadout.gadget_for_player(int(_clients[id]["class"]), id) != Loadout.GADGET_C4: return
@@ -2583,6 +2549,7 @@ func _on_peer_disconnected(peer: ENetPacketPeer) -> void:
 		if pawn != null:
 			_vacate_seat(pawn)
 		_transport_origin.erase(id)
+		_human_ids.erase(id)
 		_clients.erase(id)
 		_sim.world.despawn(id)
 		_prev_climb_vault.erase(id)

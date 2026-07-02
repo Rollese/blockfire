@@ -211,30 +211,39 @@ func validate_place(cell: Vector3i, player_pos: Vector3, now_tick: int, last_bui
 const FLOOR_REACH_EPS := 0.35   # m; a pawn within this distance below a flat surface "catches" it (small step-up)
 const RAMP_REACH_EPS := 0.6     # m; ramps need a larger catch = max per-tick climb at sprint (9.6 m/s * dt on a 1:1 slope ~0.32) + margin
 
-const MARCH_STEP := 0.5   # ray-march sampling step (m); < CELL_SIZE so no cell is skipped
-
 ## Walk a ray through the build grid up to max_dist. Returns {hit:bool, dist:float, id:int}.
-## Samples cells along the ray (coarse discovery), then runs an exact height-aware ray-AABB
-## test on each occupied cell; returns the nearest blocking hit. Bounded by max_dist/MARCH_STEP.
+## Amanatides–Woo 3D DDA: visits EVERY cell the ray crosses, exactly once, in ray order —
+## replaces 0.5 m point-sampling, which stepped over corner-clipped cells (through-the-corner
+## bullets) and always walked max_dist/0.5 samples with a per-call `seen` dict. Cells arrive
+## nearest-first, so the first height-aware AABB hit is the nearest (early exit).
 func march(origin: Vector3, dir: Vector3, max_dist: float) -> Dictionary:
 	var d := dir.normalized()
-	var best_t := INF
-	var best_id := 0
-	var seen := {}
+	if d == Vector3.ZERO:
+		return {"hit": false, "dist": INF, "id": 0}
+	var cell := BuildGrid.cell_of(origin)
+	# signf, not signi: signi(int) would truncate 0.707 -> 0 and freeze the walk on diagonals
+	var step := Vector3i(int(signf(d.x)), int(signf(d.y)), int(signf(d.z)))
+	var t_max := Vector3.INF     # ray distance to the next cell boundary, per axis
+	var t_delta := Vector3.INF   # ray distance between successive boundaries, per axis
+	for a in 3:
+		if step[a] != 0:
+			var edge := float(cell[a] + (1 if step[a] > 0 else 0)) * BuildGrid.CELL_SIZE
+			t_max[a] = (edge - origin[a]) / d[a]
+			t_delta[a] = BuildGrid.CELL_SIZE / absf(d[a])
 	var t := 0.0
 	while t <= max_dist:
-		var cell := BuildGrid.cell_of(origin + d * t)
-		if not seen.has(cell):
-			seen[cell] = true
-			var id: int = _occupancy.get(cell, 0)
-			if id != 0:
-				var hit_t := _ray_piece(origin, d, _by_id[id])
-				if hit_t >= 0.0 and hit_t <= max_dist and hit_t < best_t:
-					best_t = hit_t
-					best_id = id
-		t += MARCH_STEP
-	if best_id != 0:
-		return {"hit": true, "dist": best_t, "id": best_id}
+		var id: int = _occupancy.get(cell, 0)
+		if id != 0:
+			var hit_t := _ray_piece(origin, d, _by_id[id])
+			if hit_t >= 0.0 and hit_t <= max_dist:
+				return {"hit": true, "dist": hit_t, "id": id}
+		# advance to the nearest boundary crossing
+		var axis := 0
+		if t_max.y < t_max.x: axis = 1
+		if t_max.z < t_max[axis]: axis = 2
+		t = t_max[axis]
+		cell[axis] += step[axis]
+		t_max[axis] += t_delta[axis]
 	return {"hit": false, "dist": INF, "id": 0}
 
 func _ray_piece(origin: Vector3, d: Vector3, rec: Dictionary) -> float:
