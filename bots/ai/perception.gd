@@ -54,7 +54,9 @@ func build(my_id: int, view: Dictionary, _vview: Dictionary, structs: Dictionary
 			elif e.alive:
 				w.allies.append({"id": int(id), "pos": e.pos, "dist": me.pos.distance_to(e.pos)})
 			continue
-		if not e.alive:
+		# Downed pawns keep alive==true but are immune to weapon damage — never
+		# targetable (mirrors the reflex-loop rule; shoot the reviver instead).
+		if not e.alive or e.is_downed:
 			continue
 		var d: float = (me.pos.distance_to(e.pos) if me else 0.0)
 		w.enemies.append({"id": int(id), "pos": e.pos, "stance": e.stance, "dist": d, "last_seen_tick": now, "hp_frac": float(e.health) / 100.0})

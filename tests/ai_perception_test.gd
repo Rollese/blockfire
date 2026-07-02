@@ -38,6 +38,18 @@ func test_pick_target_prefers_wounded_over_closer_healthy() -> void:
 	var w := p.build(1, {1: me, 2: close_full, 3: far_wounded}, {}, {}, [], 100)
 	assert_eq(AiCombat.pick_target(w), 3, "wounded enemy prioritized over closer healthy one")
 
+func test_downed_enemy_excluded_from_enemies() -> void:
+	# Regression: downed pawns keep alive==true, and their near-zero hp made them the
+	# TOP-priority target (immune body soaks fire while the reviver goes unshot).
+	# Mirrors the reflex-loop fix in bot_driver (12ba707) that never reached Perception.
+	var p := Perception.new()
+	var me := _es(0, Vector3.ZERO)
+	var downed_enemy := _es(1, Vector3(5, 0, 0), true, true); downed_enemy.health = 1
+	var alive_enemy := _es(1, Vector3(20, 0, 0)); alive_enemy.health = 100
+	var w := p.build(1, {1: me, 2: downed_enemy, 3: alive_enemy}, {}, {}, [], 100)
+	assert_eq(w.enemies.size(), 1, "downed enemy filtered out of targetable enemies")
+	assert_eq(int(w.enemies[0]["id"]), 3, "the alive enemy is the only candidate")
+
 func test_build_applies_reaction_gate_on_first_sighting() -> void:
 	var p := Perception.new()
 	var me := _es(0, Vector3.ZERO)
