@@ -1,0 +1,68 @@
+# Unit suite + connect smoke on every push/PR. The 128-bot fleet gate stays manual on game2
+# (docker/stress.sh) — it needs pinned P-cores and an uncontended host to make the tick
+# metric meaningful (docs/runbooks/stress-gate.md).
+#
+# The runner fails a test on: assertion failure, zero assertions, runtime SCRIPT ERROR
+# mid-test, or a test file that fails to parse — so a plain exit-code gate is sufficient.
+name: ci
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+env:
+  GODOT_VERSION: "4.7"
+  GODOT_RELEASE: "4.7-stable"   # project features pin 4.6; 4.7 is the dev-host version (backward compatible)
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache Godot
+        id: cache-godot
+        uses: actions/cache@v4
+        with:
+          path: ~/godot-bin
+          key: godot-${{ env.GODOT_RELEASE }}-linux-x86_64
+
+      - name: Download Godot (cache miss)
+        if: steps.cache-godot.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p ~/godot-bin
+          curl -fsSL -o /tmp/godot.zip \
+            "https://github.com/godotengine/godot-builds/releases/download/${GODOT_RELEASE}/Godot_v${GODOT_RELEASE}_linux.x86_64.zip"
+          unzip -q /tmp/godot.zip -d /tmp/godot-extract
+          mv /tmp/godot-extract/Godot_v${GODOT_RELEASE}_linux.x86_64 ~/godot-bin/godot
+          chmod +x ~/godot-bin/godot
+
+      - name: Add Godot to PATH
+        run: echo "$HOME/godot-bin" >> "$GITHUB_PATH"
+
+      - name: Import resources
+        # First import on a fresh checkout; voice_opus GDExtension .so is absent (gitignored
+        # Rust build artifact) — the engine warns and continues, so don't gate on this step.
+        run: godot --headless --path . --import || true
+
+      - name: Unit suite
+        # Never pipe godot through head/tail (hangs) — redirect, then print.
+        run: |
+          status=0
+          timeout 600 godot --headless --path . -- --test > suite.log 2>&1 || status=$?
+          tail -30 suite.log
+          grep "TESTS:" suite.log || true
+          exit $status
+
+      - name: Connect smoke
+        run: ./ci/connect_smoke_test.sh
+
+      - name: Upload suite log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: suite-log
+          path: suite.log
+          if-no-files-found: ignore
