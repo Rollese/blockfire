@@ -69,7 +69,7 @@ done
 
 echo "--- match result ---"; echo "$over_line"
 
-maxof() { grep -oE "$1=[0-9]+" "$server_log" | sed "s/$1=//" | sort -n | tail -1; }
+maxof() { grep -oE "(^| )$1=[0-9]+" "$server_log" | sed 's/.*=//' | sort -n | tail -1; }   # anchored: destroyed= must not match fobs_destroyed=
 struct=$(maxof struct); dmg=$(maxof dmg); destroyed=$(maxof destroyed); rstruct=$(maxof rstruct)
 collapsed=$(maxof collapsed); nades=$(maxof nades); rockets=$(maxof rockets)
 peak_tick="$(grep -oE 'tick_mean=[0-9.]+' "$server_log" | sed 's/tick_mean=//' | sort -g | tail -1)"
