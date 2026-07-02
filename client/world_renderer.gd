@@ -4,6 +4,8 @@ extends Node3D
 ## procedural low-poly art kit (client/art/*_kit.gd). Contains NO gameplay or authority logic
 ## (AGENTS.md §7, ADR-0005). Meshes come from the kits; swap kit internals without touching this.
 
+const QaFlags := preload("res://client/qa_flags.gd")   # table-driven --*-test QA-flag registry (§D3)
+
 # -- team colours (markers/beacons; kits own their own tints) ------------------
 const TEAM_COLOR := [Color(0.2, 0.5, 1.0), Color(1.0, 0.3, 0.2)]  # [team0=blue, team1=red]
 const NEUTRAL_COLOR := Color(0.6, 0.6, 0.6)
@@ -638,40 +640,23 @@ func update(world_view: WorldView, predictor: Prediction, now: float, fov: float
 	_age_smokes(now)
 	_age_thrown(now, render_delta)
 
-	# 5. QA: armor-tier dummies (--armor-demo) + explosion pump (--boom-test) + corpses (--corpse-test)
-	_ensure_armor_demo()
-	_ensure_seat_pose_demo()
-	_ensure_boom_demo(now)
-	_ensure_impact_demo(now)
-	_ensure_corpse_demo(now)
-	_ensure_footstep_demo(now)
-	_ensure_smoke_demo(now)
-	_ensure_grenade_demo(now)
-	_ensure_gadget_demo(now)
-	_ensure_revive_demo(now)
-	_ensure_downed_urgency_demo(now)
-	_ensure_support_demo(now)
-	_ensure_buildsite_demo(now)
-	_ensure_wreck_demo(now)
-	_ensure_turret_demo(now)
-	_ensure_casing_demo(now)
-	_ensure_climb_demo(now)
-	_ensure_jump_demo(now)
-	_ensure_land_demo(now)
-	_ensure_firepose_demo(now)
-	_ensure_flinch_demo(now)
-	_ensure_reloadpose_demo(now)
-	_ensure_meleepose_demo(now)
-	_ensure_vaultpose_demo(now)
-	_ensure_heldweapon_demo(now)
-	_ensure_glbshoot_demo(now)
-	_ensure_destroy_demo(now)
-	_ensure_collapse_demo(now)
+	# 5. QA demos: every registered --*-test demo, table-driven (see client/qa_flags.gd). Each
+	# _ensure_*_demo self-gates on its own flag, so inactive demos are a cheap early-return.
+	_run_demos(now)
+
+
+## Drive every registry-declared `_ensure_*_demo` (rows with a "demo" method in QaFlags.FLAGS) —
+## replaces the old per-flag copy-paste call block. Demo bodies are unchanged; only the wiring is
+## table-driven. All demos share one signature: func(now: float) (unused args are underscored).
+func _run_demos(now: float) -> void:
+	for entry: Dictionary in QaFlags.FLAGS:
+		if entry.has("demo"):
+			call(String(entry["demo"]), now)
 
 
 ## Visual QA (--armor-demo): once the camera exists, pin LIGHT/MEDIUM/HEAVY dummy soldiers in front
 ## of it (camera-parented, always in view) for a clean A/B/C armor-diff screenshot.
-func _ensure_armor_demo() -> void:
+func _ensure_armor_demo(_now_unused: float) -> void:
 	if not armor_demo or _armor_demo_done or _camera == null:
 		return
 	_armor_demo_done = true
@@ -687,7 +672,7 @@ func _ensure_armor_demo() -> void:
 
 ## Visual QA (--seat-pose-test): pin an upright dummy (left) beside one posed with the SeatPose
 ## seated transform (right), camera-parented, so a screenshot A/Bs the standing-vs-seated silhouette.
-func _ensure_seat_pose_demo() -> void:
+func _ensure_seat_pose_demo(_now_unused: float) -> void:
 	if not seat_pose_demo or _seat_pose_demo_done or _camera == null:
 		return
 	_seat_pose_demo_done = true

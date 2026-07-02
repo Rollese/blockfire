@@ -4,6 +4,7 @@ extends Node
 ## Authority lives on the server; this file connects UI/input/prediction/rendering only.
 
 const Protocol := preload("res://shared/net/protocol.gd")
+const QaFlags := preload("res://client/qa_flags.gd")   # table-driven --*-test QA-flag registry (§D3)
 const MAP_PATH := "res://maps/conquest_proving_grounds.json"   # default; override with --map=<name>
 
 # ---- network ----------------------------------------------------------------
@@ -177,53 +178,10 @@ func configure(args: Dictionary) -> void:
 	_novsync = args.has("novsync")
 	if args.has("map"):
 		_map_path = "res://maps/%s.json" % String(args["map"])
-	_flash_test = args.has("flash-test")            # visual QA: force the flashbang white-out
-	_suppress_test = args.has("suppress-test")      # visual QA: force the suppression screen FX
-	_armor_demo = args.has("armor-demo")            # visual QA: pin LIGHT/MEDIUM/HEAVY dummies in view
-	_boom_test = args.has("boom-test")              # visual QA: pump frag explosions in front of camera
-	_vehicle_test = args.has("vehicle-test")        # visual QA: blow up a transport in front of camera
-	_turret_test = args.has("turret-test")          # visual QA: turret traversed off the hull axis
-	_heldweapon_test = args.has("held-weapon-test") # visual QA: per-weapon held-gun silhouettes
-	_seat_pose_test = args.has("seat-pose-test")    # visual QA: standing-vs-seated occupant pose
-	_impact_test = args.has("impact-test")          # visual QA: pump bullet impacts in front of camera
-	_corpse_test = args.has("corpse-test")          # visual QA: lay corpses in front of camera
-	_footstep_test = args.has("footstep-test")      # visual QA: pump footstep dust in front of camera
-	_swing_test = args.has("swing-test")            # visual QA: hold the viewmodel mid-swing
-	_recoil_test = args.has("recoil-test")          # visual QA: hold the viewmodel mid-recoil-kick
-	_crosshair_test = args.has("crosshair-test")    # visual QA: force a bloomed crosshair
-	_ads_test = args.has("ads-test")                # visual QA: force aim-down-sights on
-	_scope_test = args.has("scope-test")            # visual QA: force ADS + the sniper scope overlay
-	_casing_test = args.has("casing-test")          # visual QA: pump ejected shell casings
-	_climb_test = args.has("climb-test")            # visual QA: climbing pose vs upright dummy
-	_jump_test = args.has("jump-test")              # visual QA: airborne pose vs upright dummy
-	_land_test = args.has("land-test")              # visual QA: landing dust + viewmodel dip
-	_downed_test = args.has("downed-test")          # visual QA: force the DBNO bandage overlay
-	_firepose_test = args.has("firepose-test")      # visual QA: fire-recoil pose vs upright dummy
-	_flinch_test = args.has("flinch-test")          # visual QA: hit-flinch pose vs upright dummy
-	_reloadpose_test = args.has("remote-reload-test")  # visual QA: reload pose vs upright dummy
-	_meleepose_test = args.has("remote-melee-test")    # visual QA: melee lunge pose vs upright dummy
-	_vaultpose_test = args.has("remote-vault-test")    # visual QA: mantle pose vs upright dummy
-	_glbshoot_test = args.has("glbshoot-test")      # visual QA: GLB hold vs holding-both-shoot clip
-	_engine_test = args.has("engine-test")          # audio QA: force the vehicle engine loop on
-	_sprint_test = args.has("sprint-test")          # visual QA: freeze the viewmodel sprint-lowered
-	_vm_climb_test = args.has("vm-climb-test")      # visual QA: freeze the viewmodel climb/vault-lowered
-	_repair_heat_test = args.has("repair-heat-test") # visual QA: cycle the repair-tool heat gauge
-	_reload_test = args.has("reload-test")          # visual QA: freeze the viewmodel mid-reload
-	_whiz_test = args.has("whiz-test")              # audio+visual QA: synthetic near-miss crack/whiz rounds
-	_smoke_test = args.has("smoke-test")            # visual QA: pop a smoke cloud in front of the camera
-	_grenade_test = args.has("grenade-test")        # visual QA: lob cosmetic grenades across the view
-	_gadget_test = args.has("gadget-test")          # visual QA: place sample deployed gadgets in view
-	_revive_marker_test = args.has("revive-marker-test")   # visual QA: downed friendly + revive marker
-	_downed_urgency_test = args.has("downed-urgency-test")  # visual QA: downed dummies at varying bleed urgency
-	_support_test = args.has("support-test")        # visual QA: support beam + aura between two soldiers
-	_buildsite_test = args.has("buildsite-test")    # visual QA: ghost build site (shovel construction)
-	_fob_menu_test = args.has("fob-menu-test")      # visual QA: deploy screen with a Squad FOB option
-	_build_test = args.has("build-test")            # visual QA: auto-enter build mode (placement ghost)
-	_grenade_danger_test = args.has("grenade-danger-test") # visual QA: pin a live grenade near the player
-	_capture_test = args.has("capture-test")        # visual QA: pump capture-announcement banners
-	_killfeed_test = args.has("killfeed-test")      # visual QA: pump named killfeed entries
-	_destroy_test = args.has("destroy-test")        # visual QA: pump piece destruction debris/dust
-	_collapse_test = args.has("collapse-test")      # visual QA: play a building collapse cinematic
+	# Visual/audio QA flags — one registry row per --*-test flag (see client/qa_flags.gd) sets the
+	# matching bool member, replacing the old per-flag parse ladder. Flag meanings live in the table.
+	for entry: Dictionary in QaFlags.FLAGS:
+		set(String(entry["member"]), args.has(String(entry["flag"])))
 	_shot_after = float(args.get("shot-after", -1.0))  # automated screenshot then quit
 
 # ---- _ready -----------------------------------------------------------------
@@ -1225,40 +1183,12 @@ func _build_scene() -> void:
 	world_node.add_child(_renderer)
 	_renderer.setup(_map, _camera)
 	_renderer.use_models = _settings.use_model_characters
-	_renderer.armor_demo = _armor_demo   # --armor-demo: pin armor-tier dummies for a QA screenshot
-	_renderer.boom_demo = _boom_test     # --boom-test: pump explosions for a QA screenshot
-	_renderer.wreck_demo = _vehicle_test # --vehicle-test: blow up a transport for a QA screenshot
-	_renderer.turret_demo = _turret_test # --turret-test: turret traversed off-axis for a QA screenshot
-	_renderer.heldweapon_demo = _heldweapon_test # --held-weapon-test: per-weapon silhouettes for a QA screenshot
-	_renderer.seat_pose_demo = _seat_pose_test   # --seat-pose-test: standing-vs-seated dummy A/B for a QA screenshot
-	_renderer.casing_demo = _casing_test # --casing-test: pump shell casings for a QA screenshot
-	_renderer.climb_demo = _climb_test   # --climb-test: climbing-pose dummy for a QA screenshot
-	_renderer.jump_demo = _jump_test     # --jump-test: airborne-pose dummy for a QA screenshot
-	_renderer.land_demo = _land_test     # --land-test: landing dust + viewmodel dip for a QA screenshot
-	_renderer.firepose_demo = _firepose_test  # --firepose-test: fire-recoil pose dummy for a QA screenshot
-	_renderer.flinch_demo = _flinch_test      # --flinch-test: hit-flinch pose dummy for a QA screenshot
-	_renderer.reloadpose_demo = _reloadpose_test  # --remote-reload-test: reload pose dummy for a QA screenshot
-	_renderer.meleepose_demo = _meleepose_test  # --remote-melee-test: melee lunge pose dummy for a QA screenshot
-	_renderer.vaultpose_demo = _vaultpose_test  # --remote-vault-test: mantle pose dummy for a QA screenshot
-	_renderer.glbshoot_demo = _glbshoot_test  # --glbshoot-test: GLB shoot-clip A/B for a QA screenshot
-	_renderer.impact_demo = _impact_test # --impact-test: pump bullet impacts for a QA screenshot
-	_renderer.corpse_demo = _corpse_test # --corpse-test: lay corpses for a QA screenshot
-	_renderer.footstep_demo = _footstep_test # --footstep-test: pump footstep dust for a QA screenshot
-	_renderer.smoke_demo = _smoke_test   # --smoke-test: pop a smoke cloud for a QA screenshot
-	_renderer.grenade_demo = _grenade_test # --grenade-test: lob cosmetic grenades for a QA screenshot
-	_renderer.gadget_demo = _gadget_test # --gadget-test: place sample gadgets for a QA screenshot
-	_renderer.revive_demo = _revive_marker_test # --revive-marker-test: downed friendly + revive marker
-	_renderer.downed_urgency_demo = _downed_urgency_test  # --downed-urgency-test: downed dummies at varying urgency
-	_renderer.support_demo = _support_test   # --support-test: support beam + aura between two soldiers
 	_renderer.piece_catalog = _piece_cat     # M12: lets the renderer derive build-site fill fractions
-	_renderer.buildsite_demo = _buildsite_test  # --buildsite-test: ghost in-progress shovel construction
-	_renderer.destroy_demo = _destroy_test   # --destroy-test: pump piece destruction debris/dust
-	_renderer.collapse_demo = _collapse_test # --collapse-test: play a building collapse cinematic
-	_renderer.vm_swing_test = _swing_test # --swing-test: freeze the viewmodel mid-swing
-	_renderer.vm_recoil_test = _recoil_test # --recoil-test: freeze the viewmodel mid-recoil-kick
-	_renderer.vm_sprint_test = _sprint_test # --sprint-test: freeze the viewmodel sprint-lowered
-	_renderer.vm_climb_test = _vm_climb_test # --vm-climb-test: freeze the viewmodel climb/vault-lowered
-	_renderer.vm_reload_test = _reload_test # --reload-test: freeze the viewmodel mid-reload
+	# Forward every registry flag that has a renderer-owned demo property (see client/qa_flags.gd) —
+	# replaces the old per-flag `_renderer.x_demo = _x_test` copy-paste block.
+	for entry: Dictionary in QaFlags.FLAGS:
+		if entry.has("renderer"):
+			_renderer.set(String(entry["renderer"]), get(String(entry["member"])))
 
 	# HUD layer
 	var hud_layer: CanvasLayer = world_node.get_node("HUD") as CanvasLayer
