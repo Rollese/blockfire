@@ -63,7 +63,7 @@ func test_impact_detonates_on_wall_contact() -> void:
 	var detonated := false
 	for _i in 15:
 		srv._step_grenades()
-		if srv._nades >= 1:
+		if srv._stats.nades >= 1:
 			detonated = true
 			break
 	assert_true(detonated, "impact grenade detonated on structure contact")
@@ -82,7 +82,7 @@ func test_frag_ignores_wall_and_waits_for_fuse() -> void:
 	# Same 15-step window: frag must NOT structure-detonate (still airborne, fuse not elapsed).
 	for _i in 15:
 		srv._step_grenades()
-	assert_eq(srv._nades, 0, "frag does not detonate on structure contact")
+	assert_eq(srv._stats.nades, 0, "frag does not detonate on structure contact")
 	assert_eq(srv._grenades.size(), 1, "frag still in flight (fuse not elapsed, airborne)")
 	srv.free()
 
@@ -108,7 +108,7 @@ func test_knife_backstab_instakills() -> void:
 	srv._resolve_melee(1)
 	assert_false(victim.alive, "rear-arc back-stab instant-killed (bypassed DBNO)")
 	assert_false(victim.is_downed, "back-stab is a clean kill, not a down")
-	assert_eq(srv._backstabs, 1, "back-stab telemetry incremented")
+	assert_eq(srv._stats.backstabs, 1, "back-stab telemetry incremented")
 	srv.free()
 
 func test_melee_cooldown_blocks_second_swing() -> void:
@@ -136,8 +136,8 @@ func test_sledge_engineer_damages_wall() -> void:
 	_client(srv, 1, Loadout.ENGINEER, Weapon.SMG)
 	var eng := _add_pawn(srv, 1, Vector3(0, 0, -0.5), 0); eng.yaw = 0.0; eng.pitch = 0.0
 	srv._resolve_melee(1)
-	assert_eq(srv._sledge_hits, 1, "engineer sledge struck the wall")
-	assert_true(srv._dmg >= 1, "structure took chunk damage")
+	assert_eq(srv._stats.sledge_hits, 1, "engineer sledge struck the wall")
+	assert_true(srv._stats.dmg >= 1, "structure took chunk damage")
 	srv.free()
 
 func test_assault_knife_does_not_demolish_wall() -> void:
@@ -146,8 +146,8 @@ func test_assault_knife_does_not_demolish_wall() -> void:
 	_client(srv, 1, Loadout.ASSAULT, Weapon.AR)
 	var atk := _add_pawn(srv, 1, Vector3(0, 0, -0.5), 0); atk.yaw = 0.0; atk.pitch = 0.0
 	srv._resolve_melee(1)   # no enemy + knife: nothing happens to the wall
-	assert_eq(srv._sledge_hits, 0, "assault has no sledge")
-	assert_eq(srv._dmg, 0, "knife does not carve a building wall")
+	assert_eq(srv._stats.sledge_hits, 0, "assault has no sledge")
+	assert_eq(srv._stats.dmg, 0, "knife does not carve a building wall")
 	srv.free()
 
 # --- Task 5: flashbang LOS-gated blind ---------------------------------------------------------
@@ -159,8 +159,8 @@ func test_flash_blinds_exposed_pawn() -> void:
 	srv._detonate({"type": Grenade.FLASHBANG, "pos": Vector3(0, 1.0, 0), "owner": 1, "team": 0})
 	assert_true(p.is_blinded(srv._sim.tick), "exposed pawn blinded by flash")
 	assert_true(p.blind_until_tick >= 100 + srv.FLASH_BLIND_TICKS - 1, "blind lasts ~FLASH_BLIND_TICKS")
-	assert_eq(srv._flashes, 1)
-	assert_eq(srv._flash_blinds, 1)
+	assert_eq(srv._stats.flashes, 1)
+	assert_eq(srv._stats.flash_blinds, 1)
 	srv.free()
 
 func test_flash_does_not_blind_through_wall() -> void:
