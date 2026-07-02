@@ -34,12 +34,15 @@ gate_wait_over() {
 gate_srvlog() { "${DC[@]}" logs server 2>/dev/null; }   # full server log to stdout
 gate_alllog() { "${DC[@]}" logs 2>/dev/null; }          # all containers (server + bots)
 
+# Field-name matches are anchored on start-of-line or a space: `destroyed=` must NOT match
+# the tail of `fobs_destroyed=` (nor struct=/rstruct=, blk=/dropblk=). The unanchored
+# versions could false-PASS a >=1 criterion off the wrong counter.
 # Scalar (possibly negative) named field from a single line: gate_field "$over" winner
-gate_field() { echo "$1" | sed -n "s/.*$2=\(-\?[0-9]*\).*/\1/p"; }
+gate_field() { echo "$1" | grep -oE "(^| )$2=-?[0-9]+" | head -1 | sed 's/.*=//'; }
 # Max float value of a repeated `name=<float>` across a multi-line blob: gate_peak "$srvlog" tick_mean
-gate_peak()  { echo "$1" | grep -oE "$2=[0-9.]+" | sed "s/$2=//" | sort -g | tail -1; }
+gate_peak()  { echo "$1" | grep -oE "(^| )$2=[0-9.]+" | sed 's/.*=//' | sort -g | tail -1; }
 # Max int value of a repeated `name=<int>` across a blob (per-window counters): gate_maxof "$srvlog" kills
-gate_maxof() { echo "$1" | grep -oE "$2=[0-9]+" | sed "s/$2=//" | sort -n | tail -1; }
+gate_maxof() { echo "$1" | grep -oE "(^| )$2=[0-9]+" | sed 's/.*=//' | sort -n | tail -1; }
 
 # The [bot-perf] line with the largest bots= count (bot-driver CPU telemetry). Empty if none.
 gate_botperf_line() { gate_alllog | grep '\[bot-perf\]' | sort -t= -k2 -n | tail -1; }

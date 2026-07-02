@@ -81,7 +81,7 @@ func _spawn_bot(index: int) -> void:
 		"last_grenade_tick": -100000, "nades_thrown": 0, "smokes_thrown": 0,
 		"flashes_thrown": 0, "impacts_thrown": 0, "last_melee_tick": -100000,
 		"class": 0, "rpg_last_tick": -100000, "c4_placed": false, "c4_detonated": false,
-		"mine_placed": false, "gave_until": 0,
+		"mine_placed": false, "gave_until": 0, "give_target": 0,
 		"vview": {}, "in_vehicle": 0, "boarded_origin": Vector3.ZERO, "repairing": false,
 		"vveh_track": {},
 		"ai": AiDriver.new(_global_seed, index, "regular"),
@@ -131,6 +131,7 @@ func _drive(bot: Dictionary, delta: float) -> void:
 		bot["has_build"] = false   # shovel-driller: drop any stale build-commit cell from the past life
 		bot["fob_drill_start"] = -1   # M12-P3: re-evaluate the FOB drill fresh on the next spawn
 		bot["cur_swap_slot"] = 0   # server resets active_slot to 0 on (re)spawn; mirror it
+		bot["give_target"] = 0   # server clears the give latch on death; mirror it
 		_send(bot, 0.0, 0.0, bot["yaw"], 0.0, 0)
 		return
 
@@ -314,7 +315,7 @@ func _drive(bot: Dictionary, delta: float) -> void:
 		_maybe_mine(bot, me, obj)
 
 	_maybe_rpg(bot, me)
-	_maybe_give(bot, me)
+	_maybe_give(bot, me, target != null)
 	_maybe_weapon_handling(bot, me)
 	_send(bot, move_x, move_y, bot["yaw"], bot["pitch"], buttons)
 
@@ -856,32 +857,46 @@ func _maybe_mine(bot: Dictionary, me: EntityState, toward: Vector3) -> void:
 		Protocol.encode_gadget_action(Protocol.GA_MINE_PLACE, place, face, 0), 0)
 	bot["mine_placed"] = true
 
-## Medic/Support: if a same-team mate within give range is hurt, aim at them and hold the active
-## give for a short window; also throw a bag the first time so the thrown-bag path is exercised.
-func _maybe_give(bot: Dictionary, me: EntityState) -> void:
+const GIVE_RANGE := 3.0
+
+## Pure give-target pick: nearest same-team mate within GIVE_RANGE that is alive,
+## not downed (revive handles those) and actually HURT. Full-HP mates return 0 —
+## the old version picked any alive mate, aim-locking medics onto healthy teammates.
+static func give_pick(view: Dictionary, my_id: int, team: int, my_pos: Vector3) -> int:
+	var best := 0
+	var best_d := GIVE_RANGE
+	for id in view:
+		if int(id) == my_id: continue
+		var e: EntityState = view[id]
+		if not e.alive or e.is_downed or e.team != team or e.health >= 100: continue
+		var d: float = my_pos.distance_to(e.pos)
+		if d <= best_d:
+			best_d = d; best = int(id)
+	return best
+
+## Medic/Support: if a same-team mate within give range is HURT (and we're not in a
+## firefight), aim at them and latch the active give; also throw a bag the first time so
+## the thrown-bag path is exercised. GIVE_START is sent once per target acquisition — the
+## server latches it (`_giving`) and raycasts our aim each tick, so per-tick re-sends were
+## pure packet spam. While `engaged`, combat keeps the aim and any latched give is stopped.
+func _maybe_give(bot: Dictionary, me: EntityState, engaged: bool) -> void:
 	if bot["class"] != Loadout.MEDIC and bot["class"] != Loadout.SUPPORT: return
 	var view: Dictionary = bot["view"]
-	var best := 0
-	var best_d := 3.0
-	for id in view:
-		if id == bot["id"]: continue
-		var e: EntityState = view[id]
-		if not e.alive or e.is_downed or e.team != me.team: continue
-		var d: float = me.pos.distance_to(e.pos)
-		if d <= best_d:
-			best_d = d; best = id
+	var best := 0 if engaged else give_pick(view, int(bot["id"]), me.team, me.pos)
 	if best == 0:
-		if int(bot["gave_until"]) != 0:
+		if int(bot.get("give_target", 0)) != 0:
 			(bot["net"] as NetHost).send_to(bot["peer"], NetHost.CHANNEL_INPUT,
 				Protocol.encode_gadget_action(Protocol.GA_GIVE_STOP, Vector3.ZERO, Vector3.ZERO, 0), 0)
-			bot["gave_until"] = 0
+			bot["give_target"] = 0
 		return
 	var tpos: Vector3 = (view[best] as EntityState).pos
 	var aim := tpos - me.pos
 	bot["yaw"] = atan2(aim.x, aim.z)
 	bot["pitch"] = clampf(asin(clampf(aim.y / maxf(aim.length(), 0.001), -1.0, 1.0)), -Pawn.MAX_PITCH, Pawn.MAX_PITCH)
-	(bot["net"] as NetHost).send_to(bot["peer"], NetHost.CHANNEL_INPUT,
-		Protocol.encode_gadget_action(Protocol.GA_GIVE_START, Vector3.ZERO, aim.normalized(), best), 0)
+	if int(bot.get("give_target", 0)) != best:
+		(bot["net"] as NetHost).send_to(bot["peer"], NetHost.CHANNEL_INPUT,
+			Protocol.encode_gadget_action(Protocol.GA_GIVE_START, Vector3.ZERO, aim.normalized(), best), 0)
+		bot["give_target"] = best
 	if int(bot["gave_until"]) == 0:
 		(bot["net"] as NetHost).send_to(bot["peer"], NetHost.CHANNEL_INPUT,
 			Protocol.encode_gadget_action(Protocol.GA_BAG_THROW, tpos, Vector3.ZERO, 0), 0)

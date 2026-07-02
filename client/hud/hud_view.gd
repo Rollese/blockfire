@@ -783,9 +783,15 @@ func _build_scoreboard() -> void:
 		vbox.add_theme_constant_override("separation", 4)
 		vbox.mouse_filter = MOUSE_FILTER_IGNORE
 		hbox.add_child(vbox)
-	# (Row Labels are created dynamically in _render_scoreboard each update — scoreboard is only
-	# shown on key-hold, not every frame, so dynamic creation here is fine.)
+	# (Row Labels are created dynamically in _render_scoreboard, but only when the scoreboard
+	# CONTENT changes — it renders every held frame, so unconditional rebuilds were ~650
+	# Control allocations + frees per frame at 128 players.)
 
+
+## Content of the last actual rebuild; deep-compared to skip render-frame rebuilds while
+## nothing changed. Starts as a sentinel no real scoreboard dict can equal, so the first
+## render always builds (an empty model dict must not match it).
+var _scoreboard_last := {"__unrendered__": true}
 
 func _render_scoreboard(sb: Dictionary) -> void:
 	if _scoreboard_root == null:
@@ -793,6 +799,9 @@ func _render_scoreboard(sb: Dictionary) -> void:
 	_scoreboard_root.visible = _scoreboard_held
 	if not _scoreboard_held:
 		return
+	if sb == _scoreboard_last:
+		return   # same content as the rows on screen — no rebuild (Dictionary == is deep)
+	_scoreboard_last = sb.duplicate(true)
 
 	# The two VBoxes are children [1] of hbox (index 0 is the backdrop, skipped; actual layout
 	# node is the CenterContainer > HBoxContainer).
@@ -810,9 +819,10 @@ func _render_scoreboard(sb: Dictionary) -> void:
 		if vbox == null:
 			continue
 
-		# Clear previous rows.
+		# Clear previous rows. Immediate free (not queue_free): rebuilds are change-driven and
+		# run from _process, and deferred frees would leave dying children visible this frame.
 		for ch in vbox.get_children():
-			ch.queue_free()
+			ch.free()
 
 		# Header: "Team 0  |  120 tickets"
 		var header := Label.new()

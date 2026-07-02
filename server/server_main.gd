@@ -804,12 +804,7 @@ func _kill_pawn(vid: int, victim: Pawn, killer_id: int, weapon_id: int, headshot
 	victim.is_downed = false
 	# Vacate any vehicle seat on death, else the per-tick seat-follow drags the pawn back to
 	# the seat after it respawns elsewhere (HQ/teammate) — trapping the player in the vehicle.
-	if victim.in_vehicle != 0:
-		var seated_veh: Vehicle = _sim.world.vehicles.get(victim.in_vehicle)
-		if seated_veh != null and victim.seat >= 0 and victim.seat < seated_veh.seats.size():
-			seated_veh.seats[victim.seat] = 0
-		victim.in_vehicle = 0
-		victim.seat = -1
+	_vacate_seat(victim)
 	if _clients[vid].get("auto_deploy", true):
 		_clients[vid]["respawn_tick"] = _sim.tick + RESPAWN_DELAY_TICKS
 	else:
@@ -1100,6 +1095,7 @@ func _handle_respawns() -> void:
 			p.landed_fall = 0.0
 			c["respawn_tick"] = 0
 			_reset_weapon_loadout(c)   # both slots full, fire-mode defaults, back on primary
+			_force_reenter(id)         # a swapper who died holding secondary respawns on primary
 			c["rockets"] = int(_gadgets.def_of_kind(Gadget.KIND_RPG)["ammo"]) if int(c["weapon"]) == Weapon.RPG else 0
 			c["dmg_ledger"] = {}
 
@@ -1412,6 +1408,7 @@ func _handle_deploy_request(peer: ENetPacketPeer, bytes: PackedByteArray) -> voi
 	p.fall_peak_y = p.pos.y
 	p.landed_fall = 0.0
 	_reset_weapon_loadout(c)   # both slots full, fire-mode defaults, back on primary
+	_force_reenter(id)         # weapon rides ENTER-only — refresh remote silhouettes after reset
 	c["rockets"] = int(_gadgets.def_of_kind(Gadget.KIND_RPG)["ammo"]) if int(c["weapon"]) == Weapon.RPG else 0   # refill rockets on (re)deploy, not just respawn (reads restored primary weapon)
 	c["respawn_tick"] = 0
 	c["dmg_ledger"] = {}
@@ -1459,6 +1456,17 @@ func _load_active_slot(c: Dictionary) -> void:
 	var slot: Dictionary = c["slots"][int(c["active_slot"])]
 	for f in _SLOT_FIELDS: c[f] = slot[f]
 
+## Drop pawn `pid` from every client's stored snapshot baselines so the next send emits a
+## fresh ENTER record for it. ENTER is the only record that carries the equipped-weapon
+## (and armor) byte, and decode_apply updates an existing view entry in place — so this is
+## how a mid-life weapon change reaches remotes that never lost interest in the pawn.
+## Cost: O(clients × MAX_HISTORY) dictionary erases; swaps are rare.
+func _force_reenter(pid: int) -> void:
+	for cid in _clients:
+		var hist: Dictionary = _clients[cid]["history"]
+		for s in hist:
+			(hist[s] as Dictionary).erase(pid)
+
 func _swap_weapon(id: int, target: int) -> void:
 	if not _clients.has(id): return
 	var c: Dictionary = _clients[id]
@@ -1469,6 +1477,7 @@ func _swap_weapon(id: int, target: int) -> void:
 	c["active_slot"] = target
 	_load_active_slot(c)               # hydrate flat fields from the target slot
 	c["swap_locked_until"] = _sim.tick + WEAPON_SWAP_TICKS
+	_force_reenter(id)                 # weapon rides ENTER-only — refresh remote silhouettes
 	_swaps += 1
 
 ## On (re)spawn/deploy: restore a fresh weapon loadout — both slots full ammo, fire-mode defaults,
@@ -2535,6 +2544,17 @@ func _sync_structure_baselines(c: Dictionary, self_pos: Vector3) -> void:
 		var bytes := Protocol.encode_structure_baseline(region, recs)
 		_net.send_to(c["peer"], NetHost.CHANNEL_CONTROL, bytes, ENetPacketPeer.FLAG_RELIABLE)
 
+## Free the pawn's vehicle seat (shared by death and disconnect). Without it a ghost
+## occupant id stays in v.seats forever — an undrivable vehicle and wrong free_seats.
+func _vacate_seat(p: Pawn) -> void:
+	if p.in_vehicle == 0:
+		return
+	var seated_veh: Vehicle = _sim.world.vehicles.get(p.in_vehicle)
+	if seated_veh != null and p.seat >= 0 and p.seat < seated_veh.seats.size():
+		seated_veh.seats[p.seat] = 0
+	p.in_vehicle = 0
+	p.seat = -1
+
 func _on_peer_disconnected(peer: ENetPacketPeer) -> void:
 	var id = _peer_to_id.get(peer, 0)
 	_peer_to_id.erase(peer)
@@ -2542,6 +2562,10 @@ func _on_peer_disconnected(peer: ENetPacketPeer) -> void:
 		var team: int = _clients[id]["team"]
 		_team_counts[team] -= 1
 		_squads.remove(id, team)
+		var pawn: Pawn = _sim.world.get_pawn(id)
+		if pawn != null:
+			_vacate_seat(pawn)
+		_transport_origin.erase(id)
 		_clients.erase(id)
 		_sim.world.despawn(id)
 		_prev_climb_vault.erase(id)

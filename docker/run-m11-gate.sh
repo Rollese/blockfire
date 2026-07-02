@@ -65,7 +65,7 @@ cap_events="$(echo "$over" | sed -n 's/.*cap_events=\([0-9]*\).*/\1/p')"
 peak_tick="$(echo "$srvlog" | grep -oE 'tick_mean=[0-9.]+' | sed 's/tick_mean=//' | sort -g | tail -1)"
 peak_agg="$(echo "$srvlog" | grep -oE 'agg=[0-9.]+' | sed 's/agg=//' | sort -g | tail -1)"
 
-maxof() { echo "$srvlog" | grep -oE "$1=[0-9]+" | sed "s/$1=//" | sort -n | tail -1; }
+maxof() { echo "$srvlog" | grep -oE "(^| )$1=[0-9]+" | sed 's/.*=//' | sort -n | tail -1; }   # anchored: destroyed= must not match fobs_destroyed=
 struct="$(maxof struct)"; dmg="$(maxof dmg)"; destroyed="$(maxof destroyed)"
 rstruct="$(maxof rstruct)"; collapsed="$(maxof collapsed)"; nades="$(maxof nades)"; rockets="$(maxof rockets)"
 errors="$(echo "$srvlog" | grep -ciE 'SCRIPT ERROR|Parse Error')"
