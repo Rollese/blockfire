@@ -31,7 +31,7 @@ The working agreement is `docs/AGENTS.md`. In short:
 - Run `godot --headless --path . --import` once after adding any `class_name` script, before tests.
 - **Do NOT pipe `godot` through `tail`/`head`** — it can hang; redirect to a file.
 - GDScript 4.6 rejects `var x := <Dictionary access>` (Variant) — annotate the type explicitly.
-- Tests live in `tests/*_test.gd` extending global `TestCase`; run `godot --headless --path . -- --test [--filter=<substr>]`. The harness fails any test that runs zero assertions — but a **runtime error mid-test does not fail it** if assertions already ran; grep the log for `SCRIPT ERROR` too.
+- Tests live in `tests/*_test.gd` extending global `TestCase`; run `godot --headless --path . -- --test [--filter=<substr>]`. The harness fails a test on: assertion failure, **zero assertions**, a **runtime SCRIPT ERROR mid-test** (opt out with `tolerate_runtime_errors()` when the error path is the point), or a test file that fails to parse. Per-test `setup()`/`teardown()` hooks and `autofree(node)` exist — use `autofree` for any Node you create.
 - `git add -A` to include Godot `.uid` sidecars. Commit trailer: co-author as the model doing the work.
 
 ## Architecture (current, 2026-07-02)
@@ -46,7 +46,7 @@ The working agreement is `docs/AGENTS.md`. In short:
 ## Perf & hosts (the short version)
 - Tick budget **33.3 ms at 128 players**; recent gates run 14–30 ms peak. `snap` (snapshot encode) is the historical hot path — `EntityState.bake()` (2026-07-01) cut encode 52%; profile `[perf]` before adding per-tick work; degradation knobs + `server/degrade.gd` exist.
 - **game2** (`ssh roland@192.168.1.166`, 14900KS) is the full-time dev/gate host — pin the server to **P-cores 0–15** (16–31 are E-cores, AGENTS.md §8). unraid (192.168.1.10) is **production — don't test there**. Client playtest hosts: desktop `.194`, laptop `.128` (agent self-screenshot host).
-- Fleet gate how-to: `cd docker && SERVER_CPUS=0,1,2,3 BOTS_CPUS=4-31 BOT_REPLICAS=16 BOT_COUNT=8 ./stress.sh` (or a milestone `run-*-gate.sh`). ≤48-bot smokes: `ci/*.sh` on any host.
+- Fleet gate how-to: `cd docker && SERVER_CPUS=0,1,2,3 BOTS_CPUS=4-31 BOT_REPLICAS=16 BOT_COUNT=8 ./stress.sh` (or a milestone `run-*-gate.sh`). ≤48-bot smokes: `ci/*.sh` on any host. `stress.sh` writes a committable verdict record to `docs/gate-evidence/` — commit it with the closing change. GitHub Actions (`.github/workflows/ci.yml`) runs unit suite + connect smoke on push/PR; the fleet gate stays manual.
 
 ## Next
 Consult **[`docs/TASKS.md`](TASKS.md)** — currently: M8-P3 config + map rotation (prerequisites cleared 2026-07-02), M7 human-playtest gate, M7.5 P3/P4, M6 wiring after M7, and the remaining deep-review batches (`docs/reviews/2026-07-02-deep-codebase-investigation.md` §"Suggested execution order").

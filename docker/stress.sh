@@ -42,6 +42,7 @@ echo "[stress] full server log saved to $(pwd)/$srvlog_file"
 echo "--- match result ---"; echo "$over"
 if [ -z "$over" ]; then
 	echo "FAIL: no winner within ${MAX_WAIT}s"; echo "$srvlog" | tail -25
+	gate_evidence "$LABEL" "FAIL" "$srvlog_file" "no winner within ${MAX_WAIT}s"
 	echo "STRESS GATE: FAIL"; exit 1
 fi
 
@@ -62,4 +63,7 @@ ok=1
 [ "${cap_events:-0}" -ge 1 ] || [ "${kills:-0}" -ge 1 ] || { echo "FAIL: match inert — no captures AND no kills"; ok=0; }
 awk "BEGIN{exit !(${peak_tick:-999} < $TICK_BUDGET_MS)}" || { echo "FAIL: peak-window tick over budget"; ok=0; }
 awk "BEGIN{exit !(${elapsed:-99999} < $TIME_LIMIT)}" || { echo "FAIL: match hit time fail-safe, not tickets"; ok=0; }
-if [ "$ok" -eq 1 ]; then echo "STRESS GATE: PASS"; exit 0; else echo "STRESS GATE: FAIL"; exit 1; fi
+verdict=$([ "$ok" -eq 1 ] && echo PASS || echo FAIL)
+gate_evidence "$LABEL" "$verdict" "$srvlog_file" \
+	"winner=${winner} elapsed=${elapsed}s peak_tick=${peak_tick}ms budget=${TICK_BUDGET_MS}ms agg=${peak_agg:-?}Mbit/s players=${players:-?} kills=${kills:-0} cap_events=${cap_events:-0} ai_us_mean=${ai_us:-?}us map=${MAP:-default}"
+echo "STRESS GATE: $verdict"; [ "$ok" -eq 1 ] && exit 0 || exit 1

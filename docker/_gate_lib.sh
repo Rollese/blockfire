@@ -46,3 +46,28 @@ gate_maxof() { echo "$1" | grep -oE "(^| )$2=[0-9]+" | sed 's/.*=//' | sort -n |
 
 # The [bot-perf] line with the largest bots= count (bot-driver CPU telemetry). Empty if none.
 gate_botperf_line() { gate_alllog | grep '\[bot-perf\]' | sort -t= -k2 -n | tail -1; }
+
+# Write a small committable evidence file: verdict + scraped numbers + srvlog sha256. The raw
+# srvlogs are gitignored (multi-MB), so this is what actually lands in git as the AGENTS §6
+# "recorded evidence" — the sha256 ties it to the exact local log it summarizes.
+# Usage: gate_evidence <label> <PASS|FAIL> <srvlog_file> "key=val key=val …"
+gate_evidence() {
+	local label="$1" verdict="$2" logfile="$3" summary="$4"
+	local root; root="$(git rev-parse --show-toplevel 2>/dev/null)" || root=".."
+	local dir="$root/docs/gate-evidence"
+	mkdir -p "$dir"
+	local out="$dir/$(date +%Y%m%d-%H%M%S)-${label}.txt"
+	{
+		echo "gate: $label"
+		echo "date: $(date -Iseconds)"
+		echo "host: $(hostname)"
+		echo "git: $(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
+		echo "verdict: $verdict"
+		echo "summary: $summary"
+		if [ -f "$logfile" ]; then
+			echo "srvlog: $(basename "$logfile")"
+			echo "srvlog_sha256: $(sha256sum "$logfile" | cut -d' ' -f1)"
+		fi
+	} > "$out"
+	echo "[gate] evidence written to $out — commit it with the closing change"
+}

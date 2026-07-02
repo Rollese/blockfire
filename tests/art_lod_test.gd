@@ -19,6 +19,7 @@ func test_tier_of_part_names() -> void:
 
 func test_apply_sets_ranges_by_tier_and_adds_proxy() -> void:
 	var soldier := CharacterKit.build()
+	autofree(soldier)
 	Lod.apply_to_character(soldier)
 	assert_true(soldier.has_node("LodProxy"), "a single proxy box is added")
 	var proxy := soldier.get_node("LodProxy") as MeshInstance3D
@@ -30,6 +31,7 @@ func test_apply_sets_ranges_by_tier_and_adds_proxy() -> void:
 
 func test_apply_is_idempotent() -> void:
 	var soldier := CharacterKit.build()
+	autofree(soldier)
 	Lod.apply_to_character(soldier)
 	Lod.apply_to_character(soldier)
 	var proxies := 0
@@ -40,6 +42,7 @@ func test_apply_is_idempotent() -> void:
 
 func test_apply_recurses_into_nested_meshes() -> void:
 	var root := Node3D.new()
+	autofree(root)
 	var mid := Node3D.new()
 	root.add_child(mid)
 	var mesh := MeshInstance3D.new()
@@ -52,6 +55,7 @@ func test_apply_recurses_into_nested_meshes() -> void:
 
 func test_active_part_count_drops_with_distance() -> void:
 	var soldier := CharacterKit.build()   # 7 parts: Legs Torso ArmL ArmR Head Helmet GunMount
+	autofree(soldier)
 	Lod.apply_to_character(soldier)
 	var near := Lod.active_part_count(soldier, 10.0)
 	var mid := Lod.active_part_count(soldier, (Lod.MID_END + Lod.FAR_BEGIN) * 0.5)
@@ -66,6 +70,7 @@ func test_128_soldiers_far_cost_is_a_small_fraction_of_near() -> void:
 	var far_total := 0
 	for _i in 128:
 		var soldier := CharacterKit.build()
+		autofree(soldier)
 		Lod.apply_to_character(soldier)
 		near_total += Lod.active_part_count(soldier, 10.0)
 		far_total += Lod.active_part_count(soldier, Lod.FAR_BEGIN + 50.0)

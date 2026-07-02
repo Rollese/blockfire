@@ -815,12 +815,13 @@ func _kill_pawn(vid: int, victim: Pawn, killer_id: int, weapon_id: int, headshot
 	# Vacate any vehicle seat on death, else the per-tick seat-follow drags the pawn back to
 	# the seat after it respawns elsewhere (HQ/teammate) — trapping the player in the vehicle.
 	_vacate_seat(victim)
-	if _clients[vid].get("auto_deploy", true):
-		_clients[vid]["respawn_tick"] = _sim.tick + RESPAWN_DELAY_TICKS
-	else:
-		# auto_deploy=false (human): returns to deploy screen, but not before a respawn cooldown
-		# (death has weight; the body stays put until they can redeploy).
-		_clients[vid]["deploy_ready_tick"] = _sim.tick + RESPAWN_DELAY_TICKS
+	if _clients.has(vid):   # pawn can outlive its client (disconnect race) — same guard as below
+		if _clients[vid].get("auto_deploy", true):
+			_clients[vid]["respawn_tick"] = _sim.tick + RESPAWN_DELAY_TICKS
+		else:
+			# auto_deploy=false (human): returns to deploy screen, but not before a respawn cooldown
+			# (death has weight; the body stays put until they can redeploy).
+			_clients[vid]["deploy_ready_tick"] = _sim.tick + RESPAWN_DELAY_TICKS
 	_conquest.register_death(victim.team)
 	_kills += 1
 	if _clients.has(vid):
@@ -1475,7 +1476,10 @@ func _load_active_slot(c: Dictionary) -> void:
 ## Cost: O(clients × MAX_HISTORY) dictionary erases; swaps are rare.
 func _force_reenter(pid: int) -> void:
 	for cid in _clients:
-		var hist: Dictionary = _clients[cid]["history"]
+		var c: Dictionary = _clients[cid]
+		if not c.has("history"):
+			continue   # no snapshot sent yet -> no baselines to erase
+		var hist: Dictionary = c["history"]
 		for s in hist:
 			(hist[s] as Dictionary).erase(pid)
 
