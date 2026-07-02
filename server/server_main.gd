@@ -804,12 +804,7 @@ func _kill_pawn(vid: int, victim: Pawn, killer_id: int, weapon_id: int, headshot
 	victim.is_downed = false
 	# Vacate any vehicle seat on death, else the per-tick seat-follow drags the pawn back to
 	# the seat after it respawns elsewhere (HQ/teammate) — trapping the player in the vehicle.
-	if victim.in_vehicle != 0:
-		var seated_veh: Vehicle = _sim.world.vehicles.get(victim.in_vehicle)
-		if seated_veh != null and victim.seat >= 0 and victim.seat < seated_veh.seats.size():
-			seated_veh.seats[victim.seat] = 0
-		victim.in_vehicle = 0
-		victim.seat = -1
+	_vacate_seat(victim)
 	if _clients[vid].get("auto_deploy", true):
 		_clients[vid]["respawn_tick"] = _sim.tick + RESPAWN_DELAY_TICKS
 	else:
@@ -2535,6 +2530,17 @@ func _sync_structure_baselines(c: Dictionary, self_pos: Vector3) -> void:
 		var bytes := Protocol.encode_structure_baseline(region, recs)
 		_net.send_to(c["peer"], NetHost.CHANNEL_CONTROL, bytes, ENetPacketPeer.FLAG_RELIABLE)
 
+## Free the pawn's vehicle seat (shared by death and disconnect). Without it a ghost
+## occupant id stays in v.seats forever — an undrivable vehicle and wrong free_seats.
+func _vacate_seat(p: Pawn) -> void:
+	if p.in_vehicle == 0:
+		return
+	var seated_veh: Vehicle = _sim.world.vehicles.get(p.in_vehicle)
+	if seated_veh != null and p.seat >= 0 and p.seat < seated_veh.seats.size():
+		seated_veh.seats[p.seat] = 0
+	p.in_vehicle = 0
+	p.seat = -1
+
 func _on_peer_disconnected(peer: ENetPacketPeer) -> void:
 	var id = _peer_to_id.get(peer, 0)
 	_peer_to_id.erase(peer)
@@ -2542,6 +2548,10 @@ func _on_peer_disconnected(peer: ENetPacketPeer) -> void:
 		var team: int = _clients[id]["team"]
 		_team_counts[team] -= 1
 		_squads.remove(id, team)
+		var pawn: Pawn = _sim.world.get_pawn(id)
+		if pawn != null:
+			_vacate_seat(pawn)
+		_transport_origin.erase(id)
 		_clients.erase(id)
 		_sim.world.despawn(id)
 		_prev_climb_vault.erase(id)
