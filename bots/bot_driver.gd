@@ -8,7 +8,7 @@ const MAP_PATH := "res://maps/conquest_proving_grounds.json"   # default; overri
 const BUILD_COOLDOWN_TICKS := 150   # match server StructureStore.BUILD_COOLDOWN_TICKS (5s)
 const BUILD_DIST := 3.0             # how far ahead (m) to drop cover; within server BUILD_RANGE
 const MAX_BOT_BUILDS := 3           # per-bot lifetime BUILD_REQUEST cap. Re-enabled (was 0) so the
-                                    # M12-P2 shovel-drillers (index % 8 == 4) can PLACE build sites and
+                                    # M12-P2 shovel-drillers (BotRoles.SHOVEL) can PLACE build sites and
                                     # the fleet gate sees built_small/built_large/bsolo/dismantled/repaired.
                                     # Normal bots only drop a side-wall while stationary (original gate
                                     # behaviour); 3 is a small cap so it does not clutter combat.
@@ -25,7 +25,7 @@ const MAX_BOT_SMOKES := 1             # per-bot lifetime SMOKE cap (exercises th
 const MAX_BOT_SPECIAL_THROWS := 3     # per-bot lifetime FLASHBANG/IMPACT cap (M5.5-P3 gate exerciser)
 const MELEE_COOLDOWN_TICKS := 24      # match server MELEE_COOLDOWN_TICKS (~0.8s)
 const SLEDGE_SEEK_RANGE := 10.0       # m — engineer sledgers steer to a structure within this range
-const MAX_VEHICLE_BOTS := 6   # crew bots per process; minority so the win-convergence holds
+const BotRolesRef := preload("res://bots/roles.gd")   # disjoint exerciser role table
 const VEHICLE_FULL_HP := 600       # transport max (v1 single vehicle type); used to detect a damaged ridden vehicle
 const VEHICLE_RPG_RANGE := 120.0   # fire an RPG at an enemy vehicle within this many metres
 const RPG_FIRE_COOLDOWN := 120     # ticks between RPG fire attempts (matches server cooldown_ticks)
@@ -161,7 +161,8 @@ func _drive(bot: Dictionary, delta: float) -> void:
 			_send(bot, sin(myaw), cos(myaw), myaw, 0.0, 0)
 			return
 
-	var is_crew := int(bot["index"]) % 5 == 1 and int(bot["index"]) < MAX_VEHICLE_BOTS * 5
+	var role: int = BotRolesRef.of(int(bot["index"]))
+	var is_crew := role == BotRolesRef.CREW
 	if is_crew:
 		if int(bot["in_vehicle"]) != 0:
 			var v: VehicleState = bot["vview"].get(bot["in_vehicle"])
@@ -214,11 +215,11 @@ func _drive(bot: Dictionary, delta: float) -> void:
 		_drive_fob_leader(bot, me)
 		return
 
-	# --- Shovel-driller logic: ~1 in 8 bots (index % 8 == 4, DISJOINT from the climb driller at
-	# %8==0) run a deterministic build/shovel drill so the fleet gate sees built_small/built_large/
-	# bsolo/dismantled/repaired. Like the climb driller it OVERRIDES movement+combat (it does NOT also
-	# run the climb drill) and fully self-sends, so it never trips the normal _maybe_build side-wall.
-	if int(bot["index"]) % 8 == 4:
+	# --- Shovel-driller logic: the BotRoles.SHOVEL cohort runs a deterministic build/shovel drill
+	# so the fleet gate sees built_small/built_large/bsolo/dismantled/repaired. Like the climb
+	# driller it OVERRIDES movement+combat and fully self-sends, so it never trips the normal
+	# _maybe_build side-wall.
+	if role == BotRolesRef.SHOVEL:
 		_drive_shovel_driller(bot, me)
 		return
 
@@ -237,9 +238,9 @@ func _drive(bot: Dictionary, delta: float) -> void:
 
 	var obj := _objective_pos(me)
 
-	# --- Driller logic: ~1 in 8 bots cycle the ladder+sandbag drill to guarantee the fleet gate
-	# sees climbs>=1 and vaults>=1 every match. Drillers override movement but keep combat buttons.
-	var is_driller := int(bot["index"]) % 8 == 0
+	# --- Driller logic: the BotRoles.CLIMB cohort cycles the ladder+sandbag drill to guarantee the
+	# fleet gate sees climbs>=1 and vaults>=1 every match. Drillers override movement but keep combat buttons.
+	var is_driller := role == BotRolesRef.CLIMB
 	var drill_geom_valid := false
 	var _drill_ladder: Dictionary = {}
 	var _drill_sandbag := Vector3.ZERO
@@ -400,14 +401,14 @@ func _maybe_build(bot: Dictionary, me: EntityState) -> void:
 	bot["last_build_tick"] = st
 	bot["builds_made"] = int(bot["builds_made"]) + 1
 
-## M12-P2 shovel-driller (index % 8 == 4): place build sites + hold BTN_SHOVEL to build them, and
+## M12-P2 shovel-driller (BotRoles.SHOVEL): place build sites + hold BTN_SHOVEL to build them, and
 ## shovel finished structures the server then auto-repairs (friendly+holed) or dismantles (enemy).
 ## Self-contained: computes move + buttons and _sends, so it never runs combat or the side-wall build.
-## A LARGE-cooperation sub-subset (index % 16 == 4) converges on ONE shared per-team heavy_barricade
+## A LARGE-cooperation sub-subset (BotRoles.large_coop) converges on ONE shared per-team heavy_barricade
 ## cell so >=2 of them build it together (built_large); a lone one there trips bsolo while it waits.
 func _drive_shovel_driller(bot: Dictionary, me: EntityState) -> void:
 	var structs: Dictionary = bot["structs"]
-	var is_large: bool = int(bot["index"]) % 16 == 4
+	var is_large: bool = BotRolesRef.large_coop(int(bot["index"]))
 
 	# 1. Pick a work target cell (Vector3i). Build sites are PRIMARY (so the structure-dense map's
 	#    finished pieces never starve the build path); shovelling a nearby finished structure (repair/
@@ -720,23 +721,24 @@ func _maybe_sledge(bot: Dictionary, me: EntityState) -> Array:
 	return [f.x, f.y]
 
 ## Exercise fire-mode cycling and secondary weapon swap for a deterministic subset of bots.
-## Fire-mode: bots where index % 5 == 0 (and not Engineer, which uses SMG that lacks BURST)
+## Fire-mode: the BotRoles.FIREMODE cohort (not Engineer, which uses SMG that lacks BURST)
 ## send MODE_BURST once per bot life (on first invocation after spawn, gated by fire_mode_set).
-## Swap: bots where index % 4 == 0 swap to secondary at server_tick % 600 == 120 and back at
+## Swap: the BotRoles.SWAP cohort swaps to secondary at server_tick % 600 == 120 and back at
 ## server_tick % 600 == 240 — guaranteed within the first ~10s of any match.
 func _maybe_weapon_handling(bot: Dictionary, me: EntityState) -> void:
 	# Reset per-life flag when bot is not alive (called only when alive, but fire_mode_set
 	# is also reset in the dead-bot branch via the respawn reset block, mirroring other flags).
-	# Fire-mode: index % 5 == 0, non-Engineer only (AR supports BURST; SMG does not).
-	if int(bot["index"]) % 5 == 0 and int(bot["class"]) != Loadout.ENGINEER:
+	# Fire-mode: the BotRoles.FIREMODE cohort, non-Engineer only (AR supports BURST; SMG does not).
+	if BotRolesRef.of(int(bot["index"])) == BotRolesRef.FIREMODE and int(bot["class"]) != Loadout.ENGINEER:
 		if not bool(bot.get("fire_mode_set", false)):
 			(bot["net"] as NetHost).send_to(bot["peer"], NetHost.CHANNEL_INPUT,
 				Protocol.encode_set_fire_mode(Weapon.MODE_BURST), 0)
 			bot["fire_mode_set"] = true
-	# Periodic secondary swap: index % 4 == 0. Transition-based (send only on a slot change) so it is
-	# robust to the bot's server_tick advancing by SNAPSHOT_STRIDE (an exact `== N` tick match would be
-	# skipped). Cycle: secondary for one ~4s quarter of a ~16s loop, primary otherwise.
-	if int(bot["index"]) % 4 == 0:
+	# Periodic secondary swap: the BotRoles.SWAP cohort — now DISJOINT from the drillers (the old
+	# %4==0 population was exactly the two driller cohorts, so no plain rifleman ever swapped and
+	# drillers kept having the shovel yanked away mid-drill). Transition-based (send only on a slot
+	# change) so it is robust to server_tick advancing by SNAPSHOT_STRIDE.
+	if BotRolesRef.of(int(bot["index"])) == BotRolesRef.SWAP:
 		var cycle: int = (int(bot["server_tick"]) / 120) % 4
 		var want_slot: int = 1 if cycle == 1 else 0
 		if want_slot != int(bot.get("cur_swap_slot", 0)):
