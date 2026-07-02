@@ -26,6 +26,15 @@ func record(server_tick: int, world: World) -> void:
 func clamped(server_tick: int) -> bool:
 	return _newest >= 0 and server_tick < _newest - MAX_REWIND
 
+func has_history() -> bool:
+	return _newest >= 0
+
+## Drop all frames. Called when recording pauses (no mounted gunner) so a later remount
+## can't rewind into seconds-stale frames — history rebuilds fresh from the remount tick.
+func clear() -> void:
+	_hist = {}
+	_newest = -1
+
 ## Returns the recorded frame {id -> state} for a tick, clamped into [now-MAX_REWIND, now].
 func rewind(server_tick: int) -> Dictionary:
 	if _newest < 0:

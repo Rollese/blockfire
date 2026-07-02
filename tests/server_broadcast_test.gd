@@ -52,3 +52,22 @@ func test_disconnect_removes_human_id() -> void:
 	assert_false(srv._human_ids.has(1), "disconnected human dropped from the fanout list")
 	assert_true(srv._human_ids.has(2), "other humans unaffected")
 	srv.free()
+
+func test_mounted_gunner_exists_gates_lag_recording() -> void:
+	# LagComp.record built ~129 dicts/tick for all pawns, but the mounted gun is the ONLY
+	# remaining rewind consumer (bullets are present-time projectiles) — record only while
+	# a live mounted-gun vehicle actually has a gunner seated.
+	var srv := _srv()
+	assert_false(srv._mounted_gunner_exists(), "no vehicles -> no recording needed")
+	var def: Dictionary = VehicleCatalog.load_file("res://data/vehicles.json").def_of(0)
+	var v: Vehicle = Vehicle.make(Vehicle.id_for(0), 0, def, 1, Vector3.ZERO)
+	srv._sim.world.vehicles[v.id] = v
+	assert_false(srv._mounted_gunner_exists(), "empty gunner seat -> no recording")
+	for seat in v.seats.size():
+		if int(v.seat_roles[seat]) == Vehicle.ROLE_GUNNER:
+			v.seats[seat] = 7
+			break
+	assert_true(srv._mounted_gunner_exists(), "seated gunner on a live mounted-gun vehicle -> record")
+	v.alive = false
+	assert_false(srv._mounted_gunner_exists(), "destroyed vehicle -> no recording")
+	srv.free()

@@ -35,3 +35,11 @@ func test_clamped_reports_horizon_hits() -> void:
 	assert_false(lc.clamped(29 - LagComp.MAX_REWIND), "edge of the rewind window not clamped")
 	assert_true(lc.clamped(29 - LagComp.MAX_REWIND - 1), "older than the window -> clamped")
 	assert_false(LagComp.new().clamped(5), "empty history never counts as clamped")
+
+func test_clear_empties_history() -> void:
+	var lc := LagComp.new()
+	lc.record(10, _world_with(1, 5.0))
+	assert_true(lc.has_history(), "recorded -> has history")
+	lc.clear()
+	assert_false(lc.has_history(), "cleared")
+	assert_true(lc.rewind(10).is_empty(), "rewind after clear returns empty frame")

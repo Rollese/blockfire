@@ -312,7 +312,13 @@ func _physics_process(delta: float) -> void:
 	_sim.step_vehicles(_build_vehicle_inputs(), _map.world_half)
 	_track_transport_distance()
 	var t_veh := Time.get_ticks_usec()
-	_lag.record(_sim.tick, _sim.world)
+	# The mounted gun is the ONLY remaining rewind consumer (bullets went present-time in
+	# M5.5-P1), so recording ~129 dicts/tick for all pawns is wasted unless a gunner is
+	# actually seated. History is cleared on pause so a remount can't rewind into stale frames.
+	if _mounted_gunner_exists():
+		_lag.record(_sim.tick, _sim.world)
+	elif _lag.has_history():
+		_lag.clear()
 	var t_lag := Time.get_ticks_usec()
 	_build_interest()
 	var t_int := Time.get_ticks_usec()
@@ -469,6 +475,18 @@ func _spawn_map_vehicles() -> void:
 ## Gunner-seat mounted gun: hit-scan from the turret muzzle along the gunner's aim, reusing the
 ## lag-comp frame + Hitbox path (FF-off, present rewind to the gunner's view tick). Rate-limited
 ## by the weapon fire_interval. v1 = anti-infantry only.
+## True while any live mounted-gun vehicle has its gunner seat occupied — gates lag-comp
+## recording (see the tick loop). Vehicle counts are tiny (~4), so this scan is cheap.
+func _mounted_gunner_exists() -> bool:
+	for vid in _sim.world.vehicles:
+		var v: Vehicle = _sim.world.vehicles[vid]
+		if not v.alive or v.mounted.is_empty():
+			continue
+		for seat in v.seats.size():
+			if int(v.seat_roles[seat]) == Vehicle.ROLE_GUNNER and int(v.seats[seat]) != 0:
+				return true
+	return false
+
 func _resolve_vehicle_fires() -> void:
 	for vid in _sim.world.vehicles:
 		var v: Vehicle = _sim.world.vehicles[vid]
