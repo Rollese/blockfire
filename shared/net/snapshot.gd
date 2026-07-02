@@ -31,10 +31,9 @@ const FLAG_ENTER := 1
 const FLAG_LEAVE := 2
 const FLAG_CHANGED := 4
 
-static func _state_byte(e: EntityState) -> int:
-	return (e.stance & 3) | ((e.lean & 3) << 2) | ((1 if e.team != 0 else 0) << 4) \
-		| ((1 if e.alive else 0) << 5) | ((1 if e.is_downed else 0) << 6) \
-		| ((1 if e.climbing else 0) << 7)
+# NOTE: the state-byte bitfield is packed in EntityState.bake() (q_state) — the ONLY packer.
+# A duplicated `_state_byte` twin used to live here; production stopped calling it when bake()
+# landed, leaving a silent-desync trap (tests exercised the dead copy). Removed 2026-07-02.
 
 static func encode(server_tick: int, seq: int, baseline_seq: int, last_input_tick: int,
 		current: Dictionary, baseline: Dictionary,
@@ -173,8 +172,11 @@ static func _encode_vehicle_recs(recs: StreamPeerBuffer, current: Dictionary, ba
 	var count := 0
 	for vid in current:
 		var cur: VehicleState = current[vid]
+		if not cur.q_baked: cur.bake()   # quantize once per fresh state (see VehicleState.bake)
 		if baseline.has(vid):
-			var mask := _veh_diff_mask(baseline[vid], cur)
+			var base: VehicleState = baseline[vid]
+			if not base.q_baked: base.bake()
+			var mask := _veh_diff_mask(base, cur)
 			if mask == 0:
 				continue
 			count += 1
@@ -188,25 +190,27 @@ static func _encode_vehicle_recs(recs: StreamPeerBuffer, current: Dictionary, ba
 			recs.put_u32(vid); recs.put_u8(FLAG_LEAVE)
 	return count
 
+# Both a and b are assumed baked (encode bakes before calling) — pure integer compares.
 static func _veh_diff_mask(a: VehicleState, b: VehicleState) -> int:
 	var m := 0
-	if Quantize.enc_pos(a.pos.x) != Quantize.enc_pos(b.pos.x): m |= VF_POS_X
-	if Quantize.enc_pos(a.pos.y) != Quantize.enc_pos(b.pos.y): m |= VF_POS_Y
-	if Quantize.enc_pos(a.pos.z) != Quantize.enc_pos(b.pos.z): m |= VF_POS_Z
-	if Quantize.enc_angle(a.heading) != Quantize.enc_angle(b.heading): m |= VF_HEADING
-	if Quantize.enc_angle(a.turret_yaw) != Quantize.enc_angle(b.turret_yaw): m |= VF_TURRET
+	if a.q_px != b.q_px: m |= VF_POS_X
+	if a.q_py != b.q_py: m |= VF_POS_Y
+	if a.q_pz != b.q_pz: m |= VF_POS_Z
+	if a.q_heading != b.q_heading: m |= VF_HEADING
+	if a.q_turret != b.q_turret: m |= VF_TURRET
 	if a.hp != b.hp: m |= VF_HP
 	if a.seats != b.seats: m |= VF_SEATS
 	if a.type != b.type: m |= VF_TYPE
 	return m
 
+# e is assumed baked (encode bakes before calling). Writes cached quantized ints directly.
 static func _put_veh_fields(buf: StreamPeerBuffer, e: VehicleState, mask: int) -> void:
 	buf.put_u8(mask)
-	if mask & VF_POS_X: buf.put_32(Quantize.enc_pos(e.pos.x))
-	if mask & VF_POS_Y: buf.put_32(Quantize.enc_pos(e.pos.y))
-	if mask & VF_POS_Z: buf.put_32(Quantize.enc_pos(e.pos.z))
-	if mask & VF_HEADING: buf.put_u16(Quantize.enc_angle(e.heading))
-	if mask & VF_TURRET:  buf.put_u16(Quantize.enc_angle(e.turret_yaw))
+	if mask & VF_POS_X: buf.put_32(e.q_px)
+	if mask & VF_POS_Y: buf.put_32(e.q_py)
+	if mask & VF_POS_Z: buf.put_32(e.q_pz)
+	if mask & VF_HEADING: buf.put_u16(e.q_heading)
+	if mask & VF_TURRET:  buf.put_u16(e.q_turret)
 	if mask & VF_HP: buf.put_u16(clampi(e.hp, 0, 65535))
 	if mask & VF_SEATS:
 		buf.put_u8(e.seats.size())
