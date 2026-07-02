@@ -43,6 +43,28 @@ func test_enumerate_lists_hq_plus_owned_points() -> void:
 	assert_true(refs.has(1), "owned point offered")
 	assert_false(refs.has(2), "non-owned point not offered")
 
+func test_high_pawn_id_squadmate_ref_does_not_alias_into_vehicle_or_fob_space() -> void:
+	# Regression (pre-M8-P3): pawn ids are monotonic and NEVER reused across disconnects, so on
+	# a persistent server they exceed 128. With the old bases (200/400/600) a mate with pawn id
+	# 200 produced ref 400 == VEHICLE_BASE — is_valid parsed it as a vehicle slot and the deploy
+	# silently failed (or hit the wrong entity). Ids up to ~39k must stay in squadmate space.
+	var m := _map()
+	var c := _conquest(-1)
+	for pid in [200, 400, 5000]:
+		var mates := [{"id": pid, "pos": Vector3(20, 0, 5), "team": 0, "alive": true, "downed": false}]
+		var ref: int = DeploySpawn.SQUADMATE_BASE + pid
+		assert_true(ref < DeploySpawn.VEHICLE_BASE, "ref for pawn id %d stays below vehicle space" % pid)
+		assert_true(DeploySpawn.is_valid(0, ref, m, c, mates), "mate with pawn id %d is spawnable" % pid)
+		var pos := DeploySpawn.resolve(0, ref, m, c, mates)
+		assert_almost_eq(pos.distance_to(Vector3(20, 0, 5)), 0.0, DeploySpawn.JITTER * sqrt(2.0) + 0.01,
+			"resolves near the mate, not a phantom vehicle/FOB")
+
+func test_ref_spaces_fit_the_u16_deploy_wire() -> void:
+	# DEPLOY_REQUEST carries the ref as u16; the top of FOB space must stay addressable.
+	assert_true(DeploySpawn.FOB_BASE > DeploySpawn.VEHICLE_BASE and DeploySpawn.VEHICLE_BASE > DeploySpawn.SQUADMATE_BASE,
+		"space ordering preserved (is_valid checks FOB, then vehicle, then squadmate)")
+	assert_true(DeploySpawn.FOB_BASE + 64 <= 0xFFFF, "FOB refs fit in u16")
+
 func test_squadmate_ref_valid_when_mate_alive_standing() -> void:
 	var m := _map()
 	var c := _conquest(-1)

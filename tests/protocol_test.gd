@@ -325,6 +325,12 @@ func test_self_state_carries_repair_heat() -> void:
 	assert_true(absf(float(d["repair_heat"]) - 0.6) <= 1.0 / 255.0, "repair_heat round-trips ~0.6")
 	assert_eq(float(d["repair_cooldown"]), 1.0, "full cooldown round-trips exactly")
 
+func test_version_bumped_for_deploy_ref_rebase() -> void:
+	# The deploy-ref spaces were re-based 2026-07-02 (SQUADMATE/VEHICLE/FOB bases moved) — a
+	# wire-MEANING change: an old build's refs would be misinterpreted, so the handshake must
+	# reject it. Policy (protocol.gd header): bump VERSION on ANY wire format/meaning change.
+	assert_true(Protocol.VERSION >= 2, "VERSION bumped past the pre-rebase value")
+
 func test_hello_carries_auto_deploy_default_true() -> void:
 	var b := Protocol.encode_hello("Bot")
 	var r := Protocol.body_reader(b)

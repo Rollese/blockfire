@@ -10,9 +10,16 @@ extends Object
 ## Position uses the same jitter as SpawnSelect to avoid stacking.
 
 const JITTER := 6.0
-const SQUADMATE_BASE := 200   # + pawn_id (1..128) -> 201..328
-const VEHICLE_BASE := 400     # + slot (vid - Vehicle.ID_BASE); kept above max squadmate ref (328)
-const FOB_BASE := 600         # + squad_id -> the squad's own FOB (kept above VEHICLE_BASE refs)
+# Ref spaces (u16 wire, DEPLOY_REQUEST). Pawn ids are MONOTONIC and never reused across
+# disconnects, so on a persistent server they exceed 128 — the old bases (200/400/600)
+# aliased a squadmate ref into vehicle space after ~200 cumulative joins. The squadmate
+# span now covers ids 1..MAX_SQUADMATE_ID (~39k joins); enumerate() skips anything above
+# rather than emit an aliased ref. Space ordering (squadmate < vehicle < FOB) is load-
+# bearing: is_valid/resolve dispatch on ordered >= checks.
+const SQUADMATE_BASE := 1000    # + pawn_id -> 1001..39999
+const VEHICLE_BASE := 40000     # + slot (vid - Vehicle.ID_BASE) -> 40000..49999
+const FOB_BASE := 50000         # + squad_id -> 50000..65535 (top of u16)
+const MAX_SQUADMATE_ID := VEHICLE_BASE - SQUADMATE_BASE - 1
 
 static func _mate_ok(m: Dictionary, team: int) -> bool:
 	return int(m.get("team", -1)) == team and bool(m.get("alive", false)) and not bool(m.get("downed", false))
@@ -36,7 +43,7 @@ static func enumerate(team: int, map: MapDef, conquest: ConquestState, squadmate
 		if int(conquest.points[i]["owner"]) == team and not conquest.point_contested_by_enemy(team, i):
 			refs.append(i + 1)
 	for m in squadmates:
-		if _mate_ok(m, team):
+		if _mate_ok(m, team) and int(m["id"]) <= MAX_SQUADMATE_ID:
 			refs.append(SQUADMATE_BASE + int(m["id"]))
 	for v in vehicles:
 		if _veh_ok(v, team):

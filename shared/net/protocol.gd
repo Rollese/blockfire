@@ -7,8 +7,16 @@ extends Object
 ##
 ## M0 covers only the connection handshake. M1 extends this with input command
 ## frames and delta-compressed snapshots (see docs/specs/wire-protocol.md).
+##
+## VERSION policy: bump on ANY wire change — format (bytes moved/added/removed) OR meaning
+## (same bytes, different interpretation, e.g. the 2026-07-02 deploy-ref re-base). The HELLO
+## handshake rejects mismatches; this is the ONLY cross-build compat mechanism. Do NOT add
+## `get_available_bytes()` trailing-field guards inside repeated records — a guard mid-record
+## sees the NEXT record's bytes and misaligns the whole packet (it is only sound at message
+## tail). History: VERSION sat at 1 through M1–M12 while the wire changed dozens of times,
+## so the check protected nothing; real from 2 onward.
 
-const VERSION := 1
+const VERSION := 2   # 2: deploy-ref space re-base (2026-07-02)
 
 enum Msg {
 	HELLO = 1,    ## client -> server: protocol version + display name
@@ -238,8 +246,11 @@ static func _get_record(r: StreamPeerBuffer) -> Dictionary:
 	var chunks := r.get_u64()
 	var building_id := r.get_u16()
 	var owner := r.get_u16()
-	var uc := r.get_u8() if r.get_available_bytes() > 0 else 0
-	var prog := r.get_u16() if r.get_available_bytes() > 0 else 0
+	# Unconditional: _put_record always writes these. The old trailing guards were unsafe
+	# here — this record repeats inside baselines, so a guard would peek the NEXT record's
+	# bytes and misalign the packet. Record layout changes require a VERSION bump instead.
+	var uc := r.get_u8()
+	var prog := r.get_u16()
 	return {"id": id, "type": type, "cell": cell, "yaw": yaw, "chunks": chunks, "building_id": building_id, "owner": owner, "under_construction": uc, "build_progress": prog}
 
 
