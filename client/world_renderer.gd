@@ -246,10 +246,12 @@ var _armor_demo_done := false
 var _entity_ap: Dictionary = {}       # id(int) -> AnimationPlayer (only when use_models)
 
 # active structure nodes: id(int) -> Node3D (StructureKit piece) — legacy per-piece path, now only
-# freed on the first batched rebuild; rendering is via _struct_batches below.
+# freed on the first batched rebuild; rendering is via _struct_groups below.
 var _struct_active: Dictionary = {}
-# Batched structure render: MultiMeshInstance3D per (piece visual key, mesh slot). Rebuilt on change.
-var _struct_batches: Array = []
+# Batched structure render: visual key -> {ids: {piece_id: true}, mmis: Array[MultiMeshInstance3D]}.
+# Persistent group state so a structure delta rebuilds ONLY the affected key's MultiMeshes —
+# a full regroup of ~8k pieces per delta was the render-side twin of the M11 encode cliff.
+var _struct_groups: Dictionary = {}
 # id(int) -> "type:bucket" key; a change means rebuild (kit geometry/tint is baked at build)
 var _struct_key_of: Dictionary = {}
 # last WorldView.structs_version() we synced; the per-frame pool walk is skipped while unchanged
@@ -2342,7 +2344,11 @@ func _sync_structure_pool(world_view: WorldView, now: float) -> void:
 	if ver == _struct_synced_ver:
 		return
 	_struct_synced_ver = ver
-	_rebuild_structure_batches(world_view.structures())
+	var dirty: Dictionary = world_view.take_struct_dirty()
+	if bool(dirty["all"]) or _struct_groups.is_empty():
+		_rebuild_structure_batches(world_view.structures())
+	else:
+		_incremental_struct_update(dirty["ids"], world_view.structures())
 
 
 ## Batched structure render (perf): all pieces sharing a visual key (piece_id + damage bucket + skirt)
@@ -2351,9 +2357,10 @@ func _sync_structure_pool(world_view: WorldView, now: float) -> void:
 ## (build/destroy/damage/collapse) — static the rest of the time. Per-piece build/destroy pops are
 ## dropped (cosmetic); destruction still reflects instantly on the next rebuild.
 func _rebuild_structure_batches(structs: Dictionary) -> void:
-	for n: Node3D in _struct_batches:
-		n.queue_free()
-	_struct_batches.clear()
+	for key: String in _struct_groups:
+		for n: Node3D in _struct_groups[key]["mmis"]:
+			n.queue_free()
+	_struct_groups.clear()
 	# Drop any legacy per-piece nodes from the old path (first rebuild after connect).
 	for id_v: Variant in _struct_active:
 		(_struct_active[id_v] as Node3D).queue_free()
@@ -2369,42 +2376,99 @@ func _rebuild_structure_batches(structs: Dictionary) -> void:
 			under[id_v] = structs[id_v]
 	_sync_buildsite_ghosts(under)
 
-	# Group piece world-transforms by visual key; track a per-building centroid for collapse rubble.
-	var groups: Dictionary = {}   # key -> {sample: rec, xforms: Array[Transform3D]}
+	# Group piece ids by visual key; track a per-building centroid for collapse rubble.
 	for id_v: Variant in structs:
 		var rec: Dictionary = structs[id_v]
 		if int(rec.get("under_construction", 0)) == 1:
 			continue   # rendered as a ghost above
 		var key: String = _struct_visual_key(rec)
-		if not groups.has(key):
-			groups[key] = {"sample": rec, "xforms": []}
-		var xf := _structure_xform(rec)
-		(groups[key]["xforms"] as Array).append(xf)
+		if not _struct_groups.has(key):
+			_struct_groups[key] = {"ids": {}, "mmis": []}
+		(_struct_groups[key]["ids"] as Dictionary)[int(id_v)] = true
+		_struct_key_of[int(id_v)] = key
 		var bid: int = int(rec.get("building_id", 0))
 		if bid != 0:
-			_building_centroid[bid] = xf.origin   # last piece's position is fine for a placeholder marker
+			_building_centroid[bid] = _structure_xform(rec).origin   # placeholder marker position
 
-	# One MultiMeshInstance3D per (visual key, mesh slot of the piece's kit node).
-	for key: String in groups:
-		var g: Dictionary = groups[key]
-		var template: Node3D = _make_structure_node(g["sample"])
-		var slots: Array = []
-		_collect_mesh_slots(template, Transform3D.IDENTITY, slots)
-		template.queue_free()   # template was never added to the tree
-		var xforms: Array = g["xforms"]
-		for slot: Dictionary in slots:
-			var mm := MultiMesh.new()
-			mm.transform_format = MultiMesh.TRANSFORM_3D
-			mm.mesh = slot["mesh"]
-			mm.instance_count = xforms.size()
-			for i in xforms.size():
-				mm.set_instance_transform(i, (xforms[i] as Transform3D) * (slot["local"] as Transform3D))
-			var mmi := MultiMeshInstance3D.new()
-			mmi.multimesh = mm
-			mmi.material_override = slot["material"]
-			mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON
-			add_child(mmi)
-			_struct_batches.append(mmi)
+	for key: String in _struct_groups:
+		_build_group_mmis(key, structs)
+
+
+## (Re)build the MultiMeshInstances of one visual-key group from its current member ids.
+## One MultiMeshInstance3D per (visual key, mesh slot of the piece's kit node).
+func _build_group_mmis(key: String, structs: Dictionary) -> void:
+	var g: Dictionary = _struct_groups[key]
+	for n: Node3D in g["mmis"]:
+		n.queue_free()
+	g["mmis"] = []
+	var ids: Dictionary = g["ids"]
+	if ids.is_empty():
+		_struct_groups.erase(key)
+		return
+	var xforms: Array = []
+	var sample: Dictionary = {}
+	for id_v: Variant in ids:
+		var rec: Dictionary = structs[id_v]
+		if sample.is_empty():
+			sample = rec
+		xforms.append(_structure_xform(rec))
+	var template: Node3D = _make_structure_node(sample)
+	var slots: Array = []
+	_collect_mesh_slots(template, Transform3D.IDENTITY, slots)
+	template.queue_free()   # template was never added to the tree
+	for slot: Dictionary in slots:
+		var mm := MultiMesh.new()
+		mm.transform_format = MultiMesh.TRANSFORM_3D
+		mm.mesh = slot["mesh"]
+		mm.instance_count = xforms.size()
+		for i in xforms.size():
+			mm.set_instance_transform(i, (xforms[i] as Transform3D) * (slot["local"] as Transform3D))
+		var mmi := MultiMeshInstance3D.new()
+		mmi.multimesh = mm
+		mmi.material_override = slot["material"]
+		mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON
+		add_child(mmi)
+		(g["mmis"] as Array).append(mmi)
+
+
+## Incremental path: a structure delta touched only `dirty_ids` — move each between its old and
+## new visual-key groups and rebuild ONLY the groups whose membership changed. Untouched groups
+## keep their MultiMesh nodes (the whole point: no full 8k-piece regroup per chunk carve).
+func _incremental_struct_update(dirty_ids: Array, structs: Dictionary) -> void:
+	var dirty_keys: Dictionary = {}
+	for id_v: Variant in dirty_ids:
+		var id := int(id_v)
+		var old_key: String = _struct_key_of.get(id, "")
+		var rec: Variant = structs.get(id)
+		var new_key := ""
+		if rec != null and int((rec as Dictionary).get("under_construction", 0)) != 1:
+			new_key = _struct_visual_key(rec)
+		if new_key == old_key:
+			continue   # same bucket (or still a ghost): transforms never change, nothing to rebuild
+		if old_key != "" and _struct_groups.has(old_key):
+			(_struct_groups[old_key]["ids"] as Dictionary).erase(id)
+			dirty_keys[old_key] = true
+		if new_key != "":
+			if not _struct_groups.has(new_key):
+				_struct_groups[new_key] = {"ids": {}, "mmis": []}
+			(_struct_groups[new_key]["ids"] as Dictionary)[id] = true
+			dirty_keys[new_key] = true
+			_struct_key_of[id] = new_key
+			var bid: int = int((rec as Dictionary).get("building_id", 0))
+			if bid != 0:
+				_building_centroid[bid] = _structure_xform(rec).origin
+		else:
+			_struct_key_of.erase(id)
+	for key: String in dirty_keys:
+		if _struct_groups.has(key):
+			_build_group_mmis(key, structs)
+	# Ghost reconcile stays a full pass — under-construction sites are few, and OP_PROGRESS
+	# (same-key above) still needs its fill re-aimed.
+	var under: Dictionary = {}
+	for id_v: Variant in structs:
+		if int((structs[id_v] as Dictionary).get("under_construction", 0)) == 1:
+			under[id_v] = structs[id_v]
+	_sync_buildsite_ghosts(under)
 
 
 ## M12-P2: reconcile the per-id build-site ghosts against the current under-construction set. A site

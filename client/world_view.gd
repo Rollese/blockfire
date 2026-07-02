@@ -12,6 +12,10 @@ var last_header: Dictionary = {}
 var _structs: Dictionary = {}
 var _structs_version: int = 0   # bumped on every structure mutation; renderer skips its O(N) pool sync when unchanged
 var _collapsed_buildings: Array = []   # M11: building_ids that COLLAPSED this window — drained by the renderer to spawn rubble
+# Dirty piece ids since the renderer last drained (incremental MultiMesh rebuild): a delta
+# dirties one id; a baseline (or anything bulk) sets `all` so the renderer does a full rebuild.
+var _struct_dirty: Dictionary = {}
+var _struct_dirty_all := false
 var _struct_fx: Array = []   # M11-P4: cosmetic destruction events {cell, yaw, kind:"destroy"|"damage"} drained by renderer
 var _roster: Array = []
 # Single-entry memo for remotes_at(): the interp clock advances at 30 Hz but callers sample
@@ -58,6 +62,7 @@ func vehicles() -> Dictionary:
 func apply_structure_baseline(bytes: PackedByteArray) -> void:
 	for rec in Protocol.decode_structure_baseline(bytes)["records"]:
 		_structs[int(rec["id"])] = rec
+	_struct_dirty_all = true
 	_structs_version += 1
 
 func apply_structure_delta(bytes: PackedByteArray) -> void:
@@ -65,6 +70,7 @@ func apply_structure_delta(bytes: PackedByteArray) -> void:
 	match int(d["op"]):
 		Protocol.OP_PLACE:
 			_structs[int(d["rec"]["id"])] = d["rec"]
+			_struct_dirty[int(d["rec"]["id"])] = true
 			_structs_version += 1
 		Protocol.OP_REMOVE:
 			var rid := int(d["id"])
@@ -74,6 +80,7 @@ func apply_structure_delta(bytes: PackedByteArray) -> void:
 				var rrec: Dictionary = _structs[rid]
 				_struct_fx.append({"cell": rrec["cell"], "yaw": int(rrec.get("yaw", 0)), "kind": "destroy"})
 				_structs.erase(rid)
+				_struct_dirty[rid] = true
 				_structs_version += 1
 		Protocol.OP_PROGRESS:
 			# M12-P2: a build site advanced its shovel progress. The wire carries only id+progress;
@@ -83,6 +90,7 @@ func apply_structure_delta(bytes: PackedByteArray) -> void:
 				var prec: Dictionary = _structs[pid]
 				if int(prec.get("build_progress", -1)) != int(d["progress"]):
 					prec["build_progress"] = int(d["progress"])
+					_struct_dirty[pid] = true
 					_structs_version += 1
 		Protocol.OP_CHUNK:
 			var cid := int(d["id"])
@@ -94,10 +102,19 @@ func apply_structure_delta(bytes: PackedByteArray) -> void:
 				if int(crec.get("chunks", -1)) != newmask:
 					crec["chunks"] = newmask
 					_struct_fx.append({"cell": crec["cell"], "yaw": int(crec.get("yaw", 0)), "kind": "damage"})
+					_struct_dirty[cid] = true
 					_structs_version += 1
 
 func structures() -> Dictionary:
 	return _structs
+
+## Drain the dirty-piece set for the incremental batch rebuild. {"all": bool, "ids": Array}.
+## `all` (baseline / first sync) means group state is unknown -> full rebuild.
+func take_struct_dirty() -> Dictionary:
+	var out := {"all": _struct_dirty_all, "ids": _struct_dirty.keys()}
+	_struct_dirty_all = false
+	_struct_dirty = {}
+	return out
 
 ## Monotonic counter incremented on every structure add/remove/damage/collapse. The renderer
 ## caches the last value it synced and skips the full pool walk while this is unchanged (the
@@ -115,6 +132,7 @@ func apply_collapse(building_id: int) -> void:
 			drop.append(id)
 	for id in drop:
 		_structs.erase(id)
+		_struct_dirty[id] = true
 	if not drop.is_empty():
 		_structs_version += 1
 	_collapsed_buildings.append(building_id)
