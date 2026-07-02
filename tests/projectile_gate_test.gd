@@ -9,6 +9,7 @@ func _make_server() -> Node:
 	# _store and _catalog are null until _ready() — build them here. Empty store => penetration skipped.
 	srv._catalog = PieceCatalog.load_file("res://pieces/pieces.json")
 	srv._store = StructureStore.new(srv._catalog)
+	srv._conquest = ConquestState.new()   # _ready() builds this from the map; kills need register_death
 	return srv
 
 func _add_pawn(srv, id: int, pos: Vector3, team: int) -> Pawn:
