@@ -132,6 +132,7 @@ func _drive(bot: Dictionary, delta: float) -> void:
 		bot["fob_drill_start"] = -1   # M12-P3: re-evaluate the FOB drill fresh on the next spawn
 		bot["cur_swap_slot"] = 0   # server resets active_slot to 0 on (re)spawn; mirror it
 		bot["give_target"] = 0   # server clears the give latch on death; mirror it
+		(bot["ai"] as AiDriver).reset()   # re-arm reaction gate, drop stale tracks/behaviour latch
 		_send(bot, 0.0, 0.0, bot["yaw"], 0.0, 0)
 		return
 

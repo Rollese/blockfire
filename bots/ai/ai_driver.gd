@@ -27,6 +27,18 @@ func _init(global_seed: int, bot_index: int, profile_name: String) -> void:
 	var t := AiTuning.load_file("res://data/ai_tuning.json")
 	_profile = t.get("profiles", {}).get(profile_name, {"reaction_delay_ticks": 9, "aim_error_deg": 3.0, "aim_settle_ticks": 6, "aggression": 1.0})
 
+## Clear per-life state. Called from the bot_driver dead branch (and on future map
+## rotation): enemies seen in a past life must re-trigger the reaction delay, stale
+## velocity tracks must not produce wild aim leads on respawn, and the behaviour
+## latch must not carry over. Humanize (seeded jitter) survives — it is per-bot, not per-life.
+func reset() -> void:
+	_perc.reset()
+	_current_behavior = ""
+	_aim_target_id = 0
+	_aim_ticks = 0
+	_world = null
+	_enemy_track = {}
+
 ## Update perception state (memory + reaction gate) from the latest snapshot view.
 ## Builds and caches the WorldModel (including metadata_hp_frac + incoming_fire).
 func observe(my_id: int, view: Dictionary, vview: Dictionary, structs: Dictionary, match_points: Array, now: int, objective_pos: Vector3 = Vector3.ZERO) -> void:

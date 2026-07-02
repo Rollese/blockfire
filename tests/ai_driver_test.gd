@@ -125,3 +125,23 @@ func test_retreat_moves_toward_cover_when_critically_hurt() -> void:
 	var intent := ai.decide()
 	assert_eq(String(intent["behavior"]), "retreat", "critical HP under heavy fire -> retreat")
 	assert_true(absf(float(intent["move_x"])) + absf(float(intent["move_y"])) > 0.0, "retreat produces movement")
+
+func test_reset_clears_per_life_state() -> void:
+	# Pre-M8-P3 regression: AI state persisted across lives (and would persist across map
+	# rotations) — enemies seen in a PAST life stayed instantly actionable (skipping the
+	# reaction gate), stale velocity tracks produced wild aim leads on respawn, and the
+	# behaviour latch carried over. reset() is called from the bot_driver dead branch.
+	var ai := AiDriver.new(42, 0, "regular")
+	var view := {1: _es(0, Vector3.ZERO), 2: _es(1, Vector3(10, 0, 0))}
+	ai.observe(1, view, {}, {}, [], 100, Vector3.ZERO)
+	ai.observe(1, view, {}, {}, [], 112, Vector3.ZERO)   # reaction gate cleared
+	var intent := ai.decide()
+	assert_eq(String(intent["behavior"]), "engage", "precondition: engaged before death")
+	assert_false(ai._enemy_track.is_empty(), "precondition: velocity track populated")
+	ai.reset()
+	assert_true(ai._enemy_track.is_empty(), "velocity tracks dropped on reset")
+	assert_eq(ai._current_behavior, "", "behaviour latch cleared")
+	# Fresh life: the same enemy must re-trigger the reaction delay, not be shot instantly.
+	ai.observe(1, view, {}, {}, [], 200, Vector3.ZERO)
+	var intent2 := ai.decide()
+	assert_false(String(intent2["behavior"]) == "engage", "reaction gate re-armed after reset")

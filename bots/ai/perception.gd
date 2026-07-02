@@ -31,6 +31,13 @@ static func infer_pressure(prev_hp: float, cur_hp: float, aimed_at: bool) -> flo
 var _first_seen: Dictionary = {}   # enemy_id -> tick first continuously seen
 var _memory: Dictionary = {}        # enemy_id -> {pos, tick} last-known
 var _last_hp: float = 100.0
+
+## Clear per-life state (see AiDriver.reset): re-arm the reaction gate, drop last-known
+## memory, and start the pressure baseline from full health for the next spawn.
+func reset() -> void:
+	_first_seen = {}
+	_memory = {}
+	_last_hp = 100.0
 ## Build the WorldModel from the snapshot view. `my_id` is this bot's pawn id.
 func build(my_id: int, view: Dictionary, _vview: Dictionary, structs: Dictionary, match_points: Array, now: int) -> WorldModel:
 	var w := WorldModel.new()
