@@ -1,7 +1,12 @@
 extends Node
-## Headless test runner. Loads tests/**/*_test.gd, runs each test_* method, prints
-## PASS/FAIL, and quits with code 0 (all pass) or 1 (any fail).
+## Headless test runner. Loads tests/**/*_test.gd, runs each test_* method via
+## TestCase.run_one (setup/teardown/autofree lifecycle + runtime-error detection via a
+## registered TestErrorTally), prints PASS/FAIL with per-test timing, and quits with
+## code 0 (all pass) or 1 (any fail). A test file that fails to parse counts as one
+## failure — previously it aborted _ready before quit() and the process hung forever.
 ## Run: godot --headless --path . -- --test [--filter=substr]
+
+const ErrorTally := preload("res://tests/error_tally.gd")   # preload: class_name needs an --import to register
 
 func _ready() -> void:
 	var filter := ""
@@ -9,11 +14,22 @@ func _ready() -> void:
 		if a.begins_with("--filter="):
 			filter = a.substr("--filter=".length())
 
+	var tally := ErrorTally.new()
+	OS.add_logger(tally)
+	var suite_t0 := Time.get_ticks_usec()
 	var total := 0
 	var failed := 0
 	for path in _discover("res://tests"):
 		var script: GDScript = load(path)
+		if script == null or not script.can_instantiate():
+			if filter == "" or path.get_file().contains(filter):
+				total += 1
+				failed += 1
+				print("  FAIL %s — file failed to parse (see SCRIPT ERROR above)" % path.get_file())
+			continue
 		var inst = script.new()
+		if inst is not TestCase:
+			continue
 		for m in inst.get_method_list():
 			var name: String = m.name
 			if not name.begins_with("test_"):
@@ -21,18 +37,15 @@ func _ready() -> void:
 			if filter != "" and not (name.contains(filter) or path.get_file().contains(filter)):
 				continue
 			total += 1
-			inst.reset()
-			inst.call(name)
-			if not inst.failures.is_empty():
+			var res: Dictionary = TestCase.run_one(inst, name, tally)
+			if res["failed"]:
 				failed += 1
-				for f in inst.failures:
-					print("  FAIL %s::%s — %s" % [path.get_file(), name, f])
-			elif inst.assertions == 0:
-				failed += 1
-				print("  FAIL %s::%s — no assertions ran (possible compile error / nonexistent call)" % [path.get_file(), name])
+				for r in res["reasons"]:
+					print("  FAIL %s::%s — %s" % [path.get_file(), name, r])
 			else:
-				print("  PASS %s::%s" % [path.get_file(), name])
-	print("TESTS: %d run, %d failed" % [total, failed])
+				print("  PASS %s::%s (%.1f ms)" % [path.get_file(), name, res["ms"]])
+	OS.remove_logger(tally)
+	print("TESTS: %d run, %d failed (%.1f s)" % [total, failed, float(Time.get_ticks_usec() - suite_t0) / 1e6])
 	get_tree().quit(1 if failed > 0 else 0)
 
 func _discover(dir_path: String) -> Array[String]:
