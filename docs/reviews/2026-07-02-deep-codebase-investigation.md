@@ -214,3 +214,13 @@ these from latent to live:
 
 Reviewed by six parallel read-only agents; consolidated by the session controller.
 Graph refreshed the same day: `graphify-out/` (4,010 nodes, 381 communities).
+
+**Execution note (2026-07-02, batch 5/D1):** stats.gd and the changed+heartbeat state
+(reliable_list.gd) were extracted, and the mirror-test class was killed by testing the real
+functions through `tests/server_fixture.gd` instead. The remaining D1 items (`fire.gd`,
+`support.gd`, `build.gd` wholesale moves) were assessed and **deliberately not done**: those
+functions have no clean seam — each touches `_clients`/`_positions`/`_sim`/stats/broadcasts,
+so a move means rewriting hundreds of accesses through a back-reference for no testability
+gain (the fixture already reaches them directly). The motivations D1 listed (counter wall,
+broadcast dedup + human cache, mirror drift) are all addressed; revisit a fire/support/build
+split only if a future feature forces those areas open anyway.
