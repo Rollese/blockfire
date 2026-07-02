@@ -224,3 +224,12 @@ so a move means rewriting hundreds of accesses through a back-reference for no t
 gain (the fixture already reaches them directly). The motivations D1 listed (counter wall,
 broadcast dedup + human cache, mirror drift) are all addressed; revisit a fire/support/build
 split only if a future feature forces those areas open anyway.
+
+**Execution note (2026-07-02, batch 5/D4):** the role-assignment table (`bots/roles.gd`,
+disjoint by construction + population tests) fixed the real bug — %4==0 (swap) was exactly
+%8==0 ∪ %8==4 (the two driller cohorts), so no plain rifleman ever exercised the swap path.
+The physical move of exerciser functions into `bots/exercisers/` was assessed and skipped for
+the same back-reference-churn reason as D1's fire/support/build. D2 (renderer) shipped as:
+dead per-piece path deleted, fx_material factory (12 sites), per-pool caps with
+oldest-eviction; the spawn/age/fade framework unification was judged not worth the visual
+risk — the age loops differ semantically per pool (velocity, fade curves, trail spawning).
