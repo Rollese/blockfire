@@ -51,3 +51,16 @@ grep -m1 '\[match\] OVER'    "$f"                                          # mat
 
 Bot-driver CPU is a separate `[bot-perf] bots=<n> ai_us_mean=<us>` line in the **bots** container
 logs (`docker compose logs bots`), not the server log.
+
+## `[degrade]` lines and the `[perf]` phase buckets
+
+- Under sustained overload the server sheds snapshot cost adaptively (`server/degrade.gd`):
+  `[degrade] level N ...` lines mark ladder transitions (level 0 = baseline behaviour; higher
+  levels stretch `SNAPSHOT_STRIDE` and shrink the enemy relevance cap). A healthy under-budget
+  run logs **zero** `[degrade]` lines. Operator knobs: `--degrade-high-ms` / `--degrade-low-ms`
+  (must satisfy low < high; inverted bands revert to defaults with a warning).
+- When the ladder trips, triage with the periodic `[perf] us/tick:` line — per-phase cost in µs:
+  `poll move veh lag interest fire ordnance support build respawn conquest match snap`
+  (`ordnance` = grenades/rockets/mines, `support` = give/repair/bags/smoke/revive/downed,
+  `build` = shovel build sites; split 2026-07-02 — older logs fold all four into `respawn`).
+  `snap` is the historical hot phase; see the M11 encode-bake note in TASKS.md before touching it.

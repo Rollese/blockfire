@@ -1,6 +1,6 @@
 # M14 — Walkable Multi-Floor Structures
 
-**Status:** implemented + unit-verified (2026-06-19) · **Branch:** `m14-walkable-multifloor` · **Spec:** [`walkable-multifloor`](../specs/walkable-multifloor.md) · **Plan:** [`2026-06-19-m14-walkable-multifloor`](../plans/2026-06-19-m14-walkable-multifloor.md)
+**Status:** implemented + unit-verified (2026-06-19), **merged to master 2026-06-21** (branch `m14-walkable-multifloor` retired); gate rows below (128-fleet re-confirm + human playtest) still unresolved · **Spec:** [`walkable-multifloor`](../specs/walkable-multifloor.md) · **Plan:** [`2026-06-19-m14-walkable-multifloor`](../plans/2026-06-19-m14-walkable-multifloor.md)
 
 ## Objective
 

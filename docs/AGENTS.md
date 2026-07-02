@@ -76,5 +76,5 @@ A milestone gate must not depend on **emergent bot AI** to *exercise* a mechanic
 
 ## Quick map
 
-- Plan of record: `~/.claude/plans/sorted-plotting-pebble.md`
-- Board: `docs/TASKS.md` · Roadmap: `docs/milestones/` · Decisions: `docs/adr/` · Specs: `docs/specs/` · Ops: `docs/runbooks/`
+- Plan of record: the milestone index in `docs/TASKS.md` (an external plan file previously named here no longer exists)
+- Board: `docs/TASKS.md` · Roadmap: `docs/milestones/` · Decisions: `docs/adr/` · Specs: `docs/specs/` · Ops: `docs/runbooks/` · Session logs: `docs/sessions/` · Reviews: `docs/reviews/` · Superpowers specs: `docs/superpowers/specs/`

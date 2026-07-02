@@ -1,6 +1,6 @@
 # M8 — Hardening & Ops
 
-**Status:** in-progress — **P1 (stress harness + runbooks) done ✅ 2026-07-01**; P2 (telemetry schema) + P3 (server ops) remain · Spec: [`docs/specs/m8-hardening-ops.md`](../specs/m8-hardening-ops.md)
+**Status:** in-progress — **P1 (stress harness + runbooks) ✅ + P2 (telemetry schema-of-record + pktloss) ✅ done 2026-07-01**; P3 remaining = **config file + map rotation only** (adaptive degradation ✅ 2026-07-01; SIGTERM graceful shutdown investigated → not feasible in pure headless GDScript, deferred). Pre-P3 hardening batch (deploy-ref re-base, protocol VERSION 2, per-life AI reset) landed 2026-07-02 · Spec: [`docs/specs/m8-hardening-ops.md`](../specs/m8-hardening-ops.md)
 
 > **P1 — one-command stress run + runbooks (satisfies the literal gate) — DONE 2026-07-01 (game2).**
 > `docker/stress.sh` (canonical operator entrypoint, built on the new shared `docker/_gate_lib.sh`

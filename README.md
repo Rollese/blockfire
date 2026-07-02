@@ -31,4 +31,4 @@ Read **`docs/AGENTS.md` first.** It is the working agreement: use the **superpow
 - Roadmap & gates: `docs/milestones/`
 - Decisions: `docs/adr/`
 - System specs: `docs/specs/`
-- Full plan of record: `~/.claude/plans/sorted-plotting-pebble.md`
+- Full plan of record: the milestone index in [`docs/TASKS.md`](docs/TASKS.md)

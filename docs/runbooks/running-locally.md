@@ -17,9 +17,13 @@ Authoritative, 30 Hz, up to 128 players. Runs until killed (Ctrl-C).
 ## Client
 
 ```
-godot --path . -- --connect=127.0.0.1 --port=27015 --name=YourName
+godot --path . -- --connect=127.0.0.1 --port=27015 --name=YourName --map=<same map as the server>
 ```
 (Add `--headless` to run a connection-only client without a window — useful for tests.)
+
+> **Pass `--map` to the client too** when the server runs a non-default map — the client builds
+> roads/props locally and desyncs visually otherwise (see `running-client.md`). Full rendered-client
+> flags, QA `--*-test` flags, and screenshot recipes: `docs/runbooks/running-client.md`.
 
 ## Bot driver
 
@@ -35,7 +39,10 @@ ci/connect_smoke_test.sh
 ```
 Starts a server, a client, and one bot; asserts the handshake completes for both. Exits non-zero on failure. Override `GODOT` or `PORT` via env vars.
 
-## Prerequisites for later milestones (not yet installed here)
+## Bigger runs
 
-- **Docker** — for the bot fleet / stress runs (M8). Not installed in the current dev box.
-- **Rust toolchain** — only if M1 profiling forces a GDExtension hot path (ADR-0001 / future ADR-0003). Not needed for M0–M3.
+- **Docker fleet / stress (installed + canonical on game2):** `cd docker && ./stress.sh` for the
+  one-command 128-bot stress run, or a per-milestone `run-*-gate.sh`. How-to + interpretation:
+  `docs/runbooks/running-a-stress-test.md`, `docs/runbooks/reading-telemetry.md`.
+- **Rust toolchain** — needed only to rebuild the M6 Opus voice GDExtension (`native/voice_opus/`);
+  the sim/netcode never required the ADR-0001 GDExtension escalation.
