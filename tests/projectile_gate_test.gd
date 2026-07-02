@@ -55,7 +55,7 @@ func test_projectile_drops_under_muzzle_line() -> void:
 	# DMR range 500 m at 400 m/s => well within TTL for many ticks; step long enough to see drop.
 	for _i in 60:
 		srv._step_projectiles()
-	assert_true(srv._dbg_last_min_y < muzzle.y, "horizontal shot dropped below muzzle line under gravity")
+	assert_true(srv._stats.dbg_last_min_y < muzzle.y, "horizontal shot dropped below muzzle line under gravity")
 	srv.free()
 
 func test_heavy_takes_less_body_damage_than_light() -> void:
