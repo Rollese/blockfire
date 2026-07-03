@@ -11,11 +11,6 @@ const MAP_PATH := "res://maps/conquest_proving_grounds.json"   # default; overri
 var _net: NetHost
 var _server_ip := "127.0.0.1"
 var _port := 27015
-# TODO(main menu, M7): currently only set via --name= CLI arg (no name-entry UI exists yet). When
-# a main menu adds one, its input filter MUST mirror Protocol.MAX_NAME_LEN /
-# Protocol._ALLOWED_NAME_SYMBOLS (shared/net/protocol.gd) — the server re-sanitizes HELLO
-# authoritatively either way, but a mismatched client-side filter means players see their typed
-# name silently mangled after connecting instead of being guided to valid input up front.
 var _player_name := "Player"
 var _peer: ENetPacketPeer
 
@@ -70,6 +65,8 @@ var _renderer: WorldRenderer
 var _hud_view: HudView
 var _deploy_menu: DeployMenu
 var _settings_menu: SettingsMenu
+var _main_menu: MainMenu    # pre-game menu (skipped when --connect or headless)
+var _skip_main_menu := false
 var _audio: AudioDirector   # M7-P2 spatial-audio orchestrator (presentation-only, AGENTS.md §7)
 const MAX_VOICES := 32      # finite concurrent voices at 128p (audio.md §10 Q1; owner-tunable)
 
@@ -175,9 +172,12 @@ var _revive_hold: float = 0.0      # seconds the interact key has been held on a
 
 # ---- configure (called by bootstrap before add_child) -----------------------
 func configure(args: Dictionary) -> void:
-	_server_ip = String(args.get("connect", _server_ip))
+	if args.has("connect"):
+		_server_ip = String(args["connect"])
+		_skip_main_menu = true
 	_port = int(args.get("port", _port))
-	_player_name = String(args.get("name", _player_name))
+	if args.has("name"):
+		_player_name = String(args["name"])
 	if args.has("deploy"):
 		_auto_deploy_ref = int(args["deploy"])
 	_novsync = args.has("novsync")
@@ -194,6 +194,15 @@ func _ready() -> void:
 	# 1. Load settings
 	_settings = ClientSettings.new()
 	_settings.load_from()
+	if not _skip_main_menu:
+		_player_name = _settings.player_name
+	InputBindings.apply(_settings)
+	VideoSettings.apply(_settings)
+	_apply_audio_settings()
+
+	# Headless / CI smoke tests skip the rendered main menu.
+	if DisplayServer.get_name() == "headless":
+		_skip_main_menu = true
 
 	# 2. Load map + initial conquest state
 	_map = MapDef.load_file(_map_path)
@@ -218,7 +227,31 @@ func _ready() -> void:
 	_input_ctrl = InputController.new()
 	add_child(_input_ctrl)
 
-	# 5. Network
+	# 5. Pre-game main menu or immediate connect (--connect / headless).
+	if _skip_main_menu:
+		_start_connection()
+	else:
+		_show_main_menu()
+
+func _show_main_menu() -> void:
+	_main_menu = MainMenu.new()
+	add_child(_main_menu)
+	_main_menu.configure(_settings, _server_ip, _port)
+	_main_menu.connect_requested.connect(_on_main_menu_connect)
+	_main_menu.quit_requested.connect(func(): get_tree().quit())
+
+func _on_main_menu_connect(ip: String, port: int, player_name: String) -> void:
+	_server_ip = ip
+	_port = port
+	_player_name = player_name
+	if _main_menu != null:
+		_main_menu.queue_free()
+		_main_menu = null
+	_start_connection()
+
+func _start_connection() -> void:
+	if _net != null:
+		return
 	_net = NetHost.new()
 	add_child(_net)
 	_net.peer_connected.connect(_on_connected)
@@ -226,12 +259,15 @@ func _ready() -> void:
 	_peer = _net.start_client(_server_ip, _port)
 	if _peer == null:
 		push_error("[client] failed to create ENet host")
+		if _main_menu != null:
+			_main_menu.set_connect_error("Failed to create network client.")
 		return
 	print("[client] connecting to %s:%d ..." % [_server_ip, _port])
 
 # ---- physics tick -----------------------------------------------------------
 func _physics_process(delta: float) -> void:
-	_net.poll()
+	if _net != null:
+		_net.poll()
 	_elapsed += delta
 
 	if my_id == 0:
@@ -1226,7 +1262,7 @@ func _build_scene() -> void:
 	_audio = AudioDirector.new()
 	_audio.setup(_acat, MAX_VOICES)
 	world_node.add_child(_audio)
-	_apply_master_volume()
+	_apply_audio_settings()
 	# Route renderer footsteps (local + visible remotes) to the spatial audio bus.
 	_renderer.footstep.connect(_on_footstep)
 	# Route bullet impacts (real IMPACT_FX + the --impact-test demo) to a spatial thud.
@@ -1266,7 +1302,8 @@ func _send_deploy_request(spawn_ref: int) -> void:
 func _on_settings_applied(new_settings: ClientSettings) -> void:
 	_settings = new_settings
 	# sensitivity and fov are read each frame from _settings — already live
-	_apply_master_volume()   # master volume slider now drives the audio Master bus
+	_apply_audio_settings()
+	VideoSettings.apply(_settings)
 
 ## A footfall fired by the renderer (local pawn or a visible remote) -> spatial footstep sound.
 ## Presentation-only (AGENTS.md §7); the AudioDirector handles distance falloff + voice priority.
@@ -1284,10 +1321,21 @@ func _on_impact(world_pos: Vector3, kind: int) -> void:
 		_audio.play_at(snd, world_pos)
 
 ## Drive the audio Master bus from the (previously inert) master_volume setting.
-func _apply_master_volume() -> void:
-	var v: float = clampf(_settings.master_volume, 0.0, 1.0)
-	AudioServer.set_bus_volume_db(0, linear_to_db(maxf(v, 0.0001)))
-	AudioServer.set_bus_mute(0, v <= 0.0)
+func _apply_audio_settings() -> void:
+	if _settings == null:
+		return
+	var master: float = clampf(_settings.master_volume, 0.0, 1.0)
+	AudioServer.set_bus_volume_db(0, linear_to_db(maxf(master, 0.0001)))
+	AudioServer.set_bus_mute(0, master <= 0.0)
+	var voice_idx := AudioServer.get_bus_index("Voice")
+	if voice_idx >= 0:
+		var voice: float = clampf(_settings.voice_volume, 0.0, 1.0)
+		AudioServer.set_bus_volume_db(voice_idx, linear_to_db(maxf(voice, 0.0001)))
+		AudioServer.set_bus_mute(voice_idx, voice <= 0.0)
+	if _settings.output_device != "":
+		AudioServer.output_device = _settings.output_device
+	if _settings.input_device != "":
+		AudioServer.input_device = _settings.input_device
 
 # ---- helpers ----------------------------------------------------------------
 func _objectives() -> Array:
