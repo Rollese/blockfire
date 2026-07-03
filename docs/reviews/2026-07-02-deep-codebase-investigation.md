@@ -222,14 +222,17 @@ functions through `tests/server_fixture.gd` instead. The remaining D1 items (`fi
 functions have no clean seam — each touches `_clients`/`_positions`/`_sim`/stats/broadcasts,
 so a move means rewriting hundreds of accesses through a back-reference for no testability
 gain (the fixture already reaches them directly). The motivations D1 listed (counter wall,
-broadcast dedup + human cache, mirror drift) are all addressed; revisit a fire/support/build
-split only if a future feature forces those areas open anyway.
+broadcast dedup + human cache, mirror drift) are all addressed. **Superseded 2026-07-03:**
+the owner requested the full physical split anyway — `server/fire.gd` / `support.gd` /
+`build.gd` now exist (back-ref pattern, server_main 2604→1743 lines).
 
 **Execution note (2026-07-02, batch 5/D4):** the role-assignment table (`bots/roles.gd`,
 disjoint by construction + population tests) fixed the real bug — %4==0 (swap) was exactly
 %8==0 ∪ %8==4 (the two driller cohorts), so no plain rifleman ever exercised the swap path.
-The physical move of exerciser functions into `bots/exercisers/` was assessed and skipped for
-the same back-reference-churn reason as D1's fire/support/build. D2 (renderer) shipped as:
-dead per-piece path deleted, fx_material factory (12 sites), per-pool caps with
-oldest-eviction; the spawn/age/fade framework unification was judged not worth the visual
-risk — the age loops differ semantically per pool (velocity, fade curves, trail spawning).
+The physical move of exerciser functions was initially skipped, then completed on owner
+request 2026-07-03: `bots/exercisers.gd` (driver 987→394 lines). D2 (renderer) likewise
+completed in two passes: dead per-piece path deleted + fx_material factory + per-pool caps
+(2026-07-02), then the pools/spawn/age physically moved to `client/fx_pool.gd` as a mounted
+child node with thin public delegates on the renderer (2026-07-03, world_renderer 3031→2691).
+Every stage: suite green, smokes PASS, Xvfb screenshot for renderer changes, and a 128-bot
+stress gate over the final state (evidence in `docs/gate-evidence/`).
