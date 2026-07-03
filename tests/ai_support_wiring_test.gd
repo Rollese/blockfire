@@ -116,7 +116,28 @@ func test_avoid_danger_flees_and_never_fires() -> void:
 	var intent := ai.decide()
 	assert_eq(String(intent["behavior"]), "avoid_danger", "grenade underfoot overrides engage")
 	assert_true(float(intent["move_x"]) < -0.5, "flees away from the grenade (-x)")
-	assert_eq(int(intent["buttons"]), 0, "never fires while fleeing")
+	assert_true(int(intent["buttons"]) & InputCommand.BTN_FIRE == 0, "never fires while fleeing")
+	assert_true(int(intent["buttons"]) & InputCommand.BTN_SPRINT != 0, "sprints to clear the blast radius in time")
+
+func test_far_danger_zone_does_not_defeat_decide_cadence() -> void:
+	# Review fix: GADGET_LIST is global/un-culled, so ONE enemy mine anywhere on the map puts
+	# a zone in every bot's world — a bare is_empty() pre-empt would kill the AI_TICK_EVERY
+	# stride fleet-wide (~3x decision cost at 128 bots). Only being INSIDE a zone pre-empts.
+	var ai := AiDriver.new(42, 0, "regular")
+	var far := [{"pos": Vector3(100, 0, 0), "tick": 100}]   # zone exists, bot nowhere near it
+	ai.observe(1, {1: _es(0, Vector3.ZERO)}, {}, {}, [], 100, Vector3(0, 0, 100), [], {}, [], far)
+	assert_eq(String(ai.decide()["behavior"]), "push_obj", "refresh tick: push_obj cached")
+	# Tick 101: massive health drop — a full re-score would flip the behaviour right now.
+	ai.observe(1, {1: _es(0, Vector3.ZERO, true, false, 20)}, {}, {}, [], 101, Vector3(0, 0, 100), [], {}, [], far)
+	assert_eq(String(ai.decide()["behavior"]), "push_obj", "far zone leaves the cadence intact")
+
+func test_zone_at_feet_still_preempts_cadence() -> void:
+	var ai := AiDriver.new(42, 0, "regular")
+	ai.observe(1, {1: _es(0, Vector3.ZERO)}, {}, {}, [], 100, Vector3(0, 0, 100))
+	assert_eq(String(ai.decide()["behavior"]), "push_obj", "precondition: push_obj cached at tick 100")
+	var near := [{"pos": Vector3(2, 0, 0), "tick": 101}]   # inside GRENADE_DANGER_RADIUS
+	ai.observe(1, {1: _es(0, Vector3.ZERO)}, {}, {}, [], 101, Vector3(0, 0, 100), [], {}, [], near)
+	assert_eq(String(ai.decide()["behavior"]), "avoid_danger", "in-zone danger still pre-empts, no stride wait")
 
 # --- bot_driver._on_packet mirrors ------------------------------------------
 

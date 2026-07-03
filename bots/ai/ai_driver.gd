@@ -99,10 +99,14 @@ func decide() -> Dictionary:
 		return default_intent
 	var tgt := AiCombat.pick_target(w, _aim_target_id)
 	# M7.5-P3 (§E) AI_TICK_EVERY cadence: full behaviour re-scoring runs only every 3rd tick.
-	# Danger pre-empts the stride (a grenade at your feet can't wait 2 ticks). Between
-	# refreshes the cached behaviour's movement/aim block below still executes every call,
-	# so aim tracking stays smooth. observe() remains per-tick (memory/pressure decay).
-	if _now - _last_decide_tick >= AI_TICK_EVERY or not w.danger_zones.is_empty() or _current_behavior == "":
+	# Danger pre-empts the stride (a grenade at your feet can't wait 2 ticks) — but only when
+	# the bot is actually INSIDE a zone (same in-zone test Utility.score uses): GADGET_LIST is
+	# global/un-culled, so one enemy mine anywhere on the map puts a zone in EVERY bot's world
+	# and a bare is_empty() check would defeat the stride fleet-wide (~3x decision cost).
+	# Between refreshes the cached behaviour's movement/aim block below still executes every
+	# call, so aim tracking stays smooth. observe() remains per-tick (memory/pressure decay).
+	var in_danger := not w.danger_zones.is_empty() and not AiSupport.flee_vector(w.me_pos, w.danger_zones).is_zero_approx()
+	if _now - _last_decide_tick >= AI_TICK_EVERY or in_danger or _current_behavior == "":
 		_last_decide_tick = _now
 		var scores := Utility.score(w, float(_profile.get("aggression", 1.0)), _weights)
 		var behavior := Utility.choose(scores, _current_behavior, Utility.HYSTERESIS_BONUS)
@@ -222,11 +226,13 @@ func decide() -> Dictionary:
 		"avoid_danger":
 			# M7.5-P3: sprint out of the grenade/mine zone along the pure flee vector.
 			# move axes are world-space XZ (Pawn.step applies them unrotated), so the
-			# flee vector maps directly. buttons stay 0 — never fire while fleeing.
+			# flee vector maps directly. BTN_SPRINT so the bot clears the 8m grenade
+			# radius inside the fuse window; never BTN_FIRE while fleeing.
 			var flee := AiSupport.flee_vector(w.me_pos, w.danger_zones)
 			intent["move_x"] = flee.x; intent["move_y"] = flee.z
 			if flee != Vector3.ZERO:
 				intent["yaw"] = atan2(flee.x, flee.z)
+				intent["buttons"] = InputCommand.BTN_SPRINT
 		_:   # push_obj / default: march to the objective on this bot's lateral lane (batch 6
 			# spread: a squad advances as a line abreast, converging inside the capture zone)
 			var march := AiObjective.spread_march_target(me.pos, _objective, _bot_index)

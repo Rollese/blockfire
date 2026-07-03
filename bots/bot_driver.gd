@@ -320,6 +320,9 @@ func _drive(bot: Dictionary, delta: float) -> void:
 		var want_fire: bool = (int(intent["buttons"]) & InputCommand.BTN_FIRE) != 0
 		var cb := AiCombat.combat_button(want_fire, bot["server_tick"], bot["reload_until"], bot["burst_start"])
 		buttons |= int(cb[0])
+		# Forward the intent's non-fire buttons (e.g. avoid_danger's BTN_SPRINT) — FIRE stays
+		# under combat_button's burst/reload cadence above and is masked out here.
+		buttons |= int(intent["buttons"]) & ~InputCommand.BTN_FIRE
 		bot["reload_until"] = cb[1]
 		bot["burst_start"] = cb[2]
 		if int(intent["stance"]) == Stance.CROUCH:
