@@ -108,9 +108,9 @@ func test_medic_revive_threshold_is_half() -> void:
 ## Drive the REAL latched-revive loop: REVIVE_ACTION latches _reviving[reviver]=target, then
 ## _step_revives accumulates and completes.
 func _drive_revive(srv, reviver_id: int, target_id: int, ticks: int) -> void:
-	srv._reviving[reviver_id] = target_id
+	srv._support.reviving[reviver_id] = target_id
 	for _i in ticks:
-		srv._step_revives()
+		srv._support.step_revives()
 
 
 func test_revive_completes_and_restores_after_threshold() -> void:
@@ -147,7 +147,7 @@ func test_revive_blocked_when_not_teammate() -> void:
 	downed.pos = Vector3(1.0, 0.0, 0.0)
 	_drive_revive(srv, 1, 2, Revive.REVIVE_TICKS * 2)
 	assert_true(downed.is_downed, "enemy cannot revive — stays downed")
-	assert_false(srv._reviving.has(1), "impossible revive latch is dropped")
+	assert_false(srv._support.reviving.has(1), "impossible revive latch is dropped")
 
 
 func test_revive_blocked_when_out_of_range() -> void:
@@ -158,7 +158,7 @@ func test_revive_blocked_when_out_of_range() -> void:
 	downed.pos = Vector3(0.0, 0.0, Revive.REVIVE_RANGE + 1.0)
 	_drive_revive(srv, 1, 2, Revive.REVIVE_TICKS * 2)
 	assert_true(downed.is_downed, "out-of-range reviver makes no progress")
-	assert_true(srv._reviving.has(1), "transient out-of-range HOLDS the latch (no progress, no drop)")
+	assert_true(srv._support.reviving.has(1), "transient out-of-range HOLDS the latch (no progress, no drop)")
 
 
 func test_destroy_vehicle_kills_standing_and_downed_occupants() -> void:

@@ -6,6 +6,7 @@ extends Node
 const Protocol := preload("res://shared/net/protocol.gd")
 const ServerStats := preload("res://server/stats.gd")   # preload: class_name needs an --import to register
 const ServerFire := preload("res://server/fire.gd")
+const ServerSupport := preload("res://server/support.gd")
 const ReliableList := preload("res://server/reliable_list.gd")
 
 const TICK_RATE := 30
@@ -108,11 +109,9 @@ var _human_ids: Array = []
 var _positions := {}               # id -> Vector3, rebuilt each tick before fires
 var _prev_climb_vault: Dictionary = {}   # id -> int bitmask: bit0=climbing, bit1=vaulting (edge counting)
 
-var _reviving := {}            # reviver_id -> target_id, set per tick by REVIVE_ACTION(active)
-var _revive_ticks := {}        # target_id -> accumulated revive ticks
-var _being_revived := {}       # target_id -> reviver_id, this tick (drives the downed "being revived" UI)
 var _stats := ServerStats.new()   # the [telemetry] counter wall — see server/stats.gd
 var _fire := ServerFire.new(self)  # bullet pipeline + live projectile pool — see server/fire.gd
+var _support := ServerSupport.new(self)  # revive/give/repair/downed latches + steps — see server/support.gd
 
 var _roster_tick := 0
 var _gadget_rl := ReliableList.new()   # GADGET_LIST changed+heartbeat state (server/reliable_list.gd)
@@ -127,14 +126,9 @@ var _buildings_to_cascade := {}    # building_id -> true; resolved at end of tic
 var _grenades: Array = []     # [{owner, team, type, pos, vel, detonate_tick}] — server-side, not replicated
 var _rockets: Array = []      # [{owner, team, pos, vel}] — server-side, not replicated
 var _mines: Array = []        # [{owner, team, pos, facing, armed_after_tick}]
-var _giving: Dictionary = {}   # giver_id -> tick the give began (latched; cleared on STOP/invalid)
-var _support_links_this_tick: Array = []   # [{giver, target, kind}] the give/repair/revive steps actually acted on
 var _support_rl := ReliableList.new()  # SUPPORT_LIST
 var _downed_rl := ReliableList.new()   # DOWNED_LIST
 var _fob_rl := ReliableList.new()      # FOB_LIST ({team: pkt} payload)
-var _repairing := {}        # engineer_id -> true (latched)
-var _repair_heat := {}      # engineer_id -> int
-var _repair_cd := {}        # engineer_id -> cooldown_until tick
 var _bags: Array = []          # [{owner, team, kind, pos, pool}]
 var _c4: Dictionary = {}      # owner_id -> Array of {pos, cell:Vector3i}
 var _smoke_zones: Array = []  # [{pos, radius, expire_tick}] — server-side; M7 LOS culling consumes
@@ -273,13 +267,13 @@ func _physics_process(delta: float) -> void:
 	_step_rockets()
 	_step_mines()
 	var t_ord := Time.get_ticks_usec()
-	_support_links_this_tick.clear()   # rebuilt by the give/repair/revive steps below for SUPPORT_LIST
-	_step_active_give()
-	_step_repairs()
+	_support.links_this_tick.clear()   # rebuilt by the give/repair/revive steps below for SUPPORT_LIST
+	_support.step_active_give()
+	_support.step_repairs()
 	_step_bags()
 	_expire_smoke_zones()
-	_step_revives()
-	_step_downed()
+	_support.step_revives()
+	_support.step_downed()
 	var t_supp := Time.get_ticks_usec()
 	# Build sites moved below the support steps for profiler-bucket contiguity — safe: none of
 	# give/repairs/bags/smoke/revives/downed read the structure store, and cascades/deltas run later.
@@ -462,9 +456,6 @@ func _broadcast_impact_fx(pos: Vector3, kind: int) -> void:
 	_broadcast_humans(NetHost.CHANNEL_SNAPSHOT, Protocol.encode_impact_fx(pos, kind))
 
 
-func _is_medic(id: int) -> bool:
-	return _clients.has(id) and int(_clients[id]["class"]) == Loadout.MEDIC
-
 func _down_pawn(victim: Pawn) -> void:
 	victim.is_downed = true
 	victim.bleed_health = 0
@@ -574,181 +565,6 @@ func _apply_pawn_damage(vid: int, victim: Pawn, dmg: int, headshot: bool, source
 			_clients[vid]["downed_by_dist"] = victim.pos.distance_to(dk.pos) if dk != null else 0.0
 		_down_pawn(victim)
 
-func _complete_revive(target_id: int) -> void:
-	var p: Pawn = _sim.world.get_pawn(target_id)
-	if p == null: return
-	p.is_downed = false
-	p.health = Revive.REVIVE_HP
-	p.bleed_health = 0
-	p.bleed_halted = false
-	# Fresh start after a revive: clear the damage ledger so a later death's recap reflects the
-	# lethal sequence (~one health bar), not damage accumulated across the whole life.
-	if _clients.has(target_id):
-		_clients[target_id]["dmg_ledger"] = {}
-		for k in ["downed_by", "downed_by_weapon", "downed_by_hp", "downed_by_dist"]:
-			_clients[target_id].erase(k)
-	_stats.revives += 1
-	# No ticket refund needed — DOWNED never spent one.
-
-## Accumulate revive progress for downed teammates being held by an in-range, alive reviver.
-## Revive intent is LATCHED — set by REVIVE_ACTION(active) and held in `_reviving` across ticks
-## until the revive ends — so a per-tick REVIVE_ACTION packet dropped under fleet input-starvation
-## does NOT reset progress. Validity is re-checked each tick against authoritative state, so only the
-## reviver actually leaving range interrupts the hold; the latch is dropped when the revive is over.
-func _step_revives() -> void:
-	var active_targets := {}   # target_id -> reviver_id (one reviver advances a target per tick)
-	var done: Array = []       # latched intents to drop: revive ended or can never succeed
-	for reviver_id in _reviving:
-		var target_id: int = _reviving[reviver_id]
-		var rp: Pawn = _sim.world.get_pawn(reviver_id)
-		var tp: Pawn = _sim.world.get_pawn(target_id)
-		if tp == null or not tp.is_downed: done.append(reviver_id); continue          # target resolved
-		if rp == null or not rp.alive or rp.is_downed: done.append(reviver_id); continue  # reviver can't
-		if tp.team != rp.team: done.append(reviver_id); continue                       # enemy can't revive
-		if rp.pos.distance_to(tp.pos) > Revive.REVIVE_RANGE: continue                  # transient: hold latch, no progress
-		active_targets[target_id] = reviver_id
-	_being_revived = active_targets   # expose to the SELF_STATE send so the downed player sees it
-	# Drop accumulated progress for downed targets with no in-range reviver this tick.
-	for t in _revive_ticks.keys():
-		if not active_targets.has(t):
-			_revive_ticks.erase(t)
-	# Advance + complete.
-	for target_id in active_targets:
-		var reviver_id: int = active_targets[target_id]
-		_support_links_this_tick.append({"giver": reviver_id, "target": target_id, "kind": SupportLinks.REVIVE})
-		_revive_ticks[target_id] = int(_revive_ticks.get(target_id, 0)) + 1
-		if _revive_ticks[target_id] >= Revive.revive_ticks(_is_medic(reviver_id)):
-			_complete_revive(target_id)
-			_revive_ticks.erase(target_id)
-			done.append(reviver_id)
-	for rid in done:
-		_reviving.erase(rid)
-
-## RMB active give: each held giver raycasts from its aim at one teammate in range and heals
-## (medic) or resupplies (support) at the active rate. Latched like revive — held in _giving until
-## GA_GIVE_STOP or invalidation.
-func _step_active_give() -> void:
-	if _giving.is_empty():
-		return
-	var done: Array = []
-	for gid in _giving:
-		var giver: Pawn = _sim.world.get_pawn(gid)
-		if giver == null or not giver.alive or giver.is_downed: done.append(gid); continue
-		var kind := _giver_kind(int(_clients[gid]["class"]))
-		if kind == -1: done.append(gid); continue
-		var gdef: Dictionary = _gadgets.def_of_kind(kind)
-		var aim := Combat._forward(giver.yaw, giver.pitch)
-		var rng := float(gdef["give_range"])
-		# Find the nearest in-range teammate on the aim ray.
-		var target := 0
-		var best := INF
-		for tid in _sim.world.pawns:
-			if tid == gid: continue
-			var t: Pawn = _sim.world.pawns[tid]
-			# Downed teammates are handled by revive (P1), not give/resupply — skip them.
-			if not t.alive or t.is_downed or t.team != giver.team: continue
-			var d2 := giver.pos.distance_to(t.pos)
-			if d2 <= rng and d2 < best and Gadget.give_hits(giver.eye_position(), aim, t.pos, t.stance, rng):
-				best = d2; target = tid
-		if target == 0: continue   # nothing to give to this tick; keep the latch
-		if kind == Gadget.KIND_HEAL:
-			_give_heal(target, int(gdef["active_rate"]))
-			_support_links_this_tick.append({"giver": gid, "target": target, "kind": SupportLinks.HEAL})
-		else:
-			_give_ammo(target, int(gdef["active_rate"]))
-			_support_links_this_tick.append({"giver": gid, "target": target, "kind": SupportLinks.AMMO})
-	for gid in done:
-		_giving.erase(gid)
-
-## Latched repair (like active-give): each held engineer near a friendly damaged vehicle restores
-## REPAIR_RATE/tick. Unlimited but overheat-gated (no pool). See docs/specs/vehicles.md §6.
-func _step_repairs() -> void:
-	if _repairing.is_empty():
-		return
-	var rdef: Dictionary = _gadgets.def_of_kind(Gadget.KIND_REPAIR)
-	var rate := int(rdef["rate"]); var rng := float(rdef["range"])
-	var overheat := int(rdef["overheat_ticks"]); var cool := int(rdef["cooldown_ticks"])
-	var done: Array = []
-	for eid in _repairing:
-		var ep: Pawn = _sim.world.get_pawn(eid)
-		if ep == null or not ep.alive or ep.is_downed:
-			done.append(eid); continue
-		var v := _nearest_friendly_damaged_vehicle(ep, rng)
-		var want := v != null
-		var st := Gadget.repair_heat_step(int(_repair_heat.get(eid, 0)), int(_repair_cd.get(eid, 0)),
-			_sim.tick, want, overheat, cool)
-		_repair_heat[eid] = int(st["heat"]); _repair_cd[eid] = int(st["cooldown_until"])
-		if int(st["cooldown_until"]) > 0 and want:
-			_stats.repair_overheats += 1
-		if bool(st["repairing"]) and v != null:
-			var before := v.hp
-			v.hp = mini(v.max_hp, v.hp + rate)
-			_stats.repairs += v.hp - before
-			_support_links_this_tick.append({"giver": eid, "target": v.id, "kind": SupportLinks.REPAIR})
-	for eid in done:
-		_repairing.erase(eid)
-
-## Owner-facing repair-tool gauge fractions for pawn `id`: (heat 0..1 toward overheat, cooldown 0..1
-## of the lockout remaining). Zero for non-engineers / not repairing (early-out skips the def lookup
-## for the ~127 clients who aren't repairing). Feeds encode_self_state → M7 HUD heat gauge.
-func _repair_gauge_for(id: int) -> Vector2:
-	var raw_heat := int(_repair_heat.get(id, 0))
-	var cd_ticks := maxi(0, int(_repair_cd.get(id, 0)) - _sim.tick)
-	if raw_heat <= 0 and cd_ticks <= 0:
-		return Vector2.ZERO
-	var rdef: Dictionary = _gadgets.def_of_kind(Gadget.KIND_REPAIR)
-	var overheat := maxi(1, int(rdef["overheat_ticks"]))
-	var cool := maxi(1, int(rdef["cooldown_ticks"]))
-	return Vector2(clampf(float(raw_heat) / float(overheat), 0.0, 1.0), clampf(float(cd_ticks) / float(cool), 0.0, 1.0))
-
-func _nearest_friendly_damaged_vehicle(ep: Pawn, rng: float) -> Vehicle:
-	var best: Vehicle = null
-	var bestd := rng
-	for vid in _sim.world.vehicles:
-		var v: Vehicle = _sim.world.vehicles[vid]
-		if not v.alive or v.team != ep.team or v.hp >= v.max_hp: continue
-		var d := ep.pos.distance_to(v.pos)
-		if d <= bestd:
-			bestd = d; best = v
-	return best
-
-## Heals target by `rate` HP, capped at 100. No-op if dead or already full.
-func _give_heal(target_id: int, rate: int) -> void:
-	var t: Pawn = _sim.world.get_pawn(target_id)
-	if t == null or not t.alive or t.health >= 100: return
-	t.health = mini(100, t.health + rate)
-	_stats.heals += 1
-
-## Ammo give at 1 mag per `period` ticks (active_rate is the period). Refills ammo + a bandage.
-func _give_ammo(target_id: int, period: int) -> void:
-	if period <= 0 or _sim.tick % period != 0: return
-	if not _clients.has(target_id): return
-	var tc = _clients[target_id]
-	var cap: int = int(Weapon.get_def(int(tc["weapon"]))["mag_size"])
-	if int(tc["ammo"]) >= cap and _pawn_bandages_full(target_id): return
-	tc["ammo"] = cap
-	var tp: Pawn = _sim.world.get_pawn(target_id)
-	if tp != null:
-		tp.bandage_count = Revive.bandage_count_for(_is_medic(target_id))
-	_stats.ammo_gives += 1
-
-func _pawn_bandages_full(id: int) -> bool:
-	var p: Pawn = _sim.world.get_pawn(id)
-	return p != null and p.bandage_count >= Revive.bandage_count_for(_is_medic(id))
-
-## Per-tick bleed for every downed pawn; bleed-out is a true death (spends a ticket).
-func _step_downed() -> void:
-	for id in _clients:
-		var p: Pawn = _sim.world.get_pawn(id)
-		if p == null or not p.is_downed:
-			continue
-		p.bleed_health = Revive.bleed_step(p.bleed_health, p.bleed_halted)
-		if Revive.is_bled_out(p.bleed_health):
-			# Credit the attacker who downed the pawn (falls back to self if unknown).
-			var c = _clients[id]
-			_kill_pawn(id, p, int(c.get("downed_by", id)), int(c.get("downed_by_weapon", 0)), false, Revive.Source.BULLET)
-			_stats.bleedouts += 1
-
 func _handle_respawns() -> void:
 	for id in _clients:
 		var c = _clients[id]
@@ -764,7 +580,7 @@ func _handle_respawns() -> void:
 			p.climbing = false   # clear special-movement state so a pawn that died mid-climb/vault
 			p.vaulting = false   # doesn't resume the arc/ladder at its fresh spawn (ghost-vault fix)
 			p.bleed_halted = false
-			p.bandage_count = Revive.bandage_count_for(_is_medic(id))
+			p.bandage_count = Revive.bandage_count_for(_support.is_medic(id))
 			p.grounded = true
 			p.fall_peak_y = p.pos.y
 			p.landed_fall = 0.0
@@ -911,9 +727,9 @@ func _send_snapshots() -> void:
 		var reload_remaining: int = maxi(0, int(c["reload_done_tick"]) - _sim.tick) if c["reloading"] else 0
 		# Reliable so the authoritative ammo/reload always reaches the owner — otherwise dropped
 		# SELF_STATE packets (lossy links) leave the client predicting phantom ammo it doesn't have.
-		var rgauge := _repair_gauge_for(id)
+		var rgauge := _support.repair_gauge_for(id)
 		_net.send_to(c["peer"], NetHost.CHANNEL_CONTROL,
-			Protocol.encode_self_state(int(c["ammo"]), bool(c["reloading"]), reload_remaining, int(c["weapon"]), _throwables_for(c), _being_revived.has(id), self_pawn.suppression, clampi(self_pawn.blind_until_tick - _sim.tick, 0, 255), self_pawn.bandage_count, self_pawn.bleed_halted, rgauge.x, rgauge.y),
+			Protocol.encode_self_state(int(c["ammo"]), bool(c["reloading"]), reload_remaining, int(c["weapon"]), _throwables_for(c), _support.being_revived.has(id), self_pawn.suppression, clampi(self_pawn.blind_until_tick - _sim.tick, 0, 255), self_pawn.bandage_count, self_pawn.bleed_halted, rgauge.x, rgauge.y),
 			ENetPacketPeer.FLAG_RELIABLE)
 		c["history"][seq] = current
 		c["history_v"][seq] = current_v
@@ -944,9 +760,9 @@ func _on_packet(peer: ENetPacketPeer, _channel: int, bytes: PackedByteArray) -> 
 		Protocol.Msg.REMOVE_FOB: _handle_remove_fob(peer)
 		Protocol.Msg.BUILD_REMOVE: _handle_build_remove(peer, bytes)
 		Protocol.Msg.GRENADE_THROW: _handle_grenade_throw(peer, bytes)
-		Protocol.Msg.REVIVE_ACTION: _handle_revive_action(peer, bytes)
-		Protocol.Msg.SELF_BANDAGE: _handle_self_bandage(peer, bytes)
-		Protocol.Msg.GIVE_UP: _handle_give_up(peer)
+		Protocol.Msg.REVIVE_ACTION: _support.handle_revive_action(peer, bytes)
+		Protocol.Msg.SELF_BANDAGE: _support.handle_self_bandage(peer, bytes)
+		Protocol.Msg.GIVE_UP: _support.handle_give_up(peer)
 		Protocol.Msg.GADGET_ACTION: _handle_gadget_action(peer, bytes)
 		Protocol.Msg.VEHICLE_ACTION: _handle_vehicle_action(peer, bytes)
 		Protocol.Msg.DEPLOY_REQUEST: _handle_deploy_request(peer, bytes)
@@ -1535,11 +1351,11 @@ func _handle_gadget_action(peer: ENetPacketPeer, bytes: PackedByteArray) -> void
 		Protocol.GA_C4_PLACE: _place_c4(id, p, d["pos"])
 		Protocol.GA_C4_DETONATE: _detonate_c4(id)
 		Protocol.GA_MINE_PLACE: _place_mine(id, p, d["pos"], d["dir"])
-		Protocol.GA_GIVE_START: _giving[id] = _sim.tick
-		Protocol.GA_GIVE_STOP: _giving.erase(id)
+		Protocol.GA_GIVE_START: _support.giving[id] = _sim.tick
+		Protocol.GA_GIVE_STOP: _support.giving.erase(id)
 		Protocol.GA_BAG_THROW: _throw_bag(id, p, d["pos"])
-		Protocol.GA_REPAIR_START: _repairing[id] = true
-		Protocol.GA_REPAIR_STOP: _repairing.erase(id)
+		Protocol.GA_REPAIR_START: _support.repairing[id] = true
+		Protocol.GA_REPAIR_STOP: _support.repairing.erase(id)
 		_: pass
 
 func _handle_vehicle_action(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
@@ -1640,7 +1456,7 @@ func _broadcast_gadget_list() -> void:
 func _broadcast_support_list() -> void:
 	if _human_ids.is_empty():
 		return
-	var list := SupportLinks.build(_support_links_this_tick)
+	var list := SupportLinks.build(_support.links_this_tick)
 	var pkt := Protocol.encode_support_list(list)
 	if not _support_rl.should_send(pkt, list.size() > 0, _sim.tick):
 		return
@@ -1716,7 +1532,7 @@ func _place_mine(id: int, p: Pawn, pos: Vector3, facing: Vector3) -> void:
 		"armed_after_tick": _sim.tick + int(mdef["arm_delay_ticks"])})
 
 func _throw_bag(id: int, p: Pawn, pos: Vector3) -> void:
-	var kind := _giver_kind(int(_clients[id]["class"]))
+	var kind := _support.giver_kind(int(_clients[id]["class"]))
 	if kind == -1: return
 	var gdef: Dictionary = _gadgets.def_of_kind(kind)
 	var bag_count := 0
@@ -1727,12 +1543,6 @@ func _throw_bag(id: int, p: Pawn, pos: Vector3) -> void:
 	_stats.bags_thrown += 1
 
 ## Maps a class to its give-tool kind (heal/ammo), or -1 if the class has no give tool.
-func _giver_kind(cls: int) -> int:
-	var g := Loadout.gadget_for(cls)
-	if g == Loadout.GADGET_HEAL: return Gadget.KIND_HEAL
-	if g == Loadout.GADGET_AMMO: return Gadget.KIND_AMMO
-	return -1
-
 func _detonate_c4(id: int) -> void:
 	var owned: Array = _c4.get(id, [])
 	if owned.is_empty(): return
@@ -1756,33 +1566,6 @@ func _remove_c4_on_cell(cell: Vector3i) -> void:
 
 ## A DOWNED player chooses to skip the bleed-out and die now (BattleBit give-up) -> true death,
 ## spends a ticket, returns them to the deploy screen.
-func _handle_give_up(peer: ENetPacketPeer) -> void:
-	var id = _peer_to_id.get(peer, 0)
-	if id == 0 or not _clients.has(id): return
-	var p: Pawn = _sim.world.get_pawn(id)
-	if p == null or not p.alive or not p.is_downed: return
-	var c = _clients[id]
-	_kill_pawn(id, p, int(c.get("downed_by", id)), int(c.get("downed_by_weapon", 0)), false, Revive.Source.BULLET)
-	_stats.bleedouts += 1
-
-func _handle_self_bandage(peer: ENetPacketPeer, _bytes: PackedByteArray) -> void:
-	var id = _peer_to_id.get(peer, 0)
-	if id == 0 or not _clients.has(id): return
-	var p: Pawn = _sim.world.get_pawn(id)
-	if p == null or not p.is_downed or p.bleed_halted: return
-	if p.bandage_count <= 0: return
-	p.bandage_count -= 1
-	p.bleed_halted = true
-
-func _handle_revive_action(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
-	var id = _peer_to_id.get(peer, 0)
-	if id == 0 or not _clients.has(id): return
-	var d := Protocol.decode_revive_action(bytes)
-	if bool(d["active"]):
-		_reviving[id] = int(d["target"])
-	else:
-		_reviving.erase(id)
-
 ## Integrate live grenades; detonate on fuse or ground contact (v1). Detonation is present-time.
 func _step_grenades() -> void:
 	if _grenades.is_empty():
