@@ -62,29 +62,7 @@ const FLASH_POOL := 16
 var _flashes: Array = []          # [{node: MeshInstance3D, mat: StandardMaterial3D, die: float}]
 var _flash_idx: int = 0
 
-# RPG rocket cosmetics — a launched rocket (local shooter feedback + replicated ROCKET_FX) flies the
-# shared Grenade ballistic arc so it tracks where the server's real rocket goes, trailing smoke and
-# popping a puff on impact. Presentation-only; the server owns the actual blast.
-const ROCKET_SPEED := 150.0       # MUST match data/gadgets.json rpg rocket_speed
-const ROCKET_LIFETIME := 5.0      # s safety cap before a cosmetic rocket self-despawns
-const ROCKET_TRAIL_DT := 0.03     # s between trail puffs
-# Transient-FX pool caps: TTLs normally drain these far below the caps; the caps only bite in
-# pathological bursts (128p destruction fights), where the OLDEST effect is evicted first.
-const MAX_ROCKETS := 64
-const MAX_THROWN := 64
-const MAX_PUFFS := 256
-const MAX_BLASTS := 32
-const MAX_DEBRIS := 384
-var _rockets: Array = []          # [{node: Node3D, vel: Vector3, die: float, next_puff: float}]
-# thrown-grenade cosmetics (M7, view-only): the local thrower sees their own frag/smoke fly the
-# shared Grenade ballistic arc (matching the server's eye-origin + launch_velocity) and vanish on
-# ground contact or at the 1.5 s fuse — the DETONATION / SMOKE_DEPLOYED event then plays the effect.
-const GRENADE_FUSE := 1.5         # s — MUST match server GRENADE_FUSE_TICKS (45 @ 30 Hz)
-const GRENADE_TRAIL_DT := 0.05    # s between a smoke grenade's faint trail puffs
-var _thrown: Array = []           # [{node:Node3D, vel:Vector3, die:float, kind:int, next_trail:float}]
-var _puffs: Array = []            # [{node, mat, die, ttl}] — smoke trail + impact puffs
-var _blasts: Array = []           # [{node, mat, born, die, ttl, s0, s1, color}] — explosion fireball cores
-var _debris: Array = []           # [{node, vel, die}] — explosion debris chunks
+var _fx := FxPoolRef.new(self)    # rockets/thrown/puffs/blasts/debris — see client/fx_pool.gd
 var _casings: Array = []          # [{node, vel, spin, die}] — ejected brass shell casings (local gun)
 var _casing_i := 0                # rotates per-shot variation without per-frame RNG
 var _casing_mat: StandardMaterial3D = null
@@ -128,6 +106,12 @@ var _impact_i := 0
 # signal, which client_main routes to the AudioDirector). Cadence math lives in FootstepCadence.
 signal footstep(world_pos: Vector3, intensity: float)
 signal impact(world_pos: Vector3, kind: int)   # a bullet terminated in the world (wall/dirt/flesh)
+
+const FxPoolRef := preload("res://client/fx_pool.gd")   # transient one-shot FX pools (child node)
+
+
+func _init() -> void:
+	add_child(_fx)   # mount the transient-FX pool so its spawned nodes render with the scene
 const FOOTSTEP_DUST_COLOR := Color(0.58, 0.54, 0.46, 0.4)   # faint tan scuff, lighter than an impact puff
 const FOOTSTEP_PUFF_TTL := 0.4    # s the kicked-up dust lingers
 var _step_accum: Dictionary = {}  # id(int) -> float: stride-distance accumulator per remote
@@ -632,13 +616,10 @@ func update(world_view: WorldView, predictor: Prediction, now: float, fov: float
 	# 4. Age out shot tracers + integrate cosmetic rockets + explosions
 	_age_tracers(now)
 	_age_flashes(now)
-	_age_rockets(now, render_delta)
-	_age_blasts(now)
-	_age_debris(now, render_delta)
+	_fx.age_all(now, render_delta)
 	_age_casings(now, render_delta)
 	_age_corpses(now)
 	_age_smokes(now)
-	_age_thrown(now, render_delta)
 
 	# 5. QA demos: every registered --*-test demo, table-driven (see client/qa_flags.gd). Each
 	# _ensure_*_demo self-gates on its own flag, so inactive demos are a cheap early-return.
@@ -771,217 +752,6 @@ func _age_flashes(now: float) -> void:
 
 ## Launch a cosmetic RPG rocket from origin along dir: a muzzle flash + a flying rocket that arcs via
 ## the shared Grenade ballistic model (matching the server) and trails smoke until it hits / expires.
-func fire_rocket(origin: Vector3, dir: Vector3, now: float) -> void:
-	var d := dir.normalized()
-	if d.length() < 0.001:
-		return
-	var node := _make_rocket()
-	var up := Vector3.UP if absf(d.dot(Vector3.UP)) < 0.99 else Vector3.RIGHT
-	node.global_transform = Transform3D(Basis.looking_at(d, up), origin)
-	add_child(node)
-	_spawn_flash(origin, d, now)   # launch flash
-	_pool_push(_rockets, {"node": node, "vel": d * ROCKET_SPEED, "die": now + ROCKET_LIFETIME, "next_puff": now}, MAX_ROCKETS)
-
-
-## One factory for the unshaded FX material recipe that was hand-rolled ~12x (tracers,
-## puffs, support beams, blast cores, zone rings…). Emission defaults stay at the engine
-## defaults (BLACK / 1.0) because pool materials get their colour assigned per frame.
-static func fx_material(albedo: Color, alpha := false, emissive := false,
-		emission := Color.BLACK, energy := 1.0) -> StandardMaterial3D:
-	var m := StandardMaterial3D.new()
-	m.albedo_color = albedo
-	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	if alpha:
-		m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	if emissive:
-		m.emission_enabled = true
-		m.emission = emission
-		m.emission_energy_multiplier = energy
-	return m
-
-
-## Append a transient-FX entry, evicting (freeing) the oldest past `cap`. Every pool entry
-## carries its scene node under "node".
-func _pool_push(pool: Array, entry: Dictionary, cap: int) -> void:
-	pool.append(entry)
-	while pool.size() > cap:
-		var old: Dictionary = pool.pop_front()
-		var n = old.get("node")
-		if n is Node and is_instance_valid(n):
-			(n as Node).free()   # immediate: the pool entry is the only reference to these one-shots
-
-
-func _age_rockets(now: float, delta: float) -> void:
-	if not _rockets.is_empty():
-		var live: Array = []
-		for r: Dictionary in _rockets:
-			var node: Node3D = r["node"]
-			var s := Grenade.integrate(node.position, r["vel"], delta)
-			var npos: Vector3 = s["pos"]
-			var nvel: Vector3 = s["vel"]
-			if now >= float(r["next_puff"]):
-				_spawn_puff(node.position, 0.4, 0.6, now)   # trail
-				r["next_puff"] = now + ROCKET_TRAIL_DT
-			if now >= float(r["die"]) or npos.y <= 0.0:
-				if npos.y < 0.0:
-					npos.y = 0.0
-				_spawn_puff(npos, 2.4, 0.55, now)           # impact puff
-				node.queue_free()
-				continue
-			var up := Vector3.UP if absf(nvel.normalized().dot(Vector3.UP)) < 0.99 else Vector3.RIGHT
-			node.global_transform = Transform3D(Basis.looking_at(nvel.normalized(), up), npos)
-			r["vel"] = nvel
-			live.append(r)
-		_rockets = live
-	_age_puffs(now)
-
-
-## Despawn any cosmetic rocket within `radius` of a real detonation point. The client rocket flies a
-## pure ballistic arc (no structure march), so a rocket the server detonated against a wall would keep
-## flying visually through it; when the authoritative DETONATION lands we cull the matching cosmetic
-## rocket so the real blast (spawn_explosion) is the only artifact at the impact. View-only.
-func cull_rockets_near(pos: Vector3, radius: float) -> void:
-	if _rockets.is_empty():
-		return
-	var live: Array = []
-	for r: Dictionary in _rockets:
-		var node: Node3D = r["node"]
-		if node.position.distance_to(pos) <= radius:
-			node.queue_free()
-		else:
-			live.append(r)
-	_rockets = live
-
-
-func _make_rocket() -> Node3D:
-	# Forward = local -Z (Basis.looking_at convention), so the warhead sits at -Z.
-	var root := Node3D.new()
-	root.name = "Rocket"
-	var dark := StandardMaterial3D.new()
-	dark.albedo_color = Color(0.15, 0.15, 0.17); dark.metallic = 0.3; dark.roughness = 0.6
-	var body := MeshInstance3D.new()
-	var bmesh := BoxMesh.new(); bmesh.size = Vector3(0.16, 0.16, 0.6)
-	body.mesh = bmesh; body.material_override = dark
-	body.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	root.add_child(body)
-	var nose := MeshInstance3D.new()
-	var nmesh := BoxMesh.new(); nmesh.size = Vector3(0.2, 0.2, 0.2)
-	nose.mesh = nmesh; nose.position = Vector3(0, 0, -0.36)
-	var nmat := StandardMaterial3D.new()
-	nmat.albedo_color = Color(0.7, 0.5, 0.18); nmat.emission_enabled = true
-	nmat.emission = Color(0.6, 0.35, 0.12); nmat.emission_energy_multiplier = 0.6
-	nose.material_override = nmat; nose.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	root.add_child(nose)
-	for ang in [0.0, PI * 0.5]:   # tail fins
-		var fin := MeshInstance3D.new()
-		var fmesh := BoxMesh.new(); fmesh.size = Vector3(0.36, 0.02, 0.16)
-		fin.mesh = fmesh; fin.position = Vector3(0, 0, 0.28); fin.rotation = Vector3(0, 0, ang)
-		fin.material_override = dark; fin.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-		root.add_child(fin)
-	return root
-
-
-# =============================================================================
-#  Thrown grenade cosmetics (M7) — local thrower feedback for frag/smoke.
-# =============================================================================
-
-## Spawn a cosmetic thrown grenade arcing from `origin` with initial `vel` (use Grenade.launch_velocity
-## from the look dir, matching the server). `kind` is Grenade.FRAG / Grenade.SMOKE — only the colour
-## differs. It flies the shared ballistic arc and vanishes on ground contact or at the fuse; the
-## server's DETONATION / SMOKE_DEPLOYED then plays the blast / cloud at the landing point.
-func throw_grenade(origin: Vector3, vel: Vector3, kind: int, now: float) -> void:
-	if not origin.is_finite() or not vel.is_finite():
-		return
-	var node := _make_grenade(kind)
-	node.position = origin
-	add_child(node)
-	_pool_push(_thrown, {"node": node, "vel": vel, "die": now + GRENADE_FUSE, "kind": kind, "next_trail": now}, MAX_THROWN)
-
-
-func _age_thrown(now: float, delta: float) -> void:
-	if _thrown.is_empty():
-		return
-	var live: Array = []
-	for g: Dictionary in _thrown:
-		var node: Node3D = g["node"]
-		var s := Grenade.integrate(node.position, g["vel"], delta)
-		var npos: Vector3 = s["pos"]
-		g["vel"] = s["vel"]
-		# a smoke canister leaks a faint trail so the throw reads in the air
-		if int(g["kind"]) == Grenade.SMOKE and now >= float(g["next_trail"]):
-			_spawn_puff(node.position, 0.3, 0.45, now, Color(0.78, 0.80, 0.80, 0.4))
-			g["next_trail"] = now + GRENADE_TRAIL_DT
-		if now >= float(g["die"]) or npos.y <= 0.0:
-			node.queue_free()   # detonation/smoke event plays the end effect at the landing point
-			continue
-		node.position = npos
-		node.rotate_x(delta * 9.0)   # tumble in flight
-		live.append(g)
-	_thrown = live
-
-
-## World positions of the live cosmetic grenades (local throws + remote GRENADE_FX). The HUD reads
-## this to warn when one is about to go off near the player. View-only — no gameplay authority.
-func live_grenade_positions() -> Array:
-	var out: Array = []
-	for g: Dictionary in _thrown:
-		out.append((g["node"] as Node3D).position)
-	return out
-
-
-func _make_grenade(kind: int) -> Node3D:
-	var root := Node3D.new()
-	root.name = "Grenade"
-	var body := MeshInstance3D.new()
-	var sm := SphereMesh.new(); sm.radius = 0.11; sm.height = 0.30; sm.radial_segments = 8; sm.rings = 5
-	body.mesh = sm
-	var mat := StandardMaterial3D.new()
-	# frag = dark olive, smoke = grey-green canister
-	mat.albedo_color = Color(0.20, 0.24, 0.12) if kind == Grenade.FRAG else Color(0.30, 0.40, 0.34)
-	mat.metallic = 0.2; mat.roughness = 0.7
-	body.material_override = mat
-	body.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	root.add_child(body)
-	return root
-
-
-
-
-func _spawn_puff(pos: Vector3, size: float, ttl: float, now: float, color := Color(0.55, 0.55, 0.55, 0.65)) -> void:
-	var node := MeshInstance3D.new()
-	var sm := SphereMesh.new(); sm.radius = size * 0.5; sm.height = size; sm.radial_segments = 6; sm.rings = 3
-	node.mesh = sm
-	node.position = pos
-	var mat := fx_material(color, true)
-	node.material_override = mat
-	node.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	add_child(node)
-	_pool_push(_puffs, {"node": node, "mat": mat, "die": now + ttl, "ttl": ttl}, MAX_PUFFS)
-
-
-func _age_puffs(now: float) -> void:
-	if _puffs.is_empty():
-		return
-	var live: Array = []
-	for p: Dictionary in _puffs:
-		var remaining: float = float(p["die"]) - now
-		if remaining <= 0.0:
-			(p["node"] as Node3D).queue_free()
-			continue
-		var frac := remaining / float(p["ttl"])
-		var mat: StandardMaterial3D = p["mat"]
-		var c := mat.albedo_color; c.a = clampf(frac * 0.65, 0.0, 0.65); mat.albedo_color = c
-		var grow := 1.0 + (1.0 - frac) * 1.3
-		(p["node"] as Node3D).scale = Vector3(grow, grow, grow)
-		live.append(p)
-	_puffs = live
-
-
-# =============================================================================
-#  Smoke-grenade clouds (M7) — driven by SMOKE_DEPLOYED (cosmetic, view-only).
-# =============================================================================
-
-## Pop a smoke cloud filling a `radius` zone at `pos`, living `duration` seconds. Builds a cluster of
 ## soft unshaded puffs scattered in the zone; opacity is driven per-frame by SmokeCloud.envelope in
 ## _age_smokes (billow-in / hold / fade-out). Deterministic offsets (golden-angle spiral) so the
 ## cloud reads the same every time; capped at SMOKE_MAX_CLOUDS (oldest dropped) to bound mesh count.
@@ -1350,133 +1120,29 @@ func _ensure_buildsite_demo(now: float) -> void:
 # =============================================================================
 #  Explosion VFX (M7) — driven by the server DETONATION event (cosmetic).
 # =============================================================================
-const BLAST_TTL := 0.45        # frag fireball lifetime (s)
-const FLASH_BLAST_TTL := 0.28  # flashbang white pop lifetime (s)
-const DEBRIS_TTL := 0.7
-const DEBRIS_GRAVITY := 18.0
+## Thin delegates: the public FX API stays on the renderer (client_main + tests call these);
+## the pools and their logic live in client/fx_pool.gd.
+func fire_rocket(origin: Vector3, dir: Vector3, now: float) -> void:
+	_fx.fire_rocket(origin, dir, now)
 
-## Spawn a cosmetic explosion at pos. kind: Protocol.DET_EXPLOSION (orange fireball + smoke + debris)
-## or Protocol.DET_FLASH (bright white pop). Called from client_main on a DETONATION packet.
+func cull_rockets_near(pos: Vector3, radius: float) -> void:
+	_fx.cull_rockets_near(pos, radius)
+
+func throw_grenade(origin: Vector3, vel: Vector3, kind: int, now: float) -> void:
+	_fx.throw_grenade(origin, vel, kind, now)
+
+func live_grenade_positions() -> Array:
+	return _fx.live_grenade_positions()
+
 func spawn_explosion(pos: Vector3, kind: int, now: float) -> void:
-	if not pos.is_finite():
-		return
-	if kind == 1:   # Protocol.DET_FLASH
-		_spawn_blast(pos + Vector3(0, 0.6, 0), Color(1.0, 1.0, 1.0), 1.2, 6.0, FLASH_BLAST_TTL, now)
-		return
-	# frag / impact: a fireball core + an expanding smoke puff + scattered debris
-	_spawn_blast(pos + Vector3(0, 0.6, 0), Color(1.0, 0.62, 0.18), 0.8, 4.2, BLAST_TTL, now)
-	_spawn_puff(pos + Vector3(0, 0.7, 0), 2.8, 0.75, now)
-	_spawn_debris(pos + Vector3(0, 0.3, 0), now)
+	_fx.spawn_explosion(pos, kind, now)
 
-
-const IMPACT_WALL_COLOR := Color(0.62, 0.60, 0.56, 0.7)    # grey wall dust
-const IMPACT_DIRT_COLOR := Color(0.45, 0.36, 0.24, 0.75)   # brown dirt
-const IMPACT_FLESH_COLOR := Color(0.55, 0.06, 0.06, 0.8)   # red blood mist
-
-## Cosmetic bullet impact: a small kind-coloured puff + a few specks kicked off the surface.
-## kind: Protocol.IMPACT_WALL (0) = grey wall dust, IMPACT_DIRT (1) = brown dirt,
-## IMPACT_FLESH (2) = a smaller red blood mist with just a couple of droplets.
 func spawn_impact(pos: Vector3, kind: int, now: float) -> void:
-	if not pos.is_finite():
-		return
-	var col: Color
-	var size: float
-	var chips: int
-	match kind:
-		1:  # IMPACT_DIRT
-			col = IMPACT_DIRT_COLOR; size = 0.6; chips = 4
-		2:  # IMPACT_FLESH — a small blood mist, a couple of light droplets (no hard chips)
-			col = IMPACT_FLESH_COLOR; size = 0.45; chips = 2
-		_:  # IMPACT_WALL
-			col = IMPACT_WALL_COLOR; size = 0.6; chips = 4
-	_spawn_puff(pos, size, 0.4, now, col)
-	_spawn_impact_chips(pos, now, col, chips)
-	impact.emit(pos, kind)   # client_main routes this to a spatial thud (wall/dirt; flesh stays silent)
+	_fx.spawn_impact(pos, kind, now)
 
-## A few small specks flung off an impact point (smaller/fewer/slower than explosion debris). Reuses
-## the _debris pool so _age_debris integrates + settles them.
-func _spawn_impact_chips(pos: Vector3, now: float, color: Color, count := 4) -> void:
-	if count <= 0:
-		return
-	var mat := fx_material(Color(color.r, color.g, color.b, 1.0))
-	for i in range(count):
-		var node := MeshInstance3D.new()
-		var bmesh := BoxMesh.new(); bmesh.size = Vector3(0.06, 0.06, 0.06)
-		node.mesh = bmesh; node.position = pos; node.material_override = mat
-		node.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-		add_child(node)
-		var ang := TAU * float(i) / float(count)
-		var vel := Vector3(cos(ang) * 2.2, 2.6 + float(i % 2) * 1.0, sin(ang) * 2.2)
-		_pool_push(_debris, {"node": node, "vel": vel, "die": now + DEBRIS_TTL * 0.5}, MAX_DEBRIS)
-
-
-## An emissive sphere that expands start_size -> end_size and fades over ttl. Unshaded so it reads as
-## a self-lit flash regardless of scene lighting.
-func _spawn_blast(pos: Vector3, color: Color, start_size: float, end_size: float, ttl: float, now: float) -> void:
-	var node := MeshInstance3D.new()
-	var sm := SphereMesh.new(); sm.radius = 0.5; sm.height = 1.0; sm.radial_segments = 8; sm.rings = 4
-	node.mesh = sm
-	node.position = pos
-	var mat := fx_material(color, true, true, color, 2.5)
-	node.material_override = mat
-	node.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	add_child(node)
-	_pool_push(_blasts, {"node": node, "mat": mat, "born": now, "die": now + ttl, "ttl": ttl,
-		"s0": start_size, "s1": end_size, "color": color}, MAX_BLASTS)
-
-
-func _age_blasts(now: float) -> void:
-	if _blasts.is_empty():
-		return
-	var live: Array = []
-	for b: Dictionary in _blasts:
-		var remaining: float = float(b["die"]) - now
-		if remaining <= 0.0:
-			(b["node"] as Node3D).queue_free()
-			continue
-		var t := 1.0 - remaining / float(b["ttl"])   # 0 -> 1 over life
-		var size: float = lerpf(float(b["s0"]), float(b["s1"]), sqrt(t))   # fast initial expansion
-		(b["node"] as Node3D).scale = Vector3(size, size, size)
-		var mat: StandardMaterial3D = b["mat"]
-		var c: Color = b["color"]; c.a = clampf(1.0 - t, 0.0, 1.0); mat.albedo_color = c
-		mat.emission_energy_multiplier = 2.5 * (1.0 - t)
-		live.append(b)
-	_blasts = live
-
-
-func _spawn_debris(pos: Vector3, now: float) -> void:
-	var dark := fx_material(Color(0.18, 0.16, 0.14))
-	for i in range(7):
-		var node := MeshInstance3D.new()
-		var bmesh := BoxMesh.new(); bmesh.size = Vector3(0.12, 0.12, 0.12)
-		node.mesh = bmesh; node.position = pos; node.material_override = dark
-		node.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-		add_child(node)
-		# Fan outward + up; vary by index so each piece flies differently (no per-frame RNG).
-		var ang := TAU * float(i) / 7.0
-		var vel := Vector3(cos(ang) * 5.0, 6.0 + float(i % 3) * 1.5, sin(ang) * 5.0)
-		_pool_push(_debris, {"node": node, "vel": vel, "die": now + DEBRIS_TTL}, MAX_DEBRIS)
-
-
-func _age_debris(now: float, delta: float) -> void:
-	if _debris.is_empty():
-		return
-	var dt := clampf(delta, 0.0, 0.1)   # ignore absurd startup/stall deltas so debris can't fling to INF
-	var live: Array = []
-	for d: Dictionary in _debris:
-		if now >= float(d["die"]):
-			(d["node"] as Node3D).queue_free()
-			continue
-		var node: Node3D = d["node"]
-		var vel: Vector3 = d["vel"]
-		vel.y -= DEBRIS_GRAVITY * dt
-		var npos := node.position + vel * dt
-		if npos.y < 0.0:
-			npos.y = 0.0; vel = Vector3.ZERO   # settle on the ground
-		node.position = npos
-		d["vel"] = vel
-		live.append(d)
-	_debris = live
+static func fx_material(albedo: Color, alpha := false, emissive := false,
+		emission := Color.BLACK, energy := 1.0) -> StandardMaterial3D:
+	return FxPoolRef.fx_material(albedo, alpha, emissive, emission, energy)
 
 
 const CASING_TTL := 3.0
@@ -1805,7 +1471,7 @@ func _spawn_footstep_fx(pos: Vector3, intensity: float, now: float) -> void:
 	if not pos.is_finite():
 		return
 	var at := Vector3(pos.x, pos.y + 0.05, pos.z)   # at the feet, just clear of the ground
-	_spawn_puff(at, lerpf(0.22, 0.42, intensity), FOOTSTEP_PUFF_TTL, now, FOOTSTEP_DUST_COLOR)
+	_fx.spawn_puff(at, lerpf(0.22, 0.42, intensity), FOOTSTEP_PUFF_TTL, now, FOOTSTEP_DUST_COLOR)
 	footstep.emit(at, intensity)
 
 
@@ -2695,15 +2361,15 @@ const DUST_COLOR := Color(0.66, 0.63, 0.57, 0.6)    # warm concrete dust
 
 ## A piece reached 0 chunks: a concrete dust puff + a fan of chunky brick/concrete debris.
 func _play_piece_destroy_fx(pos: Vector3, now: float) -> void:
-	_spawn_puff(pos, 1.6, 0.55, now, DUST_COLOR)
+	_fx.spawn_puff(pos, 1.6, 0.55, now, DUST_COLOR)
 	_spawn_brick_debris(pos, now, 7, 0.16, 4.5, 5.5)
 
 ## A piece took chunk damage but still stands: just a small dust kick + a couple of shards.
 func _play_piece_damage_fx(pos: Vector3, now: float) -> void:
-	_spawn_puff(pos, 0.7, 0.35, now, DUST_COLOR)
+	_fx.spawn_puff(pos, 0.7, 0.35, now, DUST_COLOR)
 	_spawn_brick_debris(pos, now, 3, 0.10, 2.6, 3.2)
 
-## Brick/concrete chunks flung from a damage point, integrated + settled by the shared _debris pool.
+## Brick/concrete chunks flung from a damage point, integrated + settled by the shared FxPool debris pool.
 ## `box` = cube edge (m), `spread`/`lift` = horizontal/vertical launch speed.
 func _spawn_brick_debris(pos: Vector3, now: float, count: int, box: float, spread: float, lift: float) -> void:
 	if count <= 0:
@@ -2725,7 +2391,7 @@ func _spawn_brick_debris(pos: Vector3, now: float, count: int, box: float, sprea
 		var ang := TAU * float(i) / float(count) + float(i) * 0.7
 		var rad := spread * (0.5 + 0.5 * float((i + 1) % 3))
 		var vel := Vector3(cos(ang) * rad, lift + float(i % 3) * 1.2, sin(ang) * rad)
-		_pool_push(_debris, {"node": node, "vel": vel, "die": now + BRICK_DEBRIS_TTL}, MAX_DEBRIS)
+		_fx.push_debris(node, vel, now + BRICK_DEBRIS_TTL)
 
 ## Whole-building collapse cinematic: a rolling ground dust cloud, a heavy debris burst, a screen
 ## shake if the player is close, then the persistent rubble mound. Public-ish so the QA demo reuses it.
@@ -2734,8 +2400,8 @@ func _play_collapse_fx(center: Vector3, now: float) -> void:
 	for i in range(6):
 		var ang := TAU * float(i) / 6.0
 		var off := Vector3(cos(ang) * 1.4, 0.4 + 0.3 * float(i % 2), sin(ang) * 1.4)
-		_spawn_puff(center + off, 3.4, 1.4, now, DUST_COLOR)
-	_spawn_puff(center + Vector3(0, 1.2, 0), 4.2, 1.6, now, DUST_COLOR)
+		_fx.spawn_puff(center + off, 3.4, 1.4, now, DUST_COLOR)
+	_fx.spawn_puff(center + Vector3(0, 1.2, 0), 4.2, 1.6, now, DUST_COLOR)
 	# Heavy debris burst flung up + out from the footprint.
 	_spawn_brick_debris(center + Vector3(0, 1.0, 0), now, 16, 0.26, 5.5, 7.0)
 	# The persistent rubble mound this building leaves behind.
@@ -2940,9 +2606,9 @@ func _set_vehicle_wrecked(node: Node3D, wrecked: bool) -> void:
 func destroy_vehicle(_vid: int, pos: Vector3, now: float) -> void:
 	if not pos.is_finite():
 		return
-	_spawn_blast(pos + Vector3(0, 1.2, 0), Color(1.0, 0.6, 0.16), 1.6, 7.0, BLAST_TTL * 1.6, now)
-	_spawn_puff(pos + Vector3(0, 1.4, 0), 4.0, 1.2, now, Color(0.18, 0.17, 0.16, 0.7))
-	_spawn_debris(pos + Vector3(0, 0.8, 0), now)
+	_fx.spawn_blast(pos + Vector3(0, 1.2, 0), Color(1.0, 0.6, 0.16), 1.6, 7.0, FxPoolRef.BLAST_TTL * 1.6, now)
+	_fx.spawn_puff(pos + Vector3(0, 1.4, 0), 4.0, 1.2, now, Color(0.18, 0.17, 0.16, 0.7))
+	_fx.spawn_debris(pos + Vector3(0, 0.8, 0), now)
 
 ## Smouldering column off a hurt or destroyed vehicle — a puff on a throttle held in node meta
 ## (cheap: one small puff per period per on-screen vehicle). `ratio` = hp/max_hp:
@@ -2968,7 +2634,7 @@ func _ensure_vehicle_smoke(node: Node3D, ratio: float, now: float) -> void:
 	if now < float(node.get_meta("veh_smoke_next", 0.0)):
 		return
 	node.set_meta("veh_smoke_next", now + period)
-	_spawn_puff(node.position + Vector3(0, 1.6, 0), size, 1.6, now, color)
+	_fx.spawn_puff(node.position + Vector3(0, 1.6, 0), size, 1.6, now, color)
 
 
 ## --turret-test: one intact transport sitting broadside with its turret traversed ~55° off the hull
