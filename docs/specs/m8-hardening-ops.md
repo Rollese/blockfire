@@ -49,10 +49,13 @@ exists piecemeal (rich `[telemetry]` log line; a parametrized Docker `docker-com
   one-liner.
 
 ### P3 — Server ops: config + shutdown + adaptive degradation
-- `docs/specs/server-ops.md`.
+- `docs/specs/server-ops.md`. **[DONE 2026-07-03 — authored as the config+rotation spec-of-record.]**
 - **Config file** (`data/server_config.json`): match settings (player cap, tick rate, tickets,
   time limit, **map rotation** list). Loaded at boot; **CLI args override file**; file absent →
   current CLI/const defaults (back-compatible). Map rotation advances between matches.
+  **[DONE 2026-07-03** — `server/config.gd` + persistent multi-match rotation loop; `tick_rate`
+  deliberately excluded (SimLoop.DT is a compile-time sim constant, YAGNI). See
+  [`server-ops.md`](server-ops.md).**]**
 - **Graceful shutdown**: SIGTERM → stop accepting joins, end/abort the current match cleanly,
   disconnect peers with a reason, flush telemetry, exit 0. **[2026-07-01: investigated — NOT
   feasible in pure GDScript on headless Godot 4.6.** POSIX signals are not delivered as

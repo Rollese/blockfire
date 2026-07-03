@@ -5,11 +5,11 @@ Read this first if you're picking up the project in a fresh context. It points t
 ## What this is
 Internal codename for a lightweight, 128-player, low-poly FPS in **Godot 4.6** inspired by *BattleBit Remastered*. v1 game mode: **Conquest**. Three runtime roles in one Godot project (client / dedicated server / bot driver) over a shared core. Repo on GitHub at **Rollese/blockfire** (SSH remote `origin`, default branch `master`). The plan of record is the milestone index in [`docs/TASKS.md`](TASKS.md).
 
-## Status (pointer, correct as of 2026-07-02)
+## Status (pointer, correct as of 2026-07-03)
 The game is a **playable rendered LAN game**: full infantry loop, vehicles, building/destruction, destructible buildings, ballistics/suppression/melee, squads/FOBs, tactical bot AI, HUD, audio, procedural art. See the milestone index in [`docs/TASKS.md`](TASKS.md) for the authoritative per-milestone state. One-line orientation:
 
 - **Done & gated:** M0–M5.5 (netcode → combat depth II), M11 sim (destructible buildings, Gate A), M12 (FOB/shovel/class refit), M14 (multi-floor, code merged; feel gates pending).
-- **In progress:** M7 rendered client (C1–C3 done + ~35 polish increments; human-playtest gate pending), M7.5 bot AI (P2 engine gated; P3/P4 remain), M8 hardening (P1+P2 done; P3 = config + map rotation left — SIGTERM shutdown recorded infeasible in pure GDScript, deferred).
+- **In progress:** M7 rendered client (C1–C3 done + ~35 polish increments; human-playtest gate pending), M7.5 bot AI (P2 engine gated; P3/P4 remain), M8 hardening (P1+P2+P3 done — config + map rotation landed 2026-07-03, see `docs/specs/server-ops.md`; only SIGTERM shutdown remains, recorded infeasible in pure GDScript, deferred).
 - **Blocked/deferred:** M6 voice (logic core + Opus GDExtension merged; wiring blocked by M7 gate), M13 Assault (planned), M9/M10 (beta, last).
 - **2026-07-02 deep review:** `docs/reviews/2026-07-02-deep-codebase-investigation.md` — six-agent audit, ranked fix batches (batches 1+3 landed same day: six bug fixes + pre-M8-P3 hardening incl. protocol VERSION 2 and the deploy-ref re-base).
 
@@ -49,4 +49,4 @@ The working agreement is `docs/AGENTS.md`. In short:
 - Fleet gate how-to: `cd docker && SERVER_CPUS=0,1,2,3 BOTS_CPUS=4-31 BOT_REPLICAS=16 BOT_COUNT=8 ./stress.sh` (or a milestone `run-*-gate.sh`). ≤48-bot smokes: `ci/*.sh` on any host. `stress.sh` writes a committable verdict record to `docs/gate-evidence/` — commit it with the closing change. GitHub Actions (`.github/workflows/ci.yml`) runs unit suite + connect smoke on push/PR; the fleet gate stays manual.
 
 ## Next
-Consult **[`docs/TASKS.md`](TASKS.md)** — currently: M8-P3 config + map rotation (prerequisites cleared 2026-07-02), M7 human-playtest gate, M7.5 P3/P4, M6 wiring after M7, and the remaining deep-review batches (`docs/reviews/2026-07-02-deep-codebase-investigation.md` §"Suggested execution order").
+Consult **[`docs/TASKS.md`](TASKS.md)** — currently: M7 human-playtest gate, M7.5 P3/P4, M6 wiring after M7, and the remaining deep-review batches (`docs/reviews/2026-07-02-deep-codebase-investigation.md` §"Suggested execution order"). M8-P3 config + map rotation landed 2026-07-03.

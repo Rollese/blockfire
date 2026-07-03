@@ -1,6 +1,6 @@
 # M8 — Hardening & Ops
 
-**Status:** in-progress — **P1 (stress harness + runbooks) ✅ + P2 (telemetry schema-of-record + pktloss) ✅ done 2026-07-01**; P3 remaining = **config file + map rotation only** (adaptive degradation ✅ 2026-07-01; SIGTERM graceful shutdown investigated → not feasible in pure headless GDScript, deferred). Pre-P3 hardening batch (deploy-ref re-base, protocol VERSION 2, per-life AI reset) landed 2026-07-02 · Spec: [`docs/specs/m8-hardening-ops.md`](../specs/m8-hardening-ops.md)
+**Status:** **complete except one deferred item** — **P1 (stress harness + runbooks) ✅ + P2 (telemetry schema-of-record + pktloss) ✅ done 2026-07-01; P3 (adaptive degradation ✅ 2026-07-01 + config file & map rotation ✅ done 2026-07-03)**. Only remaining item: SIGTERM graceful shutdown (investigated → not feasible in pure headless GDScript, **deferred**). Pre-P3 hardening batch (deploy-ref re-base, protocol VERSION 2, per-life AI reset) landed 2026-07-02 · Spec: [`docs/specs/m8-hardening-ops.md`](../specs/m8-hardening-ops.md) · Server-ops spec: [`docs/specs/server-ops.md`](../specs/server-ops.md)
 
 > **P1 — one-command stress run + runbooks (satisfies the literal gate) — DONE 2026-07-01 (game2).**
 > `docker/stress.sh` (canonical operator entrypoint, built on the new shared `docker/_gate_lib.sh`
@@ -33,6 +33,23 @@
 > Deferred: needs a native GDExtension signal handler or an admin control-channel `SHUTDOWN` command
 > (benign for a LAN server — `docker stop` SIGKILLs after grace). **Remaining P3: config file + map
 > rotation** (the persistent multi-match loop — highest blast radius, own focused session).
+
+> **P3 — config file + map rotation — DONE 2026-07-03** (branch `m8-p3-config-rotation`; spec-of-record
+> [`docs/specs/server-ops.md`](../specs/server-ops.md)). `server/config.gd` (`ServerConfig`) loads the
+> optional `data/server_config.json` (`--config=<path>` overrides; `{ok, config, error}` contract;
+> absent file = defaults, malformed = loud exit 1, unknown/mistyped keys warned + dropped) with
+> **CLI > file > built-in default** precedence; keys: `port`/`max_players`/`tickets`/`time_limit`/
+> `maps`/`degrade_high_ms`/`degrade_low_ms` (`tick_rate` deliberately excluded — SimLoop.DT is a
+> compile-time sim constant). **Rotation** active iff config `maps` non-empty and no `--map` CLI
+> override (`--map` pins single-match exit-on-end — all gate scripts unaffected; no config file →
+> exactly the old behavior): match end → 60-tick drain → `NetHost.disconnect_all()` → audited
+> `_reset_match_state()` → `_start_match()` on the next map (wraps); missing rotation map = loud
+> exit 1; clients reconnect and adopt the new map via WELCOME (no wire change; client auto-reconnect
+> UX = M7 follow-up). `data/server_config.example.json` committed, real config gitignored. Tests:
+> `server_config_test` (12) + `net_disconnect_all_test` (2) + `server_configure_test` (4) +
+> `server_rotation_test` (3); full suite **1080/0**. Rotation smoke `ci/m8_p3_rotation_test.sh`:
+> `M8-P3 ROTATION SMOKE: PASS (matches=2, rotations=2)` (~20 s, run 3× green). 128-bot stress
+> no-regression: **[stress verdict pending — filled before merge]**.
 
 **Objective:** Make the server and bot fleet operable, observable, and repeatably stress-testable.
 
