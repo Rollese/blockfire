@@ -71,7 +71,7 @@
         0,
         7
       ],
-      "yaw": 0
+      "yaw": 6
     },
     {
       "type": "bwall_window",
@@ -152,7 +152,7 @@
         0,
         0
       ],
-      "yaw": 0
+      "yaw": 2
     },
     {
       "type": "bwall_wood",
@@ -215,7 +215,7 @@
         0,
         7
       ],
-      "yaw": 0
+      "yaw": 4
     },
     {
       "type": "bwall_corner",
@@ -287,7 +287,7 @@
         1,
         7
       ],
-      "yaw": 0
+      "yaw": 6
     },
     {
       "type": "bwall_window",
@@ -368,7 +368,7 @@
         1,
         0
       ],
-      "yaw": 0
+      "yaw": 2
     },
     {
       "type": "bwall_wood",
@@ -431,7 +431,7 @@
         1,
         7
       ],
-      "yaw": 0
+      "yaw": 4
     },
     {
       "type": "bwall_corner",
@@ -503,7 +503,7 @@
         2,
         7
       ],
-      "yaw": 0
+      "yaw": 6
     },
     {
       "type": "bwall_window",
@@ -584,7 +584,7 @@
         2,
         0
       ],
-      "yaw": 0
+      "yaw": 2
     },
     {
       "type": "bwall_wood",
@@ -647,7 +647,7 @@
         2,
         7
       ],
-      "yaw": 0
+      "yaw": 4
     },
     {
       "type": "bfloor",
@@ -1367,7 +1367,7 @@
         3,
         7
       ],
-      "yaw": 0
+      "yaw": 6
     },
     {
       "type": "bwall_wood",
@@ -1448,7 +1448,7 @@
         3,
         0
       ],
-      "yaw": 0
+      "yaw": 2
     },
     {
       "type": "bwall_wood",
@@ -1511,7 +1511,7 @@
         3,
         7
       ],
-      "yaw": 0
+      "yaw": 4
     }
   ]
 }

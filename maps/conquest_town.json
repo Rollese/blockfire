@@ -785,7 +785,7 @@
       "yaw": 0
     },
     {
-      "prefab": "test_twostory",
+      "prefab": "twostory_house",
       "origin_cell": [
         5,
         0,

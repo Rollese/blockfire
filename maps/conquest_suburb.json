@@ -1,0 +1,485 @@
+{
+  "name": "Suburb",
+  "world_half": 130.0,
+  "roads": [
+    {
+      "min": [
+        -6,
+        0,
+        -120
+      ],
+      "max": [
+        6,
+        0,
+        120
+      ]
+    },
+    {
+      "min": [
+        -120,
+        0,
+        -6
+      ],
+      "max": [
+        120,
+        0,
+        6
+      ]
+    },
+    {
+      "min": [
+        -50,
+        0,
+        -56
+      ],
+      "max": [
+        -38,
+        0,
+        56
+      ]
+    },
+    {
+      "min": [
+        38,
+        0,
+        -56
+      ],
+      "max": [
+        50,
+        0,
+        56
+      ]
+    }
+  ],
+  "buildings": [
+    {
+      "prefab": "cottage",
+      "origin_cell": [
+        -55,
+        0,
+        -19
+      ],
+      "yaw": 0
+    },
+    {
+      "prefab": "family_a",
+      "origin_cell": [
+        -48,
+        0,
+        -19
+      ],
+      "yaw": 0
+    },
+    {
+      "prefab": "family_b",
+      "origin_cell": [
+        -41,
+        0,
+        -19
+      ],
+      "yaw": 0
+    },
+    {
+      "prefab": "house",
+      "origin_cell": [
+        -32,
+        0,
+        -19
+      ],
+      "yaw": 0
+    },
+    {
+      "prefab": "townhouse",
+      "origin_cell": [
+        -16,
+        0,
+        -19
+      ],
+      "yaw": 0
+    },
+    {
+      "prefab": "villa",
+      "origin_cell": [
+        -9,
+        0,
+        -19
+      ],
+      "yaw": 0
+    },
+    {
+      "prefab": "lhouse",
+      "origin_cell": [
+        6,
+        0,
+        -19
+      ],
+      "yaw": 0
+    },
+    {
+      "prefab": "shed",
+      "origin_cell": [
+        28,
+        0,
+        -19
+      ],
+      "yaw": 0
+    },
+    {
+      "prefab": "barn",
+      "origin_cell": [
+        35,
+        0,
+        -19
+      ],
+      "yaw": 0
+    },
+    {
+      "prefab": "cottage",
+      "origin_cell": [
+        44,
+        0,
+        -19
+      ],
+      "yaw": 0
+    },
+    {
+      "prefab": "family_a",
+      "origin_cell": [
+        51,
+        0,
+        -19
+      ],
+      "yaw": 0
+    },
+    {
+      "prefab": "cottage",
+      "origin_cell": [
+        -55,
+        0,
+        8
+      ],
+      "yaw": 0
+    },
+    {
+      "prefab": "family_a",
+      "origin_cell": [
+        -48,
+        0,
+        8
+      ],
+      "yaw": 0
+    },
+    {
+      "prefab": "family_b",
+      "origin_cell": [
+        -41,
+        0,
+        8
+      ],
+      "yaw": 0
+    },
+    {
+      "prefab": "house",
+      "origin_cell": [
+        -32,
+        0,
+        8
+      ],
+      "yaw": 0
+    },
+    {
+      "prefab": "townhouse",
+      "origin_cell": [
+        -16,
+        0,
+        8
+      ],
+      "yaw": 0
+    },
+    {
+      "prefab": "villa",
+      "origin_cell": [
+        -9,
+        0,
+        8
+      ],
+      "yaw": 0
+    },
+    {
+      "prefab": "lhouse",
+      "origin_cell": [
+        6,
+        0,
+        8
+      ],
+      "yaw": 0
+    },
+    {
+      "prefab": "shed",
+      "origin_cell": [
+        28,
+        0,
+        8
+      ],
+      "yaw": 0
+    },
+    {
+      "prefab": "barn",
+      "origin_cell": [
+        35,
+        0,
+        8
+      ],
+      "yaw": 0
+    },
+    {
+      "prefab": "cottage",
+      "origin_cell": [
+        44,
+        0,
+        8
+      ],
+      "yaw": 0
+    },
+    {
+      "prefab": "family_a",
+      "origin_cell": [
+        51,
+        0,
+        8
+      ],
+      "yaw": 0
+    },
+    {
+      "prefab": "warehouse",
+      "origin_cell": [
+        -54,
+        0,
+        -10
+      ],
+      "yaw": 0
+    },
+    {
+      "prefab": "factory",
+      "origin_cell": [
+        -42,
+        0,
+        -10
+      ],
+      "yaw": 0
+    },
+    {
+      "prefab": "bunker",
+      "origin_cell": [
+        -31,
+        0,
+        -10
+      ],
+      "yaw": 0
+    },
+    {
+      "prefab": "silo",
+      "origin_cell": [
+        -16,
+        0,
+        -10
+      ],
+      "yaw": 0
+    },
+    {
+      "prefab": "gas_station",
+      "origin_cell": [
+        28,
+        0,
+        -10
+      ],
+      "yaw": 0
+    },
+    {
+      "prefab": "guardhouse",
+      "origin_cell": [
+        38,
+        0,
+        -10
+      ],
+      "yaw": 0
+    },
+    {
+      "prefab": "office",
+      "origin_cell": [
+        44,
+        0,
+        -10
+      ],
+      "yaw": 0
+    },
+    {
+      "prefab": "hangar",
+      "origin_cell": [
+        52,
+        0,
+        -10
+      ],
+      "yaw": 0
+    },
+    {
+      "prefab": "twostory_house",
+      "origin_cell": [
+        7,
+        0,
+        -15
+      ],
+      "yaw": 0
+    },
+    {
+      "prefab": "test_twostory",
+      "origin_cell": [
+        -31,
+        0,
+        15
+      ],
+      "yaw": 0
+    },
+    {
+      "prefab": "office_tower",
+      "origin_cell": [
+        30,
+        0,
+        30
+      ],
+      "yaw": 0
+    },
+    {
+      "prefab": "apartment",
+      "origin_cell": [
+        -40,
+        0,
+        30
+      ],
+      "yaw": 0
+    },
+    {
+      "prefab": "barracks",
+      "origin_cell": [
+        30,
+        0,
+        -35
+      ],
+      "yaw": 0
+    }
+  ],
+  "points": [
+    {
+      "id": "A",
+      "pos": [
+        -70,
+        0,
+        -55
+      ],
+      "radius": 18,
+      "start_owner": -1
+    },
+    {
+      "id": "B",
+      "pos": [
+        70,
+        0,
+        -55
+      ],
+      "radius": 18,
+      "start_owner": -1
+    },
+    {
+      "id": "C",
+      "pos": [
+        0,
+        0,
+        0
+      ],
+      "radius": 20,
+      "start_owner": -1
+    },
+    {
+      "id": "D",
+      "pos": [
+        -70,
+        0,
+        55
+      ],
+      "radius": 18,
+      "start_owner": -1
+    },
+    {
+      "id": "E",
+      "pos": [
+        70,
+        0,
+        55
+      ],
+      "radius": 18,
+      "start_owner": -1
+    }
+  ],
+  "bases": [
+    {
+      "team": 0,
+      "pos": [
+        0,
+        0,
+        -110
+      ],
+      "radius": 22
+    },
+    {
+      "team": 1,
+      "pos": [
+        0,
+        0,
+        110
+      ],
+      "radius": 22
+    }
+  ],
+  "vehicle_spawns": [
+    {
+      "team": 0,
+      "type": "transport",
+      "pos": [
+        -14,
+        0,
+        -110
+      ],
+      "heading": 0.0
+    },
+    {
+      "team": 0,
+      "type": "transport",
+      "pos": [
+        14,
+        0,
+        -110
+      ],
+      "heading": 0.0
+    },
+    {
+      "team": 1,
+      "type": "transport",
+      "pos": [
+        -14,
+        0,
+        110
+      ],
+      "heading": 3.14159
+    },
+    {
+      "team": 1,
+      "type": "transport",
+      "pos": [
+        14,
+        0,
+        110
+      ],
+      "heading": 3.14159
+    }
+  ]
+}

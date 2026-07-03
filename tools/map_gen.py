@@ -106,10 +106,9 @@ fill_row(CIV, -150, 150, z_corner=12)    # B4: civic, north of Center St
 fill_row(RES, -150, 150, z_corner=62)    # B5: residential, north of Cross +50
 fill_row(RES, -150, 150, z_corner=108)   # B6: north outskirts (clear of team-1 base approach)
 
-# Landmark: a walkable two-story building at the central square (point C) so the M14 stair-climb /
-# per-floor collision / fall-damage loop is testable on this map. Sits in the clear band just SE of
-# the Center St x Main Ave intersection, inside point C's capture radius.
-place("test_twostory", 10, -22)
+# Landmark: walkable two-story house at the central square (point C) for M14 playtest.
+# Source prefab: `tools/twostory_gen.py` -> `buildings/twostory_house.json`.
+place("twostory_house", 10, -22)
 
 # ---------------------------------------------------------------- points + bases
 points = [

@@ -29,7 +29,7 @@ def raise_height(pieces, name):
     """Lift squat buildings: add solid wall levels under the roof so they read like real buildings.
     Idempotent — target height is a fixed function of footprint, so a second run is a no-op. Skips
     already-tall templates and the multi-floor test rig (handled separately)."""
-    if name in ("test_twostory", "office_tower", "tower", "silo", "apartment", "props"):
+    if name in ("test_twostory", "twostory_house", "office_tower", "tower", "silo", "apartment", "props"):
         return 0
     maxy = max(p["offset"][1] for p in pieces)
     roof = [p for p in pieces if p["type"] == "bfloor" and p["offset"][1] == maxy]
@@ -67,13 +67,27 @@ def correct_yaw(x, z, fp):
 WALLISH = ("bwall", "bwall_window", "bwall_door", "bwall_brick", "bwall_metal", "bwall_wood",
            "bwall_glass", "bwall_garage", "bwall_half", "bwall_corner")
 
-def close_corners(pieces, _fp):
-    """Replace solid-wall pieces where two walls TURN (an outer corner) with bwall_corner (kit renders
-    a cross walling both faces; one piece per cell so no stamp collision). A turning corner must:
-      - have a wall neighbour on BOTH axes (so a free wall-END, which only has a neighbour on one axis,
-        does NOT get a cross sticking out), and
-      - be a CONVEX outer corner (open on two perpendicular faces with the diagonal also empty, so
-        concave/inner corners don't get a stub in the room)."""
+def corner_yaw(x, z, fp):
+    """Yaw step 0/2/4/6 = exterior corner SW/SE/NE/NW (matches BuildingKit L-corner arms)."""
+    opens = frozenset(
+        d for d, outside in (
+            ("N", (x, z + 1) not in fp),
+            ("S", (x, z - 1) not in fp),
+            ("E", (x + 1, z) not in fp),
+            ("W", (x - 1, z) not in fp),
+        ) if outside
+    )
+    return {
+        frozenset({"S", "W"}): 0,
+        frozenset({"S", "E"}): 2,
+        frozenset({"N", "E"}): 4,
+        frozenset({"N", "W"}): 6,
+    }.get(opens, 0)
+
+
+def close_corners(pieces, fp):
+    """Replace solid-wall pieces at convex outer corners with bwall_corner (kit renders an
+    edge-aligned L on the two exterior faces; yaw encodes SW/SE/NE/NW)."""
     plan = {(p["offset"][0], p["offset"][2]) for p in pieces}
     wallcells = {(p["offset"][0], p["offset"][2]) for p in pieces if p["type"] in WALLISH}
     def turning_corner(x, z):
@@ -93,7 +107,11 @@ def close_corners(pieces, _fp):
         if p["type"] in ("bwall", "bwall_brick", "bwall_metal", "bwall_wood") \
                 and turning_corner(p["offset"][0], p["offset"][2]):
             p["type"] = "bwall_corner"
+            p["yaw"] = corner_yaw(x, z, fp)
             n += 1
+    for p in pieces:
+        if p["type"] == "bwall_corner":
+            p["yaw"] = corner_yaw(p["offset"][0], p["offset"][2], fp)
     return n
 
 def validate_wall_yaw(pieces, fp):
@@ -104,6 +122,11 @@ def validate_wall_yaw(pieces, fp):
     for p in pieces:
         if p["type"] in WALL_TYPES:
             if int(p.get("yaw", 0)) != correct_yaw(p["offset"][0], p["offset"][2], fp):
+                bad += 1
+    for p in pieces:
+        if p["type"] == "bwall_corner":
+            want = corner_yaw(p["offset"][0], p["offset"][2], fp)
+            if int(p.get("yaw", 0)) != want:
                 bad += 1
     return bad
 
@@ -153,7 +176,7 @@ def fix(path):
             pieces.append({"type": PROPS[idx % len(PROPS)], "offset": [x, 0, z], "yaw": 0})
             added_props += 1
 
-    # Close open corners (solid-wall corner cells -> cross piece). Run last so added levels are caught.
+    # Close open corners (solid-wall corner cells -> L piece). Run last so added levels are caught.
     corners = close_corners(pieces, footprint)
 
     d["pieces"] = pieces

@@ -1,6 +1,6 @@
 {
   "name": "Showcase",
-  "world_half": 272.0,
+  "world_half": 283.0,
   "buildings": [
     {
       "prefab": "apartment",
@@ -210,7 +210,7 @@
       "yaw": 0
     },
     {
-      "prefab": "villa",
+      "prefab": "twostory_house",
       "origin_cell": [
         140,
         0,
@@ -219,9 +219,18 @@
       "yaw": 0
     },
     {
+      "prefab": "villa",
+      "origin_cell": [
+        151,
+        0,
+        0
+      ],
+      "yaw": 0
+    },
+    {
       "prefab": "warehouse",
       "origin_cell": [
-        150,
+        161,
         0,
         0
       ],

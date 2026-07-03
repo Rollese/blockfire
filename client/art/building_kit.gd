@@ -22,7 +22,7 @@ const COL_RUBBLE_B := Color(0.47, 0.45, 0.42) # broken concrete (mid)
 const COL_RUBBLE_C := Color(0.60, 0.58, 0.54) # broken concrete (pale)
 const COL_FOUND := Color(0.46, 0.45, 0.43)   # concrete foundation slab / floor-skirt under walls
 
-static func build(piece_id: String, bucket: int, floor_skirt: bool = false) -> Node3D:
+static func build(piece_id: String, bucket: int, floor_skirt: bool = false, yaw_step: int = 0) -> Node3D:
 	var root := Node3D.new()
 	if floor_skirt:
 		# Ground-level perimeter walls/columns and interior prop cells hold a single centred piece but NO
@@ -111,11 +111,25 @@ static func build(piece_id: String, bucket: int, floor_skirt: bool = false) -> N
 		"bwall_wood":
 			root.add_child(_box("WoodW", Vector3(CELL, CELL, 0.3), Vector3(0, CELL * 0.5, 0), bucket, COL_WOODW, "wood"))
 		"bwall_corner":
-			# Corner cell: two perpendicular full walls (a cross) so BOTH exposed faces are closed and
-			# each arm lines up with the neighbouring centre-walls. Fixes the open-corner slits that
-			# thin single-axis walls left (playtest 2026-06-20).
-			root.add_child(_box("CornX", Vector3(CELL, CELL, 0.3), Vector3(0, CELL * 0.5, 0), bucket, COL_WALL))
-			root.add_child(_box("CornZ", Vector3(0.3, CELL, CELL), Vector3(0, CELL * 0.5, 0), bucket, COL_WALL))
+			# Convex outer corner: two thin slabs on the exterior edges of the cell (an L), not a centred
+			# + cross — the old cross duplicated the neighbouring wall arms and read as an X sticking
+			# past the silhouette (owner feedback 2026-07-03). yaw_step 0/2/4/6 = SW/SE/NE/NW exterior.
+			var t := 0.3
+			var h := CELL * 0.5
+			var edge := CELL * 0.5 - t * 0.5
+			match (yaw_step % BuildGrid.YAW_STEPS) / 2:
+				0:   # exterior S + W
+					root.add_child(_box("ArmS", Vector3(CELL, CELL, t), Vector3(0, h, -edge), bucket, COL_WALL))
+					root.add_child(_box("ArmW", Vector3(t, CELL, CELL), Vector3(-edge, h, 0), bucket, COL_WALL))
+				1:   # exterior S + E
+					root.add_child(_box("ArmS", Vector3(CELL, CELL, t), Vector3(0, h, -edge), bucket, COL_WALL))
+					root.add_child(_box("ArmE", Vector3(t, CELL, CELL), Vector3(edge, h, 0), bucket, COL_WALL))
+				2:   # exterior N + E
+					root.add_child(_box("ArmN", Vector3(CELL, CELL, t), Vector3(0, h, edge), bucket, COL_WALL))
+					root.add_child(_box("ArmE", Vector3(t, CELL, CELL), Vector3(edge, h, 0), bucket, COL_WALL))
+				_:   # exterior N + W
+					root.add_child(_box("ArmN", Vector3(CELL, CELL, t), Vector3(0, h, edge), bucket, COL_WALL))
+					root.add_child(_box("ArmW", Vector3(t, CELL, CELL), Vector3(-edge, h, 0), bucket, COL_WALL))
 		_:
 			# bwall and any unknown id -> solid full wall.
 			root.add_child(_box("Wall", Vector3(CELL, CELL, 0.3), Vector3(0, CELL * 0.5, 0), bucket, COL_WALL))

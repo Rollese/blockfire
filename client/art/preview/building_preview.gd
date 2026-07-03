@@ -93,10 +93,12 @@ func _build_building(name: String) -> AABB:
 		# Mirror world_renderer: ground-level (cell.y == 0) perimeter walls/columns + interior props skirt.
 		var skirt := _skirt and cell.y == 0 and (pid.begins_with("bwall") or pid == "bcolumn" \
 			or pid.begins_with("prop_"))
-		var node: Node3D = BuildingKit.build(pid, 3, skirt)
+		var ystep := int(piece.get("yaw", 0))
+		var node: Node3D = BuildingKit.build(pid, 3, skirt, ystep)
 		var wpos := Vector3((float(cell.x) + 0.5) * CELL, float(cell.y) * CELL, (float(cell.z) + 0.5) * CELL)
 		node.position = wpos
-		node.rotation = Vector3(0.0, BuildGrid.yaw_radians(int(piece.get("yaw", 0))), 0.0)
+		if pid != "bwall_corner":
+			node.rotation = Vector3(0.0, BuildGrid.yaw_radians(ystep), 0.0)
 		_vp.add_child(node)
 		lo = Vector3(minf(lo.x, wpos.x - CELL), minf(lo.y, wpos.y), minf(lo.z, wpos.z - CELL))
 		hi = Vector3(maxf(hi.x, wpos.x + CELL), maxf(hi.y, wpos.y + CELL), maxf(hi.z, wpos.z + CELL))

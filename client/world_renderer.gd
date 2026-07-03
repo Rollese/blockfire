@@ -2294,7 +2294,10 @@ func _pose_structure(node: Node3D, rec: Dictionary) -> void:
 							float(cell.y) * BuildGrid.CELL_SIZE + STRUCT_LIFT,
 							float(cell.z) * BuildGrid.CELL_SIZE + half)
 	# Yaw is a step index (0..YAW_STEPS-1); convert to radians and orient around Y.
-	var yaw_rad := BuildGrid.yaw_radians(int(rec.get("yaw", 0)))
+	# bwall_corner bakes orientation into its L mesh via BuildingKit — don't rotate again.
+	var type_idx: int = int(rec.get("type", 0))
+	var pid: String = STRUCT_TYPE_ID[type_idx] if type_idx < STRUCT_TYPE_ID.size() else "wall"
+	var yaw_rad := 0.0 if pid == "bwall_corner" else BuildGrid.yaw_radians(int(rec.get("yaw", 0)))
 	node.transform.basis = Basis.from_euler(Vector3(0.0, yaw_rad, 0.0))
 
 
@@ -2350,7 +2353,7 @@ func _make_structure_node(rec: Dictionary) -> Node3D:
 		var cell: Vector3i = rec["cell"] as Vector3i
 		var skirt := cell.y == 0 and (piece_id.begins_with("bwall") or piece_id == "bcolumn" \
 			or piece_id.begins_with("prop_"))
-		return BuildingKit.build(piece_id, _bucket_of(rec), skirt)
+		return BuildingKit.build(piece_id, _bucket_of(rec), skirt, int(rec.get("yaw", 0)))
 	return StructureKit.build(piece_id, _bucket_of(rec))
 
 

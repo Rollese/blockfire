@@ -26,7 +26,7 @@
         0,
         2
       ],
-      "yaw": 0
+      "yaw": 6
     },
     {
       "type": "bwall_door",
@@ -53,7 +53,7 @@
         0,
         0
       ],
-      "yaw": 0
+      "yaw": 2
     },
     {
       "type": "bwall_window",
@@ -71,7 +71,7 @@
         0,
         2
       ],
-      "yaw": 0
+      "yaw": 4
     },
     {
       "type": "bwall_corner",
@@ -98,7 +98,7 @@
         1,
         2
       ],
-      "yaw": 0
+      "yaw": 6
     },
     {
       "type": "bwall_window",
@@ -125,7 +125,7 @@
         1,
         0
       ],
-      "yaw": 0
+      "yaw": 2
     },
     {
       "type": "bwall_window",
@@ -143,7 +143,7 @@
         1,
         2
       ],
-      "yaw": 0
+      "yaw": 4
     },
     {
       "type": "bfloor",

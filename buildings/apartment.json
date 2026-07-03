@@ -44,7 +44,7 @@
         0,
         4
       ],
-      "yaw": 0
+      "yaw": 6
     },
     {
       "type": "bwall_window",
@@ -125,7 +125,7 @@
         0,
         0
       ],
-      "yaw": 0
+      "yaw": 2
     },
     {
       "type": "bwall_window",
@@ -161,7 +161,7 @@
         0,
         4
       ],
-      "yaw": 0
+      "yaw": 4
     },
     {
       "type": "bwall_corner",
@@ -206,7 +206,7 @@
         1,
         4
       ],
-      "yaw": 0
+      "yaw": 6
     },
     {
       "type": "bwall_window",
@@ -287,7 +287,7 @@
         1,
         0
       ],
-      "yaw": 0
+      "yaw": 2
     },
     {
       "type": "bwall_window",
@@ -323,7 +323,7 @@
         1,
         4
       ],
-      "yaw": 0
+      "yaw": 4
     },
     {
       "type": "bwall_corner",
@@ -368,7 +368,7 @@
         2,
         4
       ],
-      "yaw": 0
+      "yaw": 6
     },
     {
       "type": "bwall_window",
@@ -449,7 +449,7 @@
         2,
         0
       ],
-      "yaw": 0
+      "yaw": 2
     },
     {
       "type": "bwall_window",
@@ -485,7 +485,7 @@
         2,
         4
       ],
-      "yaw": 0
+      "yaw": 4
     },
     {
       "type": "bwall_corner",
@@ -530,7 +530,7 @@
         3,
         4
       ],
-      "yaw": 0
+      "yaw": 6
     },
     {
       "type": "bwall_window",
@@ -611,7 +611,7 @@
         3,
         0
       ],
-      "yaw": 0
+      "yaw": 2
     },
     {
       "type": "bwall_window",
@@ -647,7 +647,7 @@
         3,
         4
       ],
-      "yaw": 0
+      "yaw": 4
     },
     {
       "type": "bfloor",

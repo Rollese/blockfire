@@ -81,9 +81,12 @@ func _build_map(name: String) -> float:
 		for piece in bdata["pieces"]:
 			var off = piece["offset"]
 			var cell := Vector3i(int(oc[0]) + int(off[0]), int(off[1]), int(oc[2]) + int(off[2]))
-			var node: Node3D = BuildingKit.build(String(piece["type"]), 3)
+			var pid := String(piece["type"])
+			var ystep := int(piece.get("yaw", 0))
+			var node: Node3D = BuildingKit.build(pid, 3, false, ystep)
 			node.position = Vector3((float(cell.x) + 0.5) * CELL, float(cell.y) * CELL, (float(cell.z) + 0.5) * CELL)
-			node.rotation = Vector3(0.0, BuildGrid.yaw_radians(int(piece.get("yaw", 0))), 0.0)
+			if pid != "bwall_corner":
+				node.rotation = Vector3(0.0, BuildGrid.yaw_radians(ystep), 0.0)
 			_vp.add_child(node)
 	# point + base markers (tall beacons so they read from top-down)
 	for p in data.get("points", []):

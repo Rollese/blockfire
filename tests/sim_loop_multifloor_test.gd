@@ -75,3 +75,25 @@ func test_climb_test_twostory_reaches_upper_floor() -> void:
 		max_y = maxf(max_y, pawn.pos.y)
 	assert_true(max_y > 1.7, "reached the upper floor while climbing (max_y=%f)" % max_y)
 	assert_true(pawn.pos.y > 1.5, "still on the upper floor at the end (y=%f, z=%f)" % [pawn.pos.y, pawn.pos.z])
+
+func test_climb_twostory_house_reaches_top_floor() -> void:
+	# Switchback stair rig: south door -> north flight -> mid landing -> south flight -> y=4 m deck.
+	var cat := PieceCatalog.load_file("res://pieces/pieces.json")
+	var store := StructureStore.new(cat)
+	var data = JSON.parse_string(FileAccess.get_file_as_string("res://buildings/twostory_house.json"))
+	var id := 1
+	for p in data["pieces"]:
+		var off = p["offset"]
+		store.place(id, cat.index_of(String(p["type"])), Vector3i(int(off[0]), int(off[1]), int(off[2])), int(p.get("yaw", 0)), -1, 1)
+		id += 1
+	var sim := SimLoop.new()
+	sim.structures = store
+	var pawn := Pawn.new(1)
+	pawn.pos = Vector3(7.0, 0.0, -1.0)   # south of the door (cell (3,0,0))
+	sim.world.pawns[1] = pawn
+	var max_y := 0.0
+	for _i in 220:
+		sim.step({1: {"move_y": 1.0}})   # walk north: door -> hall -> stair1 -> landing -> stair2
+		max_y = maxf(max_y, pawn.pos.y)
+	assert_true(max_y > 3.5, "reached the top living floor (max_y=%f)" % max_y)
+	assert_true(pawn.pos.y > 3.5, "still on the top floor at the end (y=%f)" % pawn.pos.y)

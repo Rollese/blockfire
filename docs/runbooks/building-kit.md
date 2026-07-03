@@ -10,7 +10,8 @@ realistic eave overhang.
 
 Residential: `shed` (3×3, tiny), `cottage` (3×4), `family_a` (4×4), `family_b` (5×4), `house` (5×5,
 4 m walls), `townhouse` (3×5, 3-storey-tall narrow), `villa` (6×7, many windows), `lhouse` (L-shaped),
-`test_twostory` (walkable 2-story — interior stair, **upper floor still 2 m ceiling**, see below).
+`test_twostory` (minimal 3×3 M14 regression rig), `twostory_house` (7×6 walkable two-story with
+4 m ground floor + two northbound stair flights — source: `tools/twostory_gen.py`).
 Commercial/industrial: `bunker` (4×4 squat), `tower` (3×3 tall, walled), `office` (5×5, 3-cell),
 `supermarket` (10×7 storefront), `warehouse` (8×6, bay door), `factory` (8×7, 3-cell), `hangar`
 (11×7, very wide).
@@ -88,6 +89,13 @@ cell footprint, packs buildings into rows per inter-street band, and **validates
 buildings overlap and none sit on a street (prints `N problems`; keep it 0). Regenerate/retune
 the layout there, then `python3 tools/map_gen.py`.
 
+## Gameplay map (`conquest_suburb`)
+
+`maps/conquest_suburb.json` is a medium-density suburban alternative: main N–S avenue, E–W cross-street,
+west/east cul-de-sac spurs, **5 capture points**, and **35 buildings** including `twostory_house` at
+the SE crossroads (M14 walkable target) plus `test_twostory` in the NW quadrant (regression rig).
+Regenerate with `python3 tools/map_gen_suburb.py` (must print `0 problems`).
+
 Roads are a cosmetic, collision-free ground decal: a `roads: [{min,max}]` array on the map,
 parsed by `MapDef` (server ignores it) and rendered by `world_renderer` (`setup()`).
 
@@ -99,8 +107,8 @@ top-down + iso PNG. Helper `/tmp/maplap.sh <mapname>` syncs to the laptop, rende
 
 ## Known limits / follow-ups
 
-- **Walkable 2-story ceiling is 2 m** per floor (single-flight stair). A real ~4 m floor needs
-  multi-flight (switchback) stairs — deferred.
+- **`twostory_house`** delivers a 4 m ground-floor volume + two northbound stair flights on the
+  entry axis (`tools/twostory_gen.py`). **`test_twostory`** remains the minimal 3×3 regression rig.
 - **Flat roofs only.** Pitched/gabled roofs are hard on the per-cell grid (a roof spans a whole
   building, not a cell) — the eave overhang is the stand-in until a sloped-roof mesh is added.
 - **2.6 m EU-standard ceilings** aren't grid-aligned (cells are 2 m → 2 m or 4 m). Exact 2.6 m would

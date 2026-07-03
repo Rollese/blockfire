@@ -38,6 +38,16 @@ func test_heavy_bucket_darker_than_pristine() -> void:
 	var hv := _albedo(autofree(BuildingKit.build("bwall", 0)))
 	assert_true(hv.v <= pv.v, "bucket 0 not brighter than bucket 3")
 
+func test_corner_is_l_not_centred_cross() -> void:
+	var root: Node3D = autofree(BuildingKit.build("bwall_corner", 3, false, 0))
+	var names: Array[String] = []
+	for c in root.get_children():
+		if c is MeshInstance3D:
+			names.append(c.name)
+	assert_eq(names.size(), 2, "corner is two edge arms")
+	assert_true("ArmS" in names or "ArmN" in names, "has a span arm")
+	assert_false("CornX" in names, "no centred cross slab")
+
 func _albedo(node: Node3D) -> Color:
 	var stack: Array = [node]
 	while not stack.is_empty():
