@@ -1,9 +1,11 @@
 class_name SceneryCatalog
 extends RefCounted
-## Loader for data/scenery_catalog.json — Broken Vector tree/rock GLB ids -> res:// paths.
-## Presentation-only; map JSON references ids from this catalog.
+## Loader for data/scenery_catalog.json — Broken Vector tree/rock GLB ids, colorsheet palettes.
+## Presentation-only; map JSON references ids from this catalog and optional map-wide palette names.
 
-var _items: Dictionary = {}   # id:String -> {id, category, name, path}
+var _items: Dictionary = {}      # id:String -> {id, category, name, path}
+var _palettes: Dictionary = {}   # category:String -> {palette_name: res_path}
+var _defaults: Dictionary = {}   # category:String -> default palette name
 
 func has_id(scenery_id: String) -> bool:
 	return _items.has(scenery_id)
@@ -20,11 +22,38 @@ func category_for(scenery_id: String) -> String:
 		return String(item.get("category", ""))
 	return ""
 
+func default_palette_for(category: String) -> String:
+	return String(_defaults.get(category, ""))
+
+func has_palette(category: String, palette_name: String) -> bool:
+	var group: Variant = _palettes.get(category, {})
+	return group is Dictionary and group.has(palette_name)
+
+func palette_path_for(category: String, palette_name: String) -> String:
+	var group: Variant = _palettes.get(category, {})
+	if group is Dictionary and group.has(palette_name):
+		return String(group[palette_name])
+	return ""
+
 func ids() -> Array:
 	return _items.keys()
 
 static func from_dict(data: Dictionary) -> Dictionary:
 	var c := SceneryCatalog.new()
+	var raw_defaults: Variant = data.get("defaults", {})
+	if typeof(raw_defaults) == TYPE_DICTIONARY:
+		for key in raw_defaults.keys():
+			c._defaults[String(key)] = String(raw_defaults[key])
+	var raw_palettes: Variant = data.get("palettes", {})
+	if typeof(raw_palettes) == TYPE_DICTIONARY:
+		for category in raw_palettes.keys():
+			var group: Variant = raw_palettes[category]
+			if not (group is Dictionary):
+				return {"ok": false, "catalog": null, "error": "each palette group must be an object"}
+			var mapped: Dictionary = {}
+			for palette_name in group.keys():
+				mapped[String(palette_name)] = String(group[palette_name])
+			c._palettes[String(category)] = mapped
 	var raw: Variant = data.get("items", {})
 	if typeof(raw) != TYPE_DICTIONARY or raw.is_empty():
 		return {"ok": false, "catalog": null, "error": "items must be a non-empty object"}

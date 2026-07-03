@@ -13,7 +13,8 @@ var platforms: Array = [] # [{min:Vector3, max:Vector3}]
 var roads: Array = []     # [{min:Vector3, max:Vector3}] flat cosmetic ground strips (no collision; client-rendered)
 var prebuilt: Array = []  # [{type:String (piece id), cell:Vector3i}] pre-placed at server start
 var buildings: Array = []  # [{prefab:String, origin_cell:Vector3i, yaw:int}]
-var scenery: Array = []  # [{id:String, pos:Vector3, yaw:float, scale:float}] cosmetic trees/rocks (client-only)
+var scenery: Array = []  # [{id, pos, yaw, scale, palette?}] cosmetic trees/rocks (client-only)
+var scenery_palette: Dictionary = {}  # optional {tree:String, rock:String} colorsheet names (client-only)
 var vehicle_spawns: Array = []  # [{team:int, type:String, pos:Vector3, heading:float}]
 
 func base_for(team: int) -> Dictionary:
@@ -95,12 +96,19 @@ static func from_dict(data: Dictionary) -> Dictionary:
 		var scale := float(sc.get("scale", 1.0))
 		if scale <= 0.0:
 			return {"ok": false, "map": null, "error": "scenery scale must be > 0"}
-		m.scenery.append({
+		var entry := {
 			"id": String(sc["id"]),
 			"pos": _vec3(sc["pos"]),
 			"yaw": float(sc.get("yaw", 0.0)),
 			"scale": scale,
-		})
+		}
+		if sc.has("palette"):
+			entry["palette"] = String(sc["palette"])
+		m.scenery.append(entry)
+	var raw_palette: Variant = data.get("scenery_palette", {})
+	if typeof(raw_palette) == TYPE_DICTIONARY:
+		for key in raw_palette.keys():
+			m.scenery_palette[String(key)] = String(raw_palette[key])
 	for vs in data.get("vehicle_spawns", []):
 		if not (vs is Dictionary) or not vs.has("pos") or not (vs["pos"] is Array) or vs["pos"].size() != 3:
 			return {"ok": false, "map": null, "error": "each vehicle_spawn needs a 3-number pos"}

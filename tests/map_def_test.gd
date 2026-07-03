@@ -102,3 +102,26 @@ func test_proving_grounds_has_scenery_smoke_placements() -> void:
 	var m := MapDef.load_file("res://maps/conquest_proving_grounds.json")
 	assert_true(m != null)
 	assert_true(m.scenery.size() >= 1, "proving grounds has scenery smoke placements")
+
+func test_parses_scenery_palette() -> void:
+	var r := MapDef.from_json_string('{"name":"s","points":[{"id":"A","pos":[0,0,0],"radius":5}],"bases":[{"team":0,"pos":[-10,0,0],"radius":5},{"team":1,"pos":[10,0,0],"radius":5}],"scenery_palette":{"tree":"dry","rock":"sand","storage":"yellow","vehicle_static":"red"}}')
+	assert_true(r["ok"], r["error"])
+	assert_eq(r["map"].scenery_palette["tree"], "dry")
+	assert_eq(r["map"].scenery_palette["rock"], "sand")
+	assert_eq(r["map"].scenery_palette["storage"], "yellow")
+	assert_eq(r["map"].scenery_palette["vehicle_static"], "red")
+
+func test_scenery_palette_defaults_empty() -> void:
+	var r := MapDef.from_json_string('{"name":"s","points":[{"id":"A","pos":[0,0,0],"radius":5}],"bases":[{"team":0,"pos":[-10,0,0],"radius":5},{"team":1,"pos":[10,0,0],"radius":5}]}')
+	assert_true(r["ok"], r["error"])
+	assert_eq(r["map"].scenery_palette.size(), 0)
+
+func test_parses_scenery_instance_palette() -> void:
+	var r := MapDef.from_json_string('{"name":"s","points":[{"id":"A","pos":[0,0,0],"radius":5}],"bases":[{"team":0,"pos":[-10,0,0],"radius":5},{"team":1,"pos":[10,0,0],"radius":5}],"scenery":[{"id":"tree_type0_01","pos":[0,0,0],"palette":"cold"}]}')
+	assert_true(r["ok"], r["error"])
+	assert_eq(r["map"].scenery[0]["palette"], "cold")
+
+func test_scenery_palette_key_absent_when_not_set() -> void:
+	var r := MapDef.from_json_string('{"name":"s","points":[{"id":"A","pos":[0,0,0],"radius":5}],"bases":[{"team":0,"pos":[-10,0,0],"radius":5},{"team":1,"pos":[10,0,0],"radius":5}],"scenery":[{"id":"rock_type1_01","pos":[0,0,0]}]}')
+	assert_true(r["ok"], r["error"])
+	assert_false(r["map"].scenery[0].has("palette"))

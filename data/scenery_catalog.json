@@ -1,5 +1,541 @@
 {
+  "defaults": {
+    "cliff": "grey",
+    "road": "road",
+    "road_car": "car_1",
+    "rock": "grey",
+    "storage": "blue",
+    "tree": "normal",
+    "vehicle_static": "silver"
+  },
+  "palettes": {
+    "tree": {
+      "normal": "res://assets/environment/trees/palettes/normal.png",
+      "dry": "res://assets/environment/trees/palettes/dry.png",
+      "fall": "res://assets/environment/trees/palettes/fall.png",
+      "cold": "res://assets/environment/trees/palettes/cold.png"
+    },
+    "rock": {
+      "grey": "res://assets/environment/rocks/palettes/grey.png",
+      "green": "res://assets/environment/rocks/palettes/green.png",
+      "orange": "res://assets/environment/rocks/palettes/orange.png",
+      "sand": "res://assets/environment/rocks/palettes/sand.png"
+    },
+    "cliff": {
+      "grey": "res://assets/environment/cliffs/palettes/grey.png",
+      "red": "res://assets/environment/cliffs/palettes/red.png",
+      "yellow": "res://assets/environment/cliffs/palettes/yellow.png"
+    },
+    "road": {
+      "road": "res://assets/environment/roads/palettes/road.png"
+    },
+    "road_car": {
+      "car_1": "res://assets/environment/roads/palettes/car_1.png",
+      "car_2": "res://assets/environment/roads/palettes/car_2.png"
+    },
+    "storage": {
+      "blue": "res://assets/environment/storage/palettes/blue.png",
+      "green": "res://assets/environment/storage/palettes/green.png",
+      "purple": "res://assets/environment/storage/palettes/purple.png",
+      "red": "res://assets/environment/storage/palettes/red.png",
+      "yellow": "res://assets/environment/storage/palettes/yellow.png"
+    },
+    "vehicle_static": {
+      "blue": "res://assets/environment/vehicles_static/palettes/blue.png",
+      "green": "res://assets/environment/vehicles_static/palettes/green.png",
+      "purple": "res://assets/environment/vehicles_static/palettes/purple.png",
+      "red": "res://assets/environment/vehicles_static/palettes/red.png",
+      "silver": "res://assets/environment/vehicles_static/palettes/silver.png",
+      "yellow": "res://assets/environment/vehicles_static/palettes/yellow.png"
+    }
+  },
   "items": {
+    "cliff_clifftile_concave": {
+      "id": "cliff_clifftile_concave",
+      "category": "cliff",
+      "name": "Clifftile Concave",
+      "path": "res://assets/environment/cliffs/cliff_clifftile_concave.glb"
+    },
+    "cliff_clifftile_convex": {
+      "id": "cliff_clifftile_convex",
+      "category": "cliff",
+      "name": "Clifftile Convex",
+      "path": "res://assets/environment/cliffs/cliff_clifftile_convex.glb"
+    },
+    "cliff_clifftile_diagonal": {
+      "id": "cliff_clifftile_diagonal",
+      "category": "cliff",
+      "name": "Clifftile Diagonal",
+      "path": "res://assets/environment/cliffs/cliff_clifftile_diagonal.glb"
+    },
+    "cliff_clifftile_pass_1": {
+      "id": "cliff_clifftile_pass_1",
+      "category": "cliff",
+      "name": "Clifftile Pass 1",
+      "path": "res://assets/environment/cliffs/cliff_clifftile_pass_1.glb"
+    },
+    "cliff_clifftile_pass_2": {
+      "id": "cliff_clifftile_pass_2",
+      "category": "cliff",
+      "name": "Clifftile Pass 2",
+      "path": "res://assets/environment/cliffs/cliff_clifftile_pass_2.glb"
+    },
+    "cliff_clifftile_straight_1": {
+      "id": "cliff_clifftile_straight_1",
+      "category": "cliff",
+      "name": "Clifftile Straight 1",
+      "path": "res://assets/environment/cliffs/cliff_clifftile_straight_1.glb"
+    },
+    "cliff_clifftile_straight_2": {
+      "id": "cliff_clifftile_straight_2",
+      "category": "cliff",
+      "name": "Clifftile Straight 2",
+      "path": "res://assets/environment/cliffs/cliff_clifftile_straight_2.glb"
+    },
+    "cliff_clifftile_straight_3": {
+      "id": "cliff_clifftile_straight_3",
+      "category": "cliff",
+      "name": "Clifftile Straight 3",
+      "path": "res://assets/environment/cliffs/cliff_clifftile_straight_3.glb"
+    },
+    "cliff_rocktile_convex": {
+      "id": "cliff_rocktile_convex",
+      "category": "cliff",
+      "name": "Rocktile Convex",
+      "path": "res://assets/environment/cliffs/cliff_rocktile_convex.glb"
+    },
+    "cliff_rocktile_diagonal": {
+      "id": "cliff_rocktile_diagonal",
+      "category": "cliff",
+      "name": "Rocktile Diagonal",
+      "path": "res://assets/environment/cliffs/cliff_rocktile_diagonal.glb"
+    },
+    "cliff_rocktile_pass": {
+      "id": "cliff_rocktile_pass",
+      "category": "cliff",
+      "name": "Rocktile Pass",
+      "path": "res://assets/environment/cliffs/cliff_rocktile_pass.glb"
+    },
+    "cliff_rocktile_straight_1": {
+      "id": "cliff_rocktile_straight_1",
+      "category": "cliff",
+      "name": "Rocktile Straight 1",
+      "path": "res://assets/environment/cliffs/cliff_rocktile_straight_1.glb"
+    },
+    "cliff_rocktile_straight_2": {
+      "id": "cliff_rocktile_straight_2",
+      "category": "cliff",
+      "name": "Rocktile Straight 2",
+      "path": "res://assets/environment/cliffs/cliff_rocktile_straight_2.glb"
+    },
+    "prop_assaultrifleammo_box": {
+      "id": "prop_assaultrifleammo_box",
+      "category": "prop",
+      "name": "Assaultrifleammo Box",
+      "path": "res://assets/environment/props/prop_assaultrifleammo_box.glb"
+    },
+    "prop_pistolammo_box": {
+      "id": "prop_pistolammo_box",
+      "category": "prop",
+      "name": "Pistolammo Box",
+      "path": "res://assets/environment/props/prop_pistolammo_box.glb"
+    },
+    "prop_shotgunammo_box": {
+      "id": "prop_shotgunammo_box",
+      "category": "prop",
+      "name": "Shotgunammo Box",
+      "path": "res://assets/environment/props/prop_shotgunammo_box.glb"
+    },
+    "prop_smgammo_box": {
+      "id": "prop_smgammo_box",
+      "category": "prop",
+      "name": "Smgammo Box",
+      "path": "res://assets/environment/props/prop_smgammo_box.glb"
+    },
+    "prop_sniperammo_box": {
+      "id": "prop_sniperammo_box",
+      "category": "prop",
+      "name": "Sniperammo Box",
+      "path": "res://assets/environment/props/prop_sniperammo_box.glb"
+    },
+    "road_car_car_1": {
+      "id": "road_car_car_1",
+      "category": "road_car",
+      "name": "Car 1",
+      "path": "res://assets/environment/roads/road_car_car_1.glb"
+    },
+    "road_car_car_2": {
+      "id": "road_car_car_2",
+      "category": "road_car",
+      "name": "Car 2",
+      "path": "res://assets/environment/roads/road_car_car_2.glb"
+    },
+    "road_cross_road": {
+      "id": "road_cross_road",
+      "category": "road",
+      "name": "Road Cross Road",
+      "path": "res://assets/environment/roads/road_cross_road.glb"
+    },
+    "road_cross_singlelane": {
+      "id": "road_cross_singlelane",
+      "category": "road",
+      "name": "Road Cross SIngleLane",
+      "path": "res://assets/environment/roads/road_cross_singlelane.glb"
+    },
+    "road_curve": {
+      "id": "road_curve",
+      "category": "road",
+      "name": "Road Curve",
+      "path": "res://assets/environment/roads/road_curve.glb"
+    },
+    "road_freeway_cross_freeway": {
+      "id": "road_freeway_cross_freeway",
+      "category": "road",
+      "name": "Freeway Cross Freeway",
+      "path": "res://assets/environment/roads/road_freeway_cross_freeway.glb"
+    },
+    "road_freeway_cross_road": {
+      "id": "road_freeway_cross_road",
+      "category": "road",
+      "name": "Freeway Cross Road",
+      "path": "res://assets/environment/roads/road_freeway_cross_road.glb"
+    },
+    "road_freeway_curve_1": {
+      "id": "road_freeway_curve_1",
+      "category": "road",
+      "name": "Freeway Curve 1",
+      "path": "res://assets/environment/roads/road_freeway_curve_1.glb"
+    },
+    "road_freeway_curve_2": {
+      "id": "road_freeway_curve_2",
+      "category": "road",
+      "name": "Freeway Curve 2",
+      "path": "res://assets/environment/roads/road_freeway_curve_2.glb"
+    },
+    "road_freeway_join_freeway_1": {
+      "id": "road_freeway_join_freeway_1",
+      "category": "road",
+      "name": "Freeway Join Freeway 1",
+      "path": "res://assets/environment/roads/road_freeway_join_freeway_1.glb"
+    },
+    "road_freeway_join_freeway_2": {
+      "id": "road_freeway_join_freeway_2",
+      "category": "road",
+      "name": "Freeway Join Freeway 2",
+      "path": "res://assets/environment/roads/road_freeway_join_freeway_2.glb"
+    },
+    "road_freeway_join_road": {
+      "id": "road_freeway_join_road",
+      "category": "road",
+      "name": "Freeway Join Road",
+      "path": "res://assets/environment/roads/road_freeway_join_road.glb"
+    },
+    "road_freeway_lift_highway": {
+      "id": "road_freeway_lift_highway",
+      "category": "road",
+      "name": "Freeway Lift Highway",
+      "path": "res://assets/environment/roads/road_freeway_lift_highway.glb"
+    },
+    "road_freeway_s_curve": {
+      "id": "road_freeway_s_curve",
+      "category": "road",
+      "name": "Freeway S-Curve",
+      "path": "res://assets/environment/roads/road_freeway_s_curve.glb"
+    },
+    "road_freeway_straight_1": {
+      "id": "road_freeway_straight_1",
+      "category": "road",
+      "name": "Freeway Straight 1",
+      "path": "res://assets/environment/roads/road_freeway_straight_1.glb"
+    },
+    "road_freeway_straight_2": {
+      "id": "road_freeway_straight_2",
+      "category": "road",
+      "name": "Freeway Straight 2",
+      "path": "res://assets/environment/roads/road_freeway_straight_2.glb"
+    },
+    "road_highway_bridge_1": {
+      "id": "road_highway_bridge_1",
+      "category": "road",
+      "name": "Highway Bridge 1",
+      "path": "res://assets/environment/roads/road_highway_bridge_1.glb"
+    },
+    "road_highway_bridge_2": {
+      "id": "road_highway_bridge_2",
+      "category": "road",
+      "name": "Highway Bridge 2",
+      "path": "res://assets/environment/roads/road_highway_bridge_2.glb"
+    },
+    "road_highway_cross_freeway": {
+      "id": "road_highway_cross_freeway",
+      "category": "road",
+      "name": "Highway Cross Freeway",
+      "path": "res://assets/environment/roads/road_highway_cross_freeway.glb"
+    },
+    "road_highway_cross_highway": {
+      "id": "road_highway_cross_highway",
+      "category": "road",
+      "name": "Highway Cross Highway",
+      "path": "res://assets/environment/roads/road_highway_cross_highway.glb"
+    },
+    "road_highway_cross_road": {
+      "id": "road_highway_cross_road",
+      "category": "road",
+      "name": "Highway Cross Road",
+      "path": "res://assets/environment/roads/road_highway_cross_road.glb"
+    },
+    "road_highway_curve_1": {
+      "id": "road_highway_curve_1",
+      "category": "road",
+      "name": "Highway Curve 1",
+      "path": "res://assets/environment/roads/road_highway_curve_1.glb"
+    },
+    "road_highway_curve_2": {
+      "id": "road_highway_curve_2",
+      "category": "road",
+      "name": "Highway Curve 2",
+      "path": "res://assets/environment/roads/road_highway_curve_2.glb"
+    },
+    "road_highway_join_highway_1": {
+      "id": "road_highway_join_highway_1",
+      "category": "road",
+      "name": "Highway Join Highway 1",
+      "path": "res://assets/environment/roads/road_highway_join_highway_1.glb"
+    },
+    "road_highway_join_highway_2": {
+      "id": "road_highway_join_highway_2",
+      "category": "road",
+      "name": "Highway Join Highway 2",
+      "path": "res://assets/environment/roads/road_highway_join_highway_2.glb"
+    },
+    "road_highway_join_road": {
+      "id": "road_highway_join_road",
+      "category": "road",
+      "name": "Highway Join Road",
+      "path": "res://assets/environment/roads/road_highway_join_road.glb"
+    },
+    "road_highway_s_curve": {
+      "id": "road_highway_s_curve",
+      "category": "road",
+      "name": "Highway S-Curve",
+      "path": "res://assets/environment/roads/road_highway_s_curve.glb"
+    },
+    "road_highway_straight_1": {
+      "id": "road_highway_straight_1",
+      "category": "road",
+      "name": "Highway Straight 1",
+      "path": "res://assets/environment/roads/road_highway_straight_1.glb"
+    },
+    "road_highway_straight_2": {
+      "id": "road_highway_straight_2",
+      "category": "road",
+      "name": "Highway Straight 2",
+      "path": "res://assets/environment/roads/road_highway_straight_2.glb"
+    },
+    "road_highway_straight_3": {
+      "id": "road_highway_straight_3",
+      "category": "road",
+      "name": "Highway Straight 3",
+      "path": "res://assets/environment/roads/road_highway_straight_3.glb"
+    },
+    "road_highway_straight_4": {
+      "id": "road_highway_straight_4",
+      "category": "road",
+      "name": "Highway Straight 4",
+      "path": "res://assets/environment/roads/road_highway_straight_4.glb"
+    },
+    "road_join_road": {
+      "id": "road_join_road",
+      "category": "road",
+      "name": "Road Join Road",
+      "path": "res://assets/environment/roads/road_join_road.glb"
+    },
+    "road_join_singlelane": {
+      "id": "road_join_singlelane",
+      "category": "road",
+      "name": "Road Join SIngleLane",
+      "path": "res://assets/environment/roads/road_join_singlelane.glb"
+    },
+    "road_jump": {
+      "id": "road_jump",
+      "category": "road",
+      "name": "Road Jump",
+      "path": "res://assets/environment/roads/road_jump.glb"
+    },
+    "road_lift_highway": {
+      "id": "road_lift_highway",
+      "category": "road",
+      "name": "Road Lift Highway",
+      "path": "res://assets/environment/roads/road_lift_highway.glb"
+    },
+    "road_looping": {
+      "id": "road_looping",
+      "category": "road",
+      "name": "Road Looping",
+      "path": "res://assets/environment/roads/road_looping.glb"
+    },
+    "road_parkinglot_center_1": {
+      "id": "road_parkinglot_center_1",
+      "category": "road",
+      "name": "Parkinglot Center 1",
+      "path": "res://assets/environment/roads/road_parkinglot_center_1.glb"
+    },
+    "road_parkinglot_center_2": {
+      "id": "road_parkinglot_center_2",
+      "category": "road",
+      "name": "Parkinglot Center 2",
+      "path": "res://assets/environment/roads/road_parkinglot_center_2.glb"
+    },
+    "road_parkinglot_center_3": {
+      "id": "road_parkinglot_center_3",
+      "category": "road",
+      "name": "Parkinglot Center 3",
+      "path": "res://assets/environment/roads/road_parkinglot_center_3.glb"
+    },
+    "road_parkinglot_corner_1": {
+      "id": "road_parkinglot_corner_1",
+      "category": "road",
+      "name": "Parkinglot Corner 1",
+      "path": "res://assets/environment/roads/road_parkinglot_corner_1.glb"
+    },
+    "road_parkinglot_corner_2": {
+      "id": "road_parkinglot_corner_2",
+      "category": "road",
+      "name": "Parkinglot Corner 2",
+      "path": "res://assets/environment/roads/road_parkinglot_corner_2.glb"
+    },
+    "road_parkinglot_corner_3": {
+      "id": "road_parkinglot_corner_3",
+      "category": "road",
+      "name": "Parkinglot Corner 3",
+      "path": "res://assets/environment/roads/road_parkinglot_corner_3.glb"
+    },
+    "road_parkinglot_edge_1": {
+      "id": "road_parkinglot_edge_1",
+      "category": "road",
+      "name": "Parkinglot Edge 1",
+      "path": "res://assets/environment/roads/road_parkinglot_edge_1.glb"
+    },
+    "road_parkinglot_edge_2": {
+      "id": "road_parkinglot_edge_2",
+      "category": "road",
+      "name": "Parkinglot Edge 2",
+      "path": "res://assets/environment/roads/road_parkinglot_edge_2.glb"
+    },
+    "road_parkinglot_edge_3": {
+      "id": "road_parkinglot_edge_3",
+      "category": "road",
+      "name": "Parkinglot Edge 3",
+      "path": "res://assets/environment/roads/road_parkinglot_edge_3.glb"
+    },
+    "road_parkinglot_edge_4": {
+      "id": "road_parkinglot_edge_4",
+      "category": "road",
+      "name": "Parkinglot Edge 4",
+      "path": "res://assets/environment/roads/road_parkinglot_edge_4.glb"
+    },
+    "road_parkinglot_entrance": {
+      "id": "road_parkinglot_entrance",
+      "category": "road",
+      "name": "Parkinglot Entrance",
+      "path": "res://assets/environment/roads/road_parkinglot_entrance.glb"
+    },
+    "road_s_curve": {
+      "id": "road_s_curve",
+      "category": "road",
+      "name": "Road S-Curve",
+      "path": "res://assets/environment/roads/road_s_curve.glb"
+    },
+    "road_singlelane_cross_singlelane": {
+      "id": "road_singlelane_cross_singlelane",
+      "category": "road",
+      "name": "SingleLane Cross SingleLane",
+      "path": "res://assets/environment/roads/road_singlelane_cross_singlelane.glb"
+    },
+    "road_singlelane_curve": {
+      "id": "road_singlelane_curve",
+      "category": "road",
+      "name": "SingleLane Curve",
+      "path": "res://assets/environment/roads/road_singlelane_curve.glb"
+    },
+    "road_singlelane_end": {
+      "id": "road_singlelane_end",
+      "category": "road",
+      "name": "SingleLane End",
+      "path": "res://assets/environment/roads/road_singlelane_end.glb"
+    },
+    "road_singlelane_join_singlelane": {
+      "id": "road_singlelane_join_singlelane",
+      "category": "road",
+      "name": "SingleLane Join SingleLane",
+      "path": "res://assets/environment/roads/road_singlelane_join_singlelane.glb"
+    },
+    "road_singlelane_s_curve": {
+      "id": "road_singlelane_s_curve",
+      "category": "road",
+      "name": "SingleLane S-Curve",
+      "path": "res://assets/environment/roads/road_singlelane_s_curve.glb"
+    },
+    "road_singlelane_straight_1": {
+      "id": "road_singlelane_straight_1",
+      "category": "road",
+      "name": "SingleLane Straight 1",
+      "path": "res://assets/environment/roads/road_singlelane_straight_1.glb"
+    },
+    "road_singlelane_straight_2": {
+      "id": "road_singlelane_straight_2",
+      "category": "road",
+      "name": "SingleLane Straight 2",
+      "path": "res://assets/environment/roads/road_singlelane_straight_2.glb"
+    },
+    "road_straight_1": {
+      "id": "road_straight_1",
+      "category": "road",
+      "name": "Road Straight 1",
+      "path": "res://assets/environment/roads/road_straight_1.glb"
+    },
+    "road_straight_2": {
+      "id": "road_straight_2",
+      "category": "road",
+      "name": "Road Straight 2",
+      "path": "res://assets/environment/roads/road_straight_2.glb"
+    },
+    "road_straight_3": {
+      "id": "road_straight_3",
+      "category": "road",
+      "name": "Road Straight 3",
+      "path": "res://assets/environment/roads/road_straight_3.glb"
+    },
+    "road_tunnel_curve": {
+      "id": "road_tunnel_curve",
+      "category": "road",
+      "name": "Tunnel Curve",
+      "path": "res://assets/environment/roads/road_tunnel_curve.glb"
+    },
+    "road_tunnel_entrance_1": {
+      "id": "road_tunnel_entrance_1",
+      "category": "road",
+      "name": "Tunnel Entrance 1",
+      "path": "res://assets/environment/roads/road_tunnel_entrance_1.glb"
+    },
+    "road_tunnel_entrance_2": {
+      "id": "road_tunnel_entrance_2",
+      "category": "road",
+      "name": "Tunnel Entrance 2",
+      "path": "res://assets/environment/roads/road_tunnel_entrance_2.glb"
+    },
+    "road_tunnel_straight_1": {
+      "id": "road_tunnel_straight_1",
+      "category": "road",
+      "name": "Tunnel Straight 1",
+      "path": "res://assets/environment/roads/road_tunnel_straight_1.glb"
+    },
+    "road_tunnel_straight_4": {
+      "id": "road_tunnel_straight_4",
+      "category": "road",
+      "name": "Tunnel Straight 4",
+      "path": "res://assets/environment/roads/road_tunnel_straight_4.glb"
+    },
     "rock_type1_01": {
       "id": "rock_type1_01",
       "category": "rock",
@@ -143,6 +679,216 @@
       "category": "rock",
       "name": "Rock Type6 04",
       "path": "res://assets/environment/rocks/rock_type6_04.glb"
+    },
+    "storage_amprack_01": {
+      "id": "storage_amprack_01",
+      "category": "storage",
+      "name": "AmpRack_01",
+      "path": "res://assets/environment/storage/storage_amprack_01.glb"
+    },
+    "storage_amprack_02": {
+      "id": "storage_amprack_02",
+      "category": "storage",
+      "name": "AmpRack_02",
+      "path": "res://assets/environment/storage/storage_amprack_02.glb"
+    },
+    "storage_bag_01": {
+      "id": "storage_bag_01",
+      "category": "storage",
+      "name": "Bag_01",
+      "path": "res://assets/environment/storage/storage_bag_01.glb"
+    },
+    "storage_bag_02": {
+      "id": "storage_bag_02",
+      "category": "storage",
+      "name": "Bag_02",
+      "path": "res://assets/environment/storage/storage_bag_02.glb"
+    },
+    "storage_barrel_01": {
+      "id": "storage_barrel_01",
+      "category": "storage",
+      "name": "Barrel_01",
+      "path": "res://assets/environment/storage/storage_barrel_01.glb"
+    },
+    "storage_barrel_02": {
+      "id": "storage_barrel_02",
+      "category": "storage",
+      "name": "Barrel_02",
+      "path": "res://assets/environment/storage/storage_barrel_02.glb"
+    },
+    "storage_barrel_03": {
+      "id": "storage_barrel_03",
+      "category": "storage",
+      "name": "Barrel_03",
+      "path": "res://assets/environment/storage/storage_barrel_03.glb"
+    },
+    "storage_barrel_04": {
+      "id": "storage_barrel_04",
+      "category": "storage",
+      "name": "Barrel_04",
+      "path": "res://assets/environment/storage/storage_barrel_04.glb"
+    },
+    "storage_basket_01": {
+      "id": "storage_basket_01",
+      "category": "storage",
+      "name": "Basket_01",
+      "path": "res://assets/environment/storage/storage_basket_01.glb"
+    },
+    "storage_basket_02": {
+      "id": "storage_basket_02",
+      "category": "storage",
+      "name": "Basket_02",
+      "path": "res://assets/environment/storage/storage_basket_02.glb"
+    },
+    "storage_box_01": {
+      "id": "storage_box_01",
+      "category": "storage",
+      "name": "Box_01",
+      "path": "res://assets/environment/storage/storage_box_01.glb"
+    },
+    "storage_box_02": {
+      "id": "storage_box_02",
+      "category": "storage",
+      "name": "Box_02",
+      "path": "res://assets/environment/storage/storage_box_02.glb"
+    },
+    "storage_cabinet_01": {
+      "id": "storage_cabinet_01",
+      "category": "storage",
+      "name": "Cabinet_01",
+      "path": "res://assets/environment/storage/storage_cabinet_01.glb"
+    },
+    "storage_cabinet_02": {
+      "id": "storage_cabinet_02",
+      "category": "storage",
+      "name": "Cabinet_02",
+      "path": "res://assets/environment/storage/storage_cabinet_02.glb"
+    },
+    "storage_cabinet_03": {
+      "id": "storage_cabinet_03",
+      "category": "storage",
+      "name": "Cabinet_03",
+      "path": "res://assets/environment/storage/storage_cabinet_03.glb"
+    },
+    "storage_cabinet_04": {
+      "id": "storage_cabinet_04",
+      "category": "storage",
+      "name": "Cabinet_04",
+      "path": "res://assets/environment/storage/storage_cabinet_04.glb"
+    },
+    "storage_container_01": {
+      "id": "storage_container_01",
+      "category": "storage",
+      "name": "Container_01",
+      "path": "res://assets/environment/storage/storage_container_01.glb"
+    },
+    "storage_container_02": {
+      "id": "storage_container_02",
+      "category": "storage",
+      "name": "Container_02",
+      "path": "res://assets/environment/storage/storage_container_02.glb"
+    },
+    "storage_crate_01": {
+      "id": "storage_crate_01",
+      "category": "storage",
+      "name": "Crate_01",
+      "path": "res://assets/environment/storage/storage_crate_01.glb"
+    },
+    "storage_crate_02": {
+      "id": "storage_crate_02",
+      "category": "storage",
+      "name": "Crate_02",
+      "path": "res://assets/environment/storage/storage_crate_02.glb"
+    },
+    "storage_electricbox_01": {
+      "id": "storage_electricbox_01",
+      "category": "storage",
+      "name": "ElectricBox_01",
+      "path": "res://assets/environment/storage/storage_electricbox_01.glb"
+    },
+    "storage_electricbox_02": {
+      "id": "storage_electricbox_02",
+      "category": "storage",
+      "name": "ElectricBox_02",
+      "path": "res://assets/environment/storage/storage_electricbox_02.glb"
+    },
+    "storage_eur_pallet": {
+      "id": "storage_eur_pallet",
+      "category": "storage",
+      "name": "EUR-Pallet",
+      "path": "res://assets/environment/storage/storage_eur_pallet.glb"
+    },
+    "storage_garbagecan": {
+      "id": "storage_garbagecan",
+      "category": "storage",
+      "name": "GarbageCan",
+      "path": "res://assets/environment/storage/storage_garbagecan.glb"
+    },
+    "storage_giftbox_01": {
+      "id": "storage_giftbox_01",
+      "category": "storage",
+      "name": "Giftbox_01",
+      "path": "res://assets/environment/storage/storage_giftbox_01.glb"
+    },
+    "storage_giftbox_02": {
+      "id": "storage_giftbox_02",
+      "category": "storage",
+      "name": "Giftbox_02",
+      "path": "res://assets/environment/storage/storage_giftbox_02.glb"
+    },
+    "storage_giftbox_03": {
+      "id": "storage_giftbox_03",
+      "category": "storage",
+      "name": "Giftbox_03",
+      "path": "res://assets/environment/storage/storage_giftbox_03.glb"
+    },
+    "storage_locker": {
+      "id": "storage_locker",
+      "category": "storage",
+      "name": "Locker",
+      "path": "res://assets/environment/storage/storage_locker.glb"
+    },
+    "storage_storagerack_01": {
+      "id": "storage_storagerack_01",
+      "category": "storage",
+      "name": "StorageRack_01",
+      "path": "res://assets/environment/storage/storage_storagerack_01.glb"
+    },
+    "storage_storagerack_02": {
+      "id": "storage_storagerack_02",
+      "category": "storage",
+      "name": "StorageRack_02",
+      "path": "res://assets/environment/storage/storage_storagerack_02.glb"
+    },
+    "storage_suitcase_01": {
+      "id": "storage_suitcase_01",
+      "category": "storage",
+      "name": "Suitcase_01",
+      "path": "res://assets/environment/storage/storage_suitcase_01.glb"
+    },
+    "storage_suitcase_02": {
+      "id": "storage_suitcase_02",
+      "category": "storage",
+      "name": "Suitcase_02",
+      "path": "res://assets/environment/storage/storage_suitcase_02.glb"
+    },
+    "storage_trashcan_01": {
+      "id": "storage_trashcan_01",
+      "category": "storage",
+      "name": "Trashcan_01",
+      "path": "res://assets/environment/storage/storage_trashcan_01.glb"
+    },
+    "storage_trashcan_02": {
+      "id": "storage_trashcan_02",
+      "category": "storage",
+      "name": "Trashcan_02",
+      "path": "res://assets/environment/storage/storage_trashcan_02.glb"
+    },
+    "storage_treasurechest": {
+      "id": "storage_treasurechest",
+      "category": "storage",
+      "name": "TreasureChest",
+      "path": "res://assets/environment/storage/storage_treasurechest.glb"
     },
     "tree_type0_01": {
       "id": "tree_type0_01",
@@ -371,6 +1117,66 @@
       "category": "tree",
       "name": "Tree Type7 04",
       "path": "res://assets/environment/trees/tree_type7_04.glb"
+    },
+    "vehicle_static_bus": {
+      "id": "vehicle_static_bus",
+      "category": "vehicle_static",
+      "name": "Bus",
+      "path": "res://assets/environment/vehicles_static/vehicle_static_bus.glb"
+    },
+    "vehicle_static_car_1": {
+      "id": "vehicle_static_car_1",
+      "category": "vehicle_static",
+      "name": "Car 1",
+      "path": "res://assets/environment/vehicles_static/vehicle_static_car_1.glb"
+    },
+    "vehicle_static_car_2": {
+      "id": "vehicle_static_car_2",
+      "category": "vehicle_static",
+      "name": "Car 2",
+      "path": "res://assets/environment/vehicles_static/vehicle_static_car_2.glb"
+    },
+    "vehicle_static_car_3": {
+      "id": "vehicle_static_car_3",
+      "category": "vehicle_static",
+      "name": "Car 3",
+      "path": "res://assets/environment/vehicles_static/vehicle_static_car_3.glb"
+    },
+    "vehicle_static_car_4": {
+      "id": "vehicle_static_car_4",
+      "category": "vehicle_static",
+      "name": "Car 4",
+      "path": "res://assets/environment/vehicles_static/vehicle_static_car_4.glb"
+    },
+    "vehicle_static_car_5": {
+      "id": "vehicle_static_car_5",
+      "category": "vehicle_static",
+      "name": "Car 5",
+      "path": "res://assets/environment/vehicles_static/vehicle_static_car_5.glb"
+    },
+    "vehicle_static_car_6": {
+      "id": "vehicle_static_car_6",
+      "category": "vehicle_static",
+      "name": "Car 6",
+      "path": "res://assets/environment/vehicles_static/vehicle_static_car_6.glb"
+    },
+    "vehicle_static_policecar": {
+      "id": "vehicle_static_policecar",
+      "category": "vehicle_static",
+      "name": "Policecar",
+      "path": "res://assets/environment/vehicles_static/vehicle_static_policecar.glb"
+    },
+    "vehicle_static_truck_1": {
+      "id": "vehicle_static_truck_1",
+      "category": "vehicle_static",
+      "name": "Truck 1",
+      "path": "res://assets/environment/vehicles_static/vehicle_static_truck_1.glb"
+    },
+    "vehicle_static_truck_2": {
+      "id": "vehicle_static_truck_2",
+      "category": "vehicle_static",
+      "name": "Truck 2",
+      "path": "res://assets/environment/vehicles_static/vehicle_static_truck_2.glb"
     }
   }
 }

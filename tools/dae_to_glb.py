@@ -28,7 +28,7 @@ from trimesh.transformations import rotation_matrix
 
 
 def slugify(name: str) -> str:
-    s = name.replace(".dae", "")
+    s = re.sub(r"\.(dae|fbx)$", "", name, flags=re.IGNORECASE)
     s = re.sub(r"[^A-Za-z0-9]+", "_", s).strip("_").lower()
     return s
 
@@ -76,7 +76,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--textures", required=True, help="Directory containing colorsheet PNGs")
     p.add_argument("--colorsheet", required=True, help="Colorsheet filename inside --textures")
     p.add_argument("--output", required=True, help="Output directory for .glb files")
-    p.add_argument("--category", required=True, choices=["tree", "rock"])
+    p.add_argument("--category", required=True, help="Catalog category prefix (tree, cliff, road, ...)")
     p.add_argument("--catalog", default="", help="Optional path to merge into scenery_catalog.json")
     return p.parse_args()
 

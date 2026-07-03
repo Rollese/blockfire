@@ -363,7 +363,7 @@ func setup(map: MapDef, camera: Camera3D) -> void:
 
 	# Scenery — imported tree/rock GLBs placed from map JSON (cosmetic, no collision).
 	for sc: Dictionary in map.scenery:
-		var node := SceneryKit.build(String(sc["id"]))
+		var node := SceneryKit.build(String(sc["id"]), map.scenery_palette, String(sc.get("palette", "")))
 		if node == null:
 			continue
 		var sc_pos: Vector3 = sc["pos"] as Vector3
