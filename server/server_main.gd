@@ -254,6 +254,71 @@ func _start_match() -> bool:
 	_spawn_map_vehicles()
 	return true
 
+## Match boundary in rotation mode: disconnect everyone, wipe every piece of
+## match-scoped state, load the next map, keep listening. Boot-scoped state
+## (net host, catalogs, config, rolling telemetry) survives.
+func _rotate_match() -> void:
+	_map_index = ServerConfig.next_map_index(_map_index, _maps.size())
+	_map_path = "res://maps/%s.json" % String(_maps[_map_index])
+	print("[server] match complete — rotating to %s" % String(_maps[_map_index]))
+	if _net != null:
+		_net.disconnect_all()
+	_reset_match_state()
+	if not _start_match():
+		# A rotation entry pointing at a missing/broken map is an operator config error;
+		# a dead persistent server is worse than a loud exit.
+		push_error("[server] rotation failed to load %s — exiting" % _map_path)
+		get_tree().quit(1)
+
+## Wipe all match-scoped state. Complements _start_match(), which rebuilds
+## map/conquest/store/vehicles. Keep this list in sync with the var block at the
+## top of the file: every match-scoped var either resets HERE or is rebuilt in
+## _start_match(). (Modules holding a `srv` back-ref dereference _sim/_store
+## lazily, so re-instantiating them BEFORE _start_match rebuilds _store is safe.)
+func _reset_match_state() -> void:
+	_sim = SimLoop.new()
+	_grid.clear()
+	_lag.clear()
+	_squads = SquadManager.new()
+	_stats = ServerStats.new()
+	_fire = ServerFire.new(self)
+	_support = ServerSupport.new(self)
+	_build = ServerBuild.new(self)
+	_gadget_rl = ReliableList.new()
+	_support_rl = ReliableList.new()
+	_downed_rl = ReliableList.new()
+	_fob_rl = ReliableList.new()
+	_clients.clear()
+	_peer_to_id.clear()
+	_human_ids.clear()
+	_team_counts = {0: 0, 1: 0}
+	_positions.clear()
+	_prev_climb_vault.clear()
+	_transport_origin.clear()
+	_pending_removes.clear()
+	_dmg_touched.clear()
+	_buildings_to_cascade.clear()
+	_grenades.clear()
+	_rockets.clear()
+	_mines.clear()
+	_bags.clear()
+	_c4.clear()
+	_smoke_zones.clear()
+	_prev_owners = []
+	_match_over_broadcast = false
+	_match_end_tick = -1
+	_roster_tick = 0
+	_next_struct_id = 1
+	_next_id = 1
+	_degrade_level = 0
+	_snapshot_stride = SNAPSHOT_STRIDE
+	_max_enemy_snapshot = MAX_ENEMY_SNAPSHOT
+	_tele_accum = 0.0            # per-second telemetry window restarts with the match
+	_impact_fx_this_tick = 0     # cosmetic impact-FX budget counter
+	_phase_ticks = 0
+	for k in _phase_us:
+		_phase_us[k] = 0
+
 func _physics_process(delta: float) -> void:
 	var t0 := Time.get_ticks_usec()
 	_net.poll()
@@ -345,7 +410,10 @@ func _physics_process(delta: float) -> void:
 	if _tele_accum >= 1.0:
 		_log_telemetry(); _tele_accum = 0.0
 	if _match_over_broadcast and _sim.tick >= _match_end_tick + MATCH_END_DRAIN_TICKS:
-		print("[server] match complete, exiting"); get_tree().quit(0)
+		if _rotate:
+			_rotate_match()
+		else:
+			print("[server] match complete, exiting"); get_tree().quit(0)
 
 func _build_interest() -> void:
 	# Built once per tick here so the grid/_positions are reused by BOTH the fire
