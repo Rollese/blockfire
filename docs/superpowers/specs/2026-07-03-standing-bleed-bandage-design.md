@@ -32,8 +32,14 @@ the bandage item for*. The two designs are complementary; §"Coordination" track
   through the existing `_down_pawn` path (so a standing bleed-out **counts as a down** and shrinks the
   next halving window). It is not a floor-and-weaken.
 - **Bandage is a timed channel that also heals.** Hold-to-bandage over `BANDAGE_TICKS`; **medic ½
-  time**. On completion it stops the bleed **and** restores `BANDAGE_HEAL` HP (capped at 100). Taking
-  damage (healer or target) interrupts and resets progress.
+  time**. On completion it stops the bleed **and** restores `BANDAGE_HEAL` HP (capped at 100).
+- **All-or-nothing channel (BattleBit-style).** The channel must run to completion uninterrupted. It
+  **hard-cancels and resets to zero** (must be restarted) the moment the healer or target moves out of
+  `BANDAGE_RANGE`, the healer **sprints or fires**, the healer or target **takes damage**, or the
+  target stops being a valid patient. No progress is retained across an interruption.
+- **One button for everything.** All context actions use **F** (interact) — enter vehicle, revive a
+  downed mate, bandage a bleeding mate, and (when no world prompt applies and you are bleeding)
+  self-bandage. No dedicated bandage key.
 - **"First-aid kit on your chest" economy.** Bandaging spends the **victim's** `bandage_count` first;
   if the victim is empty, the **helper's** charge is spent; if both are empty, the bandage cannot
   complete. Counts: **base 3 / medic 20**.
@@ -125,14 +131,15 @@ down. A non-lethal tick just decrements `health` (no per-tick `DAMAGE_EVENT` spa
   `target == healer_id` ⇒ self-bandage; else a teammate. Handler `handle_bandage_action` sets/clears
   the latch.
 - `step_bandage()` per tick, for each latched healer:
-  - Validate: healer alive & not downed; target alive & not downed & `bleeding`; if teammate, same
-    team and within `BANDAGE_RANGE`; a bandage is available (`Bandage.pick_source(...) != -1`). Drop
-    the latch (and progress) on a hard-invalid; a transient out-of-range just holds without advancing
-    (like revive).
-  - **Interrupt:** if the healer is sprinting or firing this tick, hold without advancing. Progress is
-    also reset when the healer *or* target takes damage — enforced in `_apply_pawn_damage` by clearing
-    `bandage_ticks` for that id (both as healer key's target and as target).
-  - Advance `bandage_ticks[target] += 1`. On reaching `Bandage.channel_ticks(is_medic(healer))`:
+  - **All-or-nothing validation (hard-cancel + reset on any failure — unlike revive's hold-through-
+    transient latch):** the latch is dropped and `bandage_ticks[target]` erased the instant any of
+    these fails — healer alive & not downed; target alive & not downed & `bleeding`; same team; within
+    `BANDAGE_RANGE`; healer **not sprinting and not firing** this tick; a bandage available
+    (`Bandage.pick_source(...) != -1`). There is no "hold without advancing" state.
+  - **Damage interrupt:** the healer *or* target taking damage also hard-cancels — enforced in
+    `_apply_pawn_damage` by dropping any `bandaging` latch and `bandage_ticks` keyed on that id (as
+    healer or as target).
+  - Otherwise advance `bandage_ticks[target] += 1`. On reaching `Bandage.channel_ticks(is_medic(healer))`:
     complete — `Bandage.pick_source` decides the pouch, decrement it, `target.bleeding = false`,
     `target.health = min(100, target.health + Bandage.BANDAGE_HEAL)`, `_stats.bandages += 1`, drop the
     latch. Emit a support link (`SupportLinks` — see §Replication) for the beam/aura.
@@ -158,10 +165,12 @@ down. A non-lethal tick just decrements `health` (no per-tick `DAMAGE_EVENT` spa
   to bandage" prompt; remote **blood-drip VFX** on bleeding pawns.
 - **Support beam:** a completing/active bandage emits a `SupportLinks` entry so the existing
   `SUPPORT_LIST` beam/aura renders the bandager→patient link (reuse; no new list needed for the beam).
-- **Input:** teammate-bandage = hold **interact (F)** on a bleeding mate (like revive intent, sends
-  `BANDAGE_ACTION(active, mate_id)`); self-bandage-while-standing = a dedicated `bandage` action
-  sending `BANDAGE_ACTION(active, self_id)` (keybind finalized in the plan; candidate: a hold on the
-  existing bandage/heal key).
+- **Input — F for everything.** The existing interaction resolver already maps **F** to the
+  context-appropriate action (enter vehicle, revive a downed mate). Extend it: looking at a bleeding
+  mate in range → prompt "Bandage" → hold F sends `BANDAGE_ACTION(active, mate_id)`; if no world
+  prompt applies and the player is themselves `bleeding` → hold F self-bandages (sends
+  `BANDAGE_ACTION(active, self_id)`). Priority order matches BattleBit: world target (vehicle / downed
+  / bleeding mate) before self-bandage. Releasing F (or any hard-cancel above) drops the latch.
 
 Wire ids reconciled against `docs/specs/wire-protocol-registry.md`; **45 `BANDAGE_ACTION`**, **46
 `BLEEDING_LIST`** are the next free ids (halving-bleedout adds none).
