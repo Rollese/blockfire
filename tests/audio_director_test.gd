@@ -41,7 +41,7 @@ func test_play_event_drops_when_pool_full() -> void:
 	d.setup(cat, 1)
 	# one CRITICAL holds the single slot; a LOW footstep nearby must be dropped (no bind).
 	var a := d.decide("explosion", 5.0, 0.0, 0.0)
-	var b := d.decide("footstep", 5.0, 0.0, 0.0)
+	var b := d.decide("footstep_walk", 5.0, 0.0, 0.0)
 	assert_true(a["slot"] >= 0, "explosion gets the only slot")
 	assert_eq(b["slot"], -1, "footstep dropped when pool full and outranked")
 

@@ -12,9 +12,10 @@ const TARGET_LENGTH := 0.6   # metres along the longest axis (≈ procedural Wea
 const MODEL_YAW := -PI / 2.0
 
 const _PATHS := {
-	Weapon.AR:  "res://assets/weapons/assault_rifle.glb",
-	Weapon.SMG: "res://assets/weapons/submachine_gun.glb",
-	Weapon.DMR: "res://assets/weapons/sniper_rifle.glb",
+	Weapon.AR:     "res://assets/weapons/assault_rifle.glb",
+	Weapon.SMG:    "res://assets/weapons/submachine_gun.glb",
+	Weapon.DMR:    "res://assets/weapons/sniper_rifle.glb",
+	Weapon.PISTOL: "res://assets/weapons/pistol.glb",
 }
 
 ## Build a weapon model for the given Weapon enum id. Returns an imported GLB (normalized) for mapped

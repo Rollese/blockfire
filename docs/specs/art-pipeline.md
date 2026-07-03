@@ -41,13 +41,26 @@ client/art/
   character_anim.gd      # CharacterAnim — pure state -> clip-name map
   character_driver.gd    # CharacterDriver — idempotent AnimationPlayer clip play
   weapon_kit.gd          # per-Weapon blocky silhouette (AR/SMG/DMR/RPG), viewmodel + world model
+  glb_weapon_kit.gd      # Broken Vector weapon GLBs (AR/SMG/DMR/pistol); RPG → procedural fallback
   vehicle_kit.gd         # transport hull/wheels/turret, team-tinted, sized to vehicles.json
   structure_kit.gd       # sandbag/wall, per-damage-bucket tint  (damage TINT only — destruction = M11)
   prop_kit.gd            # cosmetic set-dressing (crate/barrel/barrier), no gameplay collision
+  scenery_kit.gd         # Broken Vector scenery GLBs by catalog id; palette swap at build time
+  scenery_catalog.gd     # loader for data/scenery_catalog.json (items + per-category palettes)
   preview/               # standalone preview scenes for owner visual sign-off (no autoload/server)
+data/
+  scenery_catalog.json   # scenery item ids → res:// paths; defaults + palette colorsheets
 assets/
   characters/*.glb       # Kenney "blocky characters" (CC0) + Textures/
-  README.md              # records that the kit is code-generated + the GLB exception
+  weapons/*.glb          # Broken Vector Weapons Pack V.1 (OBJ→GLB via tools/obj_to_glb.py)
+  environment/           # Broken Vector scenery (DAE/FBX→GLB); see assets/README.md
+  audio/sfx/             # real SFX (Snake gunshots, WASD footsteps, Sonniss impacts); see assets/audio/sfx/README.md
+  README.md              # imported-model inventory + conversion tools
+tools/
+  dae_to_glb.py          # Collada scenery batch convert + catalog merge
+  blender_fbx_to_glb.py  # FBX scenery (static vehicles) via Blender headless
+  obj_to_glb.py          # OBJ weapons convert (Z-up → Y-up)
+  register_scenery_palettes.py  # copy colorsheet PNGs into assets + catalog palettes{}
 ```
 
 ### 2.2 Contracts that the open tracks must preserve

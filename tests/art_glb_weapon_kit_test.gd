@@ -30,6 +30,9 @@ func test_smg_and_dmr_also_map_to_glbs() -> void:
 	assert_true(_mesh_count(autofree(GlbWeaponKit.build(Weapon.SMG))) >= 1, "SMG maps to a GLB")
 	assert_true(_mesh_count(autofree(GlbWeaponKit.build(Weapon.DMR))) >= 1, "DMR maps to a GLB")
 
+func test_pistol_maps_to_glb() -> void:
+	assert_true(_mesh_count(autofree(GlbWeaponKit.build(Weapon.PISTOL))) >= 1, "PISTOL maps to a GLB")
+
 func test_rpg_falls_back_to_procedural_weaponkit() -> void:
 	# The Ultimate Guns Pack has no launcher, so RPG must fall back to the procedural WeaponKit,
 	# which builds a visible warhead cone.
