@@ -7,6 +7,7 @@ extends RefCounted
 var _perc: Perception
 var _human: Humanize
 var _profile: Dictionary
+var _weights: Dictionary = {}  # M7.5-P3: utility weights from data/ai_tuning.json ({} -> hardcoded defaults)
 var _current_behavior := ""
 var _aim_target_id: int = 0
 var _aim_ticks: int = 0
@@ -46,6 +47,7 @@ func _init(global_seed: int, bot_index: int, profile_name: String) -> void:
 	_bot_index = bot_index
 	var t := AiTuning.load_file("res://data/ai_tuning.json")
 	_profile = t.get("profiles", {}).get(profile_name, {"reaction_delay_ticks": 9, "aim_error_deg": 3.0, "aim_settle_ticks": 6, "aggression": 1.0})
+	_weights = t.get("weights", {})
 
 ## Clear per-life state. Called from the bot_driver dead branch (and on future map
 ## rotation): enemies seen in a past life must re-trigger the reaction delay, stale
@@ -84,7 +86,7 @@ func decide() -> Dictionary:
 	var default_intent := {"move_x": 0.0, "move_y": 0.0, "yaw": (me.yaw if me else 0.0), "pitch": 0.0, "buttons": 0, "stance": Stance.STAND, "behavior": "push_obj"}
 	if w == null or me == null:
 		return default_intent
-	var scores := Utility.score(w, float(_profile.get("aggression", 1.0)), _current_behavior)
+	var scores := Utility.score(w, float(_profile.get("aggression", 1.0)), _weights)
 	var behavior := Utility.choose(scores, _current_behavior, Utility.HYSTERESIS_BONUS)
 	var tgt := AiCombat.pick_target(w, _aim_target_id)
 	# Reaction gate: if engage was chosen but no target has cleared the delay, re-pick the best
