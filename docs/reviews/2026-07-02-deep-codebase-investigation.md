@@ -252,3 +252,20 @@ list (unread `weights` block, hardcoded profile, write-only `_memory`, `climb_se
 march path, missing `blackboard`/`commander`) remains deferred to the M7.5-P3 milestone
 proper — implement-or-de-document per item there. Distribution asserted in pure tests per
 the deterministic-testing policy; combat *feel* stays deferred to the free-cam gate.
+
+**Execution note (2026-07-03, §E inert-features / M7.5-P3):** the §E "spec'd-but-inert"
+list was executed in full as part of M7.5-P3 (branch `m7.5-p3-support-ai`, support &
+survivability): the `ai_tuning.json` `weights` block is finally read by `Utility.score`
+(hardcoded values kept as bit-identical defaults, three new keys `revive`/`seek_supply`/
+`avoid_danger`); profile `reaction_delay_ticks` honored (was hardcoded 9);
+`--ai-profile=<recruit|regular|veteran|elite>` bot-driver flag (validated, fallback
+regular); enemy `priority` populated (0.5 when the enemy threatens a revive — within 15 m
+of my downed ally; `pick_target` finally consumes the field it always sorted on);
+`AI_TICK_EVERY=3` decision cadence implemented (scoring strided, aim/movement every tick,
+danger pre-empts only when actually inside a zone — ~3× decision-cost saving);
+`Perception.last_known()` — `_memory` is finally read (suppress aims at the last-known
+position when no enemy is visible); `climb_seek` re-wired into the push_obj march (the
+`214b7e4` ladder-nav regression — matters for M14). The one deliberate exception: the
+`blackboard.gd`/`commander.gd` scaffolds stay uncreated **by design** — they are M7.5-P4
+(squad & strategy) deliverables, recorded as such in the milestone doc. With batch 6 above,
+§E is closed.
