@@ -11,6 +11,11 @@ const MAP_PATH := "res://maps/conquest_proving_grounds.json"   # default; overri
 var _net: NetHost
 var _server_ip := "127.0.0.1"
 var _port := 27015
+# TODO(main menu, M7): currently only set via --name= CLI arg (no name-entry UI exists yet). When
+# a main menu adds one, its input filter MUST mirror Protocol.MAX_NAME_LEN /
+# Protocol._ALLOWED_NAME_SYMBOLS (shared/net/protocol.gd) — the server re-sanitizes HELLO
+# authoritatively either way, but a mismatched client-side filter means players see their typed
+# name silently mangled after connecting instead of being guided to valid input up front.
 var _player_name := "Player"
 var _peer: ENetPacketPeer
 

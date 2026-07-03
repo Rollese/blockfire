@@ -127,13 +127,36 @@ static func msg_type(bytes: PackedByteArray) -> int:
 	return bytes[0] if not bytes.is_empty() else 0
 
 
+const MAX_NAME_LEN := 24
+# Plus A-Z/a-z/0-9 — see _sanitize_name. Space/dot/apostrophe cover normal names ("O'Brien",
+# "Sgt. Ryan"); the rest are common harmless clan-tag/handle decorations. Deliberately excludes
+# anything that reads as markup (<>) or has special meaning elsewhere (% \ ` " ; in format
+# strings/paths) even though names aren't currently rendered through any markup-parsing UI.
+const _ALLOWED_NAME_SYMBOLS := " .-_'()[]{}#@~^!?"
+
 ## HELLO body: protocol version + player name + auto_deploy (trailing byte, legacy default true).
 static func decode_hello(bytes: PackedByteArray) -> Dictionary:
 	var r := body_reader(bytes)
 	var ver := r.get_u16()
-	var pname := r.get_utf8_string()
+	var pname := _sanitize_name(r.get_utf8_string())
 	var auto_deploy: bool = (r.get_u8() == 1) if r.get_available_bytes() > 0 else true
 	return {"ver": ver, "name": pname, "auto_deploy": auto_deploy}
+
+
+## The HELLO name is attacker-controlled and gets re-broadcast to every peer via ROSTER, so this
+## is the trust boundary: cap length (bounds the loop below regardless of how large the client
+## sent) and whitelist to [A-Za-z0-9-_()[]{}] — no whitespace/control/punctuation/emoji — before
+## it ever reaches other clients' UI.
+static func _sanitize_name(raw: String) -> String:
+	var capped := raw.substr(0, MAX_NAME_LEN)
+	var out := ""
+	for c in capped:
+		var code := c.unicode_at(0)
+		var is_alnum := (code >= 65 and code <= 90) or (code >= 97 and code <= 122) or (code >= 48 and code <= 57)
+		if is_alnum or _ALLOWED_NAME_SYMBOLS.contains(c):
+			out += c
+	out = out.strip_edges()   # a name that's all/leading/trailing filler space reads as blank
+	return out if not out.is_empty() else "Player"
 
 
 static func decode_reject(bytes: PackedByteArray) -> String:

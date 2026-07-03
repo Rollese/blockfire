@@ -522,5 +522,34 @@ func test_decode_hello_in_registry() -> void:
 	var d2 := Protocol.decode_hello(Protocol.encode_hello("bot-1"))
 	assert_true(bool(d2["auto_deploy"]), "auto_deploy defaults true")
 
+## A malicious/buggy HELLO name must not reach ROSTER broadcasts unbounded, with control chars,
+## or with characters outside the allowed [A-Za-z0-9 .-_'()[]{}#@~^!?] set (other punctuation,
+## emoji, etc).
+func test_decode_hello_sanitizes_name() -> void:
+	var long_name := "x".repeat(200)
+	var d := Protocol.decode_hello(Protocol.encode_hello(long_name))
+	assert_eq(String(d["name"]).length(), Protocol.MAX_NAME_LEN)
+	var d2 := Protocol.decode_hello(Protocol.encode_hello("bad\nname\twithctrl"))
+	assert_eq(String(d2["name"]), "badnamewithctrl")
+	var d3 := Protocol.decode_hello(Protocol.encode_hello(""))
+	assert_eq(String(d3["name"]), "Player")
+	# Normal names: space, dot, apostrophe, and clan-tag punctuation all pass through.
+	var d4 := Protocol.decode_hello(Protocol.encode_hello("O'Brien #1 [Sgt.] ~Ryan~"))
+	assert_eq(String(d4["name"]), "O'Brien #1 [Sgt.] ~Ryan~")
+	# Disallowed symbols are dropped individually, not the whole name.
+	var d5 := Protocol.decode_hello(Protocol.encode_hello("100%edgy"))
+	assert_eq(String(d5["name"]), "100edgy", "percent sign is dropped")
+	var d6 := Protocol.decode_hello(Protocol.encode_hello("<script>"))
+	assert_eq(String(d6["name"]), "script", "angle brackets are dropped")
+	var d7 := Protocol.decode_hello(Protocol.encode_hello("na\\me"))
+	assert_eq(String(d7["name"]), "name", "backslash is dropped")
+	var d8 := Protocol.decode_hello(Protocol.encode_hello("💀"))
+	assert_eq(String(d8["name"]), "Player", "an all-emoji name falls back to the default")
+	# Leading/trailing filler space (post-filter) collapses to the fallback name if nothing's left.
+	var d9 := Protocol.decode_hello(Protocol.encode_hello("   "))
+	assert_eq(String(d9["name"]), "Player")
+	var d10 := Protocol.decode_hello(Protocol.encode_hello("!!!"))
+	assert_eq(String(d10["name"]), "!!!", "decorative-only names are allowed as long as something survives")
+
 func test_decode_reject_in_registry() -> void:
 	assert_eq(Protocol.decode_reject(Protocol.encode_reject("server full")), "server full")

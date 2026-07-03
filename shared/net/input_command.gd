@@ -9,6 +9,10 @@ extends Object
 
 const MOVE_SCALE := 32767.0
 
+## Encoded size of one frame: client_tick(4) + view_server_tick(4) + move_x(2) + move_y(2)
+## + yaw(2) + pitch(2) + buttons(2). Used to bound the frame count against actual packet size.
+const FRAME_SIZE := 18
+
 const BTN_JUMP := 1
 const BTN_CROUCH := 2
 const BTN_PRONE := 4
@@ -57,6 +61,10 @@ static func decode(bytes: PackedByteArray) -> Dictionary:
 	buf.seek(1)  # skip msg type
 	var ack_seq := buf.get_u32()
 	var n := buf.get_u8()
+	# Never trust the frame count beyond what the packet actually carries — a short/malformed
+	# packet claiming a large n would otherwise loop into buffer underruns (wasted work + engine
+	# error spam per read) without ever producing usable frames.
+	n = mini(n, buf.get_available_bytes() / FRAME_SIZE)
 	var frames: Array = []
 	for _i in n:
 		frames.append(_get_frame(buf))

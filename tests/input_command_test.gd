@@ -64,3 +64,15 @@ func test_empty_bundle_decodes_to_no_frames() -> void:
 	var d := InputCommand.decode(InputCommand.encode_bundle(7, []))
 	assert_eq(d["ack_seq"], 7)
 	assert_eq(d["frames"].size(), 0)
+
+## A malicious/malformed packet can claim a large frame count while carrying none of the actual
+## frame bytes. decode() must bound the loop to what's really on the wire instead of looping into
+## buffer underruns.
+func test_decode_ignores_frame_count_beyond_available_bytes() -> void:
+	var real := InputCommand.encode_bundle(1, [
+		{"client_tick": 5, "move_x": 0.0, "move_y": 0.0, "yaw": 0.0, "pitch": 0.0, "buttons": 0, "view_server_tick": 0},
+	])
+	var spoofed := real.duplicate()
+	spoofed[5] = 255   # frame-count byte (offset 1 msg type + 4 ack_seq) lies about carrying 255 frames
+	var d := InputCommand.decode(spoofed)
+	assert_eq(d["frames"].size(), 1, "clamped to what the packet actually contains")
