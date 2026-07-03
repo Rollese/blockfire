@@ -74,6 +74,19 @@ A milestone gate must not depend on **emergent bot AI** to *exercise* a mechanic
 - **Use the bot fleet only for what it is uniquely good at** — scale, perf/tick budget, bandwidth, stability, match completion. Bots there generate *load*, not skilled play. Hard-gate those; mark AI-dependent combat counters **reported, not gated**.
 - **Defer bot-AI tactical quality/feel to the M7 visual-client pass** — the owner will watch matches and diagnose against BattleBit experience far faster than blind number-tuning. Log AI-feel shortfalls as deferred-to-M7 items rather than blocking a milestone on them.
 
+## 11. Land your work — commit, merge to master, and push when done (don't strand work on a worktree)
+
+Worktrees and feature branches are **disposable and can be reclaimed by the harness mid-session**, taking their branch ref (and any un-merged commits) with them. On 2026-07-03 a completed spec+plan was lost this way — recovered only because the commits happened to survive as dangling objects. **Never leave completed work living only on a worktree/feature branch.**
+
+The moment a coherent unit of work is finished and verified, land it:
+
+1. **Commit** everything on your branch — no loose uncommitted changes.
+2. **`git fetch origin`** and reconcile — another agent may have advanced `origin/master` (concurrent work is normal here; check the coordination notes in the relevant spec before merging).
+3. **Merge to `master`** — `--no-ff` for a feature branch; a docs-only branch may fast-forward. A fast-forward is safe even when a concurrent agent has a dirty working tree in the main checkout, as long as the merge only touches files they haven't modified — verify with `git status --short` before and after.
+4. **`git push origin master`.**
+
+This applies to **every** deliverable, **including spec/plan-only branches** — a written spec or plan is completed work worth preserving. Pushing to `origin/master` on completion is owner-ratified (2026-06-27, **reaffirmed 2026-07-03** after the reclaimed-worktree loss). If you must stop with work genuinely incomplete, at minimum **commit and push the branch to `origin`** (`git push -u origin <branch>`) so nothing lives only in a reclaimable local worktree. When done inside a worktree, prefer the `finishing-a-development-branch` skill, which walks the merge/PR/cleanup decision — but do not `ExitWorktree`/end the session on unpushed completed work.
+
 ## Quick map
 
 - Plan of record: the milestone index in `docs/TASKS.md` (an external plan file previously named here no longer exists)
