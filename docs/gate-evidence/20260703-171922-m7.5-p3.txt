@@ -1,0 +1,8 @@
+gate: m7.5-p3-support-ai
+date: 2026-07-03T17:19:22+02:00
+host: game2
+git: cdafe5f
+verdict: PASS
+summary: winner=1 elapsed=292s peak_tick=16.83ms budget=33.3ms agg=13.3Mbit/s players=128 kills=4 shots=92 downed=3 revives=2 bags=5 heals=163 ammo=1 ai_us_mean=988.9us map=conquest_town script_errors=0
+srvlog: srvlog-m7.5-20260703-171922.log
+srvlog_sha256: 277af15382036bd3427e4f3fdcb007afb5b89fe293beef06d2dd785e09b2d11c

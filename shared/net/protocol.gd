@@ -53,8 +53,8 @@ enum Msg {
 	SWAP_WEAPON = 32,       ## client -> server: quick-swap to weapon slot (0=primary, 1=secondary)
 	MELEE = 33,             ## client -> server: melee swing (knife / Engineer sledgehammer); zero payload
 	IMPACT_FX = 34,         ## server -> human clients: a bullet hit world geometry at pos (cosmetic impact puff)
-	GRENADE_FX = 35,        ## server -> human clients: a remote pawn threw a grenade (cosmetic arcing object)
-	GADGET_LIST = 36,       ## server -> human clients: authoritative list of deployed gadgets (C4/mine/bag) to render
+	GRENADE_FX = 35,        ## server -> ALL clients (M7.5-P3): a remote pawn threw a grenade (cosmetic arc / bot avoidance)
+	GADGET_LIST = 36,       ## server -> ALL clients (M7.5-P3): authoritative deployed gadgets (C4/mine/bag) — render / bot awareness
 	SUPPORT_LIST = 37,      ## server -> human clients: active support links (heal/ammo/repair/revive) -> beam + aura
 	PLACE_FOB = 38,         ## client -> server: squad leader requests a FOB build site at a cell
 	REMOVE_FOB = 39,        ## client -> server: squad leader removes their squad's FOB (site or built)

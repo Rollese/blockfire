@@ -525,6 +525,17 @@ func _broadcast_humans(channel: int, pkt: PackedByteArray, flags: int = 0, exclu
 			continue
 		_net.send_to(_clients[cid]["peer"], channel, pkt, flags)
 
+## M7.5-P3 sibling of _broadcast_humans: send `pkt` to EVERY client — bots included —
+## optionally excluding one id. Only for the fair-play broadcasts bots also consume
+## (GADGET_LIST, GRENADE_FX); the purely-cosmetic *_FX/list fan-outs stay human-only.
+## Perf: encode ONCE (caller), send N — this loop is send-only, so 128 clients cost
+## 128 enet sends of one shared small packet. The 128-bot fleet gate is the budget proof.
+func _broadcast_all(channel: int, pkt: PackedByteArray, flags: int = 0, exclude: int = 0) -> void:
+	for cid in _clients:
+		if cid == exclude:
+			continue
+		_net.send_to(_clients[cid]["peer"], channel, pkt, flags)
+
 func _broadcast_shot_fx(shooter_id: int, origin: Vector3, dir: Vector3) -> void:
 	# Cosmetic remote-tracer hint. Unreliable (droppable); shooter excluded (renders its own).
 	_broadcast_humans(NetHost.CHANNEL_SNAPSHOT, Protocol.encode_shot_fx(origin, dir, shooter_id), 0, shooter_id)
@@ -1252,17 +1263,20 @@ func _fire_rocket(id: int, p: Pawn, dir: Vector3) -> void:
 func _broadcast_rocket_fx(shooter_id: int, origin: Vector3, dir: Vector3) -> void:
 	_broadcast_humans(NetHost.CHANNEL_SNAPSHOT, Protocol.encode_rocket_fx(origin, dir), 0, shooter_id)
 
-## Authoritative deployed-gadget list (C4/mines/bags) for human clients to render. Rebuilt from the
-## live stores each tick and sent (reliably) only when it CHANGES, plus a ~1 Hz heartbeat while
-## non-empty so a late-joining human catches up. Skipped entirely when no human is connected.
+## Authoritative deployed-gadget list (C4/mines/bags) for humans to render AND (M7.5-P3) for bots'
+## fair-play mine/bag awareness — same bytes a rendered client gets, not server-state reads. Rebuilt
+## from the live stores each tick and sent (reliably) only when it CHANGES, plus a ~1 Hz heartbeat
+## while non-empty so a late joiner catches up. Skipped entirely when nobody is connected.
+## Perf: the ReliableList cadence is untouched — steady-state cost is the ~1 Hz heartbeat
+## × N clients of one small reliable packet, encoded once.
 func _broadcast_gadget_list() -> void:
-	if _human_ids.is_empty():
+	if _clients.is_empty():
 		return
 	var list := GadgetList.build(_c4, _mines, _bags)
 	var pkt := Protocol.encode_gadget_list(list)
 	if not _gadget_rl.should_send(pkt, list.size() > 0, _sim.tick):
 		return
-	_broadcast_humans(NetHost.CHANNEL_CONTROL, pkt, ENetPacketPeer.FLAG_RELIABLE)
+	_broadcast_all(NetHost.CHANNEL_CONTROL, pkt, ENetPacketPeer.FLAG_RELIABLE)
 
 ## Active support links (heal/ammo/repair/revive) for human clients to draw a beam + target aura.
 ## Same shape as the gadget list: rebuilt each tick from what the support steps actually acted on,
@@ -1320,10 +1334,12 @@ func _send_fob_lists() -> void:
 		var c = _clients[cid]
 		_net.send_to(c["peer"], NetHost.CHANNEL_CONTROL, pkts[int(c["team"])], ENetPacketPeer.FLAG_RELIABLE)
 
-## Cosmetic remote thrown-grenade hint. Sent only to HUMAN clients, excluding the thrower (who already
-## arcs their own grenade from client_main). Unreliable/droppable, like the other *_FX broadcasts.
+## Remote thrown-grenade hint: cosmetic arc for humans AND (M7.5-P3) the bots' grenade-avoidance
+## input — fair play, same packet a rendered client receives. Excludes the thrower (humans arc their
+## own grenade from client_main; a bot knows its own throw). Unreliable/droppable like the other
+## *_FX broadcasts, per-throw only (no steady-state cost); encoded once, sent N.
 func _broadcast_grenade_fx(thrower_id: int, origin: Vector3, dir: Vector3, kind: int) -> void:
-	_broadcast_humans(NetHost.CHANNEL_SNAPSHOT, Protocol.encode_grenade_fx(origin, dir, kind), 0, thrower_id)
+	_broadcast_all(NetHost.CHANNEL_SNAPSHOT, Protocol.encode_grenade_fx(origin, dir, kind), 0, thrower_id)
 
 func _place_c4(id: int, p: Pawn, pos: Vector3) -> void:
 	if Loadout.gadget_for_player(int(_clients[id]["class"]), id) != Loadout.GADGET_C4: return

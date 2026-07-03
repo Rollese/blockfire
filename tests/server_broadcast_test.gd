@@ -4,6 +4,8 @@ extends TestCase
 ## list siblings are changed+heartbeat). Now a cached _human_ids list drives _broadcast_humans,
 ## and FOB lists follow the changed+heartbeat pattern.
 
+const F := preload("res://tests/server_fixture.gd")
+
 class SpyNet extends NetHost:
 	var sends: Array = []
 	func send_to(_peer: ENetPacketPeer, channel: int, bytes: PackedByteArray, flags: int) -> void:
@@ -71,3 +73,49 @@ func test_mounted_gunner_exists_gates_lag_recording() -> void:
 	v.alive = false
 	assert_false(srv._mounted_gunner_exists(), "destroyed vehicle -> no recording")
 	srv.free()
+
+
+# --- M7.5-P3: GADGET_LIST + GRENADE_FX audience widened to ALL clients (bots included) ---
+# Fair-play rule: bots may consume exactly what a rendered human client receives. These two
+# fan-outs carry mine/bag positions + thrown-grenade hints the support/avoidance AI needs.
+# Fixture SpyNet records sends with peer=null for every client, so audience = send count.
+
+func _srv_human_and_bot() -> Node:
+	var srv = autofree(F.make_server())
+	F.add_client(srv, 1, 0, true)    # human (in _human_ids)
+	F.add_client(srv, 2, 0, false)   # bot (auto_deploy=true, NOT in _human_ids)
+	return srv
+
+func test_gadget_list_fans_out_to_bots_too() -> void:
+	var srv = _srv_human_and_bot()
+	srv._bags.append({"owner": 1, "team": 0, "kind": 0, "pos": Vector3(3, 0, 4), "pool": 200})
+	srv._broadcast_gadget_list()
+	var pkts: Array = srv._net.bytes_of(Protocol.Msg.GADGET_LIST)
+	assert_eq(pkts.size(), 2, "GADGET_LIST reaches human AND bot (was humans-only)")
+	var s: Dictionary = srv._net.sends[0]
+	assert_eq(int(s["channel"]), NetHost.CHANNEL_CONTROL, "channel unchanged: CONTROL")
+	assert_eq(int(s["flags"]), ENetPacketPeer.FLAG_RELIABLE, "flags unchanged: reliable")
+
+func test_gadget_list_keeps_changed_plus_heartbeat_cadence() -> void:
+	var srv = _srv_human_and_bot()
+	srv._bags.append({"owner": 1, "team": 0, "kind": 0, "pos": Vector3(3, 0, 4), "pool": 200})
+	srv._broadcast_gadget_list()
+	srv._net.sends.clear()
+	srv._broadcast_gadget_list()
+	srv._broadcast_gadget_list()
+	assert_eq(srv._net.sends.size(), 0, "unchanged list -> no per-tick reliable resend")
+	srv._sim.tick += 31   # past ReliableList.HEARTBEAT_TICKS, list non-empty
+	srv._broadcast_gadget_list()
+	assert_eq(srv._net.bytes_of(Protocol.Msg.GADGET_LIST).size(), 2, "heartbeat still fans to all")
+
+func test_grenade_fx_reaches_bot_and_still_excludes_thrower() -> void:
+	var srv = _srv_human_and_bot()
+	srv._broadcast_grenade_fx(1, Vector3.ZERO, Vector3.FORWARD, 0)
+	assert_eq(srv._net.bytes_of(Protocol.Msg.GRENADE_FX).size(), 1,
+		"human thrower excluded -> the ONE send is the bot's (was 0 when humans-only)")
+	assert_eq(int(srv._net.sends[0]["channel"]), NetHost.CHANNEL_SNAPSHOT, "channel unchanged: SNAPSHOT")
+	assert_eq(int(srv._net.sends[0]["flags"]), 0, "flags unchanged: unreliable/droppable")
+	srv._net.sends.clear()
+	srv._broadcast_grenade_fx(2, Vector3.ZERO, Vector3.FORWARD, 0)
+	assert_eq(srv._net.bytes_of(Protocol.Msg.GRENADE_FX).size(), 1,
+		"bot thrower excluded -> only the human gets it")

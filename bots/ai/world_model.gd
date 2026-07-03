@@ -11,3 +11,10 @@ var objectives: Array[Dictionary] = []      # {pos, owner}
 var incoming_fire: float = 0.0               # 0..1 inferred pressure
 var now_tick: int = 0
 var metadata_hp_frac: float = 1.0            # self health fraction, filled by Perception/AiDriver
+# M7.5-P3 support & survivability inputs (filled by Perception from SELF_STATE +
+# the bot's GADGET_LIST/GRENADE_FX mirrors — same data a human client receives):
+var me_pos: Vector3 = Vector3.ZERO           # own position (for flee_vector / bag pathing)
+var revive_target: Dictionary = {}           # chosen downed ally {id, pos, dist} or {}
+var supply_kind: String = ""                 # "heal" | "ammo" | "" (no need)
+var supply_bag: Dictionary = {}              # nearest friendly bag {kind, pos, team} or {}
+var danger_zones: Array = []                 # live grenade/mine zones [{pos, radius}]
