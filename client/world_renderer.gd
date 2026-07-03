@@ -361,6 +361,19 @@ func setup(map: MapDef, camera: Camera3D) -> void:
 			line.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 			add_child(line)
 
+	# Scenery — imported tree/rock GLBs placed from map JSON (cosmetic, no collision).
+	for sc: Dictionary in map.scenery:
+		var node := SceneryKit.build(String(sc["id"]))
+		if node == null:
+			continue
+		var sc_pos: Vector3 = sc["pos"] as Vector3
+		node.position = sc_pos
+		node.rotation.y = float(sc.get("yaw", 0.0))
+		var sc_scale := float(sc.get("scale", 1.0))
+		if absf(sc_scale - 1.0) > 0.001:
+			node.scale = Vector3(sc_scale, sc_scale, sc_scale)
+		add_child(node)
+
 	# Capture point markers — a flat ground RING at the true capture radius (BattleBit zone read,
 	# not a big solid disc that fills the screen at spawn) + a tall beacon so the point is a visible
 	# landmark from across the map (flat terrain is otherwise impossible to navigate).

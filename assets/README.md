@@ -14,3 +14,8 @@ playtest; geometry is unit-tested headlessly. See `docs/specs/art-pipeline.md`.
   mapped to the `Weapon` enum are committed (`assault_rifle.glb` = AR, `submachine_gun.glb` = SMG,
   `sniper_rifle.glb` = DMR); loaded by `client/art/glb_weapon_kit.gd`, normalized to a common length
   and forward axis. RPG has no model in this pack, so it falls back to the procedural `WeaponKit`.
+- **`environment/trees/`**, **`environment/rocks/`** — Broken Vector low-poly tree and rock packs
+  (commercial license from [brokenvector.com](https://www.brokenvector.com/game-assets/); purchased via
+  itch.io). Converted from Collada to GLB with `tools/dae_to_glb.py`; catalog in
+  `data/scenery_catalog.json`, loaded by `client/art/scenery_kit.gd`. Map authors place instances via
+  the optional `scenery` array in `maps/*.json` (`id`, `pos`, optional `yaw`/`scale`).

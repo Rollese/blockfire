@@ -37,5 +37,10 @@
   "vehicle_spawns": [
     {"team": 0, "type": "transport", "pos": [-920, 0, 0], "heading": 1.5708},
     {"team": 1, "type": "transport", "pos": [ 920, 0, 0], "heading": -1.5708}
+  ],
+  "scenery": [
+    {"id": "tree_type0_01", "pos": [-50, 0, 80], "yaw": 0.4},
+    {"id": "tree_type2_03", "pos": [60, 0, -70], "yaw": 1.2},
+    {"id": "rock_type1_02", "pos": [0, 0, 120], "yaw": 0.0, "scale": 1.1}
   ]
 }
