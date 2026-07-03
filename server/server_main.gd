@@ -7,6 +7,7 @@ const Protocol := preload("res://shared/net/protocol.gd")
 const ServerStats := preload("res://server/stats.gd")   # preload: class_name needs an --import to register
 const ServerFire := preload("res://server/fire.gd")
 const ServerSupport := preload("res://server/support.gd")
+const ServerBuild := preload("res://server/build.gd")
 const ReliableList := preload("res://server/reliable_list.gd")
 
 const TICK_RATE := 30
@@ -112,13 +113,11 @@ var _prev_climb_vault: Dictionary = {}   # id -> int bitmask: bit0=climbing, bit
 var _stats := ServerStats.new()   # the [telemetry] counter wall — see server/stats.gd
 var _fire := ServerFire.new(self)  # bullet pipeline + live projectile pool — see server/fire.gd
 var _support := ServerSupport.new(self)  # revive/give/repair/downed latches + steps — see server/support.gd
+var _build := ServerBuild.new(self)      # build sites + FOB lifecycle — see server/build.gd
 
 var _roster_tick := 0
 var _gadget_rl := ReliableList.new()   # GADGET_LIST changed+heartbeat state (server/reliable_list.gd)
-var _sites := BuildSiteStore.new()   # M12-P2: active under-construction build sites
-const MAX_SITES_PER_PLAYER := 4
 # M12-P3: squad-leader FOB registry. "team:squad" -> {squad, team, id, cell, built: bool}
-var _fobs: Dictionary = {}
 var _transport_origin := {}   # id -> Vector3 boarding pos (transport-distance metric)
 var _pending_removes: Array = []   # [{id, cell}] removes awaiting send (degradation queue)
 var _dmg_touched := {}             # id -> true: pieces holed (alive) this tick, for end-of-tick chunk-mask resend
@@ -277,7 +276,7 @@ func _physics_process(delta: float) -> void:
 	var t_supp := Time.get_ticks_usec()
 	# Build sites moved below the support steps for profiler-bucket contiguity — safe: none of
 	# give/repairs/bags/smoke/revives/downed read the structure store, and cascades/deltas run later.
-	_step_build_sites()   # M12-P2: cooperative shovel construction / repair / dismantle
+	_build.step_build_sites()   # M12-P2: cooperative shovel construction / repair / dismantle
 	var t_build := Time.get_ticks_usec()
 	_handle_respawns()
 	_step_vehicle_respawns()
@@ -599,12 +598,12 @@ func _select_spawn(id: int) -> Vector3:
 		if mid == id: continue
 		var mp: Pawn = _sim.world.get_pawn(mid)
 		if mp != null and mp.alive: mates.append(mp.pos)
-	var fob_pos = _spawnable_fob_pos(team, int(c["squad"]))
+	var fob_pos = _build.spawnable_fob_pos(team, int(c["squad"]))
 	# fob_disabled is a spawn-DECISION counter: a built+alive FOB exists but was enemy-suppressed.
 	# Tally it here (the spawn path), NOT inside _spawnable_fob_pos — that helper is also called every
 	# tick per human client by _send_fob_lists/_fob_candidates, which would turn the metric into
 	# disabled-render-frames. _fob_built_alive distinguishes "disabled" from "absent/destroyed".
-	if fob_pos == null and _fob_built_alive(team, int(c["squad"])):
+	if fob_pos == null and _build.fob_built_alive(team, int(c["squad"])):
 		_stats.fob_disabled += 1
 	var fobs: Array = [fob_pos] if fob_pos != null else []
 	var r := SpawnSelect.choose(team, _map, _conquest, mates, obj, fobs)
@@ -613,23 +612,6 @@ func _select_spawn(id: int) -> Vector3:
 	return r["pos"]
 
 ## True if the squad has a completed, not-yet-destroyed FOB structure (regardless of enemy proximity).
-func _fob_built_alive(team: int, squad: int) -> bool:
-	var rec := _fob_for(team, squad)
-	return not rec.is_empty() and bool(rec["built"]) and not _store.get_record(int(rec["id"])).is_empty()
-
-## The squad's FOB world position IFF built + alive + enemy-free; else null. Pure query (no side
-## effects) — fob_disabled is tallied by the caller on the spawn-decision path (see _select_spawn).
-func _spawnable_fob_pos(team: int, squad: int):
-	if not _fob_built_alive(team, squad): return null
-	var rec := _fob_for(team, squad)
-	var center := BuildGrid.world_of(rec["cell"])
-	var enemies: Array = []
-	for oid in _clients:
-		var op: Pawn = _sim.world.get_pawn(oid)
-		if op != null and op.alive and op.team != team:
-			enemies.append(op.pos)
-	return center if Fob.spawn_enabled(center, enemies) else null
-
 func _objective_for(team: int) -> Vector3:
 	var base := _map.base_for(team)
 	var from: Vector3 = base["pos"] if not base.is_empty() else Vector3.ZERO
@@ -755,10 +737,10 @@ func _on_packet(peer: ENetPacketPeer, _channel: int, bytes: PackedByteArray) -> 
 	match Protocol.msg_type(bytes):
 		Protocol.Msg.HELLO: _handle_hello(peer, bytes)
 		Protocol.Msg.INPUT: _handle_input(peer, bytes)
-		Protocol.Msg.BUILD_REQUEST: _handle_build_request(peer, bytes)
-		Protocol.Msg.PLACE_FOB: _handle_place_fob(peer, bytes)
-		Protocol.Msg.REMOVE_FOB: _handle_remove_fob(peer)
-		Protocol.Msg.BUILD_REMOVE: _handle_build_remove(peer, bytes)
+		Protocol.Msg.BUILD_REQUEST: _build.handle_build_request(peer, bytes)
+		Protocol.Msg.PLACE_FOB: _build.handle_place_fob(peer, bytes)
+		Protocol.Msg.REMOVE_FOB: _build.handle_remove_fob(peer)
+		Protocol.Msg.BUILD_REMOVE: _build.handle_build_remove(peer, bytes)
 		Protocol.Msg.GRENADE_THROW: _handle_grenade_throw(peer, bytes)
 		Protocol.Msg.REVIVE_ACTION: _support.handle_revive_action(peer, bytes)
 		Protocol.Msg.SELF_BANDAGE: _support.handle_self_bandage(peer, bytes)
@@ -856,16 +838,6 @@ func _vehicle_candidates(team: int) -> Array:
 	return out
 
 ## M12-P3: one entry per built FOB owned by a squad on `team` (enabled = currently spawnable).
-func _fob_candidates(team: int) -> Array:
-	var out: Array = []
-	for key in _fobs:
-		var rec: Dictionary = _fobs[key]
-		if int(rec["team"]) != team or not bool(rec["built"]): continue
-		var pos = _spawnable_fob_pos(team, int(rec["squad"]))
-		out.append({"squad": int(rec["squad"]), "pos": BuildGrid.world_of(rec["cell"]),
-			"enabled": pos != null})
-	return out
-
 func _throwables_for(c: Dictionary) -> Array:
 	var ready := 1 if _sim.tick - int(c["last_grenade_tick"]) >= GRENADE_COOLDOWN_TICKS else 0
 	var list: Array = [{"kind": Grenade.FRAG, "count": ready}, {"kind": Grenade.SMOKE, "count": ready}]
@@ -883,7 +855,7 @@ func _handle_deploy_request(peer: ENetPacketPeer, bytes: PackedByteArray) -> voi
 	var ref := int(Protocol.decode_deploy_request(bytes)["spawn_ref"])
 	var mates := _squad_candidates(id, int(c["team"]), int(c["squad"]))
 	var vehs := _vehicle_candidates(int(c["team"]))
-	var fobs := _fob_candidates(int(c["team"]))
+	var fobs := _build.fob_candidates(int(c["team"]))
 	if not DeploySpawn.is_valid(int(c["team"]), ref, _map, _conquest, mates, vehs, fobs): return
 	var dpos := DeploySpawn.resolve(int(c["team"]), ref, _map, _conquest, mates, vehs, fobs)
 	if ref >= DeploySpawn.FOB_BASE: _stats.fob_spawns += 1
@@ -1014,261 +986,6 @@ func _handle_input(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
 			if s < ack: c["history"].erase(s)
 		for s in c["history_v"].keys():
 			if s < ack: c["history_v"].erase(s)
-
-func _handle_build_request(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
-	var id = _peer_to_id.get(peer, 0)
-	if id == 0 or not _clients.has(id): return
-	var c = _clients[id]
-	var p: Pawn = _sim.world.get_pawn(id)
-	if p == null or not p.alive: return
-	var d := Protocol.decode_build_request(bytes)
-	var type: int = d["type"]
-	if type < 0 or type >= _catalog.size(): return
-	if int(d["yaw"]) < 0 or int(d["yaw"]) >= BuildGrid.YAW_STEPS: return   # reject malformed/out-of-range yaw (map path validates; player path did not)
-	var cell: Vector3i = d["cell"]
-	var v := _store.validate_place(cell, p.pos, _sim.tick, c["last_build_tick"], Pawn.WORLD_HALF)
-	if not v["ok"]: return
-	if _catalog.is_structural(type): return   # players build only fortifications, not building pieces
-	if _sites.occupied(cell): return          # already a site there
-	# Per-player SITE cap: recycle the oldest unfinished site.
-	if _sites.owner_count(id) >= MAX_SITES_PER_PLAYER:
-		var oldid := _sites.oldest_id(id)
-		if oldid != 0:
-			var ocell: Vector3i = _sites.get_site(oldid)["cell"]
-			_sites.remove(oldid)
-			_emit_structure_delta(Protocol.OP_REMOVE, {"id": oldid}, ocell)
-	var sid := _next_struct_id
-	_next_struct_id += 1
-	c["last_build_tick"] = _sim.tick
-	var site := {"id": sid, "owner": id, "team": p.team, "type": type, "cell": cell, "yaw": int(d["yaw"]),
-		"build_progress": 0.0, "build_cost": _catalog.build_cost_of(type),
-		"min_builders": _catalog.min_builders_of(type), "last_work_tick": _sim.tick}
-	_sites.add(site)
-	_stats.builds += 1
-	_emit_structure_delta(Protocol.OP_PLACE, _site_wire_record(site), cell)
-
-## Wire record for an under-construction site: StructureStore record shape + the M12-P2 fields.
-func _site_wire_record(site: Dictionary) -> Dictionary:
-	return {"id": site["id"], "type": site["type"], "cell": site["cell"], "yaw": site["yaw"],
-		"chunks": ChunkMask.full_mask(_catalog.chunk_grid_of(int(site["type"]))),
-		"building_id": 0, "owner": site["owner"],
-		"under_construction": 1, "build_progress": int(site["build_progress"])}
-
-func _emit_structure_progress(id: int, progress: int, cell: Vector3i) -> void:
-	var region := _store.region_of(cell)
-	var bytes := Protocol.encode_structure_progress(id, progress)
-	for cid in _clients:
-		if _clients[cid]["known_regions"].has(region):
-			_net.send_to(_clients[cid]["peer"], NetHost.CHANNEL_CONTROL, bytes, ENetPacketPeer.FLAG_RELIABLE)
-
-## M12-P3 FOB registry helpers.
-func _fob_key(team: int, squad: int) -> String:
-	return "%d:%d" % [team, squad]
-
-func _fob_for(team: int, squad: int) -> Dictionary:
-	return _fobs.get(_fob_key(team, squad), {})
-
-func _fob_type_index() -> int:
-	for i in _catalog.size():
-		if _catalog.name_of(i) == "fob":
-			return i
-	return -1
-
-## M12-P3: squad leader places a FOB build site. Leader-only, one-per-squad (replace), CP/base
-## exclusion, then reuses the M12-P2 cooperative build path (promotes to a bunker on completion).
-func _handle_place_fob(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
-	var id = _peer_to_id.get(peer, 0)
-	if id == 0 or not _clients.has(id): return
-	var c = _clients[id]
-	var p: Pawn = _sim.world.get_pawn(id)
-	if p == null or not p.alive: return
-	var team: int = int(c["team"])
-	var squad: int = int(c["squad"])
-	if _squads.leader_of(team, squad) != id: return    # leader-only (authoritative)
-	var d := Protocol.decode_place_fob(bytes)
-	if int(d["yaw"]) < 0 or int(d["yaw"]) >= BuildGrid.YAW_STEPS: return
-	var cell: Vector3i = d["cell"]
-	var center := BuildGrid.world_of(cell)
-	if not Fob.placement_ok(center, team, _map, _conquest): return
-	var v := _store.validate_place(cell, p.pos, _sim.tick, c["last_build_tick"], Pawn.WORLD_HALF)
-	if not v["ok"]: return
-	if _sites.occupied(cell): return
-	var fob_type := _fob_type_index()
-	if fob_type < 0: return
-	# One FOB per squad: drop the existing site/structure first.
-	_remove_squad_fob(team, squad)
-	var sid := _next_struct_id
-	_next_struct_id += 1
-	c["last_build_tick"] = _sim.tick
-	var site := {"id": sid, "owner": id, "team": team, "type": fob_type, "cell": cell, "yaw": int(d["yaw"]),
-		"build_progress": 0.0, "build_cost": _catalog.build_cost_of(fob_type),
-		"min_builders": _catalog.min_builders_of(fob_type), "last_work_tick": _sim.tick}
-	_sites.add(site)
-	_fobs[_fob_key(team, squad)] = {"squad": squad, "team": team, "id": sid, "cell": cell, "built": false}
-	_emit_structure_delta(Protocol.OP_PLACE, _site_wire_record(site), cell)
-
-func _handle_remove_fob(peer: ENetPacketPeer) -> void:
-	var id = _peer_to_id.get(peer, 0)
-	if id == 0 or not _clients.has(id): return
-	var c = _clients[id]
-	var team: int = int(c["team"]); var squad: int = int(c["squad"])
-	if _squads.leader_of(team, squad) != id: return
-	_remove_squad_fob(team, squad)
-
-## Remove a squad's FOB entity (under-construction site OR completed structure) + registry record.
-func _remove_squad_fob(team: int, squad: int) -> void:
-	var rec := _fob_for(team, squad)
-	if rec.is_empty(): return
-	var fid := int(rec["id"])
-	var cell: Vector3i = rec["cell"]
-	if _sites.get_site(fid).is_empty() == false:
-		_sites.remove(fid)
-		_emit_structure_delta(Protocol.OP_REMOVE, {"id": fid}, cell)
-	elif _store.get_record(fid).is_empty() == false:
-		_store.remove(fid)
-		_emit_structure_delta(Protocol.OP_REMOVE, {"id": fid}, cell)
-	_fobs.erase(_fob_key(team, squad))
-
-## M12-P3: detect FOB lifecycle transitions against the live stores (robust to every removal path):
-## site->built (tally fobs_built), built->gone (tally fobs_destroyed), site->gone-before-built (decay).
-func _reconcile_fobs() -> void:
-	if _fobs.is_empty(): return
-	var drop: Array = []
-	for key in _fobs:
-		var rec: Dictionary = _fobs[key]
-		var fid := int(rec["id"])
-		if not bool(rec["built"]):
-			if not _store.get_record(fid).is_empty():
-				rec["built"] = true
-				_stats.fobs_built += 1
-			elif _sites.get_site(fid).is_empty():
-				drop.append(key)   # site decayed/removed before completing
-		else:
-			if _store.get_record(fid).is_empty():
-				_stats.fobs_destroyed += 1
-				drop.append(key)   # bunker destroyed via M4 path / dismantle / recycle
-	for key in drop:
-		_fobs.erase(key)
-
-## M12-P2: advance build sites from eligible shovellers; complete -> promote to StructureStore;
-## decay abandoned sites; then repair/dismantle finished structures for the remaining shovellers.
-func _step_build_sites() -> void:
-	# Pawns holding BTN_SHOVEL this tick.
-	var shov := {}
-	for cid in _clients:
-		var inp = _clients[cid]["last_input"]
-		if inp == null or (int(inp["buttons"]) & InputCommand.BTN_SHOVEL) == 0:
-			continue
-		var pp: Pawn = _sim.world.get_pawn(cid)
-		if pp == null or not pp.alive or pp.is_downed:
-			continue
-		shov[cid] = {"pos": pp.pos, "fwd": Combat._forward(pp.yaw, pp.pitch), "team": pp.team}
-	if _sites.count() == 0 and shov.is_empty():
-		return
-	var built: Array = []
-	var decayed: Array = []
-	var busy := {}   # cid -> true: contributed to a site this tick (skip for structure-shovel)
-	for id in _sites.ids():
-		var s: Dictionary = _sites.get_site(id)
-		var center := BuildGrid.world_of(s["cell"])
-		var n := 0
-		for cid in shov:
-			var b = shov[cid]
-			if int(b["team"]) != int(s["team"]):
-				continue
-			if BuildSite.eligible(b["pos"], b["fwd"], center):
-				n += 1
-				busy[cid] = true
-		if n <= 0:
-			if BuildSite.decayed(_sim.tick, int(s["last_work_tick"])):
-				decayed.append(id)
-			continue
-		if n < int(s["min_builders"]):
-			_stats.build_blocked_solo += 1
-			continue
-		var before := float(s["build_progress"])
-		var after := BuildSite.progress_step(before, int(s["build_cost"]), n, int(s["min_builders"]), SimLoop.DT)
-		s["build_progress"] = after
-		s["last_work_tick"] = _sim.tick
-		if int(after / 6.0) != int(before / 6.0):
-			_emit_structure_progress(int(id), int(after), s["cell"])
-		if BuildSite.is_complete(after, int(s["build_cost"])):
-			built.append(id)
-	for id in built:
-		_complete_site(int(id))
-	for id in decayed:
-		var dcell: Vector3i = _sites.get_site(int(id))["cell"]
-		_sites.remove(int(id))
-		_emit_structure_delta(Protocol.OP_REMOVE, {"id": int(id)}, dcell)
-	_step_shovel_structures(shov, busy)
-	_reconcile_fobs()   # M12-P3: detect FOB site->built / built->destroyed / pre-build decay
-
-func _complete_site(id: int) -> void:
-	var s: Dictionary = _sites.get_site(id)
-	if s.is_empty():
-		return
-	_sites.remove(id)
-	# Cap finished pieces per owner (recycle oldest), then promote into the real structure store.
-	if _store.owner_count(int(s["owner"])) >= StructureStore.MAX_PIECES_PER_PLAYER:
-		var oldp := _store.oldest_id(int(s["owner"]))
-		if oldp != 0:
-			var oc := _cell_of_struct(oldp)
-			_store.recycle_oldest(int(s["owner"]))
-			_emit_structure_delta(Protocol.OP_REMOVE, {"id": oldp}, oc)
-	var rec := _store.place(id, int(s["type"]), s["cell"], int(s["yaw"]), int(s["owner"]))
-	if rec.is_empty():
-		return   # lost the cell race
-	var wire := rec.duplicate()
-	wire["under_construction"] = 0
-	wire["build_progress"] = int(s["build_cost"])
-	_emit_structure_delta(Protocol.OP_PLACE, wire, s["cell"])
-	if int(s["min_builders"]) >= 2:
-		_stats.built_large += 1
-	else:
-		_stats.built_small += 1
-
-## Shovellers not busy building a site repair a friendly / dismantle an enemy finished structure they
-## are aiming at within reach. Reuses the M4 melee damage path (dismantle) + repair_chunks (repair).
-func _step_shovel_structures(shov: Dictionary, busy: Dictionary) -> void:
-	for cid in shov:
-		if busy.has(cid):
-			continue
-		var b = shov[cid]
-		var hit := _store.march(b["pos"], b["fwd"], BuildSite.SHOVEL_RANGE)
-		if not hit["hit"]:
-			continue
-		var sidx := int(hit["id"])
-		var rec := _store.get_record(sidx)
-		if rec.is_empty():
-			continue
-		var impact: Vector3 = (b["pos"] as Vector3) + (b["fwd"] as Vector3).normalized() * float(hit["dist"])
-		var op: Pawn = _sim.world.get_pawn(int(rec["owner"]))
-		var struct_team := op.team if op != null else int(b["team"])
-		if int(b["team"]) == struct_team:
-			var rep := _store.repair_chunks(sidx, impact, 0.9)
-			if rep["changed"]:
-				_stats.repaired += 1
-				_emit_structure_delta(Protocol.OP_CHUNK, {"id": sidx, "mask": int(rep["mask"])}, rec["cell"])
-		else:
-			if not _catalog.takes_damage(int(rec["type"]), PieceCatalog.SRC_MELEE):
-				continue
-			var dmg := _store.damage_chunks(sidx, PieceCatalog.SRC_MELEE, impact, 0.6)
-			if dmg["destroyed"]:
-				_stats.dismantled += 1
-				_pending_removes.append({"id": sidx, "cell": rec["cell"]})
-			elif dmg["holed"]:
-				_dmg_touched[sidx] = true
-
-func _handle_build_remove(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
-	var id = _peer_to_id.get(peer, 0)
-	if id == 0 or not _clients.has(id): return
-	var rid: int = Protocol.decode_build_remove(bytes)["id"]
-	var rec := _store.get_record(rid)
-	if rec.is_empty() or int(rec["owner"]) != id: return
-	var cell: Vector3i = rec["cell"]
-	_store.remove(rid)
-	_stats.removes += 1
-	_emit_structure_delta(Protocol.OP_REMOVE, {"id": rid}, cell)
 
 func _handle_grenade_throw(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
 	var id = _peer_to_id.get(peer, 0)
@@ -1488,13 +1205,13 @@ func _send_fob_lists() -> void:
 	var total := 0
 	for team in [0, 1]:
 		var list: Array = []
-		for key in _fobs:
-			var rec: Dictionary = _fobs[key]
+		for key in _build.fobs:
+			var rec: Dictionary = _build.fobs[key]
 			if int(rec["team"]) != team: continue
 			var built: bool = bool(rec["built"])
 			var enabled := false
 			if built:
-				enabled = _spawnable_fob_pos(team, int(rec["squad"])) != null
+				enabled = _build.spawnable_fob_pos(team, int(rec["squad"])) != null
 			list.append({"squad": int(rec["squad"]), "structure_id": int(rec["id"]),
 				"under_construction": 0 if built else 1, "enabled": 1 if enabled else 0})
 		total += list.size()
@@ -1935,7 +1652,7 @@ func _emit_structure_delta(op: int, rec: Dictionary, cell: Vector3i) -> void:
 ## After computing a client's interest entities, send baselines for any structured regions
 ## newly covered by its interest set. known_regions caches what the client already has.
 func _sync_structure_baselines(c: Dictionary, self_pos: Vector3) -> void:
-	if _store.count() == 0 and _sites.count() == 0:
+	if _store.count() == 0 and _build.sites.count() == 0:
 		return
 	var center := _grid.key_of(self_pos)
 	var span := int(ceil(INTEREST_RADIUS / CELL_SIZE))
@@ -1948,7 +1665,7 @@ func _sync_structure_baselines(c: Dictionary, self_pos: Vector3) -> void:
 			var region := Vector2i(center.x + dx, center.y + dz)
 			if known.has(region):
 				continue
-			var pieces := _store.region_count(region) + _sites.region_count(region)
+			var pieces := _store.region_count(region) + _build.sites.region_count(region)
 			if pieces == 0:
 				continue   # empty region: leave unknown (cheap to re-check; may gain pieces via deltas)
 			var rc := _grid.world_of_key(region)   # region centre, for nearest-first ordering
@@ -1956,8 +1673,8 @@ func _sync_structure_baselines(c: Dictionary, self_pos: Vector3) -> void:
 	for sel in BaselinePacer.pick(candidates, MAX_STRUCTURE_BASELINE_PIECES_PER_TICK):
 		var region: Vector2i = sel["region"]
 		var recs := _store.records_in_region(region)
-		for s in _sites.records_in_region(region):
-			recs.append(_site_wire_record(s))
+		for s in _build.sites.records_in_region(region):
+			recs.append(_build.site_wire_record(s))
 		known[region] = true
 		var bytes := Protocol.encode_structure_baseline(region, recs)
 		_net.send_to(c["peer"], NetHost.CHANNEL_CONTROL, bytes, ENetPacketPeer.FLAG_RELIABLE)
