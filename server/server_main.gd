@@ -156,18 +156,48 @@ func configure(args: Dictionary) -> void:
 		_degrade_low_ms = Degrade.LOW_MS
 
 func _ready() -> void:
+	_catalog = PieceCatalog.load_file(PIECES_PATH)
+	if _catalog == null:
+		push_error("[server] failed to load pieces %s" % PIECES_PATH); get_tree().quit(1); return
+	_gadgets = Gadget.load_file(GADGETS_PATH)
+	if _gadgets == null:
+		push_error("[server] failed to load gadgets %s" % GADGETS_PATH); get_tree().quit(1); return
+	_attachments = Attachment.load_file(ATTACHMENTS_PATH)
+	if _attachments == null:
+		push_error("[server] failed to load attachments %s" % ATTACHMENTS_PATH); get_tree().quit(1); return
+	_vehicles_cat = VehicleCatalog.load_file(VEHICLES_PATH)
+	if _vehicles_cat == null:
+		push_error("[server] failed to load vehicles %s" % VEHICLES_PATH); get_tree().quit(1); return
+	if not _start_match():
+		get_tree().quit(1); return
+	_net = NetHost.new()
+	add_child(_net)
+	_net.peer_connected.connect(func(_p): pass)
+	_net.peer_disconnected.connect(_on_peer_disconnected)
+	_net.packet_received.connect(_on_packet)
+	var err := _net.start_server(_port, MAX_PLAYERS)
+	if err != OK:
+		push_error("[server] bind failed on %d: %s" % [_port, error_string(err)]); get_tree().quit(1); return
+	print("[server] listening on %d, tick=%dHz, max=%d map=%s" % [_port, TICK_RATE, MAX_PLAYERS, _map.name])
+	# NOTE (M8-P3): graceful SIGTERM/SIGINT shutdown is NOT implemented — verified that headless
+	# Godot 4.6 does not deliver POSIX signals as NOTIFICATION_WM_CLOSE_REQUEST (no display server),
+	# and GDScript has no signal-handler API, so the process takes the OS default (exit 143/130).
+	# A clean teardown needs either a native GDExtension signal handler or an admin control-channel
+	# SHUTDOWN command; deferred. For a LAN dedicated server this is benign — a terminated match just
+	# ends (no persistence), peers ENet-timeout, and `docker stop` SIGKILLs after its grace period.
+
+## Load the map and build all match-scoped state. Called at boot and again at each
+## map-rotation boundary (M8-P3). Returns false when the map fails to load.
+func _start_match() -> bool:
 	_map = MapDef.load_file(_map_path)
 	if _map == null:
-		push_error("[server] failed to load map %s" % _map_path); get_tree().quit(1); return
+		push_error("[server] failed to load map %s" % _map_path); return false
 	_conquest = ConquestState.new(_map)
 	if _start_tickets > 0:
 		_conquest.tickets = [float(_start_tickets), float(_start_tickets)]
 	if _time_limit > 0.0:
 		_conquest.time_limit = _time_limit
 	_prev_owners = _owner_snapshot()
-	_catalog = PieceCatalog.load_file(PIECES_PATH)
-	if _catalog == null:
-		push_error("[server] failed to load pieces %s" % PIECES_PATH); get_tree().quit(1); return
 	_store = StructureStore.new(_catalog)
 	_sim.structures = _store
 	_sim.ladders = _map.ladders
@@ -198,31 +228,8 @@ func _ready() -> void:
 			var placed := _store.place(bsid, int(piece["type"]), cell, (int(piece["yaw"]) + inst_yaw) % BuildGrid.YAW_STEPS, -1, bid)
 			if placed.is_empty():
 				push_error("[map] building '%s' piece at cell %s overlaps an occupied cell (dropped)" % [b["prefab"], cell])
-	_gadgets = Gadget.load_file(GADGETS_PATH)
-	if _gadgets == null:
-		push_error("[server] failed to load gadgets %s" % GADGETS_PATH); get_tree().quit(1); return
-	_attachments = Attachment.load_file(ATTACHMENTS_PATH)
-	if _attachments == null:
-		push_error("[server] failed to load attachments %s" % ATTACHMENTS_PATH); get_tree().quit(1); return
-	_vehicles_cat = VehicleCatalog.load_file(VEHICLES_PATH)
-	if _vehicles_cat == null:
-		push_error("[server] failed to load vehicles %s" % VEHICLES_PATH); get_tree().quit(1); return
 	_spawn_map_vehicles()
-	_net = NetHost.new()
-	add_child(_net)
-	_net.peer_connected.connect(func(_p): pass)
-	_net.peer_disconnected.connect(_on_peer_disconnected)
-	_net.packet_received.connect(_on_packet)
-	var err := _net.start_server(_port, MAX_PLAYERS)
-	if err != OK:
-		push_error("[server] bind failed on %d: %s" % [_port, error_string(err)]); get_tree().quit(1); return
-	print("[server] listening on %d, tick=%dHz, max=%d map=%s" % [_port, TICK_RATE, MAX_PLAYERS, _map.name])
-	# NOTE (M8-P3): graceful SIGTERM/SIGINT shutdown is NOT implemented — verified that headless
-	# Godot 4.6 does not deliver POSIX signals as NOTIFICATION_WM_CLOSE_REQUEST (no display server),
-	# and GDScript has no signal-handler API, so the process takes the OS default (exit 143/130).
-	# A clean teardown needs either a native GDExtension signal handler or an admin control-channel
-	# SHUTDOWN command; deferred. For a LAN dedicated server this is benign — a terminated match just
-	# ends (no persistence), peers ENet-timeout, and `docker stop` SIGKILLs after its grace period.
+	return true
 
 func _physics_process(delta: float) -> void:
 	var t0 := Time.get_ticks_usec()
