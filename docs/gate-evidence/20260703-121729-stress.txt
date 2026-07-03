@@ -1,0 +1,8 @@
+gate: stress
+date: 2026-07-03T12:17:29+02:00
+host: game2
+git: 2597a06
+verdict: PASS
+summary: winner=1 elapsed=246s peak_tick=16.74ms budget=33.3ms agg=13.3Mbit/s players=128 kills=3 cap_events=4 ai_us_mean=989.7us map=default
+srvlog: srvlog-stress-20260703-121729.log
+srvlog_sha256: 73571fda9f7a9981157a4626f0ee465b48b6c0666d16a0030743be122833719f

@@ -49,7 +49,9 @@
 > `server_config_test` (12) + `net_disconnect_all_test` (2) + `server_configure_test` (4) +
 > `server_rotation_test` (3); full suite **1080/0**. Rotation smoke `ci/m8_p3_rotation_test.sh`:
 > `M8-P3 ROTATION SMOKE: PASS (matches=2, rotations=2)` (~20 s, run 3× green). 128-bot stress
-> no-regression: **[stress verdict pending — filled before merge]**.
+> no-regression: **PASS 2026-07-03** (`winner=1 elapsed=246s peak tick=16.74ms<33.3
+> agg=13.3Mbit/s players=128 ai_us_mean=989.7µs`, 0 script errors; evidence
+> `docs/gate-evidence/20260703-121729-stress.txt`).
 
 **Objective:** Make the server and bot fleet operable, observable, and repeatably stress-testable.
 

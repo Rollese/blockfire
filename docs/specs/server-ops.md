@@ -38,16 +38,16 @@ would make the server never exit and hang every gate script).
 override is given. `--map` pins a single map, single match, exit-on-end — today's gate semantics,
 unconditionally. Boot prints `[server] map rotation active: <list>`.
 
-**Match boundary** (in rotation mode, at match end):
+**Match boundary** (in rotation mode, at match end; order as in `_rotate_match`):
 1. The existing 60-tick drain runs (`MATCH_END_DRAIN_TICKS`) — the final reliable `MATCH_STATE`
    with `over=true` has already been broadcast, so clients see the result.
-2. `NetHost.disconnect_all()` politely disconnects every peer (queued reliable sends flush first).
-3. `_reset_match_state()` wipes **every** match-scoped var (sim/world, clients, squads, stats,
+2. The rotation index advances (wraps around at the end of the list; a single-entry list loops the
+   same map) and the server logs `[server] match complete — rotating to <map>`.
+3. `NetHost.disconnect_all()` politely disconnects every peer (queued reliable sends flush first).
+4. `_reset_match_state()` wipes **every** match-scoped var (sim/world, clients, squads, stats,
    ordnance, reliable lists, degrade level, perf buckets — the full var block is audited; boot-scoped
    state like the net host, catalogs, resolved config and rolling telemetry survives).
-4. The rotation index advances (wraps around at the end of the list; a single-entry list loops the
-   same map) and `_start_match()` loads the next map. Logs
-   `[server] match complete — rotating to <map>`.
+5. `_start_match()` loads the next map and the server keeps listening — same port, same net host.
 
 **Failure mode:** a rotation entry pointing at a missing/broken map is an operator config error →
 `push_error` + exit 1 (a silently-dead persistent server is worse than a loud exit).
@@ -74,6 +74,8 @@ today a human relaunches/reconnects manually (bots reconnect via their driver lo
   `tests/server_configure_test.gd` (4, fixture-level `configure()`), `tests/server_rotation_test.gd`
   (3 — full state reset, wrap-around, fresh vehicles). Full suite **1080 run / 0 failed**.
 - Integration smoke: `ci/m8_p3_rotation_test.sh` — botless 2-map rotation
-  (dev_arena ↔ proving_grounds, 8 s time limit) → `M8-P3 ROTATION SMOKE: PASS (matches=2,
+  (`conquest_dev_arena` ↔ `conquest_proving_grounds`, 8 s time limit) → `M8-P3 ROTATION SMOKE: PASS (matches=2,
   rotations=2)` in ~20 s; run 3× green.
-- 128-bot stress no-regression gate: **[stress verdict pending — filled before merge]**
+- 128-bot stress no-regression gate: **PASS 2026-07-03** on game2 (`winner=1 elapsed=246s
+  peak tick=16.74ms<33.3 agg=13.3Mbit/s players=128`, 0 script errors;
+  `docs/gate-evidence/20260703-121729-stress.txt`, srvlog `docker/srvlog-stress-20260703-121729.log`)
