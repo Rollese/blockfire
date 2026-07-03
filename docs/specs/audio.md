@@ -220,7 +220,7 @@ Captured rather than blocking (autonomous agent). Defaults chosen so the engine 
 1. **Voice budget `MAX_VOICES`.** Defaulting to **32**. The right number depends on target hardware and how busy a 128p firefight gets; trivially tunable. Owner to confirm during the art/audio playtest.
 2. **Occlusion query source.** This spec assumes the M4/M7 occlusion data (the same structure/terrain query that smoke-LOS and the M7 L3 LOS-culling use) exposes a client-readable `coverage(a, b) ∈ [0,1]`. If only a boolean LOS is available client-side at integration time, `coverage` collapses to `{0,1}` and the lerps still work (binary muffle). Owner/C3 to confirm the exact client-side occlusion accessor at wiring time.
 3. **Crack/bang separation threshold.** `CRACK_BANG_MIN_RANGE` (below which crack+bang collapse to one report) is a feel value — defaulting to a placeholder; owner to tune by ear.
-4. **Audio assets.** This branch ships the **catalog + engine only**; logical `stream` ids resolve to real `.ogg`/`.wav` (or generated placeholder tones) at wiring time. Source of assets (owner-supplied vs. procedurally-generated placeholders) is an owner call, parallel to the art kit being procedural.
+4. **Audio assets.** This branch ships the **catalog + engine only**; logical `stream` ids resolve to real `.ogg`/`.wav` (or generated placeholder tones) at wiring time. ~~Source of assets (owner-supplied vs. procedurally-generated placeholders) is an owner call, parallel to the art kit being procedural.~~ **Resolved 2026-07-03: see §12.6** — CC0/royalty-free packs curated by the owner, with procedural synthesis as the variant/placeholder fallback.
 5. **Suppressor as attachment vs. weapon variant.** Spec selects a `gunfire_supp` def when the shot is flagged suppressed (from the replicated attachment/loadout state). Whether "suppressed" is a per-shot flag or derived from the attachment set is an integration detail for the wiring task to map from existing replicated fields.
 
 ---
@@ -231,8 +231,112 @@ Captured rather than blocking (autonomous agent). Defaults chosen so the engine 
 - **No audio assets** (`.ogg`/`.wav`) authored here — catalog references logical ids; assets are owner-supplied/placeholder at wiring time.
 - **No sim/authority/`shared/` change** — audio is view-only cue rendering; it reads replicated state, never writes it.
 - **No hand-rolled spatialization** — Godot `AudioStreamPlayer3D` does panning/HRTF; we decide sound/gain/cutoff/voice only.
-- **No music / dynamic-music system, no VOIP** — VOIP is M6; ambience beyond looping engine is a later pass.
+- **No music / dynamic-music system, no VOIP** — VOIP is M6; ambience beyond looping engine is a later pass. *(2026-07-03: environment-aware reverb/tails and the VOIP spatialization requirement are now in scope via §12 — the P2.5 layer.)*
 - **No mixing/mastering "feel" sign-off here** — that is the owner's playtest (AGENTS.md §10).
+
+---
+
+## 12. P2.5 — "Battlefield-feel" layer (owner-ratified 2026-07-03)
+
+Owner-ratified extension of the P2 engine toward Battlefield/BattleBit-grade audio realism —
+the audio counterpart to [ADR-0008](../adr/0008-destruction-fidelity-target.md)'s "low-poly
+graphics, high-fidelity feel" direction. Everything below follows the P2 discipline: pure,
+headless-tested decision logic; thin Node shells; presentation-only (AGENTS.md §7); feel
+sign-off in owner playtest. Each sub-feature is small enough to plan directly off this
+section; 12.5 is a **hard requirement on the M6 wiring task**. All of it is client-side —
+no server-tick or bandwidth cost, and the §5 voice pool already caps mixing cost at 128p.
+
+### 12.1 Distance-layered gunshots + air absorption
+
+One sample per weapon is not enough for "far away sounds far away" — timbre must change, not
+just gain. Catalog schema gains optional **distance layers** per def:
+
+```json
+{"type": "gunfire", "layers": [
+  {"stream": "fal_near", "to": 60.0},
+  {"stream": "fal_mid",  "to": 180.0},
+  {"stream": "fal_far",  "to": 500.0}
+]}
+```
+
+- Layer selection + crossfade weights are a pure function of distance (adjacent layers
+  crossfade over a band, e.g. ±15% around the boundary; weights sum to 1; monotonic).
+  Defs without `layers` behave exactly as today (single stream) — fully backward compatible.
+- **Air absorption:** the per-voice low-pass cutoff additionally falls with distance
+  (`absorb_cutoff(d)`, pure), combined with the occlusion cutoff by `min` as in §4.2.
+- The §4.4 crack/bang speed-of-sound separation already provides the timing half of the
+  distance feel; this section provides the timbre half.
+
+### 12.2 Environment-aware reverb & echo (urban slap / indoor boom / open-field tail)
+
+Godot has algorithmic `AudioEffectReverb` + `AudioEffectDelay` on buses (no convolution/IR
+reverb built in — accepted; the Steam Audio GDExtension is noted as a future option, **not**
+planned). The Battlefield trick is making the tail match the surroundings:
+
+- A pure **listener-environment probe**: `environment(listener_pos, store) →
+  {enclosure ∈ [0,1], density ∈ [0,1]}` computed from a handful of client `StructureStore`
+  grid queries (roof-over-head + wall count for enclosure; built-up piece density in a
+  radius for urbanness). Same data the sim already replicates — no new state, headless-testable.
+- The probe drives (a) **Reverb-bus parameters** (room size, wet level, damping) smoothed
+  over ~1 s, and (b) optional **tail-variant selection** for big events (`explosion_tail_open`
+  / `_urban` / `_indoor` defs), so an explosion slaps between buildings in town and rolls
+  long in the open.
+- Bus layout gains one `Reverb` bus (SFX send). The §3 layout note applies: helpers route by
+  name string; the bus itself is config.
+
+### 12.3 HDR mixing (sidechain ducking)
+
+Battlefield's loudness illusion: loud events duck everything quieter. Godot's
+`AudioEffectCompressor` supports **sidechain** between buses — route `CRITICAL`-priority
+events (explosions) to a bus that sidechain-ducks the low-priority bed (footsteps, ambience,
+distant fire). One bus-layout change + a routing rule in the director (priority class →
+bus), which is already pure/tested logic. Duck depth/attack/release are playtest values.
+
+### 12.4 Explosion concussion (vision + hearing)
+
+Near explosions shake the view and ring the ears:
+
+- **Camera shake** scaled by proximity/size — reuse the existing collapse-shake path in the
+  renderer (already proximity-gated at 45 m); parameters a pure function of
+  `(distance, blast_size)`.
+- **Ear ring + muffle** on the `Listener` bus — reuse the flashbang deafen/duck path (§2)
+  with a milder, distance-scaled profile. Both decay over a few seconds.
+
+### 12.5 Occluded spatial proximity voice — hard requirement on the M6 wiring
+
+When M6 voice is wired (post-M7), incoming voice frames of nearby speakers **must** render
+through the same spatial + occlusion path as world SFX: an `AudioStreamPlayer3D` at the
+speaker's replicated position, with §4.2 coverage → (gain, low-pass) applied. An enemy
+talking behind a wall is *muffled*, not absent — the single most-loved BattleBit immersion
+feature. Squad/radio channels stay 2D on the `UI`/voice bus; only proximity voice
+spatializes. Recorded here so the M6 integration task inherits it as a requirement, not an
+afterthought.
+
+### 12.6 Asset pipeline (resolves §10.4)
+
+- **Primary: CC0 / royalty-free packs**, owner-curated. Shortlist (verified 2026-07-03):
+  Snake's Authentic Gun Sounds packs 1+2 (itch.io, author-confirmed public domain; real
+  recordings incl. 7.62×51, each shot with/without natural reverb — ideal for §12.1 layers),
+  Still North Media *Free Firearm Sound Effects Library* (CC0; multiple mic distances +
+  full mechanical/reload set), Sonniss **GDC Game Audio Bundles** (~200 GB archive,
+  royalty-free/no-attribution for game use; weapons, explosions, ambience), and
+  freesound.org filtered to CC0 (e.g. qubodup's public-domain military set).
+- **Fallback/variants: procedural synthesis** (layered noise/sine synthesis, scripted) for
+  placeholder tones, distance-layer variants, and gap-filling — same spirit as the
+  procedural art kit. Keep the generator script in `tools/` so variants are reproducible.
+- **Licensing rule:** only CC0 or verified royalty-free-for-games sources; record
+  `asset → source/license` in `assets/audio/README.md` as assets land. Note the Sonniss
+  license forbids AI/ML *training* use (irrelevant to shipping them as game sounds) and
+  standalone redistribution.
+
+### 12.7 Test plan additions
+
+Pure additions only (feel is playtest): layer selection/crossfade weights (§12.1 —
+monotonic, sum-to-1, backward-compatible single-stream defs), `absorb_cutoff` monotonic in
+distance, environment probe (§12.2 — enclosed room → high enclosure; empty map → 0; town
+street → mid density) against a hand-built `StructureStore`, priority→bus routing (§12.3),
+concussion parameter curves (§12.4). Bus effects themselves (reverb/compressor) are engine
+config, owner-playtested.
 
 ## Specs
 
