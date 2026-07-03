@@ -13,7 +13,8 @@ cat > "$CFG" <<'EOF'
 {"maps": ["conquest_dev_arena", "conquest_proving_grounds"], "time_limit": 8, "tickets": 500}
 EOF
 
-cleanup() { kill "$SRV_PID" 2>/dev/null || true; rm -f "$CFG"; }
+SRV_PID=""   # pre-init: the trap must survive an exit before the launch line under set -u
+cleanup() { [ -n "$SRV_PID" ] && kill "$SRV_PID" 2>/dev/null || true; rm -f "$CFG"; }
 trap cleanup EXIT
 
 "$GODOT" --headless --path . -- --server --port="$PORT" --config="$CFG" > "$LOG" 2>&1 &
