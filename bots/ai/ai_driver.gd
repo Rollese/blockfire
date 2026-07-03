@@ -21,8 +21,12 @@ const LEAD_PROJECTILE_SPEED := 250.0  # nominal muzzle speed (AR) for bot aim le
 const STANDOFF_RANGE := 10.0   # inside this, hold ground and strafe-fire instead of charging in
 const STRAFE_PERIOD := 18      # ticks per strafe direction (~0.6s at 30Hz) — lateral juking while firing
 const TRACK_STALE_TICKS := 30  # 1s @30Hz: a longer visibility gap restarts the velocity track
+const AI_TICK_EVERY := 3       # M7.5-P3 (§E): full behaviour re-scoring stride (spec §11 table);
+                               # aim/movement for the cached behaviour still refresh every tick
+const _NEVER_DECIDED := -(1 << 30)   # sentinel: first decide() always runs a full re-score
 
 var _bot_index: int = 0
+var _last_decide_tick: int = _NEVER_DECIDED
 
 ## Velocity estimate for an enemy track (batch 6, pure). A gap longer than TRACK_STALE_TICKS
 ## (respawn, interest-range re-entry) restarts the track at zero — averaging across the gap
@@ -40,7 +44,6 @@ static func track_velocity(prev, cur_pos: Vector3, now: int) -> Vector3:
 		vel = moved / (float(dt) * SimLoop.DT)
 	return vel
 
-# NOTE: profile reaction_delay_ticks is loaded but gate scaling is deferred to §11; gate uses Perception.REACTION_DELAY_TICKS for now.
 func _init(global_seed: int, bot_index: int, profile_name: String) -> void:
 	_perc = Perception.new()
 	_human = Humanize.new(global_seed, bot_index)
@@ -48,6 +51,8 @@ func _init(global_seed: int, bot_index: int, profile_name: String) -> void:
 	var t := AiTuning.load_file("res://data/ai_tuning.json")
 	_profile = t.get("profiles", {}).get(profile_name, {"reaction_delay_ticks": 9, "aim_error_deg": 3.0, "aim_settle_ticks": 6, "aggression": 1.0})
 	_weights = t.get("weights", {})
+	# M7.5-P3 (§E): the profile's reaction delay finally reaches the gate (was loaded but unused).
+	_perc.reaction_delay_ticks = int(_profile.get("reaction_delay_ticks", Perception.REACTION_DELAY_TICKS))
 
 ## Clear per-life state. Called from the bot_driver dead branch (and on future map
 ## rotation): enemies seen in a past life must re-trigger the reaction delay, stale
@@ -60,6 +65,7 @@ func reset() -> void:
 	_aim_ticks = 0
 	_world = null
 	_enemy_track = {}
+	_last_decide_tick = _NEVER_DECIDED
 
 ## Update perception state (memory + reaction gate) from the latest snapshot view.
 ## Builds and caches the WorldModel (including metadata_hp_frac + incoming_fire).
@@ -86,26 +92,32 @@ func decide() -> Dictionary:
 	var default_intent := {"move_x": 0.0, "move_y": 0.0, "yaw": (me.yaw if me else 0.0), "pitch": 0.0, "buttons": 0, "stance": Stance.STAND, "behavior": "push_obj"}
 	if w == null or me == null:
 		return default_intent
-	var scores := Utility.score(w, float(_profile.get("aggression", 1.0)), _weights)
-	var behavior := Utility.choose(scores, _current_behavior, Utility.HYSTERESIS_BONUS)
 	var tgt := AiCombat.pick_target(w, _aim_target_id)
-	# Reaction gate: if engage was chosen but no target has cleared the delay, re-pick the best
-	# non-engage behaviour (cannot re-select engage; always terminates over the fixed score list).
-	if behavior == "engage" and not (tgt != 0 and _perc.actionable(tgt, _now)):
-		var best := "suppress"
-		var best_s := -INF
-		for s in scores:
-			if String(s["behavior"]) == "engage":
-				continue
-			var v: float = float(s["score"])
-			if String(s["behavior"]) == _current_behavior:
-				v += Utility.HYSTERESIS_BONUS
-			if v > best_s:
-				best_s = v; best = String(s["behavior"])
-		behavior = best
-	_current_behavior = behavior
-	var intent := {"move_x": 0.0, "move_y": 0.0, "yaw": me.yaw, "pitch": 0.0, "buttons": 0, "stance": Stance.STAND, "behavior": behavior}
-	match behavior:
+	# M7.5-P3 (§E) AI_TICK_EVERY cadence: full behaviour re-scoring runs only every 3rd tick.
+	# Danger pre-empts the stride (a grenade at your feet can't wait 2 ticks). Between
+	# refreshes the cached behaviour's movement/aim block below still executes every call,
+	# so aim tracking stays smooth. observe() remains per-tick (memory/pressure decay).
+	if _now - _last_decide_tick >= AI_TICK_EVERY or not w.danger_zones.is_empty() or _current_behavior == "":
+		_last_decide_tick = _now
+		var scores := Utility.score(w, float(_profile.get("aggression", 1.0)), _weights)
+		var behavior := Utility.choose(scores, _current_behavior, Utility.HYSTERESIS_BONUS)
+		# Reaction gate: if engage was chosen but no target has cleared the delay, re-pick the best
+		# non-engage behaviour (cannot re-select engage; always terminates over the fixed score list).
+		if behavior == "engage" and not (tgt != 0 and _perc.actionable(tgt, _now)):
+			var best := "suppress"
+			var best_s := -INF
+			for s in scores:
+				if String(s["behavior"]) == "engage":
+					continue
+				var v: float = float(s["score"])
+				if String(s["behavior"]) == _current_behavior:
+					v += Utility.HYSTERESIS_BONUS
+				if v > best_s:
+					best_s = v; best = String(s["behavior"])
+			behavior = best
+		_current_behavior = behavior
+	var intent := {"move_x": 0.0, "move_y": 0.0, "yaw": me.yaw, "pitch": 0.0, "buttons": 0, "stance": Stance.STAND, "behavior": _current_behavior}
+	match _current_behavior:
 		"engage":
 			var e := _enemy_rec(w, tgt)
 			if not e.is_empty():
@@ -127,7 +139,10 @@ func decide() -> Dictionary:
 				intent["pitch"] = clampf(asin(clampf(to.y / maxf(to.length(), 0.001), -1.0, 1.0)), -Pawn.MAX_PITCH, Pawn.MAX_PITCH)
 				var dist := me.pos.distance_to(raw_pos)
 				if dist <= ENGAGE_RANGE:
-					intent["buttons"] = InputCommand.BTN_FIRE
+					# Re-check the reaction gate per call: with the decide cadence, a cached
+					# "engage" can outlive a target swap to a freshly-seen (still-gated) enemy.
+					if _perc.actionable(tgt, _now):
+						intent["buttons"] = InputCommand.BTN_FIRE
 					var fwd := _flat_dir(me.pos, raw_pos)
 					if dist > STANDOFF_RANGE:
 						# advance into the fight while firing — don't root at max range
@@ -163,6 +178,14 @@ func decide() -> Dictionary:
 				intent["yaw"] = atan2(to.x, to.z) + _human.aim_jitter(float(_profile.get("aim_error_deg", 3.0)))
 				if _perc.actionable(tgt, _now):
 					intent["buttons"] = InputCommand.BTN_FIRE
+			else:
+				# M7.5-P3 (§E) memory read: no enemy visible — keep the muzzle on the most
+				# recent last-known position (perception _memory, ≤3s old) instead of the
+				# stale spawn yaw. No blind fire: the gate needs a visible target.
+				var lk := _perc.last_known()
+				if not lk.is_empty():
+					var to := (lk["pos"] as Vector3) - me.pos
+					intent["yaw"] = atan2(to.x, to.z) + _human.aim_jitter(float(_profile.get("aim_error_deg", 3.0)))
 			# movement stays 0 (hold and pin)
 		_:   # push_obj / default: march to the objective on this bot's lateral lane (batch 6
 			# spread: a squad advances as a line abreast, converging inside the capture zone)

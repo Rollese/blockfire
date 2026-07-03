@@ -47,6 +47,7 @@ var _bot_count := 1
 var _bots: Array[Dictionary] = []
 var _ex := BotExercisers.new(self)   # gate exercisers — see bots/exercisers.gd
 var _global_seed: int = 12345
+var _ai_profile := "regular"   # --ai-profile=<recruit|regular|veteran|elite> (M7.5-P3 §E)
 
 var _perf_us: float = 0.0
 var _perf_frames: int = 0
@@ -58,6 +59,16 @@ func configure(args: Dictionary) -> void:
 	_global_seed = int(args.get("seed", _global_seed))
 	if args.has("map"):
 		_map_path = "res://maps/%s.json" % String(args["map"])
+	# M7.5-P3 (§E): difficulty profile every spawned AiDriver loads. Validate against the
+	# tuning file so a typo degrades loudly to regular instead of silently using AiDriver's
+	# fallback profile dict.
+	var prof := String(args.get("ai-profile", "regular"))
+	var tuning := AiTuning.load_file("res://data/ai_tuning.json")
+	if tuning.get("profiles", {}).has(prof):
+		_ai_profile = prof
+	else:
+		push_warning("[bots] unknown --ai-profile '%s' — using 'regular'" % prof)
+		_ai_profile = "regular"
 
 func _ready() -> void:
 	_map = MapDef.load_file(_map_path)
@@ -86,7 +97,7 @@ func _spawn_bot(index: int) -> void:
 		"mine_placed": false, "gave_until": 0, "give_target": 0,
 		"vview": {}, "in_vehicle": 0, "boarded_origin": Vector3.ZERO, "repairing": false,
 		"vveh_track": {},
-		"ai": AiDriver.new(_global_seed, index, "regular"),
+		"ai": AiDriver.new(_global_seed, index, _ai_profile),
 	}
 	net.peer_connected.connect(func(peer: ENetPacketPeer) -> void:
 		bot["peer"] = peer

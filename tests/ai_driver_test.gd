@@ -189,3 +189,78 @@ func test_reset_clears_per_life_state() -> void:
 	ai.observe(1, view, {}, {}, [], 200, Vector3.ZERO)
 	var intent2 := ai.decide()
 	assert_false(String(intent2["behavior"]) == "engage", "reaction gate re-armed after reset")
+
+# --- M7.5-P3 (§E) inert-feature fixes: profile reaction delay, AI_TICK_EVERY cadence,
+# memory-read suppress, --ai-profile flag.
+
+func test_profile_reaction_delay_wired_into_perception() -> void:
+	# The profile's reaction_delay_ticks was loaded but never applied (gate used the const).
+	assert_eq(AiDriver.new(42, 0, "recruit")._perc.reaction_delay_ticks, 15, "recruit delay from tuning")
+	assert_eq(AiDriver.new(42, 0, "elite")._perc.reaction_delay_ticks, 4, "elite delay from tuning")
+	assert_eq(AiDriver.new(42, 0, "regular")._perc.reaction_delay_ticks, 9, "regular keeps historical 9")
+
+func test_recruit_holds_fire_longer_than_elite_on_same_timeline() -> void:
+	# Same sighting timeline, different profiles: the observable is BTN_FIRE (engage fires
+	# when actionable; suppress also fires once actionable — either way the gate is the delay).
+	var recruit := AiDriver.new(42, 0, "recruit")
+	var elite := AiDriver.new(42, 0, "elite")
+	var view := {1: _es(0, Vector3.ZERO), 2: _es(1, Vector3(10, 0, 0))}
+	for ai in [recruit, elite]:
+		ai.observe(1, view, {}, {}, [], 100, Vector3.ZERO)
+		ai.observe(1, view, {}, {}, [], 105, Vector3.ZERO)   # 5 ticks after first sighting
+	assert_true(int(elite.decide()["buttons"]) & InputCommand.BTN_FIRE != 0, "elite (delay 4) fires at +5 ticks")
+	assert_true(int(recruit.decide()["buttons"]) & InputCommand.BTN_FIRE == 0, "recruit (delay 15) still holds at +5")
+	recruit.observe(1, view, {}, {}, [], 115, Vector3.ZERO)  # 15 ticks -> recruit's gate clears
+	assert_true(int(recruit.decide()["buttons"]) & InputCommand.BTN_FIRE != 0, "recruit fires once its delay elapses")
+
+func test_decide_cadence_caches_behavior_between_refresh_ticks() -> void:
+	# AI_TICK_EVERY=3: full behaviour re-scoring runs only on the stride; between refreshes
+	# decide() keeps the cached behaviour (movement/aim for it still run every call).
+	var ai := AiDriver.new(42, 0, "regular")
+	ai.observe(1, {1: _es(0, Vector3.ZERO)}, {}, {}, [], 100, Vector3(0, 0, 100))
+	assert_eq(String(ai.decide()["behavior"]), "push_obj", "refresh tick: fresh scoring -> push_obj")
+	# Tick 101: massive health drop — would flip the behaviour if scoring re-ran now.
+	var enemy := _es(1, Vector3(10, 0, 0))
+	ai.observe(1, {1: _es(0, Vector3.ZERO, true, false, 20), 2: enemy}, {}, {}, [], 101, Vector3(0, 0, 100))
+	assert_eq(String(ai.decide()["behavior"]), "push_obj", "between refreshes the cached behaviour holds")
+	# Tick 103: stride reached -> re-scoring sees the pressure and reacts.
+	ai.observe(1, {1: _es(0, Vector3.ZERO, true, false, 20), 2: enemy}, {}, {}, [], 103, Vector3(0, 0, 100))
+	assert_true(String(ai.decide()["behavior"]) != "push_obj", "refresh tick re-scores and reacts to damage")
+
+func test_danger_zones_preempt_decide_cadence() -> void:
+	# A grenade at your feet can't wait 2 ticks: non-empty danger_zones force a re-score.
+	var ai := AiDriver.new(42, 0, "regular")
+	ai.observe(1, {1: _es(0, Vector3.ZERO)}, {}, {}, [], 100, Vector3(0, 0, 100))
+	assert_eq(String(ai.decide()["behavior"]), "push_obj", "precondition: push_obj cached at tick 100")
+	ai.observe(1, {1: _es(0, Vector3.ZERO)}, {}, {}, [], 101, Vector3(0, 0, 100))
+	# Perception does not feed danger zones until Task 6 — inject one directly (fair test
+	# of decide()'s pre-empt path; the WorldModel field is the real Task 6 interface).
+	ai._world.danger_zones = [{"pos": Vector3.ZERO, "radius": 8.0}]
+	assert_eq(String(ai.decide()["behavior"]), "avoid_danger", "danger pre-empts the cadence, no stride wait")
+
+func test_suppress_aims_at_last_known_when_enemy_hides() -> void:
+	# §E memory read: enemy seen then hidden (within the 90-tick memory window) -> the
+	# suppress branch keeps the muzzle on the remembered position instead of the stale yaw.
+	var ai := AiDriver.new(42, 0, "regular")
+	ai.observe(1, {1: _es(0, Vector3.ZERO), 2: _es(1, Vector3(10, 0, 10))}, {}, {}, [], 100, Vector3.ZERO)
+	assert_eq(String(ai.decide()["behavior"]), "suppress", "fresh enemy -> gate holds -> suppress")
+	ai.observe(1, {1: _es(0, Vector3.ZERO)}, {}, {}, [], 101, Vector3.ZERO)   # enemy breaks LOS
+	var intent := ai.decide()
+	assert_eq(String(intent["behavior"]), "suppress", "cached behaviour persists while hidden")
+	assert_almost_eq(float(intent["yaw"]), atan2(10.0, 10.0), deg_to_rad(5.0), "aims within 5 deg of last-known bearing")
+	assert_true(int(intent["buttons"]) & InputCommand.BTN_FIRE == 0, "no blind fire at a memory")
+
+func test_bot_driver_ai_profile_flag() -> void:
+	# --ai-profile selects the difficulty profile every spawned AiDriver gets.
+	var bd := BotDriver.new()
+	autofree(bd)
+	bd.configure({})
+	assert_eq(bd._ai_profile, "regular", "default profile is regular")
+	bd.configure({"ai-profile": "elite"})
+	assert_eq(bd._ai_profile, "elite", "valid profile stored")
+
+func test_bot_driver_ai_profile_unknown_falls_back() -> void:
+	var bd := BotDriver.new()
+	autofree(bd)
+	bd.configure({"ai-profile": "nightmare"})
+	assert_eq(bd._ai_profile, "regular", "unknown profile warns and falls back to regular")
