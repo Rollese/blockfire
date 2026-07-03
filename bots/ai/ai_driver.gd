@@ -19,11 +19,31 @@ const ENGAGE_RANGE := 50.0
 const LEAD_PROJECTILE_SPEED := 250.0  # nominal muzzle speed (AR) for bot aim lead; per-weapon precision not worth threading weapon data into the AI brain
 const STANDOFF_RANGE := 10.0   # inside this, hold ground and strafe-fire instead of charging in
 const STRAFE_PERIOD := 18      # ticks per strafe direction (~0.6s at 30Hz) — lateral juking while firing
+const TRACK_STALE_TICKS := 30  # 1s @30Hz: a longer visibility gap restarts the velocity track
+
+var _bot_index: int = 0
+
+## Velocity estimate for an enemy track (batch 6, pure). A gap longer than TRACK_STALE_TICKS
+## (respawn, interest-range re-entry) restarts the track at zero — averaging across the gap
+## produced wild aim leads on reappearing enemies. Within a fresh track, movement updates the
+## estimate and standing still persists the last good one.
+static func track_velocity(prev, cur_pos: Vector3, now: int) -> Vector3:
+	if prev == null:
+		return Vector3.ZERO
+	var dt: int = now - int(prev["tick"])
+	if dt > TRACK_STALE_TICKS:
+		return Vector3.ZERO
+	var vel: Vector3 = prev["vel"]
+	var moved: Vector3 = cur_pos - (prev["pos"] as Vector3)
+	if dt > 0 and moved.length() > 0.01:
+		vel = moved / (float(dt) * SimLoop.DT)
+	return vel
 
 # NOTE: profile reaction_delay_ticks is loaded but gate scaling is deferred to §11; gate uses Perception.REACTION_DELAY_TICKS for now.
 func _init(global_seed: int, bot_index: int, profile_name: String) -> void:
 	_perc = Perception.new()
 	_human = Humanize.new(global_seed, bot_index)
+	_bot_index = bot_index
 	var t := AiTuning.load_file("res://data/ai_tuning.json")
 	_profile = t.get("profiles", {}).get(profile_name, {"reaction_delay_ticks": 9, "aim_error_deg": 3.0, "aim_settle_ticks": 6, "aggression": 1.0})
 
@@ -53,14 +73,7 @@ func observe(my_id: int, view: Dictionary, vview: Dictionary, structs: Dictionar
 		if not e.alive or int(e.team) == self_team:
 			continue
 		var cur_pos: Vector3 = e.pos
-		var prev = _enemy_track.get(eid)
-		var vel := Vector3.ZERO
-		if prev != null:
-			vel = prev["vel"]  # persist last good estimate if no new movement
-			var dt_ticks: int = now - int(prev["tick"])
-			var moved: Vector3 = cur_pos - (prev["pos"] as Vector3)
-			if dt_ticks > 0 and moved.length() > 0.01:
-				vel = moved / (float(dt_ticks) * SimLoop.DT)
+		var vel := track_velocity(_enemy_track.get(eid), cur_pos, now)
 		_enemy_track[eid] = {"pos": cur_pos, "tick": now, "vel": vel}
 
 ## Produce the input intent for this tick from the last observed world.
@@ -149,8 +162,9 @@ func decide() -> Dictionary:
 				if _perc.actionable(tgt, _now):
 					intent["buttons"] = InputCommand.BTN_FIRE
 			# movement stays 0 (hold and pin)
-		_:   # push_obj / default: march to the objective
-			var mv := _flat_dir(me.pos, _objective)
+		_:   # push_obj / default: march to the objective on this bot's lateral lane (batch 6
+			# spread: a squad advances as a line abreast, converging inside the capture zone)
+			var mv := _flat_dir(me.pos, AiObjective.spread_march_target(me.pos, _objective, _bot_index))
 			intent["move_x"] = mv.x; intent["move_y"] = mv.y
 			if mv != Vector2.ZERO:
 				intent["yaw"] = atan2(mv.x, mv.y)

@@ -6,35 +6,62 @@ extends RefCounted
 const CLIMB_SEEK_RANGE := 16.0   # m: consider a ladder only when this close to its base
 const CLIMB_TOP_MARGIN := 2.0    # m above the ladder bottom past which the bot is "up" already
 
-## Pure objective selector (unit-tested). Among points NOT owned by `my_team`, pick the one
-## nearest `center` (tie-broken by distance from `from`); if the team owns every point,
-## defend the nearest point to `from`. `owners[i]` is the owner of points[i] (-1 neutral);
-## owners shorter than points defaults missing entries to neutral. Returns -1 iff points is
-## empty. Biasing toward the map center makes both teams contest the same points so the match
-## converges into combat. See docs/specs/m3-bot-convergence-fix.md.
-static func choose_objective_index(points: Array, owners: Array, my_team: int, from: Vector3, center: Vector3) -> int:
+const TOP_K := 3                  # squads fan out across this many nearest capturable points
+const ENEMY_OWNED_BIAS := 0.75    # distance discount pulling squads onto enemy-held points
+const MARCH_SPREAD_SPACING := 2.0 # m between adjacent march lanes
+const MARCH_SPREAD_LANES := 4     # lanes -N..+N around the direct line (width = N*spacing each side)
+const MARCH_CONVERGE_RANGE := 20.0 # m from the objective where lanes start collapsing onto it
+
+## Pure objective selector (unit-tested). Among points NOT owned by `my_team`, rank by distance
+## from `from` (enemy-owned points get a distance discount so attacks push into held ground),
+## then squad-hash across the TOP_K nearest so different squads fan out instead of stacking on
+## the single nearest point — the flank/spread fix (2026-07-02 investigation §E): the old
+## nearest-only pick split symmetric maps into two non-meeting columns. Same squad -> same pick
+## (cohesion); if the team owns every point, defend the nearest one. `owners[i]` is the owner
+## of points[i] (-1 neutral); owners shorter than points defaults missing entries to neutral.
+## Returns -1 iff points is empty.
+static func choose_objective_spread(points: Array, owners: Array, my_team: int, from: Vector3, squad_key: int) -> int:
 	if points.is_empty():
 		return -1
-	var best := -1
-	var best_c := INF
-	var best_d := INF
+	var cands: Array[Dictionary] = []
 	for i in points.size():
 		var owner := -1
 		if i < owners.size():
 			owner = int(owners[i])
 		if owner == my_team:
 			continue   # already ours — skip while capturable points remain
-		var cd: float = center.distance_to(points[i])
-		var fd: float = from.distance_to(points[i])
-		if cd < best_c - 0.001 or (absf(cd - best_c) <= 0.001 and fd < best_d):
-			best_c = cd; best_d = fd; best = i
-	if best == -1:
+		var d: float = from.distance_to(points[i])
+		if owner != -1:
+			d *= ENEMY_OWNED_BIAS   # enemy-owned/contested: worth a longer walk
+		cands.append({"i": i, "d": d})
+	if cands.is_empty():
 		# team owns every capturable point: defend the nearest one to `from`
+		var best := -1
+		var best_d := INF
 		for i in points.size():
 			var fd: float = from.distance_to(points[i])
 			if fd < best_d:
 				best_d = fd; best = i
-	return best
+		return best
+	cands.sort_custom(func(a, b): return a["d"] < b["d"] or (a["d"] == b["d"] and a["i"] < b["i"]))
+	return int(cands[posmod(squad_key, mini(TOP_K, cands.size()))]["i"])
+
+## Per-bot lateral march lane: offset the objective perpendicular to the from->objective line so
+## a squad advances as a line abreast, not a single-file column (spread part of the flank fix).
+## The offset fades linearly inside MARCH_CONVERGE_RANGE so everyone still converges on the
+## capture zone. Pure; `spread_key` is any stable per-bot int (bot index).
+static func spread_march_target(from: Vector3, objective: Vector3, spread_key: int) -> Vector3:
+	var flat := Vector2(objective.x - from.x, objective.z - from.z)
+	var dist := flat.length()
+	if dist < 0.001:
+		return objective
+	var dirn := flat / dist
+	var lane := posmod(spread_key, 2 * MARCH_SPREAD_LANES + 1) - MARCH_SPREAD_LANES
+	var mag := float(lane) * MARCH_SPREAD_SPACING
+	if dist < MARCH_CONVERGE_RANGE:
+		mag *= dist / MARCH_CONVERGE_RANGE
+	# perpendicular in the XZ plane (right-hand of the march direction)
+	return objective + Vector3(dirn.y, 0.0, -dirn.x) * mag
 
 ## Decide whether to steer onto a ladder. seek=true with a move target at the ladder base when the
 ## bot is near a ladder (and still below it) and its objective is roughly across/beyond that ladder.

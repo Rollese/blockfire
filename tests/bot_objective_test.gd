@@ -11,32 +11,68 @@ const C := Vector3(0, 0, 0)
 const D := Vector3(300, 0, -300)
 const E := Vector3(600, 0, 400)
 
-func test_prefers_central_non_owned_over_closer_corner() -> void:
-	# Bot sits next to corner A, but center C is non-owned -> must pick C.
-	var idx := Obj.choose_objective_index([A, C], [-1, -1], 0, Vector3(-590, 0, -390), Vector3.ZERO)
-	assert_eq(idx, 1, "central point chosen over the nearer corner")
+# --- choose_objective_spread: squad-hash pick among the top-k nearest capturable points.
+# Replaces choose_objective_index (center==from in production neutralized its centre bias, so
+# every bot targeted its nearest point and symmetric maps split into two non-meeting columns —
+# the flank/spread gap from the 2026-07-02 investigation).
 
-func test_skips_points_team_owns() -> void:
-	# Team 0 owns C; only E is capturable.
-	var idx := Obj.choose_objective_index([C, E], [0, -1], 0, Vector3.ZERO, Vector3.ZERO)
-	assert_eq(idx, 1, "owned central point skipped")
+func test_spread_is_deterministic_for_a_squad() -> void:
+	var a := Obj.choose_objective_spread([A, B, C], [-1, -1, -1], 0, Vector3.ZERO, 1)
+	var b := Obj.choose_objective_spread([A, B, C], [-1, -1, -1], 0, Vector3.ZERO, 1)
+	assert_eq(a, b, "same squad + same world -> same objective")
 
-func test_defends_nearest_when_team_owns_all() -> void:
-	var idx := Obj.choose_objective_index([A, C], [0, 0], 0, Vector3(-590, 0, -390), Vector3.ZERO)
+func test_spread_distributes_squads_across_top_k() -> void:
+	# Three capturable points at comparable range: three squads must fan out across all three
+	# instead of stacking on the single nearest.
+	var pts := [Vector3(10, 0, 0), Vector3(0, 0, 12), Vector3(-14, 0, 0)]
+	var picks := {}
+	for squad in 3:
+		picks[Obj.choose_objective_spread(pts, [-1, -1, -1], 0, Vector3.ZERO, squad)] = true
+	assert_eq(picks.size(), 3, "3 squads spread across all 3 top-k points")
+
+func test_spread_never_picks_owned_point() -> void:
+	var pts := [Vector3(10, 0, 0), Vector3(0, 0, 12), Vector3(-14, 0, 0)]
+	for squad in 6:
+		var idx := Obj.choose_objective_spread(pts, [0, -1, -1], 0, Vector3.ZERO, squad)
+		assert_ne(idx, 0, "own point never targeted while capturable points remain")
+
+func test_spread_biases_toward_enemy_owned_point() -> void:
+	# Equidistant neutral vs enemy-owned: the enemy-owned point ranks first (bias discount),
+	# so squad 0 (rank 0) attacks it — pushing fights into enemy-held ground.
+	var pts := [Vector3(20, 0, 0), Vector3(-20, 0, 0)]
+	var idx := Obj.choose_objective_spread(pts, [-1, 1], 0, Vector3.ZERO, 0)
+	assert_eq(idx, 1, "enemy-owned point outranks an equidistant neutral one")
+
+func test_spread_defends_nearest_when_team_owns_all() -> void:
+	var idx := Obj.choose_objective_spread([A, C], [0, 0], 0, Vector3(-590, 0, -390), 3)
 	assert_eq(idx, 0, "owns all -> defend nearest to bot (A)")
 
-func test_tie_break_by_distance_from_bot() -> void:
-	# B and D are equidistant from center; bot near B -> pick B.
-	var idx := Obj.choose_objective_index([B, D], [-1, -1], 0, Vector3(-280, 0, 280), Vector3.ZERO)
-	assert_eq(idx, 0, "equal center distance -> nearer-to-bot wins")
+func test_spread_empty_points_returns_negative_one() -> void:
+	assert_eq(Obj.choose_objective_spread([], [], 0, Vector3.ZERO, 0), -1)
 
-func test_empty_points_returns_negative_one() -> void:
-	assert_eq(Obj.choose_objective_index([], [], 0, Vector3.ZERO, Vector3.ZERO), -1)
+func test_spread_owners_shorter_than_points_defaults_neutral() -> void:
+	var idx := Obj.choose_objective_spread([A, C], [], 0, Vector3(-590, 0, -390), 0)
+	assert_true(idx == 0 or idx == 1, "missing owners default to neutral/capturable")
 
-func test_owners_shorter_than_points_defaults_neutral() -> void:
-	# No match-state yet (owners empty) -> all treated capturable, central wins.
-	var idx := Obj.choose_objective_index([A, C], [], 0, Vector3(-590, 0, -390), Vector3.ZERO)
-	assert_eq(idx, 1, "missing owners default to neutral/capturable")
+# --- spread_march_target: per-bot lateral offset so a squad advances as a line, not a column.
+
+func test_march_target_offsets_laterally_and_differs_per_bot() -> void:
+	var obj := Vector3(0, 0, 100)
+	var t0 := Obj.spread_march_target(Vector3.ZERO, obj, 0)
+	var t1 := Obj.spread_march_target(Vector3.ZERO, obj, 1)
+	assert_true(t0 != t1, "different bots get different march targets")
+	# March line is +z, so all spread is pure x (perpendicular), bounded by the lane width.
+	assert_almost_eq(t0.z, obj.z, 0.001, "offset is perpendicular to the march line")
+	assert_true(absf(t0.x) <= Obj.MARCH_SPREAD_LANES * Obj.MARCH_SPREAD_SPACING + 0.001, "offset bounded")
+
+func test_march_target_converges_on_the_objective_up_close() -> void:
+	var obj := Vector3(0, 0, 100)
+	var far := Obj.spread_march_target(Vector3(0, 0, 100.0 - Obj.MARCH_CONVERGE_RANGE * 2.0), obj, 0)
+	var near := Obj.spread_march_target(Vector3(0, 0, 95), obj, 0)
+	assert_true(absf(near.x) < absf(far.x), "lateral offset shrinks approaching the point")
+	var at := Obj.spread_march_target(obj, obj, 0)
+	assert_almost_eq(at.x, obj.x, 0.001, "standing on the objective -> no offset")
+	assert_almost_eq(at.z, obj.z, 0.001)
 
 func test_combat_button_starts_burst_on_first_fire() -> void:
 	var r := AiCombat.combat_button(true, 100, 0, -1)
