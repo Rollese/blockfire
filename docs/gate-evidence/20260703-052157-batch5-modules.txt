@@ -1,0 +1,8 @@
+gate: batch5-modules
+date: 2026-07-03T05:21:57+02:00
+host: game2
+git: b5d67ef
+verdict: PASS
+summary: winner=0 elapsed=209s peak_tick=16.72ms budget=33.3ms agg=13.4Mbit/s players=128 kills=5 cap_events=4 ai_us_mean=999.2us map=default
+srvlog: srvlog-batch5-modules-20260703-052157.log
+srvlog_sha256: 1bb6c6063ec335f4d0b165ac9fc11da0219629d77f735e9356a72c15fd1237d4
