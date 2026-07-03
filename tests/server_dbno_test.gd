@@ -61,11 +61,11 @@ func test_downed_is_immune_to_body_fire() -> void:
 	var srv = autofree(F.make_server())
 	var p := F.add_pawn(srv, 1)
 	p.is_downed = true
-	p.bleed_health = Revive.BLEEDOUT_FLOOR + 5
+	p.bleed_health = -100
 	_apply(srv, p, 999, false, Revive.Source.BULLET)
 	assert_true(p.alive, "downed pawn is immune — body fire does not accelerate bleed")
 	assert_true(p.is_downed, "stays downed")
-	assert_eq(p.bleed_health, Revive.BLEEDOUT_FLOOR + 5, "enemy fire leaves bleed_health untouched")
+	assert_eq(p.bleed_health, -100, "enemy fire leaves bleed_health untouched")
 
 
 func test_non_lethal_body_shot_leaves_pawn_standing() -> void:
@@ -78,23 +78,25 @@ func test_non_lethal_body_shot_leaves_pawn_standing() -> void:
 
 
 func test_downed_bleeds_out_after_enough_ticks() -> void:
+	var floor := Revive.bleedout_floor(Revive.bleedout_window(1))   # first down: full 60 s window
 	var bh := 0
 	var ticks := 0
-	while not Revive.is_bled_out(bh):
-		bh = Revive.bleed_step(bh, false)
+	while not Revive.is_bled_out(bh, floor):
+		bh = Revive.bleed_step(bh, floor)
 		ticks += 1
-		assert_true(ticks < 1000, "must terminate")
-	# bleed-out window = |BLEEDOUT_FLOOR| / BLEED_RATE ticks (must exceed REVIVE_TICKS so a
-	# teammate can revive a fresh down before it bleeds out).
-	assert_eq(ticks, -Revive.BLEEDOUT_FLOOR / Revive.BLEED_RATE)
-	assert_true(ticks > Revive.REVIVE_TICKS, "bleed-out must outlast a revive hold")
+		assert_true(ticks < 5000, "must terminate")
+	# first-down window = INITIAL_BLEEDOUT_TICKS / BLEED_RATE, and it must outlast a revive hold.
+	assert_eq(ticks, Revive.INITIAL_BLEEDOUT_TICKS / Revive.BLEED_RATE)
+	assert_true(ticks > Revive.REVIVE_TICKS, "a fresh down must outlast a revive hold")
 
 
-func test_halted_pawn_never_bleeds_out() -> void:
-	var bh := -10
-	for _i in 100:
-		bh = Revive.bleed_step(bh, true)
-	assert_false(Revive.is_bled_out(bh), "self-bandaged pawn holds")
+func test_later_downs_bleed_out_faster() -> void:
+	# The halving window: the 2nd down of a life drains to death in half the ticks of the 1st.
+	var f1 := Revive.bleedout_floor(Revive.bleedout_window(1))
+	var f2 := Revive.bleedout_floor(Revive.bleedout_window(2))
+	assert_eq(f2, f1 / 2, "2nd-down floor is half as deep -> half the bleed-out time")
+	assert_false(Revive.is_bled_out(f2 + 1, f2), "not dead one step from the 2nd-down floor")
+	assert_true(Revive.is_bled_out(f2, f2), "dead at the 2nd-down floor")
 
 
 func test_revive_threshold_non_medic_is_revive_ticks() -> void:

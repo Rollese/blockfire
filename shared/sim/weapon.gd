@@ -10,10 +10,13 @@ const MODE_BURST := 2
 const DEFAULT_BURST := 3
 
 const _DEFS := {
-	AR:     {"name": "AR",     "damage_body": 25, "headshot_mult": 2.0, "rpm": 600, "mag_size": 30, "reload_secs": 2.2, "spread_base_deg": 0.6, "spread_bloom_deg": 0.5, "recoil_pitch_deg": 0.4, "range_m": 300.0, "muzzle_velocity": 250.0, "gravity_scale": 0.5,  "fire_modes": [MODE_AUTO, MODE_SEMI, MODE_BURST], "burst_count": 3},
-	SMG:    {"name": "SMG",    "damage_body": 18, "headshot_mult": 1.8, "rpm": 900, "mag_size": 35, "reload_secs": 2.0, "spread_base_deg": 1.0, "spread_bloom_deg": 0.6, "recoil_pitch_deg": 0.3, "range_m": 150.0, "muzzle_velocity": 180.0, "gravity_scale": 0.7,  "fire_modes": [MODE_AUTO, MODE_SEMI], "burst_count": 3},
-	DMR:    {"name": "DMR",    "damage_body": 45, "headshot_mult": 2.0, "rpm": 260, "mag_size": 20, "reload_secs": 2.6, "spread_base_deg": 0.2, "spread_bloom_deg": 0.3, "recoil_pitch_deg": 0.9, "range_m": 500.0, "muzzle_velocity": 400.0, "gravity_scale": 0.35, "fire_modes": [MODE_SEMI], "burst_count": 1},
-	PISTOL: {"name": "PISTOL", "damage_body": 16, "headshot_mult": 1.9, "rpm": 450, "mag_size": 15, "reload_secs": 1.6, "spread_base_deg": 0.8, "spread_bloom_deg": 0.5, "recoil_pitch_deg": 0.5, "range_m": 80.0,  "muzzle_velocity": 160.0, "gravity_scale": 0.8,  "fire_modes": [MODE_SEMI], "burst_count": 1},
+	# muzzle_velocity is BattleBit-realistic (2026-07-03): the old 160-400 m/s placeholders forced a
+	# ~1 m lead on a target strafing at 40 m — "aim dead-on a mover, whiff" even with lag comp. Real
+	# rifle rounds are ~750-850 m/s (near-hitscan at close-mid range); gravity_scale still gives drop.
+	AR:     {"name": "AR",     "damage_body": 25, "headshot_mult": 2.0, "rpm": 600, "mag_size": 30, "reload_secs": 2.2, "spread_base_deg": 0.6, "spread_bloom_deg": 0.5, "recoil_pitch_deg": 0.4, "range_m": 300.0, "muzzle_velocity": 750.0, "gravity_scale": 0.5,  "fire_modes": [MODE_AUTO, MODE_SEMI, MODE_BURST], "burst_count": 3},
+	SMG:    {"name": "SMG",    "damage_body": 18, "headshot_mult": 1.8, "rpm": 900, "mag_size": 35, "reload_secs": 2.0, "spread_base_deg": 1.0, "spread_bloom_deg": 0.6, "recoil_pitch_deg": 0.3, "range_m": 150.0, "muzzle_velocity": 420.0, "gravity_scale": 0.7,  "fire_modes": [MODE_AUTO, MODE_SEMI], "burst_count": 3},
+	DMR:    {"name": "DMR",    "damage_body": 45, "headshot_mult": 2.0, "rpm": 260, "mag_size": 20, "reload_secs": 2.6, "spread_base_deg": 0.2, "spread_bloom_deg": 0.3, "recoil_pitch_deg": 0.9, "range_m": 500.0, "muzzle_velocity": 850.0, "gravity_scale": 0.35, "fire_modes": [MODE_SEMI], "burst_count": 1},
+	PISTOL: {"name": "PISTOL", "damage_body": 16, "headshot_mult": 1.9, "rpm": 450, "mag_size": 15, "reload_secs": 1.6, "spread_base_deg": 0.8, "spread_bloom_deg": 0.5, "recoil_pitch_deg": 0.5, "range_m": 80.0,  "muzzle_velocity": 380.0, "gravity_scale": 0.8,  "fire_modes": [MODE_SEMI], "burst_count": 1},
 }
 
 static func get_def(weapon_id: int) -> Dictionary:

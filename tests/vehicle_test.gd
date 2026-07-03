@@ -51,15 +51,30 @@ func test_free_seat_prefers_hint_then_first_empty() -> void:
 	for s in v.seat_count(): v.seats[s] = 1
 	assert_eq(v.free_seat(0), -1)  # full
 
-func test_can_enter_requires_team_alive_range_and_unseated() -> void:
-	var v := _veh()
+func test_can_enter_requires_alive_range_and_unseated() -> void:
+	var v := _veh()   # team 1, empty
 	var p := Pawn.new(7); p.team = 1; p.alive = true
 	assert_true(Vehicle.can_enter(v, p, 2.0, 3.0))
 	assert_false(Vehicle.can_enter(v, p, 5.0, 3.0))   # out of range
-	p.team = 0
-	assert_false(Vehicle.can_enter(v, p, 2.0, 3.0))   # wrong team
 	p.team = 1; p.in_vehicle = 999
 	assert_false(Vehicle.can_enter(v, p, 2.0, 3.0))   # already seated
+
+func test_unoccupied_enemy_vehicle_is_stealable() -> void:
+	# No hard ownership (2026-07-03): an UNOCCUPIED vehicle can be boarded by any team.
+	var v := _veh()   # team 1, empty
+	var thief := Pawn.new(7); thief.team = 0; thief.alive = true
+	assert_true(Vehicle.can_enter(v, thief, 2.0, 3.0), "empty enemy vehicle can be stolen")
+
+func test_enemy_crewed_vehicle_cannot_be_boarded() -> void:
+	var v := _veh()   # team 1
+	v.seats[0] = 42   # an enemy occupant aboard
+	var thief := Pawn.new(7); thief.team = 0; thief.alive = true
+	assert_false(Vehicle.can_enter(v, thief, 2.0, 3.0), "can't board an enemy-crewed vehicle")
+
+func test_downed_pawn_cannot_enter() -> void:
+	var v := _veh()
+	var p := Pawn.new(7); p.team = 1; p.alive = true; p.is_downed = true
+	assert_false(Vehicle.can_enter(v, p, 2.0, 3.0), "a downed pawn can't board")
 
 func test_to_state_mirrors_fields() -> void:
 	var v := _veh()

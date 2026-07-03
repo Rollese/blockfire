@@ -54,7 +54,9 @@ func test_proving_grounds_loads_with_geometry() -> void:
 	assert_true(m != null, "proving grounds map loads")
 	assert_true(m.ladders.size() >= 1, "has a ladder")
 	assert_true(m.platforms.size() >= 1, "has a platform")
-	assert_true(m.prebuilt.size() >= 1, "has prebuilt geometry")
+	# prebuilt test structures removed 2026-07-03 (HQ sandbags blocked bot spawns; no longer testing
+	# static deployables) — proving_grounds now matches the other gameplay maps with an empty prebuilt.
+	assert_eq(m.prebuilt.size(), 0, "no leftover prebuilt test structures")
 
 func test_parses_roads() -> void:
 	var r := MapDef.from_json_string('{"name":"r","world_half":50,"points":[{"id":"A","pos":[0,0,0],"radius":5}],"bases":[{"team":0,"pos":[-10,0,0],"radius":5},{"team":1,"pos":[10,0,0],"radius":5}],"roads":[{"min":[-6,0,-40],"max":[6,0,40]}]}')

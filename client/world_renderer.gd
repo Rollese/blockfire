@@ -2309,11 +2309,19 @@ func _apply_camera(predictor: Prediction, fov: float, look_yaw: float, look_pitc
 	var pawn: Pawn = predictor.predicted
 	# Interpolated eye between physics ticks (render-rate smoothness); fall back to the raw
 	# predicted eye if no interpolated value was supplied.
-	_camera.position = eye if eye.is_finite() else pawn.eye_position()
+	var cam_pos: Vector3 = eye if eye.is_finite() else pawn.eye_position()
 	# Rotation uses the client-authoritative LOOK (input) yaw/pitch, not the server-reconciled
 	# pawn yaw. That lets the wire carry a flipped aim yaw (yaw+PI, to match Combat._forward to
 	# where the camera points) without the reconciled value rotating the view 180°.
-	_camera.transform.basis = Basis.from_euler(Vector3(look_pitch, look_yaw, 0.0))
+	var basis := Basis.from_euler(Vector3(look_pitch, look_yaw, 0.0))
+	# Lean (Q/E): peek the eye sideways + roll the view so leaning is visible to the local player,
+	# not just to remotes/the server. The lateral shift matches the server's LEAN_OFFSET shot origin.
+	var cl := StancePose.camera_lean(pawn.lean)
+	if cl["lat"] != 0.0:
+		cam_pos += basis.x * float(cl["lat"])
+		basis = basis.rotated(basis.z.normalized(), float(cl["roll"]))
+	_camera.position = cam_pos
+	_camera.transform.basis = basis
 	# Sprint FOV kick — widen the view a touch while sprinting (eased via _vm_sprint_t) for a
 	# sense of speed. Composes with the sprint-lower viewmodel; settles back when not sprinting.
 	_camera.fov = fov + _vm_sprint_t * SPRINT_FOV_ADD

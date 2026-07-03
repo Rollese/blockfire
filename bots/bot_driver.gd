@@ -41,6 +41,20 @@ const GRENADE_LANDING_EST := 8.0   # m ahead of the throw origin — flat landin
                                    # matches well enough for avoidance (plan Task 6)
 const BAG_NEEDY_RANGE := 12.0      # m: allies this close and hurt count toward a bag deploy
 const BAG_NEEDY_HP := 60           # hp below this (0.6 frac) marks an ally as needy
+const GIVEUP_NO_HELP_RADIUS := 20.0   # m: a downed bot with no alive friendly this close gives up (no reviver coming)
+
+## True if an alive, non-downed friendly is within GIVEUP_NO_HELP_RADIUS of a downed bot — i.e. a
+## revive is plausible, so it should wait rather than give up. `view` = pawn_id -> EntityState.
+static func _reviver_near(view: Dictionary, self_id: int, my_team: int, my_pos: Vector3) -> bool:
+	var r2 := GIVEUP_NO_HELP_RADIUS * GIVEUP_NO_HELP_RADIUS
+	for id in view:
+		if int(id) == self_id:
+			continue
+		var e: EntityState = view[id]
+		if e != null and e.alive and not e.is_downed and e.team == my_team \
+				and my_pos.distance_squared_to(e.pos) <= r2:
+			return true
+	return false
 
 var _map: MapDef
 var _map_path: String = MAP_PATH   # --map=<name> overrides (must match server + client)
@@ -104,10 +118,10 @@ func _spawn_bot(index: int) -> void:
 		"vview": {}, "in_vehicle": 0, "boarded_origin": Vector3.ZERO, "repairing": false,
 		"vveh_track": {},
 		# M7.5-P3 support mirrors + latches: SELF_STATE dict, GADGET_LIST wholesale mirror,
-		# GRENADE_FX landing ring; reviving_id = active REVIVE_ACTION latch, bandaged =
-		# once-per-life self-bandage latch, last_bag_tick = needs-driven bag-deploy cooldown.
+		# GRENADE_FX landing ring; reviving_id = active REVIVE_ACTION latch,
+		# last_bag_tick = needs-driven bag-deploy cooldown.
 		"self_state": {}, "gadgets": [], "grenade_events": [],
-		"reviving_id": 0, "bandaged": false, "last_bag_tick": -100000,
+		"reviving_id": 0, "last_bag_tick": -100000,
 		"ai": AiDriver.new(_global_seed, index, _ai_profile),
 	}
 	net.peer_connected.connect(func(peer: ENetPacketPeer) -> void:
@@ -156,24 +170,18 @@ func _drive(bot: Dictionary, delta: float) -> void:
 		bot["fob_drill_start"] = -1   # M12-P3: re-evaluate the FOB drill fresh on the next spawn
 		bot["cur_swap_slot"] = 0   # server resets active_slot to 0 on (re)spawn; mirror it
 		bot["give_target"] = 0   # server clears the give latch on death; mirror it
-		bot["bandaged"] = false   # M7.5-P3: re-arm the once-per-life self-bandage on respawn
 		bot["reviving_id"] = 0   # M7.5-P3: server drops the revive on reviver death; mirror it
 		(bot["ai"] as AiDriver).reset()   # re-arm reaction gate, drop stale tracks/behaviour latch
 		_send(bot, 0.0, 0.0, bot["yaw"], 0.0, 0)
 		return
 
-	# DBNO: downed pawns are immune to weapon damage, so a downed bot holds still and waits to be
-	# revived. M7.5-P3 (ratified): it self-bandages ONCE per life when it still has a bandage, the
-	# bleed is not already halted, and no teammate is mid-revive — bandages are finite, so matches
-	# still end by bleed-out once they are spent (give-up behaviour unchanged).
+	# DBNO: a downed bot holds still and waits for a revive OR bleeds out (halving bleedout). But if
+	# no friendly is near enough to plausibly revive it, it GIVES UP immediately rather than lying
+	# there for the whole bleed-out — no medic is coming (speeds up testing; ratified 2026-07-03).
 	if me.is_downed:
-		var ss: Dictionary = bot["self_state"]
-		if not bool(bot.get("bandaged", false)) and AiSupport.should_self_bandage(true,
-				int(ss.get("bandage_count", 0)), bool(ss.get("bleed_halted", false)),
-				bool(ss.get("being_revived", false))):
-			(bot["net"] as NetHost).send_to(bot["peer"], NetHost.CHANNEL_INPUT,
-				Protocol.encode_self_bandage(), 0)
-			bot["bandaged"] = true
+		if not _reviver_near(view, int(bot["id"]), int(me.team), me.pos):
+			(bot["net"] as NetHost).send_to(bot["peer"], NetHost.CHANNEL_CONTROL,
+				Protocol.encode_give_up(), ENetPacketPeer.FLAG_RELIABLE)
 		_send(bot, 0.0, 0.0, bot["yaw"], 0.0, 0)
 		return
 

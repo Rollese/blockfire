@@ -84,8 +84,11 @@ static func turn_factor(spd: float, _max_speed: float) -> float:
 
 static func can_enter(v: Vehicle, p: Pawn, dist: float, enter_range: float) -> bool:
 	if v == null or p == null: return false
+	# Vehicles have no hard ownership: you may board your own team's vehicle (carpool) OR steal any
+	# UNOCCUPIED vehicle regardless of team (2026-07-03). You can't board an enemy-CREWED vehicle.
+	var boardable: bool = v.team == p.team or v.occupant_ids().is_empty()
 	return p.alive and not p.is_downed and p.in_vehicle == 0 \
-		and v.alive and v.team == p.team and dist <= enter_range
+		and v.alive and boardable and dist <= enter_range
 
 func seat_count() -> int:
 	return seats.size()

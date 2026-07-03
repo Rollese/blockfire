@@ -34,7 +34,7 @@ func test_bleedout_credits_the_downer_not_self() -> void:
 	victim.health = 10
 	srv._apply_pawn_damage(1, victim, 40, false, Revive.Source.BULLET, 9, Weapon.SMG)
 	assert_true(victim.is_downed)
-	victim.bleed_health = Revive.BLEEDOUT_FLOOR + Revive.BLEED_RATE   # one step from bleeding out
+	victim.bleed_health = victim.bleed_floor + Revive.BLEED_RATE   # one step from bleeding out
 	srv._support.step_downed()
 	assert_false(victim.alive, "bled out")
 	assert_eq(srv._clients[9]["kills"], 1, "bleed-out credits the attacker who downed you")
@@ -54,7 +54,7 @@ func test_fall_bleedout_falls_back_to_self() -> void:
 	victim.health = 5
 	srv._apply_pawn_damage(1, victim, 40, false, Revive.Source.BULLET, 0, 0)   # no attacker (killer_id 0)
 	assert_true(victim.is_downed)
-	victim.bleed_health = Revive.BLEEDOUT_FLOOR
+	victim.bleed_health = victim.bleed_floor
 	srv._support.step_downed()
 	assert_false(victim.alive)
 	assert_eq(srv._clients[1]["deaths"], 1)

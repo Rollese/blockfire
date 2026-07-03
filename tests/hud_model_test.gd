@@ -60,15 +60,24 @@ func test_tickets_passthrough_and_capture_when_on_point() -> void:
 	var m := HudModel.new()
 	var ms := {"points": [{"owner": -1, "attacker": 0, "cap": 0.4}], "tickets": [120, 95]}
 	var out := m.build({"match_state": ms, "self_pos": Vector3(5, 0, 5),
-		"point_positions": [Vector3(6, 0, 6)], "capture_radius": 8.0, "tick": 0})
+		"point_positions": [Vector3(6, 0, 6)], "point_radii": [8.0], "tick": 0})
 	assert_eq(out["tickets"], [120, 95])
 	assert_almost_eq(out["capture"]["cap"], 0.4, 0.001, "on the point -> progress shown")
+
+func test_capture_uses_true_point_radius_not_a_constant() -> void:
+	# Regression (2026-07-03): the widget must trigger at the point's real radius (== ground ring +
+	# server), not a hardcoded 8 m. At 10 m from a 12 m point you ARE in the zone.
+	var m := HudModel.new()
+	var ms := {"points": [{"owner": 0, "attacker": -1, "cap": 0.0}], "tickets": [1, 1]}
+	var out := m.build({"match_state": ms, "self_pos": Vector3(10, 0, 0),
+		"point_positions": [Vector3(0, 0, 0)], "point_radii": [12.0], "tick": 0})
+	assert_true(out["capture"] != null, "10 m from a 12 m point -> in the zone (was falsely out at r=8)")
 
 func test_no_capture_when_off_point() -> void:
 	var m := HudModel.new()
 	var ms := {"points": [{"owner": -1, "attacker": 0, "cap": 0.4}], "tickets": [120, 95]}
 	var out := m.build({"match_state": ms, "self_pos": Vector3(500, 0, 500),
-		"point_positions": [Vector3(6, 0, 6)], "capture_radius": 8.0, "tick": 0})
+		"point_positions": [Vector3(6, 0, 6)], "point_radii": [8.0], "tick": 0})
 	assert_eq(out["capture"], null, "off point -> no capture readout")
 
 func test_killfeed_resolves_names_and_friendliness() -> void:

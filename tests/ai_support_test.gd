@@ -5,17 +5,7 @@ const Support := preload("res://bots/ai/behaviors/support.gd")
 func _downed(id: int, dist: float) -> Dictionary:
 	return {"id": id, "pos": Vector3(dist, 0, 0), "dist": dist}
 
-# --- should_self_bandage --------------------------------------------------
-
-func test_self_bandage_when_downed_with_bandage() -> void:
-	assert_true(Support.should_self_bandage(true, 1, false, false),
-		"downed + bandage + still bleeding + nobody reviving -> bandage")
-
-func test_self_bandage_refused_in_every_disqualifying_state() -> void:
-	assert_false(Support.should_self_bandage(false, 1, false, false), "not downed -> no")
-	assert_false(Support.should_self_bandage(true, 0, false, false), "no bandages -> no")
-	assert_false(Support.should_self_bandage(true, 1, true, false), "bleed already halted -> no")
-	assert_false(Support.should_self_bandage(true, 1, false, true), "being revived -> don't waste it")
+# (downed self-bandage removed 2026-07-03 — see halving-bleedout design)
 
 # --- pick_revive_target ---------------------------------------------------
 
@@ -36,6 +26,31 @@ func test_revive_boundary_inclusive_and_empty_input() -> void:
 	assert_eq(int(Support.pick_revive_target([_downed(1, Support.NONMEDIC_REVIVE_RANGE)], false)["id"]), 1,
 		"exactly at range still counts")
 	assert_true(Support.pick_revive_target([], true).is_empty(), "no downed allies -> {}")
+
+func _ally(id: int, pos: Vector3) -> Dictionary:
+	return {"id": id, "pos": pos, "dist": pos.length()}
+
+func test_revive_defers_to_a_closer_friendly() -> void:
+	# The whole squad used to pile on one downed ally — as soon as anyone dropped, everyone stopped
+	# fighting to revive. Now a bot only commits if it is the closest alive friendly to that ally;
+	# otherwise it keeps fighting and lets the nearer teammate handle the revive.
+	var downed := [_downed(2, 10.0)]                     # downed ally at (10,0,0); I (id 5) am 10 m away
+	var closer := [_ally(3, Vector3(9.0, 0, 0))]         # friendly 3 sits 1 m from the downed ally
+	assert_true(Support.pick_revive_target(downed, false, closer, 5).is_empty(),
+		"a closer friendly is assigned -> I defer and keep fighting")
+	var farther := [_ally(3, Vector3(50.0, 0, 0))]       # only friendly is far from the downed ally
+	assert_eq(int(Support.pick_revive_target(downed, false, farther, 5)["id"]), 2,
+		"I am the closest friendly -> I revive")
+
+func test_revive_tie_breaks_by_lower_id() -> void:
+	# Two friendlies equidistant from the downed ally: exactly one commits (lower id), so it's never
+	# both-go (swarm) or neither-go (nobody revives).
+	var downed := [_downed(2, 10.0)]                     # downed at (10,0,0), my dist = 10
+	var peer := [_ally(3, Vector3(20.0, 0, 0))]          # friendly 3 also exactly 10 m from the ally
+	assert_true(Support.pick_revive_target(downed, false, peer, 5).is_empty(),
+		"tie -> higher id (5) defers to lower id (3)")
+	assert_eq(int(Support.pick_revive_target(downed, false, peer, 1)["id"]), 2,
+		"tie -> lower id (1) commits")
 
 # --- wants_supply ---------------------------------------------------------
 

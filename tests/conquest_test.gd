@@ -35,6 +35,17 @@ func test_contested_freezes_progress() -> void:
 	assert_eq(c.points[0]["owner"], -1, "contested stays neutral")
 	assert_almost_eq(c.points[0]["cap"], 0.0, 0.001)
 
+func test_downed_enemy_does_not_contest_or_block_capture() -> void:
+	# A downed enemy body inside the ring must NOT keep the point contested (BattleBit): an alive
+	# team-0 player neutralizes + captures right through it. Regression: 2026-07-03 pile-up deadlock.
+	var c := ConquestState.new(_map_one_point(30.0, 1))   # starts owned by team 1
+	var w := World.new()
+	var alive0 := w.spawn(1); alive0.team = 0; alive0.pos = Vector3.ZERO; alive0.alive = true
+	var downed1 := w.spawn(2); downed1.team = 1; downed1.pos = Vector3.ZERO; downed1.alive = true; downed1.is_downed = true
+	for i in 220: c.step(0.1, w)   # neutralize (~11s) then capture (~11s), unblocked by the downed body
+	assert_eq(c.points[0]["owner"], 0, "team 0 captures despite a downed enemy in the ring")
+	assert_false(c.point_contested_by_enemy(0, 0), "a downed enemy does not contest the point")
+
 func test_more_attackers_capture_faster() -> void:
 	var c1 := ConquestState.new(_map_one_point())
 	var c8 := ConquestState.new(_map_one_point())

@@ -73,7 +73,10 @@ func step(dt: float, world: World) -> void:
 		var n1 := 0
 		for id in world.pawns:
 			var p: Pawn = world.pawns[id]
-			if not p.alive:
+			# Downed pawns don't hold or contest a point (BattleBit): only alive-and-up players count.
+			# Otherwise a downed enemy keeps a point contested forever (never capturable) and blocks
+			# spawn-contest clearing — 2026-07-03 playtest bug.
+			if not p.alive or p.is_downed:
 				continue
 			var dx: float = p.pos.x - pt["pos"].x
 			var dz: float = p.pos.z - pt["pos"].z

@@ -117,7 +117,8 @@ func build(my_id: int, view: Dictionary, _vview: Dictionary, structs: Dictionary
 		w.objectives.append({"pos": mp.get("pos", Vector3.ZERO), "owner": int(mp.get("owner", -1))})
 	# M7.5-P3 Task 6: support & survivability fields from the bot's mirrors.
 	var my_team: int = int(me.team) if me != null else -1
-	w.revive_target = AiSupport.pick_revive_target(w.downed_allies, is_medic)
+	# Pass visible friendlies + my id so only the closest bot commits to each revive (no squad pile-on).
+	w.revive_target = AiSupport.pick_revive_target(w.downed_allies, is_medic, w.allies, my_id)
 	# Ammo fraction from SELF_STATE mag vs the current weapon's mag size (Weapon.get_def
 	# falls back to the AR def for unknown ids, so the division is always sane).
 	var ammo_frac := 1.0

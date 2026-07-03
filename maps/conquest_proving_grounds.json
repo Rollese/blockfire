@@ -22,13 +22,7 @@
     {"min": [956, 4, -4], "max": [964, 4.2, 4]},
     {"min": [-964, 4, -4], "max": [-956, 4.2, 4]}
   ],
-  "prebuilt": [
-    {"type": "wall",    "cell": [11, 0, 0]},
-    {"type": "wall",    "cell": [11, 1, 0]},
-    {"type": "sandbag", "cell": [-3, 0, 0]},
-    {"type": "sandbag", "cell": [472, 0, 0]},
-    {"type": "sandbag", "cell": [-473, 0, 0]}
-  ],
+  "prebuilt": [],
   "buildings": [
     {"prefab": "bunker", "origin_cell": [-300, 0, -200], "yaw": 0},
     {"prefab": "house",  "origin_cell": [0, 0, 0],       "yaw": 0},

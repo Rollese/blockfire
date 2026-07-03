@@ -11,8 +11,5 @@
   "ladders": [],
   "platforms": [],
   "prebuilt": [],
-  "vehicle_spawns": [
-    {"team": 0, "type": "transport", "pos": [-34, 0, 8], "heading": 1.5708},
-    {"team": 1, "type": "transport", "pos": [ 34, 0, 8], "heading": -1.5708}
-  ]
+  "vehicle_spawns": []
 }

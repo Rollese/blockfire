@@ -26,6 +26,17 @@ func test_mapped_weapon_is_normalized_to_target_length() -> void:
 	assert_almost_eq(longest, GlbWeaponKit.TARGET_LENGTH, 0.05,
 		"longest axis normalized to TARGET_LENGTH regardless of the model's native scale")
 
+func test_barrel_is_oriented_along_forward_z() -> void:
+	# Regression (2026-07-03): the Broken Vector pack lays the barrel along +Y; the old fixed Y-yaw
+	# left every gun pointing 90° down in-hand. Build must rotate the longest axis (barrel) onto +Z
+	# (our forward) regardless of the pack's native axis, so the AABB is longest along Z after build.
+	for wid in [Weapon.AR, Weapon.SMG, Weapon.DMR, Weapon.PISTOL]:
+		var g := GlbWeaponKit.build(wid)
+		autofree(g)
+		var s: Vector3 = GlbCharacterKit.world_aabb(g).size
+		assert_true(s.z >= s.x and s.z >= s.y,
+			"weapon %d barrel runs along +Z after build (z=%.2f x=%.2f y=%.2f)" % [wid, s.z, s.x, s.y])
+
 func test_smg_and_dmr_also_map_to_glbs() -> void:
 	assert_true(_mesh_count(autofree(GlbWeaponKit.build(Weapon.SMG))) >= 1, "SMG maps to a GLB")
 	assert_true(_mesh_count(autofree(GlbWeaponKit.build(Weapon.DMR))) >= 1, "DMR maps to a GLB")
