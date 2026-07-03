@@ -54,6 +54,39 @@ func test_move_basis_matches_aim_convention() -> void:
 	assert_almost_eq(fneg.x, -1.0, 0.001, "W at yaw=-90 moves toward -X")
 	assert_almost_eq(fneg.y, 0.0, 0.001, "W at yaw=-90 has no Z component")
 
+func test_diagonal_move_stays_within_wire_range() -> void:
+	# Regression (2026-07-03): a raw diagonal (1,1) is length sqrt(2), whose world components can
+	# exceed 1.0 and get CLAMPED by the InputCommand wire encoder ([-1,1]) — distorting the diagonal
+	# direction and desyncing client prediction from the server (choppy diagonal movement). move_world
+	# must normalize so every component stays within the wire range at ALL yaws.
+	for deg in [0, 15, 30, 45, 90, 135, 180, 225, 270, 315]:
+		var yaw := deg_to_rad(float(deg))
+		for lx in [-1.0, 1.0]:
+			for lz in [-1.0, 1.0]:
+				var f := InputController.move_world(lx, lz, yaw)
+				assert_true(absf(f.x) <= 1.0001 and absf(f.y) <= 1.0001,
+					"diagonal (%.0f,%.0f) at yaw=%d stays within [-1,1] (got %.3f,%.3f)" % [lx, lz, deg, f.x, f.y])
+				assert_almost_eq(f.length(), 1.0, 0.001, "normalized diagonal keeps unit length (no speed change)")
+
+func test_prone_toggle_is_cancelled_by_crouch_or_sprint() -> void:
+	# Prone is a client-side toggle. Pressing crouch or sprint while prone must stand you up
+	# (BattleBit: any stance change cancels prone) instead of leaving you stuck flat.
+	assert_true(InputController.next_prone(false, true, false, false), "press prone from up -> prone")
+	assert_false(InputController.next_prone(true, true, false, false), "press prone again -> up (toggle)")
+	assert_false(InputController.next_prone(true, false, true, false), "hold crouch while prone -> up")
+	assert_false(InputController.next_prone(true, false, false, true), "hold sprint while prone -> up")
+	assert_true(InputController.next_prone(true, false, false, false), "no input -> prone persists")
+	assert_false(InputController.next_prone(false, false, true, false), "crouch while already up -> stays up")
+
+func test_sprint_requires_forward_movement() -> void:
+	# BattleBit: no sprinting backward or while pure-strafing. local_z is the move_fwd/move_back axis
+	# where W (forward) reads NEGATIVE, so sprint requires local_z meaningfully negative.
+	assert_true(InputController.sprint_active(true, -1.0), "sprint held + W (forward) -> sprint")
+	assert_true(InputController.sprint_active(true, -0.8), "forward-diagonal (W+strafe) -> sprint")
+	assert_false(InputController.sprint_active(true, 1.0), "sprint held + S (backward) -> no sprint")
+	assert_false(InputController.sprint_active(true, 0.0), "sprint held + pure strafe -> no sprint")
+	assert_false(InputController.sprint_active(false, -1.0), "no sprint key -> no sprint even moving forward")
+
 func test_invert_y_flips_pitch_direction() -> void:
 	var s := ClientSettings.new()
 	var up := _ic(); up.apply_look(Vector2(0, -50), s)

@@ -170,13 +170,26 @@ func _capture(ctx: Dictionary):
 	var ms: Dictionary = ctx.get("match_state", {})
 	var pts: Array = ms.get("points", [])
 	var positions: Array = ctx.get("point_positions", [])
+	var radii: Array = ctx.get("point_radii", [])
 	var sp: Vector3 = ctx.get("self_pos", Vector3.ZERO)
-	var radius := float(ctx.get("capture_radius", 8.0))
+	var my_team := _self_team(ctx)
 	for i in mini(pts.size(), positions.size()):
+		# TRUE per-point radius (matches the ground ring + server capture); fall back to 8 m only if
+		# radii weren't supplied.
+		var radius: float = float(radii[i]) if i < radii.size() else 8.0
 		if sp.distance_to(positions[i]) <= radius:
 			return {"index": i, "cap": float(pts[i]["cap"]), "owner": int(pts[i]["owner"]),
-				"attacker": int(pts[i]["attacker"])}
+				"attacker": int(pts[i]["attacker"]), "my_team": my_team}
 	return null
+
+## Local player's team from the roster (like the killfeed), or -1 if unknown. Used to render capture
+## ownership relative to the viewer (ours / enemy / neutral).
+static func _self_team(ctx: Dictionary) -> int:
+	var self_id := int(ctx.get("self_id", 0))
+	for rw: Dictionary in ctx.get("roster", []):
+		if int(rw.get("id", -1)) == self_id:
+			return int(rw.get("team", -1))
+	return -1
 
 func _ammo(ctx: Dictionary) -> Dictionary:
 	var wp: WeaponPredictor = ctx.get("weapon_predictor") as WeaponPredictor

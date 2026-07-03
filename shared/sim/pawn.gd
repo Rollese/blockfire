@@ -31,9 +31,12 @@ var team: int = 0
 var squad: int = 0
 var _regen_cooldown: float = 0.0
 var is_downed: bool = false
-var bleed_health: int = 0          # 0 at down, drains to Revive.BLEEDOUT_FLOOR
-var bleed_halted: bool = false     # set by self-bandage; stops the drain
-var bandage_count: int = Revive.BANDAGE_COUNT
+var down_count: int = 0            # times downed THIS life (reset on spawn); drives the halving window
+var bleed_health: int = 0          # 0 at down, drains to bleed_floor (= -Revive.bleedout_window)
+var bleed_floor: int = 0           # per-down bleed-out threshold, set when the pawn goes down
+var bleed_halted: bool = false     # RESERVED/inert: kept for the SELF_STATE wire; downed self-bandage removed 2026-07-03
+var bandage_count: int = Revive.BANDAGE_COUNT   # reserved for future standing-bleed bandaging (BattleBit)
+var combat_until_tick: int = 0     # "in combat" until this tick (set when damaged); blocks being a squad-spawn anchor
 var last_stance_change_tick: int = -1000   # set by SimLoop when stance changes; drop-shoot gate
 var climbing: bool = false
 var vaulting: bool = false

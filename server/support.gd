@@ -194,8 +194,8 @@ func step_downed() -> void:
 		var p: Pawn = srv._sim.world.get_pawn(id)
 		if p == null or not p.is_downed:
 			continue
-		p.bleed_health = Revive.bleed_step(p.bleed_health, p.bleed_halted)
-		if Revive.is_bled_out(p.bleed_health):
+		p.bleed_health = Revive.bleed_step(p.bleed_health, p.bleed_floor)
+		if Revive.is_bled_out(p.bleed_health, p.bleed_floor):
 			# Credit the attacker who downed the pawn (falls back to self if unknown).
 			var c = srv._clients[id]
 			srv._kill_pawn(id, p, int(c.get("downed_by", id)), int(c.get("downed_by_weapon", 0)), false, Revive.Source.BULLET)
@@ -218,14 +218,8 @@ func handle_give_up(peer: ENetPacketPeer) -> void:
 	srv._kill_pawn(id, p, int(c.get("downed_by", id)), int(c.get("downed_by_weapon", 0)), false, Revive.Source.BULLET)
 	srv._stats.bleedouts += 1
 
-func handle_self_bandage(peer: ENetPacketPeer, _bytes: PackedByteArray) -> void:
-	var id = srv._peer_to_id.get(peer, 0)
-	if id == 0 or not srv._clients.has(id): return
-	var p: Pawn = srv._sim.world.get_pawn(id)
-	if p == null or not p.is_downed or p.bleed_halted: return
-	if p.bandage_count <= 0: return
-	p.bandage_count -= 1
-	p.bleed_halted = true
+# Downed self-bandage removed 2026-07-03: BattleBit has no downed self-heal, and it permanently
+# halted bleed-out (pile-up bug). The bandage item is retained for future standing-bleed bandaging.
 
 func handle_revive_action(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
 	var id = srv._peer_to_id.get(peer, 0)

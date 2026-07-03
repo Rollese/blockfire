@@ -40,10 +40,9 @@ const RECON_SNAP := 2.5        # corrections over this (m) snap (respawn/telepor
 const RECON_SMOOTH := 13.0     # per-second decay of _pos_err (~a correction fades over ~150 ms)
 # DBNO downed screen
 var _downed_since := -1.0      # _elapsed when the current down began (-1 = not downed)
-var _downed_frozen_secs := -1.0   # latched bleed-out secs-left at the moment a bandage halted it (-1 = not halted)
 var _giveup_hold := 0.0        # seconds the give-up key (jump) has been held while downed
 var _giveup_sent := false
-const BLEEDOUT_SECS := 8.0     # Revive |BLEEDOUT_FLOOR|/BLEED_RATE / TICK_RATE = 240/30
+const INITIAL_BLEEDOUT_SECS := 60.0   # Revive.INITIAL_BLEEDOUT_TICKS/TICK_RATE (1st down); halved per re-down
 const GIVEUP_HOLD := 0.8       # seconds to hold to confirm give-up (avoid accidental skip)
 
 # ---- components (all non-scene, headless-safe) ------------------------------
@@ -163,8 +162,8 @@ var _throwables: Array = []        # latest throwable list from SELF_STATE
 var _being_revived: bool = false   # latest "a teammate is reviving me" flag from SELF_STATE
 var _suppression: float = 0.0      # latest own-suppression scalar from SELF_STATE (M5.5-P2; M7 screen FX)
 var _blind_ticks: int = 0          # latest remaining flashbang-blind ticks from SELF_STATE (M5.5-P3 white-out)
-var _bandage_count: int = 0        # latest self-bandage charges from SELF_STATE (DBNO self-bandage UI)
-var _bleed_halted: bool = false    # latest bleed-halted flag from SELF_STATE (downed: bandaged = stabilized)
+var _bandage_count: int = 0        # latest bandage charges from SELF_STATE (reserved: standing-bleed cure)
+var _life_down_count: int = 0      # times downed this life (client mirror; drives the halving bleedout timer)
 var _repair_heat: float = 0.0      # latest Engineer repair-tool heat fraction from SELF_STATE (HUD gauge)
 var _repair_cooldown: float = 0.0  # latest repair overheat-lockout remaining fraction from SELF_STATE
 var _repair_heat_test := false     # --repair-heat-test: drive a demo heat/cooldown cycle for a QA screenshot
@@ -595,7 +594,7 @@ func _process(_dt: float) -> void:
 		"objectives": _objectives(),
 		"match_state": _match_state,
 		"point_positions": _point_positions(),
-		"capture_radius": 8.0,
+		"point_radii": _point_radii(),   # per-point TRUE capture radius (matches the ground ring + server)
 		"now": _elapsed,
 		# C3 additions
 		"roster": _killfeed_test_roster() if _killfeed_test else _wv.roster(),
@@ -641,7 +640,7 @@ func _process(_dt: float) -> void:
 			_downed_since = _elapsed
 			_giveup_hold = 0.0
 			_giveup_sent = false
-			_downed_frozen_secs = -1.0
+			_life_down_count += 1   # mirror the server's per-life down count so the timer halves too
 		if Input.is_action_pressed("jump"):
 			_giveup_hold += _dt
 			if _giveup_hold >= GIVEUP_HOLD and not _giveup_sent and _peer != null:
@@ -649,19 +648,14 @@ func _process(_dt: float) -> void:
 				_giveup_sent = true
 		else:
 			_giveup_hold = 0.0
-		var secs_left: float = maxf(0.0, BLEEDOUT_SECS - (_elapsed - _downed_since))
-		# Once the server reports bleed halted (bandaged), latch the time-left so the UI stops counting.
-		if _bleed_halted and _downed_frozen_secs < 0.0:
-			_downed_frozen_secs = secs_left
-		var shown_secs: float = _downed_frozen_secs if _bleed_halted else secs_left
-		_hud_view.set_downed(true, shown_secs, _nearest_friendly_dist(sds), clampf(_giveup_hold / GIVEUP_HOLD, 0.0, 1.0), _being_revived, _bandage_count, _bleed_halted)
+		var window_secs: float = INITIAL_BLEEDOUT_SECS / pow(2.0, float(maxi(_life_down_count - 1, 0)))
+		var secs_left: float = maxf(0.0, window_secs - (_elapsed - _downed_since))
+		_hud_view.set_downed(true, secs_left, _nearest_friendly_dist(sds), clampf(_giveup_hold / GIVEUP_HOLD, 0.0, 1.0), _being_revived)
 	elif _downed_test:
-		# Visual QA: force the DBNO overlay, alternating the bleeding/bandage-prompt and stabilized states.
-		var halted := fmod(_elapsed, 6.0) > 3.0
-		_hud_view.set_downed(true, 6.0, 12.0, 0.0, false, 3, halted)
+		# Visual QA: force the DBNO overlay (bleeding-out countdown + nearest-friendly distance).
+		_hud_view.set_downed(true, 6.0, 12.0, 0.0, false)
 	elif _downed_since >= 0.0:
 		_downed_since = -1.0
-		_downed_frozen_secs = -1.0
 		_hud_view.set_downed(false, 0.0, -1.0, 0.0)
 
 	# ---- C3: scoreboard hold (TAB) ------------------------------------------------
@@ -702,12 +696,10 @@ func _process(_dt: float) -> void:
 	# ---- C3: revive intent (no self-recovery — a teammate must revive you, BattleBit-style) ----
 	var sss: EntityState = _wv.self_state()
 	var is_downed: bool = sss != null and sss.alive and sss.is_downed
-	if is_downed:
-		# Self-bandage (R): spend a bandage to halt the bleed-out (no self-revive — a teammate must
-		# revive you, BattleBit-style). Server gates (must be downed, have a charge, not already halted).
-		if Input.is_action_just_pressed("reload") and _bandage_count > 0 and not _bleed_halted and _peer != null:
-			_net.send_to(_peer, NetHost.CHANNEL_CONTROL, Protocol.encode_self_bandage(), ENetPacketPeer.FLAG_RELIABLE)
-	else:
+	# Downed players have no self-action — no self-bandage and no self-revive (removed 2026-07-03): a
+	# teammate must revive you, or you bleed out via the halving bleedout (give-up = hold jump on the
+	# downed screen). Only offer revive/vehicle/interact intent while UP.
+	if not is_downed:
 		# Revive intent: hold interact while the interaction prompt targets a downed mate.
 		var ip = _model.get("interaction_prompt")
 		var interact_held: bool = Input.is_action_pressed("interact")
@@ -1107,6 +1099,7 @@ func _handle_snapshot(bytes: PackedByteArray) -> void:
 		_pos_err = Vector3.ZERO   # drop any residual reconcile offset so respawn doesn't inherit it
 		_reconciled = false
 		_died_at = _elapsed   # start the respawn-cooldown clock
+		_life_down_count = 0  # fresh life next spawn: re-arm the full 60 s bleedout window (revives keep it)
 		if _hud_view != null:
 			_hud_view.set_squad_menu_open(false)   # don't leave the squad overlay up over the deploy screen
 	_was_alive = alive
@@ -1171,8 +1164,7 @@ func _handle_self_state(bytes: PackedByteArray) -> void:
 	_being_revived = bool(d.get("being_revived", false))   # downed-screen "being revived" indicator
 	_suppression = float(d.get("suppression", 0.0))        # M5.5-P2: own suppression (M7 renders screen FX)
 	_blind_ticks = int(d.get("blind_ticks", 0))            # M5.5-P3: remaining flashbang-blind ticks (white-out)
-	_bandage_count = int(d.get("bandage_count", 0))        # DBNO self-bandage charges
-	_bleed_halted = bool(d.get("bleed_halted", false))     # downed: bleed-out halted by a bandage
+	_bandage_count = int(d.get("bandage_count", 0))        # bandage charges (reserved: standing-bleed cure)
 	_repair_heat = float(d.get("repair_heat", 0.0))        # Engineer repair-tool heat (HUD gauge)
 	_repair_cooldown = float(d.get("repair_cooldown", 0.0))# repair overheat-lockout remaining fraction
 
@@ -1433,6 +1425,17 @@ func _point_positions() -> Array:
 	var out: Array = []
 	for pt: Dictionary in _map.points:
 		out.append(pt["pos"])
+	return out
+
+## Per-point capture radius — the SAME value the ground ring is drawn at and the server captures
+## within (conquest uses pt["radius"]). The HUD "in the zone" check must use this, not a constant,
+## or the status widget appears at a smaller radius than the ring (2026-07-03 playtest bug).
+func _point_radii() -> Array:
+	if _map == null:
+		return []
+	var out: Array = []
+	for pt: Dictionary in _map.points:
+		out.append(float(pt["radius"]))
 	return out
 
 ## Build entities map id->{alive, is_downed, pos} from interpolated remotes + self.

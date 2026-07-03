@@ -25,7 +25,16 @@ func _input(event: InputEvent) -> void:
 static func move_world(local_x: float, local_z: float, yaw: float) -> Vector2:
 	# Godot's Vector2.rotated() is the opposite handedness to the sim's Y-axis yaw, so rotate
 	# by -yaw: forward (0,1) -> (sin,cos), right (1,0) -> (cos,-sin), matching Combat._forward.
-	return Vector2(local_x, local_z).rotated(-yaw)
+	# Normalize to length <= 1 FIRST: a raw diagonal (1,1) is length sqrt(2), whose world components
+	# exceed 1.0 and get CLAMPED to [-1,1] by the InputCommand wire encoder — distorting the diagonal
+	# direction. The client predicts the true (unclamped) direction while the server applies the
+	# clamped one, so reconciliation fights every frame (choppy diagonals). Normalizing here keeps
+	# every component within [-1,1] so client prediction and server sim agree. (Pawn.step also caps
+	# length at 1, so this only removes the wire distortion — it does not change movement speed.)
+	var v := Vector2(local_x, local_z)
+	if v.length() > 1.0:
+		v = v.normalized()
+	return v.rotated(-yaw)
 
 ## Apply accumulated look. Separated out so it is unit-testable without the Input singleton.
 func apply_look(rel: Vector2, settings: ClientSettings, look_scale: float = 1.0) -> void:
@@ -50,13 +59,13 @@ func gather(settings: ClientSettings) -> Dictionary:
 	# axis (Task 20 sign knob; flip back here if forward/back ever reads inverted again).
 	var local_z: float = Input.get_axis("move_fwd", "move_back")
 	var f := move_world(local_x, local_z, yaw)                 # local -> world
-	if Input.is_action_just_pressed("prone"):
-		_prone_on = not _prone_on   # toggle on each press
+	_prone_on = next_prone(_prone_on, Input.is_action_just_pressed("prone"),
+		Input.is_action_pressed("crouch"), Input.is_action_pressed("sprint"))
 	var pressed := {
 		"jump": Input.is_action_pressed("jump"),
 		"crouch": Input.is_action_pressed("crouch"),
 		"prone": _prone_on,
-		"sprint": Input.is_action_pressed("sprint"),
+		"sprint": sprint_active(Input.is_action_pressed("sprint"), local_z),
 		"lean_left": Input.is_action_pressed("lean_left"),
 		"lean_right": Input.is_action_pressed("lean_right"),
 		"fire": Input.is_action_pressed("fire"),
@@ -65,6 +74,21 @@ func gather(settings: ClientSettings) -> Dictionary:
 	}
 	return {"move_x": f.x, "move_y": f.y, "yaw": yaw, "pitch": pitch,
 		"buttons": InputMap2.buttons_from(pressed)}
+
+const SPRINT_FWD_MIN := 0.3   # local_z must be at least this far forward (W = negative axis) to sprint
+
+## Sprint only when moving forward (BattleBit: no sprinting backward or while pure-strafing).
+## local_z is the move_fwd/move_back axis where W reads negative. Pure for testing.
+static func sprint_active(sprint_held: bool, local_z: float) -> bool:
+	return sprint_held and local_z < -SPRINT_FWD_MIN
+
+## Next prone-toggle state. Prone flips on each `prone` press; holding crouch or sprint cancels it
+## (BattleBit: any stance change stands you up) so you can never get stuck flat. Pure for testing.
+static func next_prone(current: bool, prone_pressed: bool, crouch_held: bool, sprint_held: bool) -> bool:
+	var s := not current if prone_pressed else current
+	if s and (crouch_held or sprint_held):
+		s = false
+	return s
 
 ## Clear the prone toggle (call on death/deploy so the player never spawns prone).
 func reset_prone() -> void:

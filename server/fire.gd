@@ -137,6 +137,12 @@ func fire_shot(shooter_id: int, shooter: Pawn, inp: Dictionary, shot_index: int)
 	# PRESENT time (no per-shot lag-comp rewind for bullets — travel time masks latency). The hit is
 	# resolved later in step_projectiles (broadphase + penetration + srv._apply_pawn_damage + hitmarker).
 	var wmv: float = float(wdef["muzzle_velocity"])
+	# Lag comp: the shooter fired at the world they were RENDERING (~100 ms in the past). Rewind
+	# targets by that latency for the bullet's whole flight so "aim where you see them" connects on
+	# movers. view_server_tick<=0 (bots) -> lag 0 -> present-time resolve (unchanged). Bounded by the
+	# lag-comp horizon so a stale/hostile view tick can't rewind arbitrarily far.
+	var view_tick: int = int(inp.get("view_server_tick", 0))
+	var lag: int = clampi(srv._sim.tick - view_tick, 0, LagComp.MAX_REWIND) if view_tick > 0 else 0
 	if projectiles.size() < MAX_LIVE_PROJECTILES:
 		# Store the scalars step_projectiles uses, not the wdef ref — the projectile is conceptually
 		# shared with the future M7 client tracer, which has no server def dict (self-contained).
@@ -146,6 +152,7 @@ func fire_shot(shooter_id: int, shooter: Pawn, inp: Dictionary, shot_index: int)
 			"damage_body": int(wdef["damage_body"]), "headshot_mult": float(wdef["headshot_mult"]),
 			"pos": ray["origin"], "vel": Projectile.initial_velocity(ray["dir"], wmv),
 			"spawn_tick": srv._sim.tick, "dist": 0.0, "ttl": Weapon.projectile_ttl_ticks(wid),
+			"lag_ticks": lag,
 		})
 		srv._stats.proj_fired += 1
 	else:
@@ -153,14 +160,15 @@ func fire_shot(shooter_id: int, shooter: Pawn, inp: Dictionary, shot_index: int)
 
 # Test seam: spawn a projectile for a known owner/weapon/dir without going through input/loadout.
 # Used by tests/projectile_gate_test.gd; never called in production.
-func spawn_projectile_for_test(owner: int, wid: int, pos: Vector3, dir: Vector3) -> void:
+func spawn_projectile_for_test(owner: int, wid: int, pos: Vector3, dir: Vector3, lag_ticks: int = 0) -> void:
 	var p: Pawn = srv._sim.world.get_pawn(owner)
 	var wdef: Dictionary = Weapon.get_def(wid)
 	projectiles.append({"owner": owner, "team": (p.team if p else 0), "weapon_id": wid,
 		"gravity_scale": float(wdef["gravity_scale"]), "range_m": float(wdef["range_m"]),
 		"damage_body": int(wdef["damage_body"]), "headshot_mult": float(wdef["headshot_mult"]),
 		"pos": pos, "vel": Projectile.initial_velocity(dir, float(wdef["muzzle_velocity"])),
-		"spawn_tick": srv._sim.tick, "dist": 0.0, "ttl": Weapon.projectile_ttl_ticks(wid)})
+		"spawn_tick": srv._sim.tick, "dist": 0.0, "ttl": Weapon.projectile_ttl_ticks(wid),
+		"lag_ticks": lag_ticks})
 
 # Integrate each live bullet one tick, raycast its per-tick segment against enemy pawns (interest-grid
 # broadphase) + the structure store (penetration), and on a confirmed pawn hit apply damage. Models on
@@ -190,8 +198,13 @@ func step_projectiles() -> void:
 		var seg_dir: Vector3 = seg / seg_len if seg_len > 0.0001 else Vector3.FORWARD
 
 		# Broad-phase: enemy pawns whose hitbox the segment could cross this tick (current positions
-		# + lag-comp margin). Bound the ray test to the segment length (PRESENT-time resolve).
+		# + lag-comp margin). Bound the ray test to the segment length.
 		var candidates: Array = srv._grid.query(old_pos, seg_len + srv.FIRE_RANGE_MARGIN, srv._positions)
+		# Lag comp: for a human shooter, resolve hits against where each target WAS at the shooter's
+		# view tick (present - lag_ticks), not its present position — see fire_shot. lag 0 (bots) reads
+		# present. The frame is fetched once per projectile per tick; missing ids fall back to present.
+		var lag: int = int(pr.get("lag_ticks", 0))
+		var lag_frame: Dictionary = srv._lag.rewind(srv._sim.tick - lag) if lag > 0 else {}
 		var best_t := seg_len + 1.0
 		var best_victim := 0
 		var best_head := false
@@ -200,22 +213,29 @@ func step_projectiles() -> void:
 			var tgt: Pawn = srv._sim.world.get_pawn(tid)
 			if tgt == null or not tgt.alive: continue
 			if tgt.team == int(pr["team"]): continue
+			# Geometry (position + stance capsule) rewound to the shooter's view; liveness/team/downed
+			# and suppression accrual stay on the PRESENT pawn.
+			var tpos: Vector3 = tgt.pos
+			var tstance: int = tgt.stance
+			if lag_frame.has(tid):
+				tpos = lag_frame[tid]["pos"]
+				tstance = int(lag_frame[tid]["stance"])
 			# Downed pawns are immune (BattleBit-style no finishing): the bullet does no damage and
 			# never blocks (passes through to whatever's behind), but show a cosmetic blood impact if
 			# the round actually hits the body — feedback that you're firing on someone already down.
 			if tgt.is_downed:
-				var dhit := Hitbox.raycast_pawn(old_pos, seg_dir, tgt.pos, tgt.stance, seg_len)
+				var dhit := Hitbox.raycast_pawn(old_pos, seg_dir, tpos, tstance, seg_len)
 				if dhit["hit"]:
 					srv._broadcast_impact_fx(old_pos + seg_dir * float(dhit["t"]), Protocol.IMPACT_FLESH)
 				continue
 			# M5.5-P2 suppression: a live enemy bullet whose segment passes within SUPPRESS_RADIUS of
 			# the pawn raises its suppression (closer = more), whether or not it lands. Measured against
 			# the segment (point-to-segment distance) so a fast bullet still suppresses across one tick.
-			var miss := point_seg_dist(tgt.pos, old_pos, nxt)
+			var miss := point_seg_dist(tpos, old_pos, nxt)
 			if miss < Suppress.SUPPRESS_RADIUS:
 				tgt.suppression = Suppress.accrue(tgt.suppression, miss)
 				srv._stats.suppress_events += 1
-			var hit := Hitbox.raycast_pawn(old_pos, seg_dir, tgt.pos, tgt.stance, seg_len)
+			var hit := Hitbox.raycast_pawn(old_pos, seg_dir, tpos, tstance, seg_len)
 			if hit["hit"] and hit["t"] < best_t:
 				best_t = hit["t"]; best_victim = tid; best_head = hit["headshot"]
 

@@ -56,9 +56,9 @@ func test_disconnect_removes_human_id() -> void:
 	srv.free()
 
 func test_mounted_gunner_exists_gates_lag_recording() -> void:
-	# LagComp.record built ~129 dicts/tick for all pawns, but the mounted gun is the ONLY
-	# remaining rewind consumer (bullets are present-time projectiles) — record only while
-	# a live mounted-gun vehicle actually has a gunner seated.
+	# LagComp.record builds ~129 dicts/tick for all pawns. Consumers are the mounted gun and
+	# human-fired infantry bullets (fire.gd rewinds movers to the shooter's view tick); this test
+	# pins the mounted-gun half of the gate — a live mounted-gun vehicle with a gunner seated.
 	var srv := _srv()
 	assert_false(srv._mounted_gunner_exists(), "no vehicles -> no recording needed")
 	var def: Dictionary = VehicleCatalog.load_file("res://data/vehicles.json").def_of(0)

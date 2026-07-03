@@ -15,17 +15,32 @@ const GRENADE_DANGER_TICKS := 75     # fuse 45 + flight margin @30Hz
 const BAG_DEPLOY_COOLDOWN_TICKS := 450   # 15s
 const BAG_DEPLOY_NEEDY := 2
 
-static func should_self_bandage(is_downed: bool, bandage_count: int, bleed_halted: bool, being_revived: bool) -> bool:
-	return is_downed and bandage_count > 0 and not bleed_halted and not being_revived
-
 ## downed_allies: [{id, pos, dist}] from WorldModel. Returns the chosen ally or {}.
-static func pick_revive_target(downed_allies: Array, is_medic: bool) -> Dictionary:
+## allies: [{id, pos, dist}] alive non-downed friendlies the bot can see; self_id = its own pawn id.
+## A bot only commits to a downed ally it is the CLOSEST friendly to (ties broken by lower id) — so
+## a single reviver peels off instead of the whole squad piling on (which stalled the whole fight
+## the moment anyone dropped). Empty allies => no competitors => nearest-in-reach (legacy behaviour).
+static func pick_revive_target(downed_allies: Array, is_medic: bool,
+		allies: Array = [], self_id: int = 0) -> Dictionary:
 	var reach := MEDIC_REVIVE_RANGE if is_medic else NONMEDIC_REVIVE_RANGE
 	var best: Dictionary = {}
 	for d in downed_allies:
-		if float(d["dist"]) <= reach and (best.is_empty() or float(d["dist"]) < float(best["dist"])):
+		if float(d["dist"]) > reach: continue
+		if not _is_closest_reviver(d, allies, self_id): continue
+		if best.is_empty() or float(d["dist"]) < float(best["dist"]):
 			best = d
 	return best
+
+## True if no visible friendly is closer to `downed` than I am (my dist is downed["dist"], measured
+## from me). Exact ties resolve to the lower id so exactly one bot commits — never both, never neither.
+static func _is_closest_reviver(downed: Dictionary, allies: Array, self_id: int) -> bool:
+	var my_d := float(downed["dist"])
+	var dpos: Vector3 = downed["pos"]
+	for a in allies:
+		var ad: float = (a["pos"] as Vector3).distance_to(dpos)
+		if ad < my_d - 0.001: return false                             # a strictly-closer friendly exists
+		if absf(ad - my_d) <= 0.001 and int(a["id"]) < self_id: return false   # tie -> lower id wins
+	return true
 
 static func wants_supply(hp_frac: float, ammo_frac: float) -> String:
 	if hp_frac < BAG_SEEK_HP_FRAC: return "heal"

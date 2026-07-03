@@ -30,8 +30,10 @@ var _compass_label: Label
 var _compass_container: Control   # holds marker labels; children are reused per render
 var _compass_markers: Array[Label] = []   # pooled objective-marker labels (▼), reused each frame
 var _tickets_label: Label
-var _cap_bar: ColorRect           # capture progress bar background
-var _cap_fill: ColorRect          # capture progress fill
+var _cap_widget: Control          # capture widget container (top-centre, under the compass)
+var _cap_title: Label             # "POINT A · HELD/ENEMY/NEUTRAL/CONTESTED"
+var _cap_bar: ColorRect           # capture progress bar background (tinted by current owner)
+var _cap_fill: ColorRect          # capture progress fill (tinted by attacker)
 var _killfeed_labels: Array[Label] = []
 var _capture_labels: Array[Label] = []   # pooled capture-announcement banners (centred, top)
 var _vignette: ColorRect
@@ -115,7 +117,8 @@ func render(model: Dictionary) -> void:
 	var _cs := Time.get_ticks_usec()
 	_render_compass(model.get("compass", {}))
 	_perf_compass_us = Time.get_ticks_usec() - _cs
-	_render_tickets(model.get("tickets", [0, 0]), model.get("capture"))
+	_render_tickets(model.get("tickets", [0, 0]))
+	_render_capture(model.get("capture"))
 	_render_killfeed(model.get("killfeed", []))
 	_render_capture_feed(model.get("capture_feed", []))
 	_render_damage(model.get("damage_arcs", []), float(model.get("vignette", 0.0)))
@@ -154,6 +157,7 @@ func _build_tree() -> void:
 	_build_repair_gauge()
 	_build_ammo()
 	_build_compass()
+	_build_capture_widget()
 	_build_tickets()
 	_build_killfeed()
 	_build_capture_feed()
@@ -319,8 +323,54 @@ func _build_compass() -> void:
 		_compass_markers.append(dot)
 
 
+func _build_capture_widget() -> void:
+	# Capture status — top-centre, directly under the compass strip. Shows which point you're on,
+	# who owns it (ours/enemy/neutral, viewer-relative colour), and live capture progress. Hidden
+	# unless you're inside a capture radius.
+	var w := 300.0
+	var top := 8.0 + COMPASS_HEIGHT + 16.0 + 8.0   # clear the compass strip above
+	_cap_widget = Control.new()
+	_cap_widget.anchor_left = 0.5
+	_cap_widget.anchor_right = 0.5
+	_cap_widget.offset_left = -w * 0.5
+	_cap_widget.offset_right = w * 0.5
+	_cap_widget.offset_top = top
+	_cap_widget.offset_bottom = top + 52.0
+	_cap_widget.visible = false
+	_cap_widget.mouse_filter = MOUSE_FILTER_IGNORE
+	add_child(_cap_widget)
+
+	var bg := ColorRect.new()
+	bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	bg.color = Color(0, 0, 0, 0.45)
+	bg.mouse_filter = MOUSE_FILTER_IGNORE
+	_cap_widget.add_child(bg)
+
+	_cap_title = Label.new()
+	_cap_title.anchor_left = 0.0; _cap_title.anchor_right = 1.0
+	_cap_title.offset_top = 3.0
+	_cap_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_cap_title.add_theme_font_size_override("font_size", 18)
+	_cap_title.text = "POINT"
+	_cap_title.mouse_filter = MOUSE_FILTER_IGNORE
+	_cap_widget.add_child(_cap_title)
+
+	_cap_bar = ColorRect.new()
+	_cap_bar.position = Vector2((w - 280.0) * 0.5, 28.0)
+	_cap_bar.size = Vector2(280.0, 20.0)
+	_cap_bar.color = Color(0.2, 0.2, 0.2, 0.85)
+	_cap_bar.mouse_filter = MOUSE_FILTER_IGNORE
+	_cap_widget.add_child(_cap_bar)
+
+	_cap_fill = ColorRect.new()
+	_cap_fill.position = Vector2(0, 0)
+	_cap_fill.size = Vector2(0, 20.0)
+	_cap_fill.mouse_filter = MOUSE_FILTER_IGNORE
+	_cap_bar.add_child(_cap_fill)
+
+
 func _build_tickets() -> void:
-	# Tickets — top-left; capture bar below them.
+	# Tickets — top-left.
 	var panel := Control.new()
 	panel.anchor_left = 0.0
 	panel.anchor_right = 0.0
@@ -340,21 +390,7 @@ func _build_tickets() -> void:
 	_tickets_label.mouse_filter = MOUSE_FILTER_IGNORE
 	panel.add_child(_tickets_label)
 
-	# Capture progress bar (bg + fill).
-	_cap_bar = ColorRect.new()
-	_cap_bar.color = Color(0.2, 0.2, 0.2, 0.8)
-	_cap_bar.position = Vector2(0, 28)
-	_cap_bar.size = Vector2(160, 14)
-	_cap_bar.visible = false
-	_cap_bar.mouse_filter = MOUSE_FILTER_IGNORE
-	panel.add_child(_cap_bar)
-
-	_cap_fill = ColorRect.new()
-	_cap_fill.color = Color(0.4, 0.8, 0.4, 0.9)
-	_cap_fill.position = Vector2(0, 0)
-	_cap_fill.size = Vector2(0, 14)
-	_cap_fill.mouse_filter = MOUSE_FILTER_IGNORE
-	_cap_bar.add_child(_cap_fill)
+	# (Capture widget moved to top-centre, under the compass — see _build_capture_widget.)
 
 
 func _build_killfeed() -> void:
@@ -665,7 +701,7 @@ func _build_downed() -> void:
 
 ## Drive the downed (DBNO) overlay. active=false hides it. secs_left = bleed-out countdown,
 ## nearest_dist = metres to nearest standing teammate (<0 = none), giveup = hold progress [0,1].
-func set_downed(active: bool, secs_left: float, nearest_dist: float, giveup: float, being_revived: bool = false, bandage_count: int = 0, bleed_halted: bool = false) -> void:
+func set_downed(active: bool, secs_left: float, nearest_dist: float, giveup: float, being_revived: bool = false) -> void:
 	if _downed_root == null:
 		return
 	_downed_root.visible = active
@@ -676,25 +712,13 @@ func set_downed(active: bool, secs_left: float, nearest_dist: float, giveup: flo
 		_downed_timer.text = "Being revived — hold on!"
 		_downed_timer.add_theme_color_override("font_color", Color(0.4, 1.0, 0.4))
 		_downed_friendly.text = "A teammate is reviving you"
-	elif bleed_halted:
-		# Bandaged — bleed-out halted; the player holds at this time-left until revived or gives up.
-		_downed_timer.text = "Stabilized — %d s left" % int(ceil(secs_left))
-		_downed_timer.add_theme_color_override("font_color", Color(0.5, 0.9, 1.0))
-		_downed_friendly.text = ("Nearest friendly: %d m" % int(round(nearest_dist))) if nearest_dist >= 0.0 else "No friendly nearby"
 	else:
 		_downed_timer.text = "Bleeding out — %d s" % int(ceil(secs_left))
 		_downed_timer.add_theme_color_override("font_color", Color(1.0, 0.5, 0.5))
 		_downed_friendly.text = ("Nearest friendly: %d m" % int(round(nearest_dist))) if nearest_dist >= 0.0 else "No friendly nearby"
-	# Self-bandage prompt: stop the bleed-out with a charge (you can't self-revive, only stabilize).
-	if bleed_halted:
-		_downed_bandage.text = "Bleed stopped · %d bandage%s left" % [bandage_count, "" if bandage_count == 1 else "s"]
-		_downed_bandage.add_theme_color_override("font_color", Color(0.6, 0.9, 1.0))
-	elif bandage_count > 0:
-		_downed_bandage.text = "Press [R] to bandage (%d)" % bandage_count
-		_downed_bandage.add_theme_color_override("font_color", Color(1.0, 0.9, 0.5))
-	else:
-		_downed_bandage.text = "No bandages left"
-		_downed_bandage.add_theme_color_override("font_color", Color(0.8, 0.8, 0.8))
+	# No downed self-action (self-bandage removed 2026-07-03): only a teammate revive or give-up
+	# (the give-up prompt + hold bar are the separate widgets below), so this line stays empty.
+	_downed_bandage.text = ""
 	_downed_giveup_fill.size = Vector2(240.0 * clampf(giveup, 0.0, 1.0), 12.0)
 
 
@@ -1303,20 +1327,44 @@ func _render_compass(compass: Dictionary) -> void:
 		dot.visible = true
 
 
-func _render_tickets(tickets: Array, capture) -> void:
+func _render_tickets(tickets: Array) -> void:
 	var t0: int = int(tickets[0]) if tickets.size() > 0 else 0
 	var t1: int = int(tickets[1]) if tickets.size() > 1 else 0
 	_tickets_label.text = "%d  |  %d" % [t0, t1]
 
+## Top-centre capture widget: which point, who owns it (viewer-relative), and live progress.
+func _render_capture(capture) -> void:
 	if capture == null:
-		_cap_bar.visible = false
+		_cap_widget.visible = false
+		return
+	_cap_widget.visible = true
+	var idx: int = int(capture.get("index", 0))
+	var owner: int = int(capture.get("owner", -1))
+	var attacker: int = int(capture.get("attacker", -1))
+	var my_team: int = int(capture.get("my_team", -1))
+	var cap: float = clampf(float(capture.get("cap", 0.0)), 0.0, 1.0)
+	var letter := String.chr(65 + clampi(idx, 0, 25))
+	# Status + colour, viewer-relative. An active capture (attacker set + progress) overrides the
+	# resting owner state so you see CAPTURING (ours) / LOSING (enemy) with the mover's colour.
+	var status := ""
+	var col := _rel_color(owner, my_team)
+	if attacker != -1 and cap > 0.001:
+		status = "CAPTURING" if attacker == my_team else "LOSING"
+		col = _rel_color(attacker, my_team)
+	elif owner == my_team:
+		status = "HELD"
+	elif owner == -1:
+		status = "NEUTRAL"
 	else:
-		_cap_bar.visible = true
-		var cap: float = clampf(float(capture.get("cap", 0.0)), 0.0, 1.0)
-		_cap_fill.size = Vector2(_cap_bar.size.x * cap, _cap_bar.size.y)
-		# Tint fill by attacker team.
-		var attacker: int = int(capture.get("attacker", -1))
-		_cap_fill.color = _owner_color(attacker).lerp(Color(1, 1, 1, 0.9), 0.3)
+		status = "ENEMY"
+	_cap_title.text = "POINT %s · %s" % [letter, status]
+	_cap_title.add_theme_color_override("font_color", col)
+	# Bar background = current owner colour (a held point reads as a solid bar); fill = capture progress.
+	var bg := _rel_color(owner, my_team).darkened(0.35)
+	bg.a = 0.85
+	_cap_bar.color = bg
+	_cap_fill.color = col
+	_cap_fill.size = Vector2(_cap_bar.size.x * cap, _cap_bar.size.y)
 
 
 func _render_killfeed(entries: Array) -> void:
@@ -1369,6 +1417,12 @@ static func _owner_color(owner: int) -> Color:
 		0: return _OWNER_COLORS[0]
 		1: return _OWNER_COLORS[1]
 		_: return _OWNER_COLORS[2]
+
+## Viewer-relative allegiance colour: ours = blue, enemy = red, neutral/unknown = grey.
+static func _rel_color(team: int, my_team: int) -> Color:
+	if team < 0: return Color(0.62, 0.62, 0.62)
+	if team == my_team: return Color(0.35, 0.62, 1.0)
+	return Color(1.0, 0.42, 0.42)
 
 
 # -----------------------------------------------------------------------

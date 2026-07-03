@@ -36,9 +36,9 @@ func test_projectile_travels_then_hits_stationary_target() -> void:
 	var dir: Vector3 = (aim - shooter.eye_position()).normalized()
 	srv._fire.spawn_projectile_for_test(1, Weapon.AR, shooter.eye_position(), dir)
 	var hp0: int = target.health
-	# AR muzzle 250 m/s, 40 m => ~5 ticks (30 Hz). One step must not have arrived yet.
+	# AR muzzle 750 m/s => ~25 m per 30 Hz tick, so after one step the round is short of the 40 m target.
 	srv._fire.step_projectiles()
-	assert_eq(target.health, hp0, "bullet has not arrived after one tick (40m/250mps ~5 ticks)")
+	assert_eq(target.health, hp0, "bullet has not arrived after one tick (40m, ~25m/tick)")
 	for _i in 14:
 		srv._fire.step_projectiles()
 	assert_true(target.health < hp0, "bullet arrived and dealt damage")
@@ -163,6 +163,38 @@ func test_respawn_resets_both_slots_to_full_on_primary() -> void:
 	assert_eq(int(c["ammo"]), int(Weapon.get_def(Weapon.AR)["mag_size"]), "primary full after respawn")
 	assert_eq(int(c["slots"][1]["ammo"]), int(Weapon.get_def(Weapon.PISTOL)["mag_size"]), "secondary full after respawn")
 	assert_eq(int(c["swap_locked_until"]), 0)
+	srv.free()
+
+func test_moving_target_hit_is_lag_compensated() -> void:
+	# Regression (2026-07-03): infantry bullets resolved at the target's PRESENT position while the
+	# shooter renders remotes ~100 ms in the past (Interpolation.DELAY) — so shots aimed dead-on a
+	# MOVING target whiff. With the shooter's view tick recorded, the bullet rewinds the target to
+	# where the shooter saw it and connects; the same shot with no rewind (lag=0) misses.
+	var srv := _make_server()
+	var shooter := _add_pawn(srv, 1, Vector3(0, 0, 0), 0)
+	var target := _add_pawn(srv, 2, Vector3(0, 0, 40), 1)   # where the shooter SEES the target (past)
+	_rebuild_grid(srv)
+	srv._lag.record(0, srv._sim.world)                       # history: target at (0,·,40) at tick 0
+	target.pos = Vector3(2.0, 0, 40)                         # target has since strafed 2 m in +x (present)
+	_rebuild_grid(srv)                                       # broadphase uses present positions
+	srv._sim.tick = 5                                        # 5 ticks after the recorded frame -> lag = 5
+	var seen_center := Vector3(0, Stance.body_height(target.stance) * 0.5, 40)
+	var dir: Vector3 = (seen_center - shooter.eye_position()).normalized()
+
+	# No lag comp (lag=0): raycast vs the PRESENT position (x=2) -> clean miss.
+	srv._fire.spawn_projectile_for_test(1, Weapon.AR, shooter.eye_position(), dir, 0)
+	var hp0: int = target.health
+	for _i in 20:
+		srv._fire.step_projectiles()
+	assert_eq(target.health, hp0, "no lag comp: shot at the SEEN position misses the moved target")
+
+	# Lag comp (lag=5): target rewound to (0,·,40) -> the same shot connects.
+	srv._fire.projectiles.clear()
+	target.health = 100
+	srv._fire.spawn_projectile_for_test(1, Weapon.AR, shooter.eye_position(), dir, 5)
+	for _i in 20:
+		srv._fire.step_projectiles()
+	assert_true(target.health < 100, "lag comp: bullet rewinds the target to where the shooter saw it and hits")
 	srv.free()
 
 func test_downed_enemy_takes_no_projectile_damage_but_emits_blood() -> void:

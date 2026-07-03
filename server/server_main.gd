@@ -34,6 +34,7 @@ var _max_enemy_snapshot := MAX_ENEMY_SNAPSHOT
 var _degrade_high_ms := Degrade.HIGH_MS   # --degrade-high-ms override (lower it to force-trigger in a test)
 var _degrade_low_ms := Degrade.LOW_MS     # --degrade-low-ms override
 const RESPAWN_DELAY_TICKS := 150   # 5s @30Hz
+const COMBAT_FLAG_TICKS := 300     # 10s @30Hz — a pawn that took fire can't be a squad-spawn anchor (BattleBit "in combat")
 const FIRE_CONE_DOT := 0.985       # broad-phase: target within ~10deg of ray
 const FIRE_CONE_SKIP_RANGE := 8.0  # below this, skip the cone cull — feet/chest parallax exceeds the half-angle at point blank
 const RPG_RELOAD_SECS := 3.0       # reload refills the rocket pool (RPG has no hit-scan mag)
@@ -338,10 +339,12 @@ func _physics_process(delta: float) -> void:
 	_sim.step_vehicles(_build_vehicle_inputs(), _map.world_half)
 	_track_transport_distance()
 	var t_veh := Time.get_ticks_usec()
-	# The mounted gun is the ONLY remaining rewind consumer (bullets went present-time in
-	# M5.5-P1), so recording ~129 dicts/tick for all pawns is wasted unless a gunner is
-	# actually seated. History is cleared on pause so a remount can't rewind into stale frames.
-	if _mounted_gunner_exists():
+	# Rewind consumers: the mounted gun, and infantry bullets fired by a HUMAN (their view lags
+	# ~100 ms behind the sim, so hits on movers must rewind the target to the shooter's view tick —
+	# fire.gd). Recording ~129 dicts/tick is wasted when only bots are shooting (bots aim at present,
+	# view_tick=0 -> no rewind), so an all-bot fleet gate records nothing. Cleared on pause so a
+	# later remount/join can't rewind into stale frames.
+	if _mounted_gunner_exists() or not _human_ids.is_empty():
 		_lag.record(_sim.tick, _sim.world)
 	elif _lag.has_history():
 		_lag.clear()
@@ -566,7 +569,9 @@ func _broadcast_impact_fx(pos: Vector3, kind: int) -> void:
 
 func _down_pawn(victim: Pawn) -> void:
 	victim.is_downed = true
+	victim.down_count += 1   # halving bleedout: each down this life shrinks the window
 	victim.bleed_health = 0
+	victim.bleed_floor = Revive.bleedout_floor(Revive.bleedout_window(victim.down_count))
 	victim.bleed_halted = false
 	_stats.downed += 1
 	# No ticket cost and no KILL event at down — only true death spends a ticket.
@@ -647,6 +652,7 @@ func _apply_pawn_damage(vid: int, victim: Pawn, dmg: int, headshot: bool, source
 	else:
 		dmg = int(round(float(dmg) * Armor.body_mult(victim.armor_class)))
 	victim.health -= dmg
+	victim.combat_until_tick = _sim.tick + COMBAT_FLAG_TICKS   # taking fire flags "in combat" (blocks squad-spawn on this pawn)
 	if _clients.has(vid):
 		var src: Pawn = _sim.world.get_pawn(killer_id)
 		var bearing: float = DamageDir.bearing(victim.pos, src.pos) if src != null else 0.0
@@ -658,7 +664,9 @@ func _apply_pawn_damage(vid: int, victim: Pawn, dmg: int, headshot: bool, source
 	if victim.health > 0:
 		return
 	victim.health = 0
-	if Revive.is_instant_kill(headshot, source):
+	# Instant kill on headshot/blast, OR when this life's next down would have a zero-length window
+	# (halving bleedout exhausted — a heavily re-downed pawn dies outright instead of entering DBNO).
+	if Revive.is_instant_kill(headshot, source) or Revive.bleedout_window(victim.down_count + 1) <= 0:
 		_kill_pawn(vid, victim, killer_id, weapon_id, headshot, source)
 	else:
 		# Remember who downed the pawn (+ their weapon) so a later bleed-out / give-up death
@@ -685,6 +693,9 @@ func _handle_respawns() -> void:
 			p.alive = true
 			p.stamina = Pawn.STAMINA_MAX
 			p.is_downed = false
+			p.down_count = 0     # fresh life: re-arm the full 60 s bleedout window
+			p.bleed_floor = 0
+			p.combat_until_tick = 0   # fresh spawn is not "in combat"
 			p.climbing = false   # clear special-movement state so a pawn that died mid-climb/vault
 			p.vaulting = false   # doesn't resume the arc/ladder at its fresh spawn (ghost-vault fix)
 			p.bleed_halted = false
@@ -706,7 +717,11 @@ func _select_spawn(id: int) -> Vector3:
 	for mid in _squads.members(team, c["squad"]):
 		if mid == id: continue
 		var mp: Pawn = _sim.world.get_pawn(mid)
-		if mp != null and mp.alive: mates.append(mp.pos)
+		# Spawn-on-squadmate is valid anywhere (BattleBit) EXCEPT: the anchor must be up (not downed)
+		# and NOT in combat — a mate who has taken fire in the last COMBAT_FLAG_TICKS can't be spawned
+		# on, which stops enemies camping your HQ by parking a squadmate there (they get shot -> flagged).
+		if mp != null and mp.alive and not mp.is_downed and _sim.tick >= mp.combat_until_tick:
+			mates.append(mp.pos)
 	var fob_pos = _build.spawnable_fob_pos(team, int(c["squad"]))
 	# fob_disabled is a spawn-DECISION counter: a built+alive FOB exists but was enemy-suppressed.
 	# Tally it here (the spawn path), NOT inside _spawnable_fob_pos — that helper is also called every
@@ -852,7 +867,6 @@ func _on_packet(peer: ENetPacketPeer, _channel: int, bytes: PackedByteArray) -> 
 		Protocol.Msg.BUILD_REMOVE: _build.handle_build_remove(peer, bytes)
 		Protocol.Msg.GRENADE_THROW: _handle_grenade_throw(peer, bytes)
 		Protocol.Msg.REVIVE_ACTION: _support.handle_revive_action(peer, bytes)
-		Protocol.Msg.SELF_BANDAGE: _support.handle_self_bandage(peer, bytes)
 		Protocol.Msg.GIVE_UP: _support.handle_give_up(peer)
 		Protocol.Msg.GADGET_ACTION: _handle_gadget_action(peer, bytes)
 		Protocol.Msg.VEHICLE_ACTION: _handle_vehicle_action(peer, bytes)
@@ -1201,6 +1215,8 @@ func _vehicle_enter(id: int, p: Pawn, vid: int, seat_hint: int) -> void:
 	if not Vehicle.can_enter(v, p, p.pos.distance_to(v.pos), ENTER_RANGE): return
 	var seat := v.free_seat(seat_hint)
 	if seat < 0: return
+	if v.team != p.team:
+		v.team = p.team   # stealing an unoccupied enemy vehicle claims it for your team (no ownership)
 	v.seats[seat] = id
 	p.in_vehicle = vid
 	p.seat = seat
@@ -1301,7 +1317,7 @@ func _broadcast_downed_list() -> void:
 	for id in _sim.world.pawns:
 		var p: Pawn = _sim.world.pawns[id]
 		if p.is_downed:
-			list.append({"id": id, "frac": Revive.bleed_frac_u8(p.bleed_health), "halted": p.bleed_halted})
+			list.append({"id": id, "frac": Revive.bleed_frac_u8(p.bleed_health, p.bleed_floor), "halted": p.bleed_halted})
 	var pkt := Protocol.encode_downed_list(list)
 	if not _downed_rl.should_send(pkt, list.size() > 0, _sim.tick):
 		return
