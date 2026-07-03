@@ -11,6 +11,8 @@ Sources (both royalty-free for commercial use, no attribution required; local co
 
 - **Snake** — "Snake's Authentic Gun Sounds" packs 1+2 (f8studios.itch.io, CC0). Real firearm
   recordings, `Full Sound` = with natural outdoor reverb tail, `Isolated` = dry.
+- **WASD Sound** — Free Integrated Footstep SFX Bundle v2 (wasd-sound.itch.io, commercial OK).
+  Boots on dirt/grass/stone/wood; we committed dirt walk/run/sneak/land/jump only.
 - **Sonniss** — GDC Game Audio Bundle Part 9 (sonniss.com, royalty-free commercial license, see
   `License - GDC Game Audio.pdf` in the bundle).
 
@@ -32,12 +34,26 @@ Sources (both royalty-free for commercial use, no attribution required; local co
 | `ui/hitmarker.wav` | `hitmarker` | Sonniss: CSD "Interface Sci-Fi Ping Down" (0.5 s trim) | |
 | `ui/ui_click.wav` | `ui_click` | Sonniss: ESM "Click Deep Mechanism Latch" | |
 
-Still on synth-tone fallback (no usable source in either pack): `footstep` — neither pack has
-boot-on-terrain footsteps (the Sonniss part-9 sample only has flip-flops). Source a CC0 footstep
-set (dirt/concrete/metal variants) when wiring audio.md §12 P2.5 distance layers.
+Still on synth-tone fallback: none — all catalog events have real assets.
 
-`AudioDirector._stream_for()` loads `res://assets/audio/sfx/<def.stream>.wav` when present and
-falls back to the synth tone otherwise (`tools/synth_gunshot.py` stays as the procedural fallback
-generator). Unused pack material (bipod, mag packs, racks/chamber checks, burst/spray variants,
-20-gauge, revolvers) remains in `~/projects/blockfire-audio/` for future wiring — e.g. per-weapon
-reloads, suppressor mechanic, shotgun.
+### Footsteps (WASD Sound — Free Integrated Footstep SFX Bundle v2)
+
+Royalty-free for commercial use (see `License WASD Sound Bundles.pdf` in the bundle). Boots on dirt;
+six round-robin variants per action (`variants` in `sounds.json` → `stream_NN.wav`).
+
+| asset prefix | event(s) | WASD source | in-game use |
+|---|---|---|---|
+| `footsteps/dirt_walk_01..06` | `footstep_walk` | Dirt Walk | default stride |
+| `footsteps/dirt_run_01..06` | `footstep_run` | Dirt Run | sprint (intensity ≥ 0.85) |
+| `footsteps/dirt_sneak_01..06` | `footstep_sneak` | Dirt Sneak | crouch locomotion |
+| `footsteps/dirt_land_01..06` | `footstep_land` | Dirt Drop | hard landing |
+| `footsteps/dirt_jump_01..06` | `footstep_jump` | Dirt Jump | reserved (catalog wired; takeoff not emitted yet) |
+
+`FootstepAudio` maps renderer cadence → event; `AudioDirector` round-robins variants. Stone/grass/wood
+materials from the WASD bundle remain in `~/projects/blockfire-audio/` for future surface routing.
+
+`AudioDirector._stream_for()` loads `res://assets/audio/sfx/<def.stream>.wav` (or `_NN.wav` when
+`variants` > 1) when present and falls back to the synth tone otherwise (`tools/synth_gunshot.py`
+stays as the procedural fallback generator). Unused pack material (bipod, mag packs, racks/chamber
+checks, burst/spray variants, 20-gauge, revolvers) remains in `~/projects/blockfire-audio/` for
+future wiring — e.g. per-weapon reloads, suppressor mechanic, shotgun.

@@ -1270,9 +1270,9 @@ func _on_settings_applied(new_settings: ClientSettings) -> void:
 
 ## A footfall fired by the renderer (local pawn or a visible remote) -> spatial footstep sound.
 ## Presentation-only (AGENTS.md §7); the AudioDirector handles distance falloff + voice priority.
-func _on_footstep(world_pos: Vector3, _intensity: float) -> void:
+func _on_footstep(world_pos: Vector3, intensity: float, action: int) -> void:
 	if _audio != null:
-		_audio.play_at("footstep", world_pos)
+		_audio.play_at(FootstepAudio.event_for(intensity, Stance.STAND, action), world_pos)
 
 ## A bullet terminated in the world — play a spatial thud where it landed (wall/dirt; flesh is
 ## silent, it gets a blood puff instead). Presentation-only (AGENTS.md §7).

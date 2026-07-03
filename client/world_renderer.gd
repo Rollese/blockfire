@@ -104,7 +104,7 @@ var _impact_i := 0
 # footstep feedback (view-only, AGENTS.md §7): a moving grounded pawn fires a footstep every stride
 # of ground travel -> a small dust puff (remotes) + a spatial footstep sound (via the `footstep`
 # signal, which client_main routes to the AudioDirector). Cadence math lives in FootstepCadence.
-signal footstep(world_pos: Vector3, intensity: float)
+signal footstep(world_pos: Vector3, intensity: float, action: int)
 signal impact(world_pos: Vector3, kind: int)   # a bullet terminated in the world (wall/dirt/flesh)
 
 const FxPoolRef := preload("res://client/fx_pool.gd")   # transient one-shot FX pools (child node)
@@ -1289,7 +1289,7 @@ func _ensure_footstep_demo(now: float) -> void:
 		var lateral := cb.basis.x * (float(j - 1) * 0.8)
 		var at := cb.origin + fwd * (4.0 + float(j) * 1.2) + lateral
 		at.y -= 1.5   # drop toward the feet/ground from the eye height
-		_spawn_footstep_fx(at, 0.4 + 0.2 * float(j), now)
+		_spawn_footstep_fx(at, 0.4 + 0.2 * float(j), now, Stance.STAND)
 
 
 # =============================================================================
@@ -1364,7 +1364,7 @@ func _tick_footstep(id: int, es: EntityState, now: float) -> void:
 	_step_accum[id] = r["accum"]
 	_step_prev[id] = es.pos
 	if r["fired"]:
-		_spawn_footstep_fx(es.pos, r["intensity"], now)
+		_spawn_footstep_fx(es.pos, r["intensity"], now, es.stance)
 
 
 ## Estimate a remote's airborne state from its interpolated vertical motion (no `grounded` on the wire)
@@ -1381,7 +1381,7 @@ func _update_airborne(id: int, es: EntityState, dt: float, now: float) -> bool:
 		_air_fell[id] = true
 	if bool(_air_fell.get(id, false)) and absf(vy) < AIR_LAND_VY:
 		_air_fell[id] = false
-		_spawn_footstep_fx(es.pos, 1.0, now)   # strong dust burst at the feet on touchdown
+		_spawn_footstep_fx(es.pos, 1.0, now, es.stance, FootstepAudio.LAND)   # strong dust burst at the feet on touchdown
 	return absf(vy) > AIR_JUMP_VY and not es.climbing
 
 ## Kick the local viewmodel down on a hard landing (client_main calls this off the predicted pawn's
@@ -1463,16 +1463,17 @@ func _tick_local_footstep(pawn: Pawn, dt: float, eye: Vector3, now: float) -> vo
 	var r := FootstepCadence.advance(_local_step_accum, speed * dt, speed, pawn.stance, pawn.grounded)
 	_local_step_accum = r["accum"]
 	if r["fired"] and eye.is_finite():
-		footstep.emit(eye, r["intensity"])
+		footstep.emit(eye, r["intensity"], FootstepAudio.action_from(r["intensity"], pawn.stance))
 
 
 ## Kick a dust scuff at a footfall and emit a spatial footstep sound. Dust scales a touch with speed.
-func _spawn_footstep_fx(pos: Vector3, intensity: float, now: float) -> void:
+func _spawn_footstep_fx(pos: Vector3, intensity: float, now: float, stance: int, action: int = -1) -> void:
 	if not pos.is_finite():
 		return
 	var at := Vector3(pos.x, pos.y + 0.05, pos.z)   # at the feet, just clear of the ground
 	_fx.spawn_puff(at, lerpf(0.22, 0.42, intensity), FOOTSTEP_PUFF_TTL, now, FOOTSTEP_DUST_COLOR)
-	footstep.emit(at, intensity)
+	var act := action if action >= 0 else FootstepAudio.action_from(intensity, stance)
+	footstep.emit(at, intensity, act)
 
 
 ## Lay a dead body at a pawn's last pose (face-DOWN, so a corpse reads differently from a face-UP
@@ -1667,7 +1668,7 @@ func _ensure_land_demo(now: float) -> void:
 		return
 	var fwd := (-cb.basis.z).normalized()
 	var at := cb.origin + fwd * 3.5; at.y = 0.05
-	_spawn_footstep_fx(at, 1.0, now)
+	_spawn_footstep_fx(at, 1.0, now, Stance.STAND, FootstepAudio.LAND)
 	play_land_dip(1.0)
 
 

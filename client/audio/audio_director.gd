@@ -17,6 +17,7 @@ var _players: Array = []          # slot index -> AudioStreamPlayer3D (1:1 with 
 var _ui_player: AudioStreamPlayer = null   # non-spatial (UI bus): hitmarker, reload, ui_click
 var _engine_player: AudioStreamPlayer3D = null   # dedicated looping engine voice (nearest running vehicle)
 var _streams: Dictionary = {}     # stream-id -> AudioStream (lazily generated placeholder tones)
+var _variant_idx: Dictionary = {} # event_type -> next variant index (round-robin)
 var _listener_pos: Vector3 = Vector3.ZERO
 
 func setup(catalog: AudioCatalog, max_voices: int) -> void:
@@ -177,10 +178,18 @@ func _stream_for(event_type: String) -> AudioStream:
 func _load_asset(event_type: String) -> AudioStream:
 	if _catalog == null:
 		return null
-	var stream_name := String(_catalog.def_for(event_type).get("stream", ""))
+	var def: Dictionary = _catalog.def_for(event_type)
+	var stream_name := String(def.get("stream", ""))
 	if stream_name == "":
 		return null
-	var path := _SFX_DIR + stream_name + ".wav"
+	var variants := maxi(1, int(def.get("variants", 1)))
+	var path := _SFX_DIR + stream_name
+	if variants > 1:
+		var idx := int(_variant_idx.get(event_type, 0)) % variants + 1
+		_variant_idx[event_type] = int(_variant_idx.get(event_type, 0)) + 1
+		path += "_%02d.wav" % idx
+	else:
+		path += ".wav"
 	if not ResourceLoader.exists(path):
 		return null
 	return ResourceLoader.load(path) as AudioStream
@@ -195,7 +204,7 @@ static func _gen_tone(event_type: String) -> AudioStreamWAV:
 		"bullet_crack": freq = 2200.0; secs = 0.04
 		"bullet_whiz": freq = 1500.0; secs = 0.06
 		"impact": freq = 260.0; secs = 0.08
-		"footstep": freq = 130.0; secs = 0.07
+		"footstep_walk", "footstep_run", "footstep_sneak", "footstep_land", "footstep_jump": freq = 130.0; secs = 0.07
 		"reload": freq = 320.0; secs = 0.16
 		"melee": freq = 200.0; secs = 0.09
 		"explosion": freq = 70.0; secs = 0.45
