@@ -88,6 +88,11 @@ var _lag := LagComp.new()
 var _tele := Telemetry.new()
 var _map: MapDef
 var _map_path: String = MAP_PATH   # --map=<name> overrides (must match client + bots)
+var _max_players := MAX_PLAYERS    # config-file max_players (M8-P3); no CLI flag
+var _maps: Array = []        # rotation list (map basenames); empty = single-match default map
+var _map_index := 0
+var _rotate := false         # persistent multi-match loop active (config maps, no --map override)
+var _boot_failed := false    # configure() ran pre-add_child (get_tree()==null there); _ready() exits on it
 var _human_rpg := false   # --human-rpg: force human (manual-deploy) players to spawn Engineer + RPG (destruction testing)
 var _conquest: ConquestState
 var _squads := SquadManager.new()
@@ -139,23 +144,41 @@ var _clients := {}
 var _peer_to_id := {}
 
 func configure(args: Dictionary) -> void:
-	_port = int(args.get("port", _port))
-	_start_tickets = int(args.get("tickets", -1))
-	_time_limit = float(args.get("time-limit", -1.0))
-	if args.has("map"):
-		_map_path = "res://maps/%s.json" % String(args["map"])
+	var loaded := ServerConfig.load_file(String(args.get("config", ServerConfig.DEFAULT_PATH)))
+	if not loaded["ok"]:
+		# An operator-authored config that doesn't parse must fail loud, not silently
+		# fall back to defaults mid-LAN-party. get_tree() is null here (configure runs
+		# pre-add_child) — flag it and _ready() exits.
+		push_error("[server] %s" % loaded["error"])
+		_boot_failed = true
+		return
+	var eff := ServerConfig.resolve(loaded["config"], args)
+	_port = eff["port"]
+	_max_players = eff["max_players"]
+	_start_tickets = eff["tickets"]
+	_time_limit = eff["time_limit"]
+	_maps = eff["maps"]
+	_rotate = eff["rotate"]
+	if not _maps.is_empty():
+		_map_path = "res://maps/%s.json" % String(_maps[0])
 	_human_rpg = args.has("human-rpg")
-	_degrade_high_ms = float(args.get("degrade-high-ms", _degrade_high_ms))
-	_degrade_low_ms = float(args.get("degrade-low-ms", _degrade_low_ms))
+	if eff["degrade_high_ms"] > 0.0:
+		_degrade_high_ms = eff["degrade_high_ms"]
+	if eff["degrade_low_ms"] > 0.0:
+		_degrade_low_ms = eff["degrade_low_ms"]
 	if _degrade_low_ms >= _degrade_high_ms:
 		# An inverted band makes Degrade.next_level climb one window and descend the next,
 		# thrashing the snapshot stride every second. Operator error -> safe defaults.
-		push_warning("[server] --degrade-low-ms (%.1f) must be < --degrade-high-ms (%.1f); using defaults %0.1f/%0.1f"
+		push_warning("[server] degrade band low (%.1f) must be < high (%.1f); using defaults %0.1f/%0.1f"
 			% [_degrade_low_ms, _degrade_high_ms, Degrade.LOW_MS, Degrade.HIGH_MS])
 		_degrade_high_ms = Degrade.HIGH_MS
 		_degrade_low_ms = Degrade.LOW_MS
+	if _rotate:
+		print("[server] map rotation active: %s" % ", ".join(PackedStringArray(_maps)))
 
 func _ready() -> void:
+	if _boot_failed:
+		get_tree().quit(1); return
 	_catalog = PieceCatalog.load_file(PIECES_PATH)
 	if _catalog == null:
 		push_error("[server] failed to load pieces %s" % PIECES_PATH); get_tree().quit(1); return
@@ -175,10 +198,10 @@ func _ready() -> void:
 	_net.peer_connected.connect(func(_p): pass)
 	_net.peer_disconnected.connect(_on_peer_disconnected)
 	_net.packet_received.connect(_on_packet)
-	var err := _net.start_server(_port, MAX_PLAYERS)
+	var err := _net.start_server(_port, _max_players)
 	if err != OK:
 		push_error("[server] bind failed on %d: %s" % [_port, error_string(err)]); get_tree().quit(1); return
-	print("[server] listening on %d, tick=%dHz, max=%d map=%s" % [_port, TICK_RATE, MAX_PLAYERS, _map.name])
+	print("[server] listening on %d, tick=%dHz, max=%d map=%s" % [_port, TICK_RATE, _max_players, _map.name])
 	# NOTE (M8-P3): graceful SIGTERM/SIGINT shutdown is NOT implemented — verified that headless
 	# Godot 4.6 does not deliver POSIX signals as NOTIFICATION_WM_CLOSE_REQUEST (no display server),
 	# and GDScript has no signal-handler API, so the process takes the OS default (exit 143/130).
@@ -769,7 +792,7 @@ func _handle_hello(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
 	if ver != Protocol.VERSION:
 		_net.send_to(peer, NetHost.CHANNEL_CONTROL, Protocol.encode_reject("version mismatch"), ENetPacketPeer.FLAG_RELIABLE)
 		peer.peer_disconnect_later(); return
-	if _clients.size() >= MAX_PLAYERS:
+	if _clients.size() >= _max_players:
 		_net.send_to(peer, NetHost.CHANNEL_CONTROL, Protocol.encode_reject("server full"), ENetPacketPeer.FLAG_RELIABLE)
 		peer.peer_disconnect_later(); return
 	var id := _next_id

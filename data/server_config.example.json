@@ -1,0 +1,9 @@
+{
+  "port": 27015,
+  "max_players": 128,
+  "tickets": 300,
+  "time_limit": 1800,
+  "maps": ["conquest_town", "conquest_proving_grounds", "conquest_arena_buildings"],
+  "degrade_high_ms": 30.0,
+  "degrade_low_ms": 26.0
+}
