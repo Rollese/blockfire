@@ -76,6 +76,18 @@ func test_engage_strafes_inside_standoff() -> void:
 	assert_true(absf(float(intent["move_y"])) > 0.5, "strafes laterally instead of rooting")
 	assert_almost_eq(float(intent["move_x"]), 0.0, 0.001, "no forward charge inside standoff")
 
+func test_push_obj_march_spread_differs_per_bot() -> void:
+	# Batch 6 flank/spread: two bots pushing the same objective march on different lateral
+	# lanes instead of a single-file column down the same line.
+	var a := AiDriver.new(42, 0, "regular")
+	var b := AiDriver.new(42, 1, "regular")
+	var view := {1: _es(0, Vector3.ZERO)}
+	a.observe(1, view, {}, {}, [], 100, Vector3(0, 0, 100))
+	b.observe(1, view, {}, {}, [], 100, Vector3(0, 0, 100))
+	var ia := a.decide()
+	var ib := b.decide()
+	assert_true(absf(float(ia["move_x"]) - float(ib["move_x"])) > 0.001, "different bots -> different march lanes")
+
 func test_push_obj_marches_to_objective_when_no_enemy() -> void:
 	var ai := AiDriver.new(42, 0, "regular")
 	var view := {1: _es(0, Vector3.ZERO)}  # no enemy -> push_obj
@@ -125,6 +137,38 @@ func test_retreat_moves_toward_cover_when_critically_hurt() -> void:
 	var intent := ai.decide()
 	assert_eq(String(intent["behavior"]), "retreat", "critical HP under heavy fire -> retreat")
 	assert_true(absf(float(intent["move_x"])) + absf(float(intent["move_y"])) > 0.0, "retreat produces movement")
+
+# --- Track staleness (batch 6): velocity was computed across arbitrarily long visibility gaps,
+# so an enemy reappearing far away (respawn, interest-range re-entry) produced a wild aim lead.
+
+func test_track_velocity_from_fresh_consecutive_samples() -> void:
+	var prev := {"pos": Vector3.ZERO, "tick": 100, "vel": Vector3.ZERO}
+	var v := AiDriver.track_velocity(prev, Vector3(1, 0, 0), 101)
+	assert_almost_eq(v.x, 1.0 / SimLoop.DT, 0.01, "1 m in 1 tick -> 30 m/s")
+
+func test_track_velocity_zero_for_unknown_enemy() -> void:
+	assert_eq(AiDriver.track_velocity(null, Vector3(5, 0, 0), 100), Vector3.ZERO)
+
+func test_track_velocity_discards_stale_gap() -> void:
+	# Enemy unseen for 100 ticks reappears 50 m away: no lead at all beats a wild one.
+	var prev := {"pos": Vector3.ZERO, "tick": 100, "vel": Vector3(3, 0, 0)}
+	var v := AiDriver.track_velocity(prev, Vector3(50, 0, 0), 100 + AiDriver.TRACK_STALE_TICKS + 70)
+	assert_eq(v, Vector3.ZERO, "stale track -> aim at the observed position, no velocity lead")
+
+func test_track_velocity_persists_estimate_when_target_holds_still() -> void:
+	var prev := {"pos": Vector3(5, 0, 0), "tick": 100, "vel": Vector3(2, 0, 0)}
+	var v := AiDriver.track_velocity(prev, Vector3(5, 0, 0), 101)
+	assert_eq(v, Vector3(2, 0, 0), "no movement this tick -> keep last good estimate")
+
+func test_reappearing_enemy_gets_no_stale_lead_in_observe() -> void:
+	var ai := AiDriver.new(42, 0, "regular")
+	var me := _es(0, Vector3.ZERO)
+	ai.observe(1, {1: me, 2: _es(1, Vector3(10, 0, 0))}, {}, {}, [], 100, Vector3.ZERO)
+	ai.observe(1, {1: me, 2: _es(1, Vector3(11, 0, 0))}, {}, {}, [], 101, Vector3.ZERO)   # moving +x
+	# Enemy 2 leaves view for 200 ticks, reappears 60 m away.
+	ai.observe(1, {1: me}, {}, {}, [], 200, Vector3.ZERO)
+	ai.observe(1, {1: me, 2: _es(1, Vector3(0, 0, 60))}, {}, {}, [], 301, Vector3.ZERO)
+	assert_eq(ai._enemy_track[2]["vel"], Vector3.ZERO, "reappearance starts a fresh track, no gap-average lead")
 
 func test_reset_clears_per_life_state() -> void:
 	# Pre-M8-P3 regression: AI state persisted across lives (and would persist across map

@@ -1,0 +1,8 @@
+gate: batch6-flank
+date: 2026-07-03T12:00:42+02:00
+host: game2
+git: a85d3e1
+verdict: PASS
+summary: winner=1 elapsed=268s peak_tick=16.84ms budget=33.3ms agg=13.6Mbit/s players=128 kills=2 cap_events=5 ai_us_mean=997.5us map=default
+srvlog: srvlog-batch6-flank-20260703-120042.log
+srvlog_sha256: 12162b700bdbb80146eee073bff0d5c716503bef2e8e90cebb55fa0c666da518

@@ -236,3 +236,19 @@ completed in two passes: dead per-piece path deleted + fx_material factory + per
 child node with thin public delegates on the renderer (2026-07-03, world_renderer 3031→2691).
 Every stage: suite green, smokes PASS, Xvfb screenshot for renderer changes, and a 128-bot
 stress gate over the final state (evidence in `docs/gate-evidence/`).
+
+**Execution note (2026-07-03, batch 6/E):** the flank/spread gap and the behaviour-dynamics
+bugs are fixed; this closes the last open batch of this review. `choose_objective_index`
+(center==from neutralized the centre bias) is replaced by
+`AiObjective.choose_objective_spread` — squad-hash pick across the top-3 nearest capturable
+points with a 0.75 distance discount on enemy-owned ground — plus a per-bot lateral march
+lane (`spread_march_target`, ±8 m, converging inside 20 m) in the push_obj branch.
+Behaviour dynamics: `incoming_fire` is now a decaying envelope
+(`Perception.decay_pressure`, 0.97/tick) instead of a 1-tick impulse; suppress is
+range-gated (60 m) + hp-scaled so it never outranks engage (the flat 0.4 rooted bots below
+~57% HP); enemy velocity tracks restart after a >30-tick visibility gap
+(`AiDriver.track_velocity`) instead of averaging across it. The §E "spec'd-but-inert"
+list (unread `weights` block, hardcoded profile, write-only `_memory`, `climb_seek` off the
+march path, missing `blackboard`/`commander`) remains deferred to the M7.5-P3 milestone
+proper — implement-or-de-document per item there. Distribution asserted in pure tests per
+the deterministic-testing policy; combat *feel* stays deferred to the free-cam gate.

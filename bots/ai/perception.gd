@@ -6,6 +6,8 @@ extends RefCounted
 const REACTION_DELAY_TICKS := 9   # ~0.3s @30Hz; profile-scaled later (§11)
 const MEMORY_DECAY_TICKS := 90    # 3s @30Hz (§11)
 const PRESSURE_HP_REF := 50.0
+const PRESSURE_DECAY := 0.97      # per-tick envelope decay: a full hit fades below the crouch
+                                  # threshold (0.5) in ~0.8s and floors to 0 in ~4s
 
 static func is_actionable(first_seen_tick: int, now: int, delay: int) -> bool:
 	return now - first_seen_tick >= delay
@@ -28,9 +30,18 @@ static func infer_pressure(prev_hp: float, cur_hp: float, aimed_at: bool) -> flo
 		p += 0.5
 	return clampf(p, 0.0, 1.0)
 
+## Pressure envelope (batch 6): the raw impulse is nonzero only on the exact tick health
+## dropped, which made take_cover a 1-tick twitch oscillating with engage. A fresh impulse
+## dominates; otherwise the previous pressure decays geometrically and floors to exactly 0
+## so calm bots aren't stuck with an infinite tail. Pure.
+static func decay_pressure(prev: float, impulse: float) -> float:
+	var p: float = maxf(impulse, prev * PRESSURE_DECAY)
+	return p if p >= 0.01 else 0.0
+
 var _first_seen: Dictionary = {}   # enemy_id -> tick first continuously seen
 var _memory: Dictionary = {}        # enemy_id -> {pos, tick} last-known
 var _last_hp: float = 100.0
+var _pressure: float = 0.0          # decaying incoming_fire envelope (see decay_pressure)
 
 ## Clear per-life state (see AiDriver.reset): re-arm the reaction gate, drop last-known
 ## memory, and start the pressure baseline from full health for the next spawn.
@@ -38,6 +49,7 @@ func reset() -> void:
 	_first_seen = {}
 	_memory = {}
 	_last_hp = 100.0
+	_pressure = 0.0
 ## Build the WorldModel from the snapshot view. `my_id` is this bot's pawn id.
 func build(my_id: int, view: Dictionary, _vview: Dictionary, structs: Dictionary, match_points: Array, now: int) -> WorldModel:
 	var w := WorldModel.new()
@@ -46,9 +58,11 @@ func build(my_id: int, view: Dictionary, _vview: Dictionary, structs: Dictionary
 	w.self_state = me
 	var cur_hp: float = float(me.health) if me else 100.0
 	w.metadata_hp_frac = cur_hp / 100.0
-	# Pressure from health-drop since last tick. `aimed_at` geometry is deferred (§6.1 follow-up),
-	# so it's false for now — health loss alone drives take_cover/retreat this increment.
-	w.incoming_fire = infer_pressure(_last_hp, cur_hp, false)
+	# Pressure from health-drop since last tick, held in a decaying envelope so cover-seeking
+	# persists past the hit tick. `aimed_at` geometry is deferred (§6.1 follow-up), so it's
+	# false for now — health loss alone drives take_cover/retreat this increment.
+	_pressure = decay_pressure(_pressure, infer_pressure(_last_hp, cur_hp, false))
+	w.incoming_fire = _pressure
 	_last_hp = cur_hp
 	var seen_now := {}
 	for id in view:

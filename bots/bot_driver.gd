@@ -334,11 +334,12 @@ func _objective_pos(me: EntityState) -> Vector3:
 	for i in _map.points.size():
 		positions.append(_map.points[i]["pos"])
 		owners.append(int(_match_points[i]["owner"]) if i < _match_points.size() else -1)
-	# Target the nearest non-owned point to this bot (center == from). Bots capture their
-	# backfield then push to the middle; this yields real captures (and flag deficits ->
-	# ticket bleed). A map-centre bias was tried but funnelled both teams onto the single
-	# centre point, which stayed perpetually contested and never captured.
-	var idx := AiObjective.choose_objective_index(positions, owners, me.team, me.pos, me.pos)
+	# Squad-hash spread over the top-k nearest capturable points (batch 6): squads fan out
+	# instead of stacking on the single nearest point, with a bias toward enemy-owned ground.
+	# Backfield still gets captured (nearest points rank first) so ticket bleed keeps working.
+	# The earlier pure map-centre bias failed differently — it funnelled BOTH teams onto one
+	# perpetually-contested centre point — so the spread keys off each bot's squad instead.
+	var idx := AiObjective.choose_objective_spread(positions, owners, me.team, me.pos, int(me.squad))
 	return positions[idx] if idx >= 0 else me.pos
 
 ## Where a crewed transport should drive: toward the nearest visible enemy (into the firefight),
