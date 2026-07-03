@@ -34,13 +34,13 @@ func test_projectile_travels_then_hits_stationary_target() -> void:
 	# Aim at the target BODY CENTER (feet + half body height) so the segment crosses the capsule.
 	var aim: Vector3 = target.pos + Vector3(0.0, Stance.body_height(target.stance) * 0.5, 0.0)
 	var dir: Vector3 = (aim - shooter.eye_position()).normalized()
-	srv._spawn_projectile_for_test(1, Weapon.AR, shooter.eye_position(), dir)
+	srv._fire.spawn_projectile_for_test(1, Weapon.AR, shooter.eye_position(), dir)
 	var hp0: int = target.health
 	# AR muzzle 250 m/s, 40 m => ~5 ticks (30 Hz). One step must not have arrived yet.
-	srv._step_projectiles()
+	srv._fire.step_projectiles()
 	assert_eq(target.health, hp0, "bullet has not arrived after one tick (40m/250mps ~5 ticks)")
 	for _i in 14:
-		srv._step_projectiles()
+		srv._fire.step_projectiles()
 	assert_true(target.health < hp0, "bullet arrived and dealt damage")
 	srv.free()
 
@@ -51,10 +51,10 @@ func test_projectile_drops_under_muzzle_line() -> void:
 	var shooter := _add_pawn(srv, 1, Vector3(0, 0, 0), 0)
 	_rebuild_grid(srv)
 	var muzzle: Vector3 = shooter.eye_position()
-	srv._spawn_projectile_for_test(1, Weapon.DMR, muzzle, Vector3(0, 0, 1))
+	srv._fire.spawn_projectile_for_test(1, Weapon.DMR, muzzle, Vector3(0, 0, 1))
 	# DMR range 500 m at 400 m/s => well within TTL for many ticks; step long enough to see drop.
 	for _i in 60:
-		srv._step_projectiles()
+		srv._fire.step_projectiles()
 	assert_true(srv._stats.dbg_last_min_y < muzzle.y, "horizontal shot dropped below muzzle line under gravity")
 	srv.free()
 
@@ -96,9 +96,9 @@ func test_near_miss_accrues_suppression() -> void:
 	_rebuild_grid(srv)
 	assert_almost_eq(victim.suppression, 0.0)
 	# Fire parallel to +z, offset 2 m in x and ~1 m up: passes beside the victim, never hits it.
-	srv._spawn_projectile_for_test(1, Weapon.AR, Vector3(2.0, 1.0, 0), Vector3(0, 0, 1))
+	srv._fire.spawn_projectile_for_test(1, Weapon.AR, Vector3(2.0, 1.0, 0), Vector3(0, 0, 1))
 	for _i in 12:
-		srv._step_projectiles()
+		srv._fire.step_projectiles()
 	assert_true(victim.suppression > 0.0, "near-miss raised suppression")
 	assert_true(victim.alive and not victim.is_downed, "near-miss did not damage the victim")
 	srv.free()
@@ -176,10 +176,10 @@ func test_downed_enemy_takes_no_projectile_damage_but_emits_blood() -> void:
 	_rebuild_grid(srv)
 	var aim: Vector3 = target.pos + Vector3(0.0, Stance.body_height(target.stance) * 0.5, 0.0)
 	var dir: Vector3 = (aim - shooter.eye_position()).normalized()
-	srv._spawn_projectile_for_test(1, Weapon.AR, shooter.eye_position(), dir)
+	srv._fire.spawn_projectile_for_test(1, Weapon.AR, shooter.eye_position(), dir)
 	var hp0: int = target.health
 	for _i in 20:
-		srv._step_projectiles()       # must not crash on the impact emit (no clients)
+		srv._fire.step_projectiles()       # must not crash on the impact emit (no clients)
 	assert_true(target.alive, "downed enemy is not finished by a bullet")
 	assert_true(target.is_downed, "downed enemy stays downed")
 	assert_eq(target.health, hp0, "downed enemy takes no projectile damage")

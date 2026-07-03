@@ -26,6 +26,7 @@ const MAX_BOT_SPECIAL_THROWS := 3     # per-bot lifetime FLASHBANG/IMPACT cap (M
 const MELEE_COOLDOWN_TICKS := 24      # match server MELEE_COOLDOWN_TICKS (~0.8s)
 const SLEDGE_SEEK_RANGE := 10.0       # m — engineer sledgers steer to a structure within this range
 const BotRolesRef := preload("res://bots/roles.gd")   # disjoint exerciser role table
+const BotExercisers := preload("res://bots/exercisers.gd")
 const VEHICLE_FULL_HP := 600       # transport max (v1 single vehicle type); used to detect a damaged ridden vehicle
 const VEHICLE_RPG_RANGE := 120.0   # fire an RPG at an enemy vehicle within this many metres
 const RPG_FIRE_COOLDOWN := 120     # ticks between RPG fire attempts (matches server cooldown_ticks)
@@ -44,6 +45,7 @@ var _server_ip := "127.0.0.1"
 var _port := 27015
 var _bot_count := 1
 var _bots: Array[Dictionary] = []
+var _ex := BotExercisers.new(self)   # gate exercisers — see bots/exercisers.gd
 var _global_seed: int = 12345
 
 var _perf_us: float = 0.0
@@ -145,8 +147,8 @@ func _drive(bot: Dictionary, delta: float) -> void:
 
 	# Revive a downed teammate if one is close enough — but ONLY the single nearest alive teammate
 	# goes for the revive; everyone else keeps fighting (no whole-squad swarm that stalls combat).
-	var rid := _nearest_downed_teammate(bot, me)
-	if rid != 0 and _is_closest_reviver(bot, me, rid):
+	var rid := _ex.nearest_downed_teammate(bot, me)
+	if rid != 0 and _ex.is_closest_reviver(bot, me, rid):
 		var tpos: Vector3 = (bot["view"][rid] as EntityState).pos
 		var to := tpos - me.pos
 		if to.length() <= Revive.REVIVE_RANGE:
@@ -211,8 +213,8 @@ func _drive(bot: Dictionary, delta: float) -> void:
 	# Runs BEFORE the shovel-driller / combat dispatch (a leader that is also a driller does the FOB
 	# drill instead — fine; the FOB drill also shovels). The large shovel-drillers converge on the same
 	# cell and shovel it too, so leader + drillers exceed the FOB's min_builders=2 and it completes.
-	if me != null and me.alive and not me.is_downed and _fob_drill_active(bot, me):
-		_drive_fob_leader(bot, me)
+	if me != null and me.alive and not me.is_downed and _ex.fob_drill_active(bot, me):
+		_ex.drive_fob_leader(bot, me)
 		return
 
 	# --- Shovel-driller logic: the BotRoles.SHOVEL cohort runs a deterministic build/shovel drill
@@ -220,7 +222,7 @@ func _drive(bot: Dictionary, delta: float) -> void:
 	# driller it OVERRIDES movement+combat and fully self-sends, so it never trips the normal
 	# _maybe_build side-wall.
 	if role == BotRolesRef.SHOVEL:
-		_drive_shovel_driller(bot, me)
+		_ex.drive_shovel_driller(bot, me)
 		return
 
 	var target: EntityState = null
@@ -276,7 +278,7 @@ func _drive(bot: Dictionary, delta: float) -> void:
 		else:
 			move_y = flat_d.y
 		bot["yaw"] = atan2(move_x, flat_d.y)
-		_update_drill_phase(bot, int(dr["next_phase"]))
+		_ex.update_drill_phase(bot, int(dr["next_phase"]))
 	else:
 		# AI brain drives normal infantry combat + movement (retires the reflex nearest-enemy logic).
 		var ai: AiDriver = bot["ai"]
@@ -293,634 +295,37 @@ func _drive(bot: Dictionary, delta: float) -> void:
 			buttons |= InputCommand.BTN_CROUCH
 		# M5.5-P3 sledger override: a subset of engineers steer to a nearby structure and demolish it
 		# (guarantees the fleet sees sledge hits). When sledging, skip the normal throw/gadget passes.
-		var sledge_mv := _maybe_sledge(bot, me)
+		var sledge_mv := _ex.maybe_sledge(bot, me)
 		if not sledge_mv.is_empty():
 			move_x = sledge_mv[0]; move_y = sledge_mv[1]
 		# Gadget gate-exercisers (frag/flash/impact/c4/mine need a nearest enemy; smoke advances).
 		elif target != null:
 			# Throwable variety by index so the fleet exercises every type (server shares one cooldown).
 			match int(bot["index"]) % 6:
-				2: _maybe_throwable(bot, me, target, Grenade.FLASHBANG, "flashes_thrown")
-				5: _maybe_throwable(bot, me, target, Grenade.IMPACT, "impacts_thrown")
-				_: _maybe_grenade(bot, me, target)
-			_maybe_melee(bot, me, target)
-			_maybe_c4(bot, me, target)
-			_maybe_mine(bot, me, target.pos)
+				2: _ex.maybe_throwable(bot, me, target, Grenade.FLASHBANG, "flashes_thrown")
+				5: _ex.maybe_throwable(bot, me, target, Grenade.IMPACT, "impacts_thrown")
+				_: _ex.maybe_grenade(bot, me, target)
+			_ex.maybe_melee(bot, me, target)
+			_ex.maybe_c4(bot, me, target)
+			_ex.maybe_mine(bot, me, target.pos)
 		else:
-			_maybe_smoke(bot, me, obj)
+			_ex.maybe_smoke(bot, me, obj)
 
 	# Build cover only while stationary (holding a point or firing) — so the bot drops a wall
 	# toward the contested objective without walking into its own piece, and the cover lands in
 	# the combat zone where shots cross it. (Marching bots move, so this won't fire mid-route.)
 	if move_x == 0.0 and move_y == 0.0:
-		_maybe_build(bot, me)
-		_maybe_mine(bot, me, obj)
+		_ex.maybe_build(bot, me)
+		_ex.maybe_mine(bot, me, obj)
 
-	_maybe_rpg(bot, me)
-	_maybe_give(bot, me, target != null)
-	_maybe_weapon_handling(bot, me)
+	_ex.maybe_rpg(bot, me)
+	_ex.maybe_give(bot, me, target != null)
+	_ex.maybe_weapon_handling(bot, me)
 	_send(bot, move_x, move_y, bot["yaw"], bot["pitch"], buttons)
 
 ## Advance a driller's phase state. If the phase changed, reset the tick counter. If the phase
 ## has not changed but the tick counter exceeded DRILL_PHASE_TIMEOUT, force-advance to the next
 ## phase and reset — so a stuck driller (killed mid-traverse, geometry blocked) never stalls.
-func _update_drill_phase(bot: Dictionary, next_phase: int) -> void:
-	var cur_phase: int = int(bot.get("drill_phase", AiDrill.DRILL_CLIMB))
-	var ticks: int = int(bot.get("drill_phase_ticks", 0))
-	if next_phase != cur_phase:
-		# Phase transition from drill_step logic.
-		bot["drill_phase"] = next_phase
-		bot["drill_phase_ticks"] = 0
-	else:
-		ticks += 1
-		if ticks >= AiDrill.DRILL_PHASE_TIMEOUT:
-			# Stuck: force the other phase and reset.
-			bot["drill_phase"] = AiDrill.DRILL_VAULT if cur_phase == AiDrill.DRILL_CLIMB else AiDrill.DRILL_CLIMB
-			bot["drill_phase_ticks"] = 0
-		else:
-			bot["drill_phase_ticks"] = ticks
-
-## True if THIS bot is the nearest alive teammate (in its view) to the downed mate `rid` — so only
-## one reviver commits while the rest keep fighting. Ties broken by id for a stable single winner.
-func _is_closest_reviver(bot: Dictionary, me: EntityState, rid: int) -> bool:
-	var view: Dictionary = bot["view"]
-	if not view.has(rid):
-		return false
-	var dpos: Vector3 = (view[rid] as EntityState).pos
-	var my_d: float = me.pos.distance_to(dpos)
-	if my_d <= Revive.REVIVE_RANGE:
-		return true   # already in revive range -> always commit, never strand a downed mate
-	var my_id: int = int(bot["id"])
-	for id in view:
-		if int(id) == my_id or int(id) == rid:
-			continue
-		var e: EntityState = view[id]
-		if not e.alive or e.is_downed or e.team != me.team:
-			continue
-		var d: float = e.pos.distance_to(dpos)
-		if d < my_d - 0.01 or (absf(d - my_d) <= 0.01 and int(id) < my_id):
-			return false   # a closer (or tie-broken) teammate will take this revive
-	return true
-
-func _nearest_downed_teammate(bot: Dictionary, me: EntityState) -> int:
-	if me == null:
-		return 0
-	var best := 0
-	var best_d := INF
-	var view: Dictionary = bot["view"]
-	for id in view:
-		var e: EntityState = view[id]
-		if not e.is_downed:
-			continue
-		if e.team != me.team:
-			continue
-		var d: float = me.pos.distance_to(e.pos)
-		if d < best_d and d < 20.0:
-			best_d = d
-			best = id
-	return best
-
-func _maybe_build(bot: Dictionary, me: EntityState) -> void:
-	if int(bot["builds_made"]) >= MAX_BOT_BUILDS:
-		return
-	var st: int = bot["server_tick"]
-	if st - int(bot["last_build_tick"]) < BUILD_COOLDOWN_TICKS:
-		return
-	# Drop cover to the bot's SIDE (perpendicular to its facing), one step away. The caller only
-	# invokes this while stationary. A full-height WALL is used so it blocks standing eye-height
-	# shots (a half-height sandbag sits below the ~1.6 m sight line and never blocks combat).
-	# Placing it to the side rather than down the firing line means the bot keeps engaging
-	# forward (so attrition still converges the match) while the wall blocks flanking crossfire.
-	var dir := Vector2(cos(me.yaw), -sin(me.yaw))   # right-hand perpendicular to facing
-	var target := me.pos + Vector3(dir.x, 0.0, dir.y) * BUILD_DIST
-	var cell := BuildGrid.cell_of(Vector3(target.x, 0.0, target.z))
-	var yaw_step := int(round(me.yaw / (TAU / float(BuildGrid.YAW_STEPS)))) % BuildGrid.YAW_STEPS
-	if yaw_step < 0: yaw_step += BuildGrid.YAW_STEPS
-	var bytes := Protocol.encode_build_request(1, cell, yaw_step)   # type 1 = wall (full height)
-	(bot["net"] as NetHost).send_to(bot["peer"], NetHost.CHANNEL_INPUT, bytes, 0)
-	bot["last_build_tick"] = st
-	bot["builds_made"] = int(bot["builds_made"]) + 1
-
-## M12-P2 shovel-driller (BotRoles.SHOVEL): place build sites + hold BTN_SHOVEL to build them, and
-## shovel finished structures the server then auto-repairs (friendly+holed) or dismantles (enemy).
-## Self-contained: computes move + buttons and _sends, so it never runs combat or the side-wall build.
-## A LARGE-cooperation sub-subset (BotRoles.large_coop) converges on ONE shared per-team heavy_barricade
-## cell so >=2 of them build it together (built_large); a lone one there trips bsolo while it waits.
-func _drive_shovel_driller(bot: Dictionary, me: EntityState) -> void:
-	var structs: Dictionary = bot["structs"]
-	var is_large: bool = BotRolesRef.large_coop(int(bot["index"]))
-
-	# 1. Pick a work target cell (Vector3i). Build sites are PRIMARY (so the structure-dense map's
-	#    finished pieces never starve the build path); shovelling a nearby finished structure (repair/
-	#    dismantle) is the fallback once a driller has spent its build cap.
-	var target_cell := Vector3i.ZERO
-	var have_target := false
-
-	if is_large and _map != null and not _map.base_for(int(me.team)).is_empty():
-		# Large-cooperation: every large driller on the team locks the SAME shared cell so >=2 converge.
-		# M12-P3: the squad LEADERS place a FOB site at this cell (see _drive_fob_leader); the large
-		# drillers no longer place a heavy_barricade here — they just converge + shovel whatever site is
-		# there, adding builders to the FOB so it clears min_builders=2 and completes (built_large fires).
-		target_cell = _shared_large_cell(int(me.team))
-		have_target = true
-	else:
-		var have_base: bool = _map != null and not _map.base_for(int(me.team)).is_empty()
-		# (P1) Commit to a sticky own build cell until the site finishes (or proves rejected/decayed).
-		#      This is what stops the structure-dense map's branch-(P3) shovel from diverting a driller
-		#      off its half-built wall every tick.
-		if bool(bot.get("has_build", false)):
-			var bc: Vector3i = bot["build_cell"]
-			var rec := _struct_at(structs, bc)
-			if not rec.is_empty():
-				if int(rec.get("under_construction", 0)) == 1:
-					target_cell = bc; have_target = true        # still building -> stay on it
-				else:
-					bot["has_build"] = false                    # completed -> release
-			elif int(bot["server_tick"]) - int(bot.get("build_set_tick", 0)) < BUILD_COMMIT_TICKS:
-				target_cell = bc; have_target = true            # placed; site delta in flight -> hold
-			else:
-				# Placed but the site never appeared (cell occupied / lost race on the dense gate map):
-				# shift to a fresh lane next pass and refund the cap (nothing was actually built).
-				bot["has_build"] = false
-				bot["build_attempt"] = int(bot.get("build_attempt", 0)) + 1
-				bot["builds_made"] = maxi(0, int(bot["builds_made"]) - 1)
-		# (P2) Head to a CLEAR per-driller lane cell near the team base and place a wall there once in
-		#      BUILD_RANGE. Ahead-of-facing placement (old _wall_cell) collided with the dense map's
-		#      prebuilt pieces and got rejected -> built_small never fired; a clear near-base lane fixes it.
-		if not have_target and have_base and int(bot["builds_made"]) < MAX_BOT_BUILDS:
-			var seed: int = int(bot["id"]) + int(bot.get("build_attempt", 0))   # id is globally unique
-			var bc := Vector3i.ZERO
-			var clear := false
-			for k in SMALL_LANES:
-				var cand := _small_build_cell(int(me.team), seed + k)
-				if _struct_at(structs, cand).is_empty():
-					bc = cand; clear = true; break
-			if clear:
-				target_cell = bc; have_target = true
-				if me.pos.distance_to(BuildGrid.world_of(bc)) <= StructureStore.BUILD_RANGE - 0.5:
-					if _place_site(bot, me, WALL_TYPE, bc):
-						bot["has_build"] = true
-						bot["build_cell"] = bc
-						bot["build_set_tick"] = int(bot["server_tick"])
-		# (P3) Fallback (build done / capped / no base): seek the nearest known structure in range and
-		#      shovel it — the server repairs it (friendly + holed) or dismantles it (enemy). Wide range
-		#      so a driller that has finished building roams to a real structure instead of idling.
-		if not have_target:
-			var best_d := SHOVEL_SEEK_RANGE
-			for sid in structs:
-				var wp: Vector3 = BuildGrid.world_of(structs[sid]["cell"] as Vector3i)
-				var d := me.pos.distance_to(wp)
-				if d < best_d:
-					best_d = d; target_cell = structs[sid]["cell"]; have_target = true
-
-	if not have_target:
-		# Nothing to work yet (e.g. build on cooldown, no structure in seek range) — hold + face forward.
-		_send(bot, 0.0, 0.0, bot["yaw"], 0.0, 0)
-		return
-
-	# 2. Steer to the target and shovel. Face the centre (atan2(dir.x, dir.z)); stop + hold BTN_SHOVEL
-	#    once within range so the server accrues progress / repairs / dismantles.
-	var center := BuildGrid.world_of(target_cell)
-	var to := center - me.pos
-	var flat := Vector2(to.x, to.z)
-	var dist := flat.length()
-	var move_x := 0.0
-	var move_y := 0.0
-	var buttons := 0
-	if dist > 0.001:
-		bot["yaw"] = atan2(to.x, to.z)
-	if dist <= SHOVEL_APPROACH:
-		pass   # in range: hold position
-	else:
-		var n := flat / dist
-		move_x = n.x; move_y = n.y
-	if dist <= BuildSite.SHOVEL_RANGE:
-		buttons |= InputCommand.BTN_SHOVEL   # server resolves build vs repair vs dismantle
-	_send(bot, move_x, move_y, bot["yaw"], 0.0, buttons)
-
-## Deterministic shared heavy_barricade cell for a team: 4 m in front of the team base toward the map
-## centre (origin), snapped to a build cell. Every large driller on the team computes the same cell so
-## they converge on one site. Reachable (near spawn) and clear of the base itself.
-func _shared_large_cell(team: int) -> Vector3i:
-	var bpos: Vector3 = _map.base_for(team)["pos"]
-	var toward := Vector3(-bpos.x, 0.0, -bpos.z)
-	if toward.length() < 0.01:
-		toward = Vector3(0.0, 0.0, 1.0)
-	var p := bpos + toward.normalized() * 4.0
-	return BuildGrid.cell_of(Vector3(p.x, 0.0, p.z))
-
-## A clear per-driller wall cell near the team base: SMALL_BUILD_DEPTH in front of the base toward the
-## map centre, then offset laterally into a lane derived from `seed` (per-driller, so drillers don't
-## stack), snapped to a build cell. Mirrors _shared_large_cell but spreads small drillers into lanes.
-## The caller scans SMALL_LANES consecutive seeds for the first cell with no known structure, so the
-## dense gate map's prebuilt pieces (and other drillers' walls) are avoided instead of colliding.
-func _small_build_cell(team: int, seed: int) -> Vector3i:
-	var bpos: Vector3 = _map.base_for(team)["pos"]
-	var toward := Vector3(-bpos.x, 0.0, -bpos.z)
-	if toward.length() < 0.01:
-		toward = Vector3(0.0, 0.0, 1.0)
-	toward = toward.normalized()
-	var perp := Vector3(-toward.z, 0.0, toward.x)       # lateral axis across the base->centre line
-	var lane := (seed % SMALL_LANES) - SMALL_LANES / 2  # spread both sides of the approach line
-	var p := bpos + toward * SMALL_BUILD_DEPTH + perp * (float(lane) * BuildGrid.CELL_SIZE)
-	return BuildGrid.cell_of(Vector3(p.x, 0.0, p.z))
-
-## The known structure/site record at `cell` (empty Dictionary if none).
-func _struct_at(structs: Dictionary, cell: Vector3i) -> Dictionary:
-	for sid in structs:
-		if (structs[sid]["cell"] as Vector3i) == cell:
-			return structs[sid]
-	return {}
-
-## Send a BUILD_REQUEST for `type` at `cell` if the per-bot cap + cooldown allow. Returns true if sent.
-## The server independently validates range/occupancy/cooldown, so a rejected request is harmless.
-func _place_site(bot: Dictionary, me: EntityState, type: int, cell: Vector3i) -> bool:
-	if int(bot["builds_made"]) >= MAX_BOT_BUILDS:
-		return false
-	var st: int = bot["server_tick"]
-	if st - int(bot["last_build_tick"]) < BUILD_COOLDOWN_TICKS:
-		return false
-	var yaw_step := int(round(me.yaw / (TAU / float(BuildGrid.YAW_STEPS)))) % BuildGrid.YAW_STEPS
-	if yaw_step < 0: yaw_step += BuildGrid.YAW_STEPS
-	(bot["net"] as NetHost).send_to(bot["peer"], NetHost.CHANNEL_INPUT,
-		Protocol.encode_build_request(type, cell, yaw_step), 0)
-	bot["last_build_tick"] = st
-	bot["builds_made"] = int(bot["builds_made"]) + 1
-	return true
-
-## M12-P3: true if this bot is its squad's leader — the lowest id among the visible same-team +
-## same-squad pawns (plus itself). The server independently re-checks leadership on PLACE_FOB, so a
-## false positive (a closer-but-not-actually-lowest id off-view) just yields a harmless rejected request.
-func _is_squad_leader(bot: Dictionary, me: EntityState) -> bool:
-	var ids: Array = [int(bot["id"])]
-	var view: Dictionary = bot["view"]
-	for id in view:
-		var e: EntityState = view[id]
-		if int(e.team) == int(me.team) and int(e.squad) == int(me.squad):
-			ids.append(int(id))
-	return Fob.is_squad_leader(int(bot["id"]), ids)
-
-## M12-P3: send a PLACE_FOB for `cell` if the per-bot FOB cooldown allows. PLACE_FOB is leader-only +
-## UNCAPPED server-side, so it does NOT consume the builds_made cap (unlike _place_site). Returns true
-## if sent. The server validates leader/occupancy/placement, so a rejected request is harmless.
-func _place_fob(bot: Dictionary, me: EntityState, cell: Vector3i) -> bool:
-	var st: int = bot["server_tick"]
-	if st - int(bot.get("last_fob_tick", -100000)) < BUILD_COOLDOWN_TICKS:
-		return false
-	var yaw_step := int(round(me.yaw / (TAU / float(BuildGrid.YAW_STEPS)))) % BuildGrid.YAW_STEPS
-	if yaw_step < 0: yaw_step += BuildGrid.YAW_STEPS
-	(bot["net"] as NetHost).send_to(bot["peer"], NetHost.CHANNEL_INPUT,
-		Protocol.encode_place_fob(cell, yaw_step), 0)
-	bot["last_fob_tick"] = st
-	return true
-
-## M12-P3: true if this bot should run the FOB drill — it is its squad's leader AND the per-team shared
-## cell does NOT yet hold a COMPLETED structure (empty or under_construction) AND it has not been drilling
-## past FOB_DRILL_MAX_TICKS. Tracks fob_drill_start (first active tick); resets it once the FOB completes
-## so a destroyed-then-absent FOB can be rebuilt on a fresh evaluation (respawn also resets it).
-func _fob_drill_active(bot: Dictionary, me: EntityState) -> bool:
-	if not _is_squad_leader(bot, me):
-		return false
-	var structs: Dictionary = bot["structs"]
-	var cell: Vector3i = _shared_large_cell(int(me.team))
-	var rec: Dictionary = _struct_at(structs, cell)
-	if not rec.is_empty() and int(rec.get("under_construction", 0)) == 0:
-		bot["fob_drill_start"] = -1   # FOB (or a structure) is up at the cell -> stop drilling, reset
-		return false
-	var now: int = int(bot["server_tick"])
-	var start: int = int(bot.get("fob_drill_start", -1))
-	if start < 0:
-		bot["fob_drill_start"] = now
-		start = now
-	if now - start > FOB_DRILL_MAX_TICKS:
-		return false   # deadline exceeded -> fall through to normal AI (never babysit a failing cell)
-	return true
-
-## M12-P3 FOB leader drill: a squad leader whose squad has no completed FOB yet steers to the per-team
-## shared cell, places a FOB site there (PLACE_FOB), and holds BTN_SHOVEL to build it. Mirrors the
-## shovel-driller's steer+shovel step; the large shovel-drillers converge on the SAME cell and shovel
-## it too, so leader + drillers exceed the FOB's min_builders=2 and it completes (fobs_built fires).
-## Self-contained: computes move + buttons and _sends, overriding combat until the FOB is up (or deadline).
-func _drive_fob_leader(bot: Dictionary, me: EntityState) -> void:
-	var structs: Dictionary = bot["structs"]
-	var cell: Vector3i = _shared_large_cell(int(me.team))
-	var center := BuildGrid.world_of(cell)
-	var to := center - me.pos
-	var flat := Vector2(to.x, to.z)
-	var dist := flat.length()
-	var move_x := 0.0
-	var move_y := 0.0
-	var buttons := 0
-	if dist > 0.001:
-		bot["yaw"] = atan2(to.x, to.z)
-	if dist > SHOVEL_APPROACH:
-		var n := flat / dist
-		move_x = n.x; move_y = n.y
-	# In build range + the shared cell is still empty -> drop the FOB site. The server rejects it if this
-	# bot is not really the leader or the cell is occupied (harmless — another leader / a later tick lands it).
-	if dist <= StructureStore.BUILD_RANGE - 0.5 and _struct_at(structs, cell).is_empty():
-		_place_fob(bot, me, cell)
-	if dist <= BuildSite.SHOVEL_RANGE:
-		buttons |= InputCommand.BTN_SHOVEL   # advances the FOB site once placed; all same-team builders count
-	_send(bot, move_x, move_y, bot["yaw"], 0.0, buttons)
-
-## Throw a FRAG at an in-view enemy when a structure sits roughly on the line between us and them
-## (so the blast clears cover) — shared cooldown + per-bot frag cap. Drives the blast/destruction gate.
-func _maybe_grenade(bot: Dictionary, me: EntityState, target: EntityState) -> void:
-	if int(bot["nades_thrown"]) >= MAX_BOT_GRENADES:
-		return
-	var st: int = bot["server_tick"]
-	if st - int(bot["last_grenade_tick"]) < GRENADE_COOLDOWN_TICKS:
-		return
-	if not _cover_between(bot, me.pos, target.pos):
-		return
-	var dir := target.pos - me.pos
-	if dir.length() < 0.001:
-		return
-	(bot["net"] as NetHost).send_to(bot["peer"], NetHost.CHANNEL_INPUT,
-		Protocol.encode_grenade_throw(dir.normalized(), Grenade.FRAG), 0)
-	bot["last_grenade_tick"] = st
-	bot["nades_thrown"] = int(bot["nades_thrown"]) + 1
-
-## Throw a SMOKE toward the objective while advancing (no target) — shared cooldown + per-bot smoke
-## cap. No gameplay effect until M7 LOS culling; exercises the smoke replication path for the gate.
-func _maybe_smoke(bot: Dictionary, me: EntityState, obj: Vector3) -> void:
-	if int(bot["smokes_thrown"]) >= MAX_BOT_SMOKES:
-		return
-	var st: int = bot["server_tick"]
-	if st - int(bot["last_grenade_tick"]) < GRENADE_COOLDOWN_TICKS:
-		return
-	var dir := obj - me.pos
-	if dir.length() < 0.001:
-		return
-	(bot["net"] as NetHost).send_to(bot["peer"], NetHost.CHANNEL_INPUT,
-		Protocol.encode_grenade_throw(dir.normalized(), Grenade.SMOKE), 0)
-	bot["last_grenade_tick"] = st
-	bot["smokes_thrown"] = int(bot["smokes_thrown"]) + 1
-
-## Throw a FLASHBANG/IMPACT at a visible nearby enemy (M5.5-P3 gate exerciser). Shares the server
-## throw cooldown + has a per-bot lifetime cap; aims directly at the target (flash blinds; impact
-## detonates on contact).
-func _maybe_throwable(bot: Dictionary, me: EntityState, target: EntityState, type: int, count_key: String) -> void:
-	if int(bot.get(count_key, 0)) >= MAX_BOT_SPECIAL_THROWS:
-		return
-	var st: int = bot["server_tick"]
-	if st - int(bot["last_grenade_tick"]) < GRENADE_COOLDOWN_TICKS:
-		return
-	var dir := target.pos - me.pos
-	var dist := dir.length()
-	if dist < 0.001 or dist > 30.0:
-		return
-	(bot["net"] as NetHost).send_to(bot["peer"], NetHost.CHANNEL_INPUT,
-		Protocol.encode_grenade_throw(dir.normalized(), type), 0)
-	bot["last_grenade_tick"] = st
-	bot[count_key] = int(bot.get(count_key, 0)) + 1
-
-## Quick-knife when an enemy is at point-blank (M5.5-P3). Face the target so the server's
-## frontal-cone selection picks it up; server cooldown-gates and resolves back-stab vs body damage.
-func _maybe_melee(bot: Dictionary, me: EntityState, target: EntityState) -> void:
-	if me.pos.distance_to(target.pos) > Melee.MELEE_RANGE + 0.4:
-		return
-	var st: int = bot["server_tick"]
-	if st - int(bot.get("last_melee_tick", -100000)) < MELEE_COOLDOWN_TICKS:
-		return
-	var to := target.pos - me.pos
-	bot["yaw"] = atan2(to.x, to.z)
-	(bot["net"] as NetHost).send_to(bot["peer"], NetHost.CHANNEL_INPUT, Protocol.encode_melee(), 0)
-	bot["last_melee_tick"] = st
-
-## Engineer sledgehammer exerciser: a subset of engineers (id % 4 == 0) steer to the nearest known
-## structure and melee it in reach (the server demolishes the struck cell). Returns a [mx,my]
-## movement override, or [] for bots that should drive normally. Best-effort — the deterministic
-## gate proves the mechanic; this guarantees the fleet exercises it on building-dense maps.
-func _maybe_sledge(bot: Dictionary, me: EntityState) -> Array:
-	if int(bot["class"]) != Loadout.ENGINEER or int(bot["id"]) % 4 != 0:
-		return []
-	var structs: Dictionary = bot["structs"]
-	if structs.is_empty():
-		return []
-	var best_id := 0
-	var best_d := SLEDGE_SEEK_RANGE
-	for sid in structs:
-		var wp: Vector3 = BuildGrid.world_of(structs[sid]["cell"] as Vector3i)
-		var d := me.pos.distance_to(wp)
-		if d < best_d:
-			best_d = d; best_id = sid
-	if best_id == 0:
-		return []
-	var to: Vector3 = BuildGrid.world_of(structs[best_id]["cell"] as Vector3i) - me.pos
-	if to.length() <= Melee.MELEE_RANGE + 0.3:
-		var st: int = bot["server_tick"]
-		if st - int(bot.get("last_melee_tick", -100000)) >= MELEE_COOLDOWN_TICKS:
-			bot["yaw"] = atan2(to.x, to.z); bot["pitch"] = 0.0
-			(bot["net"] as NetHost).send_to(bot["peer"], NetHost.CHANNEL_INPUT, Protocol.encode_melee(), 0)
-			bot["last_melee_tick"] = st
-		return [0.0, 0.0]   # hold position while demolishing
-	var f := Vector2(to.x, to.z).normalized()
-	bot["yaw"] = atan2(f.x, f.y)
-	return [f.x, f.y]
-
-## Exercise fire-mode cycling and secondary weapon swap for a deterministic subset of bots.
-## Fire-mode: the BotRoles.FIREMODE cohort (not Engineer, which uses SMG that lacks BURST)
-## send MODE_BURST once per bot life (on first invocation after spawn, gated by fire_mode_set).
-## Swap: the BotRoles.SWAP cohort swaps to secondary at server_tick % 600 == 120 and back at
-## server_tick % 600 == 240 — guaranteed within the first ~10s of any match.
-func _maybe_weapon_handling(bot: Dictionary, me: EntityState) -> void:
-	# Reset per-life flag when bot is not alive (called only when alive, but fire_mode_set
-	# is also reset in the dead-bot branch via the respawn reset block, mirroring other flags).
-	# Fire-mode: the BotRoles.FIREMODE cohort, non-Engineer only (AR supports BURST; SMG does not).
-	if BotRolesRef.of(int(bot["index"])) == BotRolesRef.FIREMODE and int(bot["class"]) != Loadout.ENGINEER:
-		if not bool(bot.get("fire_mode_set", false)):
-			(bot["net"] as NetHost).send_to(bot["peer"], NetHost.CHANNEL_INPUT,
-				Protocol.encode_set_fire_mode(Weapon.MODE_BURST), 0)
-			bot["fire_mode_set"] = true
-	# Periodic secondary swap: the BotRoles.SWAP cohort — now DISJOINT from the drillers (the old
-	# %4==0 population was exactly the two driller cohorts, so no plain rifleman ever swapped and
-	# drillers kept having the shovel yanked away mid-drill). Transition-based (send only on a slot
-	# change) so it is robust to server_tick advancing by SNAPSHOT_STRIDE.
-	if BotRolesRef.of(int(bot["index"])) == BotRolesRef.SWAP:
-		var cycle: int = (int(bot["server_tick"]) / 120) % 4
-		var want_slot: int = 1 if cycle == 1 else 0
-		if want_slot != int(bot.get("cur_swap_slot", 0)):
-			(bot["net"] as NetHost).send_to(bot["peer"], NetHost.CHANNEL_INPUT,
-				Protocol.encode_swap_weapon(want_slot), 0)
-			bot["cur_swap_slot"] = want_slot
-
-## Engineer RPG is anti-vehicle first; falls back to targeting nearby structural building pieces
-## (building_id != 0) near the bot's current objective when no enemy vehicle is in range.
-## Estimate the vehicle target's velocity from successive snapshots and lead the aim by the
-## rocket's flight time so a moving transport actually gets hit. Cooldown-gated (the server also
-## enforces the real per-rocket cooldown + the 3-rocket reserve).
-func _maybe_rpg(bot: Dictionary, me: EntityState) -> void:
-	if bot["class"] != Loadout.ENGINEER: return
-	var vveh := AiVehicleCrew.nearest_enemy_vehicle(bot["vview"], bot["view"], me.pos, int(me.team), VEHICLE_RPG_RANGE)
-	if vveh != 0:
-		var vv: VehicleState = bot["vview"][vveh]
-		var now := int(bot["server_tick"])
-		# Update the velocity estimate for this vehicle (only when its position actually advanced).
-		var track: Dictionary = bot["vveh_track"]
-		var prev = track.get(vveh)
-		var vel := Vector3.ZERO
-		if prev != null:
-			vel = prev["vel"]   # persist last good estimate between snapshots
-			var dt_ticks := now - int(prev["tick"])
-			var moved: Vector3 = vv.pos - (prev["pos"] as Vector3)
-			if dt_ticks > 0 and moved.length() > 0.01:
-				vel = moved / (float(dt_ticks) * SimLoop.DT)
-		if prev == null or (vv.pos - (prev["pos"] as Vector3)).length() > 0.01:
-			track[vveh] = {"pos": vv.pos, "tick": now, "vel": vel}
-		# Cooldown gate (do the aim/fire only when ready).
-		if now - int(bot["rpg_last_tick"]) < RPG_FIRE_COOLDOWN: return
-		var origin := me.pos
-		var flight: float = origin.distance_to(vv.pos) / ROCKET_SPEED
-		# Lead the target, then raise the aim by 1/2 g t^2 so the ballistic rocket's arc passes
-		# through it (rockets fall under ROCKET_GRAVITY; a flat aim lands short at range).
-		var aim_pt: Vector3 = vv.pos + vel * flight
-		aim_pt.y += 0.5 * ROCKET_GRAVITY * flight * flight
-		# One refinement pass: the raised aim is slightly farther, so recompute flight + drop.
-		flight = origin.distance_to(aim_pt) / ROCKET_SPEED
-		aim_pt = vv.pos + vel * flight
-		aim_pt.y += 0.5 * ROCKET_GRAVITY * flight * flight
-		var dir := aim_pt - origin
-		if dir.length() < 0.001: return
-		(bot["net"] as NetHost).send_to(bot["peer"], NetHost.CHANNEL_INPUT,
-			Protocol.encode_gadget_action(Protocol.GA_RPG_FIRE, Vector3.ZERO, dir.normalized(), 0), 0)
-		bot["rpg_last_tick"] = now
-		return
-	# Fallback: no enemy vehicle in range — lob a rocket at the nearest structural building piece
-	# (building_id != 0) within RPG range. This is a best-effort heuristic to help bots chip away
-	# at destructible cover near contested points. Strictly additive; does NOT alter vehicle logic.
-	_maybe_rpg_building(bot, me)
-
-## Heuristic fallback for _maybe_rpg: find the nearest structural building piece within
-## VEHICLE_RPG_RANGE, aim at its cell centre (with rocket-drop compensation), and fire.
-## Guards against null structs, empty mirrors, and non-engineer bots (caller already checks class).
-func _maybe_rpg_building(bot: Dictionary, me: EntityState) -> void:
-	var now := int(bot["server_tick"])
-	if now - int(bot["rpg_last_tick"]) < RPG_FIRE_COOLDOWN: return
-	var structs: Dictionary = bot["structs"]
-	if structs.is_empty(): return
-	# Find the nearest structural piece (building_id != 0) within range.
-	var best_id := 0
-	var best_d := VEHICLE_RPG_RANGE
-	for sid in structs:
-		var rec: Dictionary = structs[sid]
-		if int(rec.get("building_id", 0)) == 0: continue   # skip non-building pieces
-		var cell: Vector3i = rec["cell"]
-		var wp: Vector3 = BuildGrid.world_of(cell)
-		var d: float = me.pos.distance_to(wp)
-		if d < best_d:
-			best_d = d; best_id = sid
-	if best_id == 0: return   # no structural piece in range
-	var target_cell: Vector3i = structs[best_id]["cell"]
-	var target_wp: Vector3 = BuildGrid.world_of(target_cell)
-	var origin := me.pos
-	var flight: float = origin.distance_to(target_wp) / ROCKET_SPEED
-	# Apply the same ballistic drop compensation as the vehicle path — raise the aim so the
-	# rocket's arc passes through the target rather than falling short.
-	var aim_pt := target_wp
-	aim_pt.y += 0.5 * ROCKET_GRAVITY * flight * flight
-	# One refinement pass (mirrors vehicle path).
-	flight = origin.distance_to(aim_pt) / ROCKET_SPEED
-	aim_pt = target_wp
-	aim_pt.y += 0.5 * ROCKET_GRAVITY * flight * flight
-	var dir := aim_pt - origin
-	if dir.length() < 0.001: return
-	(bot["net"] as NetHost).send_to(bot["peer"], NetHost.CHANNEL_INPUT,
-		Protocol.encode_gadget_action(Protocol.GA_RPG_FIRE, Vector3.ZERO, dir.normalized(), 0), 0)
-	bot["rpg_last_tick"] = now
-
-## Engineer C4: an engineer who chose C4 (gadget_for_player → C4) places one near a structure
-## between us and the enemy, then detonates it next pass.
-func _maybe_c4(bot: Dictionary, me: EntityState, target: EntityState) -> void:
-	if Loadout.gadget_for_player(int(bot["class"]), int(bot["id"])) != Loadout.GADGET_C4: return
-	if not bool(bot["c4_placed"]):
-		if not _cover_between(bot, me.pos, target.pos): return
-		var place := me.pos + (target.pos - me.pos).normalized() * 2.0
-		(bot["net"] as NetHost).send_to(bot["peer"], NetHost.CHANNEL_INPUT,
-			Protocol.encode_gadget_action(Protocol.GA_C4_PLACE, place, Vector3.ZERO, 0), 0)
-		bot["c4_placed"] = true
-	elif not bool(bot["c4_detonated"]):
-		(bot["net"] as NetHost).send_to(bot["peer"], NetHost.CHANNEL_INPUT,
-			Protocol.encode_gadget_action(Protocol.GA_C4_DETONATE, Vector3.ZERO, Vector3.ZERO, 0), 0)
-		bot["c4_detonated"] = true
-
-## Engineer claymore: an engineer who chose the claymore (gadget_for_player → MINE) drops one
-## facing `toward` (the current enemy when fighting, else the contested objective) — the claymore
-## sits between the engineer and where enemies advance from, so an attacker (or the bot's own
-## killer pushing in) crosses the 1.5 m trip cone. Re-placed each life (flags reset on death),
-## so claymores keep appearing along the front rather than one stale one per match.
-func _maybe_mine(bot: Dictionary, me: EntityState, toward: Vector3) -> void:
-	if Loadout.gadget_for_player(int(bot["class"]), int(bot["id"])) != Loadout.GADGET_MINE or bool(bot["mine_placed"]): return
-	var to_t := Vector3(toward.x - me.pos.x, 0.0, toward.z - me.pos.z)
-	var face := to_t.normalized() if to_t.length() > 0.001 else Vector3(sin(me.yaw), 0.0, cos(me.yaw))
-	# Place toward `toward`, within the server's 2.0 m place_range.
-	var place := me.pos + face * minf(1.8, maxf(to_t.length(), 0.001))
-	(bot["net"] as NetHost).send_to(bot["peer"], NetHost.CHANNEL_INPUT,
-		Protocol.encode_gadget_action(Protocol.GA_MINE_PLACE, place, face, 0), 0)
-	bot["mine_placed"] = true
-
-const GIVE_RANGE := 3.0
-
-## Pure give-target pick: nearest same-team mate within GIVE_RANGE that is alive,
-## not downed (revive handles those) and actually HURT. Full-HP mates return 0 —
-## the old version picked any alive mate, aim-locking medics onto healthy teammates.
-static func give_pick(view: Dictionary, my_id: int, team: int, my_pos: Vector3) -> int:
-	var best := 0
-	var best_d := GIVE_RANGE
-	for id in view:
-		if int(id) == my_id: continue
-		var e: EntityState = view[id]
-		if not e.alive or e.is_downed or e.team != team or e.health >= 100: continue
-		var d: float = my_pos.distance_to(e.pos)
-		if d <= best_d:
-			best_d = d; best = int(id)
-	return best
-
-## Medic/Support: if a same-team mate within give range is HURT (and we're not in a
-## firefight), aim at them and latch the active give; also throw a bag the first time so
-## the thrown-bag path is exercised. GIVE_START is sent once per target acquisition — the
-## server latches it (`_giving`) and raycasts our aim each tick, so per-tick re-sends were
-## pure packet spam. While `engaged`, combat keeps the aim and any latched give is stopped.
-func _maybe_give(bot: Dictionary, me: EntityState, engaged: bool) -> void:
-	if bot["class"] != Loadout.MEDIC and bot["class"] != Loadout.SUPPORT: return
-	var view: Dictionary = bot["view"]
-	var best := 0 if engaged else give_pick(view, int(bot["id"]), me.team, me.pos)
-	if best == 0:
-		if int(bot.get("give_target", 0)) != 0:
-			(bot["net"] as NetHost).send_to(bot["peer"], NetHost.CHANNEL_INPUT,
-				Protocol.encode_gadget_action(Protocol.GA_GIVE_STOP, Vector3.ZERO, Vector3.ZERO, 0), 0)
-			bot["give_target"] = 0
-		return
-	var tpos: Vector3 = (view[best] as EntityState).pos
-	var aim := tpos - me.pos
-	bot["yaw"] = atan2(aim.x, aim.z)
-	bot["pitch"] = clampf(asin(clampf(aim.y / maxf(aim.length(), 0.001), -1.0, 1.0)), -Pawn.MAX_PITCH, Pawn.MAX_PITCH)
-	if int(bot.get("give_target", 0)) != best:
-		(bot["net"] as NetHost).send_to(bot["peer"], NetHost.CHANNEL_INPUT,
-			Protocol.encode_gadget_action(Protocol.GA_GIVE_START, Vector3.ZERO, aim.normalized(), best), 0)
-		bot["give_target"] = best
-	if int(bot["gave_until"]) == 0:
-		(bot["net"] as NetHost).send_to(bot["peer"], NetHost.CHANNEL_INPUT,
-			Protocol.encode_gadget_action(Protocol.GA_BAG_THROW, tpos, Vector3.ZERO, 0), 0)
-		bot["gave_until"] = 1
-
-## True if any known structure's cell-centre lies near the segment from `a` to `b` (coarse: the
-## bot only knows piece positions from its mirror, not exact AABBs). Bounds the throw to useful cases.
-func _cover_between(bot: Dictionary, a: Vector3, b: Vector3) -> bool:
-	var seg := b - a
-	var seg_len := seg.length()
-	if seg_len < 0.001:
-		return false
-	var n := seg / seg_len
-	for id in bot["structs"]:
-		var cell: Vector3i = bot["structs"][id]["cell"]
-		var c := BuildGrid.cell_min(cell) + Vector3.ONE * (BuildGrid.CELL_SIZE * 0.5)
-		var t := clampf((c - a).dot(n), 0.0, seg_len)
-		if (a + n * t).distance_to(c) <= BuildGrid.CELL_SIZE:   # within ~one cell of the line
-			return true
-	return false
-
 func _objective_pos(me: EntityState) -> Vector3:
 	if _map == null or _map.points.is_empty():
 		return me.pos

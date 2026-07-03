@@ -29,7 +29,7 @@ func test_broadcast_humans_sends_to_humans_only_and_honors_exclude() -> void:
 
 func test_fob_lists_send_on_change_then_heartbeat_not_every_tick() -> void:
 	var srv := _srv()
-	srv._fobs["0:2"] = {"squad": 2, "team": 0, "id": 4200, "cell": Vector3i.ZERO, "built": false}
+	srv._build.fobs["0:2"] = {"squad": 2, "team": 0, "id": 4200, "cell": Vector3i.ZERO, "built": false}
 	var spy: SpyNet = srv._net
 	srv._send_fob_lists()
 	assert_eq(spy.sends.size(), 2, "initial state change -> both humans get their team list")

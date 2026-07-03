@@ -5,6 +5,9 @@ extends Node
 
 const Protocol := preload("res://shared/net/protocol.gd")
 const ServerStats := preload("res://server/stats.gd")   # preload: class_name needs an --import to register
+const ServerFire := preload("res://server/fire.gd")
+const ServerSupport := preload("res://server/support.gd")
+const ServerBuild := preload("res://server/build.gd")
 const ReliableList := preload("res://server/reliable_list.gd")
 
 const TICK_RATE := 30
@@ -107,34 +110,24 @@ var _human_ids: Array = []
 var _positions := {}               # id -> Vector3, rebuilt each tick before fires
 var _prev_climb_vault: Dictionary = {}   # id -> int bitmask: bit0=climbing, bit1=vaulting (edge counting)
 
-var _reviving := {}            # reviver_id -> target_id, set per tick by REVIVE_ACTION(active)
-var _revive_ticks := {}        # target_id -> accumulated revive ticks
-var _being_revived := {}       # target_id -> reviver_id, this tick (drives the downed "being revived" UI)
 var _stats := ServerStats.new()   # the [telemetry] counter wall — see server/stats.gd
+var _fire := ServerFire.new(self)  # bullet pipeline + live projectile pool — see server/fire.gd
+var _support := ServerSupport.new(self)  # revive/give/repair/downed latches + steps — see server/support.gd
+var _build := ServerBuild.new(self)      # build sites + FOB lifecycle — see server/build.gd
 
 var _roster_tick := 0
 var _gadget_rl := ReliableList.new()   # GADGET_LIST changed+heartbeat state (server/reliable_list.gd)
-var _sites := BuildSiteStore.new()   # M12-P2: active under-construction build sites
-const MAX_SITES_PER_PLAYER := 4
 # M12-P3: squad-leader FOB registry. "team:squad" -> {squad, team, id, cell, built: bool}
-var _fobs: Dictionary = {}
 var _transport_origin := {}   # id -> Vector3 boarding pos (transport-distance metric)
 var _pending_removes: Array = []   # [{id, cell}] removes awaiting send (degradation queue)
 var _dmg_touched := {}             # id -> true: pieces holed (alive) this tick, for end-of-tick chunk-mask resend
 var _buildings_to_cascade := {}    # building_id -> true; resolved at end of tick
 var _grenades: Array = []     # [{owner, team, type, pos, vel, detonate_tick}] — server-side, not replicated
 var _rockets: Array = []      # [{owner, team, pos, vel}] — server-side, not replicated
-const MAX_LIVE_PROJECTILES := 1024
-var _projectiles: Array = []  # [{owner, team, weapon_id, wdef, pos, vel, spawn_tick, dist, ttl}] — stepped bullets
 var _mines: Array = []        # [{owner, team, pos, facing, armed_after_tick}]
-var _giving: Dictionary = {}   # giver_id -> tick the give began (latched; cleared on STOP/invalid)
-var _support_links_this_tick: Array = []   # [{giver, target, kind}] the give/repair/revive steps actually acted on
 var _support_rl := ReliableList.new()  # SUPPORT_LIST
 var _downed_rl := ReliableList.new()   # DOWNED_LIST
 var _fob_rl := ReliableList.new()      # FOB_LIST ({team: pkt} payload)
-var _repairing := {}        # engineer_id -> true (latched)
-var _repair_heat := {}      # engineer_id -> int
-var _repair_cd := {}        # engineer_id -> cooldown_until tick
 var _bags: Array = []          # [{owner, team, kind, pos, pool}]
 var _c4: Dictionary = {}      # owner_id -> Array of {pos, cell:Vector3i}
 var _smoke_zones: Array = []  # [{pos, radius, expire_tick}] — server-side; M7 LOS culling consumes
@@ -260,9 +253,9 @@ func _physics_process(delta: float) -> void:
 	var t_lag := Time.get_ticks_usec()
 	_build_interest()
 	var t_int := Time.get_ticks_usec()
-	_resolve_fires()
-	_resolve_vehicle_fires()
-	_step_projectiles()   # bullets spawned by _resolve_fires step in present time (M5.5-P1)
+	_fire.resolve_fires()
+	_fire.resolve_vehicle_fires()
+	_fire.step_projectiles()   # bullets spawned by _resolve_fires step in present time (M5.5-P1)
 	# M5.5-P2: decay suppression once per tick, after accrual in _step_projectiles (accrue-then-decay).
 	for sid in _sim.world.pawns:
 		var sp: Pawn = _sim.world.pawns[sid]
@@ -273,17 +266,17 @@ func _physics_process(delta: float) -> void:
 	_step_rockets()
 	_step_mines()
 	var t_ord := Time.get_ticks_usec()
-	_support_links_this_tick.clear()   # rebuilt by the give/repair/revive steps below for SUPPORT_LIST
-	_step_active_give()
-	_step_repairs()
+	_support.links_this_tick.clear()   # rebuilt by the give/repair/revive steps below for SUPPORT_LIST
+	_support.step_active_give()
+	_support.step_repairs()
 	_step_bags()
 	_expire_smoke_zones()
-	_step_revives()
-	_step_downed()
+	_support.step_revives()
+	_support.step_downed()
 	var t_supp := Time.get_ticks_usec()
 	# Build sites moved below the support steps for profiler-bucket contiguity — safe: none of
 	# give/repairs/bags/smoke/revives/downed read the structure store, and cascades/deltas run later.
-	_step_build_sites()   # M12-P2: cooperative shovel construction / repair / dismantle
+	_build.step_build_sites()   # M12-P2: cooperative shovel construction / repair / dismantle
 	var t_build := Time.get_ticks_usec()
 	_handle_respawns()
 	_step_vehicle_respawns()
@@ -425,103 +418,6 @@ func _mounted_gunner_exists() -> bool:
 				return true
 	return false
 
-func _resolve_vehicle_fires() -> void:
-	for vid in _sim.world.vehicles:
-		var v: Vehicle = _sim.world.vehicles[vid]
-		if not v.alive or v.mounted.is_empty(): continue
-		var gunner := 0
-		for seat in v.seats.size():
-			if int(v.seat_roles[seat]) == Vehicle.ROLE_GUNNER and int(v.seats[seat]) != 0:
-				gunner = int(v.seats[seat]); break
-		if gunner == 0 or not _clients.has(gunner): continue
-		var inp = _clients[gunner]["last_input"]
-		if inp == null or (int(inp["buttons"]) & InputCommand.BTN_FIRE) == 0: continue
-		var interval := float(v.mounted["fire_interval"])
-		if (float(_sim.tick) - float(v.last_mounted_fire_tick)) * SimLoop.DT < interval: continue
-		v.last_mounted_fire_tick = _sim.tick
-		var gp: Pawn = _sim.world.get_pawn(gunner)
-		if gp == null: continue
-		var origin := v.turret_muzzle()
-		var dir := Combat._forward(v.turret_yaw, gp.pitch)
-		# Cosmetic: tracer + muzzle flash + gunfire sound at the turret muzzle (the mounted gun was
-		# previously silent + flashless to everyone). Reuses the infantry SHOT_FX path.
-		_broadcast_shot_fx(gunner, origin, dir)
-		var max_range := float(v.mounted["range_m"])
-		var view_tick: int = int(inp["view_server_tick"])
-		if _lag.clamped(view_tick):
-			_stats.rewind_clamped += 1   # gunner's view older than the rewind horizon (telemetry)
-		var frame := _lag.rewind(view_tick)
-		var candidates: Array = _grid.query(origin, max_range + FIRE_RANGE_MARGIN, _positions)
-		var best_t := max_range + 1.0
-		var best_victim := 0
-		var best_head := false
-		for tid in candidates:
-			if tid == gunner: continue
-			if not frame.has(tid): continue
-			var stt = frame[tid]
-			if not stt["alive"] or stt["team"] == v.team: continue
-			var vcenter: Vector3 = stt["pos"] + Vector3(0.0, Stance.body_height(stt["stance"]) * 0.5, 0.0)
-			var to_target: Vector3 = vcenter - origin
-			if to_target.length() > max_range: continue
-			if to_target.length() > FIRE_CONE_SKIP_RANGE and to_target.normalized().dot(dir) < FIRE_CONE_DOT: continue
-			var hit := Hitbox.raycast_pawn(origin, dir, stt["pos"], stt["stance"], max_range)
-			if hit["hit"] and hit["t"] < best_t:
-				best_t = hit["t"]; best_victim = tid; best_head = hit["headshot"]
-		if best_victim == 0: continue
-		var victim: Pawn = _sim.world.get_pawn(best_victim)
-		if victim == null or not victim.alive: continue
-		_stats.shots += 1; _stats.hits += 1
-		_broadcast_impact_fx(origin + dir * best_t, Protocol.IMPACT_FLESH)   # cosmetic blood mist at the hit
-		_apply_pawn_damage(best_victim, victim, int(v.mounted["damage"]), best_head, Revive.Source.BULLET, gunner, 0)
-		# Hitmarker to a human gunner (lethal = killed or downed), mirroring the infantry fire path.
-		var gsc: Dictionary = _clients.get(gunner, {})
-		if not gsc.is_empty() and not gsc.get("auto_deploy", true):
-			var glethal: bool = (not victim.alive) or victim.is_downed
-			_net.send_to(gsc["peer"], NetHost.CHANNEL_CONTROL, Protocol.encode_hitmarker(best_head, glethal), 0)
-
-func _resolve_fires() -> void:
-	for id in _clients:
-		var c = _clients[id]
-		var inp = c["last_input"]
-		if inp == null: continue
-		var shooter: Pawn = _sim.world.get_pawn(id)
-		if shooter == null or not shooter.alive or shooter.is_downed: continue   # downed = incapacitated, can't fire
-		if c["weapon"] == Weapon.RPG:
-			c["shot_index"] = 0
-			# RPG fires via GADGET_ACTION(GA_RPG_FIRE), not the hit-scan path. RELOAD refills the rocket pool.
-			var rpg_max := int(_gadgets.def_of_kind(Gadget.KIND_RPG)["ammo"])
-			if (inp["buttons"] & InputCommand.BTN_RELOAD) and not c["reloading"] and int(c["rockets"]) < rpg_max:
-				c["reloading"] = true
-				c["reload_done_tick"] = _sim.tick + int(round(RPG_RELOAD_SECS * TICK_RATE))
-				_broadcast_reload_fx(id, int(c["reload_done_tick"]) - _sim.tick)
-			continue
-		var firing: bool = (inp["buttons"] & InputCommand.BTN_FIRE) != 0
-		if not firing:
-			c["shot_index"] = 0
-			if (inp["buttons"] & InputCommand.BTN_RELOAD) and not c["reloading"] and c["ammo"] < Weapon.get_def(c["weapon"])["mag_size"]:
-				c["reloading"] = true
-				c["reload_done_tick"] = _sim.tick + int(round(Weapon.get_def(c["weapon"])["reload_secs"] * TICK_RATE))
-				_broadcast_reload_fx(id, int(c["reload_done_tick"]) - _sim.tick)
-			continue
-		var now := float(_sim.tick) * SimLoop.DT
-		var ready: bool = now - c["last_fire_time"] >= Weapon.fire_interval(c["weapon"])
-		var sprinting: bool = (inp["buttons"] & InputCommand.BTN_SPRINT) and shooter.stance == Stance.STAND
-		var drop_shoot: bool = Combat.drop_shoot_blocked(shooter.stance, _sim.tick, shooter.last_stance_change_tick)
-		var mode: int = int(c.get("fire_mode", Weapon.default_mode(c["weapon"])))
-		var burst: int = int(Weapon.get_def(c["weapon"]).get("burst_count", Weapon.DEFAULT_BURST))
-		var mode_ok: bool = Weapon.fire_allowed(mode, c["shot_index"], burst)
-		var equipping: bool = _sim.tick < int(c.get("swap_locked_until", 0))
-		if c["reloading"] or c["ammo"] <= 0 or not ready or sprinting or drop_shoot or not mode_ok or equipping:
-			if drop_shoot:
-				_stats.drop_shoot_blocked += 1
-			continue
-		c["last_fire_time"] = now
-		c["ammo"] -= 1
-		var shot_index: int = c["shot_index"]
-		c["shot_index"] = shot_index + 1
-		_stats.shots += 1
-		_fire_shot(id, shooter, inp, shot_index)
-
 ## Send `pkt` to every HUMAN client (auto_deploy=false), optionally excluding one id (the
 ## actor, who renders its own effect locally). Bots don't render — the cached _human_ids
 ## list keeps every cosmetic/list fan-out O(humans) instead of an O(128) skip-scan per event.
@@ -558,186 +454,6 @@ func _broadcast_impact_fx(pos: Vector3, kind: int) -> void:
 	_impact_fx_this_tick += 1
 	_broadcast_humans(NetHost.CHANNEL_SNAPSHOT, Protocol.encode_impact_fx(pos, kind))
 
-
-func _fire_shot(shooter_id: int, shooter: Pawn, inp: Dictionary, shot_index: int) -> void:
-	var lean_sign := 0
-	if shooter.lean == Stance.LEAN_LEFT: lean_sign = -1
-	elif shooter.lean == Stance.LEAN_RIGHT: lean_sign = 1
-	var moving: bool = absf(inp["move_x"]) + absf(inp["move_y"]) > 0.01
-	var wid: int = _clients[shooter_id]["weapon"]
-	var wdef: Dictionary = _clients[shooter_id]["weapon_def"]
-	var prone: bool = shooter.stance == Stance.PRONE
-	var supp_deg := Suppress.spread_penalty_deg(shooter.suppression)   # M5.5-P2: incoming fire widens our spread
-	# Aim-down-sights tightens spread. Authoritative: honour the bit only when not sprinting (you can't
-	# physically ADS mid-sprint), so a client can't claim ADS accuracy while sprint-running.
-	var sprinting: bool = (int(inp["buttons"]) & InputCommand.BTN_SPRINT) != 0 and shooter.stance == Stance.STAND
-	var aiming: bool = (int(inp["buttons"]) & InputCommand.BTN_AIM) != 0 and not sprinting
-	var ray := Combat.reconstruct_ray(wid, shooter.eye_position(),
-		inp["yaw"], inp["pitch"], lean_sign, shooter_id, _sim.tick, shot_index, moving, prone, wdef, supp_deg, aiming)
-
-	# Cosmetic: tell human clients (renderers) about this shot so remote pawns show a tracer.
-	_broadcast_shot_fx(shooter_id, ray["origin"], ray["dir"])
-
-	# M5.5-P1: bullets are stepped server-side projectiles. Spawn at the COMMAND tick, then step in
-	# PRESENT time (no per-shot lag-comp rewind for bullets — travel time masks latency). The hit is
-	# resolved later in _step_projectiles (broadphase + penetration + _apply_pawn_damage + hitmarker).
-	var wmv: float = float(wdef["muzzle_velocity"])
-	if _projectiles.size() < MAX_LIVE_PROJECTILES:
-		# Store the scalars _step_projectiles uses, not the wdef ref — the projectile is conceptually
-		# shared with the future M7 client tracer, which has no server def dict (self-contained).
-		_projectiles.append({
-			"owner": shooter_id, "team": shooter.team, "weapon_id": wid,
-			"gravity_scale": float(wdef["gravity_scale"]), "range_m": float(wdef["range_m"]),
-			"damage_body": int(wdef["damage_body"]), "headshot_mult": float(wdef["headshot_mult"]),
-			"pos": ray["origin"], "vel": Projectile.initial_velocity(ray["dir"], wmv),
-			"spawn_tick": _sim.tick, "dist": 0.0, "ttl": Weapon.projectile_ttl_ticks(wid),
-		})
-		_stats.proj_fired += 1
-	else:
-		_stats.proj_dropped += 1
-
-# Test seam: spawn a projectile for a known owner/weapon/dir without going through input/loadout.
-# Used by tests/projectile_gate_test.gd; never called in production.
-func _spawn_projectile_for_test(owner: int, wid: int, pos: Vector3, dir: Vector3) -> void:
-	var p: Pawn = _sim.world.get_pawn(owner)
-	var wdef: Dictionary = Weapon.get_def(wid)
-	_projectiles.append({"owner": owner, "team": (p.team if p else 0), "weapon_id": wid,
-		"gravity_scale": float(wdef["gravity_scale"]), "range_m": float(wdef["range_m"]),
-		"damage_body": int(wdef["damage_body"]), "headshot_mult": float(wdef["headshot_mult"]),
-		"pos": pos, "vel": Projectile.initial_velocity(dir, float(wdef["muzzle_velocity"])),
-		"spawn_tick": _sim.tick, "dist": 0.0, "ttl": Weapon.projectile_ttl_ticks(wid)})
-
-# Integrate each live bullet one tick, raycast its per-tick segment against enemy pawns (interest-grid
-# broadphase) + the structure store (penetration), and on a confirmed pawn hit apply damage. Models on
-# _step_rockets; per-shot `return`s from the old _fire_shot become `continue` (drop one projectile, keep
-# iterating the pool). PRESENT-time resolve — no lag-comp rewind for bullets.
-## Shortest distance from point `p` to segment a→b (for near-miss suppression).
-func _point_seg_dist(p: Vector3, a: Vector3, b: Vector3) -> float:
-	var ab := b - a
-	var denom := ab.length_squared()
-	var t := clampf((p - a).dot(ab) / denom, 0.0, 1.0) if denom > 0.0 else 0.0
-	return p.distance_to(a + ab * t)
-
-func _step_projectiles() -> void:
-	_impact_fx_this_tick = 0   # reset the per-tick cosmetic-impact cap
-	if _projectiles.is_empty():
-		return
-	var still: Array = []
-	for pr in _projectiles:
-		var wid: int = int(pr["weapon_id"])
-		var max_range: float = float(pr["range_m"])
-		var gscale: float = float(pr["gravity_scale"])
-		var old_pos: Vector3 = pr["pos"]
-		var s := Projectile.integrate(old_pos, pr["vel"], gscale, SimLoop.DT)
-		var nxt: Vector3 = s["pos"]
-		var seg: Vector3 = nxt - old_pos
-		var seg_len := seg.length()
-		var seg_dir: Vector3 = seg / seg_len if seg_len > 0.0001 else Vector3.FORWARD
-
-		# Broad-phase: enemy pawns whose hitbox the segment could cross this tick (current positions
-		# + lag-comp margin). Bound the ray test to the segment length (PRESENT-time resolve).
-		var candidates: Array = _grid.query(old_pos, seg_len + FIRE_RANGE_MARGIN, _positions)
-		var best_t := seg_len + 1.0
-		var best_victim := 0
-		var best_head := false
-		for tid in candidates:
-			if tid == int(pr["owner"]): continue
-			var tgt: Pawn = _sim.world.get_pawn(tid)
-			if tgt == null or not tgt.alive: continue
-			if tgt.team == int(pr["team"]): continue
-			# Downed pawns are immune (BattleBit-style no finishing): the bullet does no damage and
-			# never blocks (passes through to whatever's behind), but show a cosmetic blood impact if
-			# the round actually hits the body — feedback that you're firing on someone already down.
-			if tgt.is_downed:
-				var dhit := Hitbox.raycast_pawn(old_pos, seg_dir, tgt.pos, tgt.stance, seg_len)
-				if dhit["hit"]:
-					_broadcast_impact_fx(old_pos + seg_dir * float(dhit["t"]), Protocol.IMPACT_FLESH)
-				continue
-			# M5.5-P2 suppression: a live enemy bullet whose segment passes within SUPPRESS_RADIUS of
-			# the pawn raises its suppression (closer = more), whether or not it lands. Measured against
-			# the segment (point-to-segment distance) so a fast bullet still suppresses across one tick.
-			var miss := _point_seg_dist(tgt.pos, old_pos, nxt)
-			if miss < Suppress.SUPPRESS_RADIUS:
-				tgt.suppression = Suppress.accrue(tgt.suppression, miss)
-				_stats.suppress_events += 1
-			var hit := Hitbox.raycast_pawn(old_pos, seg_dir, tgt.pos, tgt.stance, seg_len)
-			if hit["hit"] and hit["t"] < best_t:
-				best_t = hit["t"]; best_victim = tid; best_head = hit["headshot"]
-
-		# Enemy hit damage (incl. headshot/range over total distance flown). Penetration scales it.
-		# Reconstruct the minimal def from the projectile's captured scalars so attachment-modified
-		# falloff/headshot are preserved without holding a wdef ref.
-		var enemy_dmg := 0
-		if best_victim != 0:
-			# beyond weapon range -> 0 dmg -> bullet consumed silently (range falloff)
-			enemy_dmg = Combat.damage_for(wid, best_head, float(pr["dist"]) + best_t,
-				{"range_m": float(pr["range_m"]), "damage_body": int(pr["damage_body"]),
-				"headshot_mult": float(pr["headshot_mult"])})
-		var body_dmg := int(pr["damage_body"])
-
-		# Cover / penetration: a structure strictly nearer than the enemy along THIS segment.
-		if _store.count() > 0 and seg_len > 0.0001:
-			var march_max: float = best_t if best_victim != 0 else seg_len
-			var blocked := _store.march(old_pos, seg_dir, march_max)
-			if blocked["hit"] and float(blocked["dist"]) < best_t:
-				var block_id := int(blocked["id"])
-				var rec: Dictionary = _store.get_record(block_id)
-				if rec.is_empty():
-					continue   # piece gone (defensive)
-				var hit_pt: Vector3 = old_pos + seg_dir * float(blocked["dist"])
-				var mat := _catalog.material_of(int(rec["type"]))
-				_stats.shots_blocked += 1
-				if not PieceCatalog.is_penetrable(mat):
-					_damage_structure(block_id, PieceCatalog.SRC_BULLET, hit_pt, BULLET_CARVE_RADIUS)
-					_broadcast_impact_fx(hit_pt, Protocol.IMPACT_WALL)   # cosmetic: bullet chips the wall
-					continue   # stopped by cover — consume the bullet
-				# Penetrable: bullet exits at *transmit. Piece is carved geometrically (M11).
-				var split := Combat.apply_penetration(body_dmg, enemy_dmg,
-					PieceCatalog.absorption_of(mat), PieceCatalog.transmit_of(mat))
-				_damage_structure(block_id, PieceCatalog.SRC_BULLET, hit_pt, BULLET_CARVE_RADIUS)
-				_broadcast_impact_fx(hit_pt, Protocol.IMPACT_WALL)   # cosmetic: dust where it punches through
-				if _store.get_record(block_id).is_empty():
-					continue   # 1-pen: piece destroyed by this bullet consumes it
-				if best_victim == 0:
-					continue   # nothing beyond to hit; bullet passed through but found no pawn
-				_stats.pen += 1
-				enemy_dmg = int(split["exit_damage"])
-
-		if best_victim != 0 and enemy_dmg > 0:
-			var victim: Pawn = _sim.world.get_pawn(best_victim)
-			if victim != null and victim.alive:
-				_stats.hits += 1
-				_stats.proj_hits += 1
-				_broadcast_impact_fx(old_pos + seg_dir * best_t, Protocol.IMPACT_FLESH)   # cosmetic blood mist at the hit
-				_apply_pawn_damage(best_victim, victim, enemy_dmg, best_head, Revive.Source.BULLET,
-					int(pr["owner"]), wid)
-				# Hitmarker to the (human, manually-deployed) shooter — lethal = killed or downed.
-				var sc: Dictionary = _clients.get(int(pr["owner"]), {})
-				if not sc.is_empty() and not sc.get("auto_deploy", true):
-					var lethal: bool = (not victim.alive) or victim.is_downed
-					_net.send_to(sc["peer"], NetHost.CHANNEL_CONTROL,
-						Protocol.encode_hitmarker(best_head, lethal), 0)
-			continue   # bullet consumed on a pawn hit
-
-		# Miss this tick: advance state and decide whether the bullet lives on.
-		pr["pos"] = nxt
-		pr["vel"] = s["vel"]
-		pr["dist"] = float(pr["dist"]) + seg_len
-		_stats.dbg_last_min_y = minf(_stats.dbg_last_min_y, nxt.y)
-		if nxt.y <= 0.0:
-			# Cosmetic dirt puff at the ground-impact point (lerp the segment to y=0 for accuracy).
-			var gt: float = old_pos.y / (old_pos.y - nxt.y) if old_pos.y > nxt.y else 1.0
-			_broadcast_impact_fx(old_pos + (nxt - old_pos) * gt, Protocol.IMPACT_DIRT)
-			continue   # hit the ground
-		if Projectile.expired(_sim.tick - int(pr["spawn_tick"]), int(pr["ttl"]),
-				float(pr["dist"]), max_range):
-			continue
-		still.append(pr)
-	_projectiles = still
-	_stats.proj_live_max = maxi(_stats.proj_live_max, _projectiles.size())
-
-func _is_medic(id: int) -> bool:
-	return _clients.has(id) and int(_clients[id]["class"]) == Loadout.MEDIC
 
 func _down_pawn(victim: Pawn) -> void:
 	victim.is_downed = true
@@ -848,181 +564,6 @@ func _apply_pawn_damage(vid: int, victim: Pawn, dmg: int, headshot: bool, source
 			_clients[vid]["downed_by_dist"] = victim.pos.distance_to(dk.pos) if dk != null else 0.0
 		_down_pawn(victim)
 
-func _complete_revive(target_id: int) -> void:
-	var p: Pawn = _sim.world.get_pawn(target_id)
-	if p == null: return
-	p.is_downed = false
-	p.health = Revive.REVIVE_HP
-	p.bleed_health = 0
-	p.bleed_halted = false
-	# Fresh start after a revive: clear the damage ledger so a later death's recap reflects the
-	# lethal sequence (~one health bar), not damage accumulated across the whole life.
-	if _clients.has(target_id):
-		_clients[target_id]["dmg_ledger"] = {}
-		for k in ["downed_by", "downed_by_weapon", "downed_by_hp", "downed_by_dist"]:
-			_clients[target_id].erase(k)
-	_stats.revives += 1
-	# No ticket refund needed — DOWNED never spent one.
-
-## Accumulate revive progress for downed teammates being held by an in-range, alive reviver.
-## Revive intent is LATCHED — set by REVIVE_ACTION(active) and held in `_reviving` across ticks
-## until the revive ends — so a per-tick REVIVE_ACTION packet dropped under fleet input-starvation
-## does NOT reset progress. Validity is re-checked each tick against authoritative state, so only the
-## reviver actually leaving range interrupts the hold; the latch is dropped when the revive is over.
-func _step_revives() -> void:
-	var active_targets := {}   # target_id -> reviver_id (one reviver advances a target per tick)
-	var done: Array = []       # latched intents to drop: revive ended or can never succeed
-	for reviver_id in _reviving:
-		var target_id: int = _reviving[reviver_id]
-		var rp: Pawn = _sim.world.get_pawn(reviver_id)
-		var tp: Pawn = _sim.world.get_pawn(target_id)
-		if tp == null or not tp.is_downed: done.append(reviver_id); continue          # target resolved
-		if rp == null or not rp.alive or rp.is_downed: done.append(reviver_id); continue  # reviver can't
-		if tp.team != rp.team: done.append(reviver_id); continue                       # enemy can't revive
-		if rp.pos.distance_to(tp.pos) > Revive.REVIVE_RANGE: continue                  # transient: hold latch, no progress
-		active_targets[target_id] = reviver_id
-	_being_revived = active_targets   # expose to the SELF_STATE send so the downed player sees it
-	# Drop accumulated progress for downed targets with no in-range reviver this tick.
-	for t in _revive_ticks.keys():
-		if not active_targets.has(t):
-			_revive_ticks.erase(t)
-	# Advance + complete.
-	for target_id in active_targets:
-		var reviver_id: int = active_targets[target_id]
-		_support_links_this_tick.append({"giver": reviver_id, "target": target_id, "kind": SupportLinks.REVIVE})
-		_revive_ticks[target_id] = int(_revive_ticks.get(target_id, 0)) + 1
-		if _revive_ticks[target_id] >= Revive.revive_ticks(_is_medic(reviver_id)):
-			_complete_revive(target_id)
-			_revive_ticks.erase(target_id)
-			done.append(reviver_id)
-	for rid in done:
-		_reviving.erase(rid)
-
-## RMB active give: each held giver raycasts from its aim at one teammate in range and heals
-## (medic) or resupplies (support) at the active rate. Latched like revive — held in _giving until
-## GA_GIVE_STOP or invalidation.
-func _step_active_give() -> void:
-	if _giving.is_empty():
-		return
-	var done: Array = []
-	for gid in _giving:
-		var giver: Pawn = _sim.world.get_pawn(gid)
-		if giver == null or not giver.alive or giver.is_downed: done.append(gid); continue
-		var kind := _giver_kind(int(_clients[gid]["class"]))
-		if kind == -1: done.append(gid); continue
-		var gdef: Dictionary = _gadgets.def_of_kind(kind)
-		var aim := Combat._forward(giver.yaw, giver.pitch)
-		var rng := float(gdef["give_range"])
-		# Find the nearest in-range teammate on the aim ray.
-		var target := 0
-		var best := INF
-		for tid in _sim.world.pawns:
-			if tid == gid: continue
-			var t: Pawn = _sim.world.pawns[tid]
-			# Downed teammates are handled by revive (P1), not give/resupply — skip them.
-			if not t.alive or t.is_downed or t.team != giver.team: continue
-			var d2 := giver.pos.distance_to(t.pos)
-			if d2 <= rng and d2 < best and Gadget.give_hits(giver.eye_position(), aim, t.pos, t.stance, rng):
-				best = d2; target = tid
-		if target == 0: continue   # nothing to give to this tick; keep the latch
-		if kind == Gadget.KIND_HEAL:
-			_give_heal(target, int(gdef["active_rate"]))
-			_support_links_this_tick.append({"giver": gid, "target": target, "kind": SupportLinks.HEAL})
-		else:
-			_give_ammo(target, int(gdef["active_rate"]))
-			_support_links_this_tick.append({"giver": gid, "target": target, "kind": SupportLinks.AMMO})
-	for gid in done:
-		_giving.erase(gid)
-
-## Latched repair (like active-give): each held engineer near a friendly damaged vehicle restores
-## REPAIR_RATE/tick. Unlimited but overheat-gated (no pool). See docs/specs/vehicles.md §6.
-func _step_repairs() -> void:
-	if _repairing.is_empty():
-		return
-	var rdef: Dictionary = _gadgets.def_of_kind(Gadget.KIND_REPAIR)
-	var rate := int(rdef["rate"]); var rng := float(rdef["range"])
-	var overheat := int(rdef["overheat_ticks"]); var cool := int(rdef["cooldown_ticks"])
-	var done: Array = []
-	for eid in _repairing:
-		var ep: Pawn = _sim.world.get_pawn(eid)
-		if ep == null or not ep.alive or ep.is_downed:
-			done.append(eid); continue
-		var v := _nearest_friendly_damaged_vehicle(ep, rng)
-		var want := v != null
-		var st := Gadget.repair_heat_step(int(_repair_heat.get(eid, 0)), int(_repair_cd.get(eid, 0)),
-			_sim.tick, want, overheat, cool)
-		_repair_heat[eid] = int(st["heat"]); _repair_cd[eid] = int(st["cooldown_until"])
-		if int(st["cooldown_until"]) > 0 and want:
-			_stats.repair_overheats += 1
-		if bool(st["repairing"]) and v != null:
-			var before := v.hp
-			v.hp = mini(v.max_hp, v.hp + rate)
-			_stats.repairs += v.hp - before
-			_support_links_this_tick.append({"giver": eid, "target": v.id, "kind": SupportLinks.REPAIR})
-	for eid in done:
-		_repairing.erase(eid)
-
-## Owner-facing repair-tool gauge fractions for pawn `id`: (heat 0..1 toward overheat, cooldown 0..1
-## of the lockout remaining). Zero for non-engineers / not repairing (early-out skips the def lookup
-## for the ~127 clients who aren't repairing). Feeds encode_self_state → M7 HUD heat gauge.
-func _repair_gauge_for(id: int) -> Vector2:
-	var raw_heat := int(_repair_heat.get(id, 0))
-	var cd_ticks := maxi(0, int(_repair_cd.get(id, 0)) - _sim.tick)
-	if raw_heat <= 0 and cd_ticks <= 0:
-		return Vector2.ZERO
-	var rdef: Dictionary = _gadgets.def_of_kind(Gadget.KIND_REPAIR)
-	var overheat := maxi(1, int(rdef["overheat_ticks"]))
-	var cool := maxi(1, int(rdef["cooldown_ticks"]))
-	return Vector2(clampf(float(raw_heat) / float(overheat), 0.0, 1.0), clampf(float(cd_ticks) / float(cool), 0.0, 1.0))
-
-func _nearest_friendly_damaged_vehicle(ep: Pawn, rng: float) -> Vehicle:
-	var best: Vehicle = null
-	var bestd := rng
-	for vid in _sim.world.vehicles:
-		var v: Vehicle = _sim.world.vehicles[vid]
-		if not v.alive or v.team != ep.team or v.hp >= v.max_hp: continue
-		var d := ep.pos.distance_to(v.pos)
-		if d <= bestd:
-			bestd = d; best = v
-	return best
-
-## Heals target by `rate` HP, capped at 100. No-op if dead or already full.
-func _give_heal(target_id: int, rate: int) -> void:
-	var t: Pawn = _sim.world.get_pawn(target_id)
-	if t == null or not t.alive or t.health >= 100: return
-	t.health = mini(100, t.health + rate)
-	_stats.heals += 1
-
-## Ammo give at 1 mag per `period` ticks (active_rate is the period). Refills ammo + a bandage.
-func _give_ammo(target_id: int, period: int) -> void:
-	if period <= 0 or _sim.tick % period != 0: return
-	if not _clients.has(target_id): return
-	var tc = _clients[target_id]
-	var cap: int = int(Weapon.get_def(int(tc["weapon"]))["mag_size"])
-	if int(tc["ammo"]) >= cap and _pawn_bandages_full(target_id): return
-	tc["ammo"] = cap
-	var tp: Pawn = _sim.world.get_pawn(target_id)
-	if tp != null:
-		tp.bandage_count = Revive.bandage_count_for(_is_medic(target_id))
-	_stats.ammo_gives += 1
-
-func _pawn_bandages_full(id: int) -> bool:
-	var p: Pawn = _sim.world.get_pawn(id)
-	return p != null and p.bandage_count >= Revive.bandage_count_for(_is_medic(id))
-
-## Per-tick bleed for every downed pawn; bleed-out is a true death (spends a ticket).
-func _step_downed() -> void:
-	for id in _clients:
-		var p: Pawn = _sim.world.get_pawn(id)
-		if p == null or not p.is_downed:
-			continue
-		p.bleed_health = Revive.bleed_step(p.bleed_health, p.bleed_halted)
-		if Revive.is_bled_out(p.bleed_health):
-			# Credit the attacker who downed the pawn (falls back to self if unknown).
-			var c = _clients[id]
-			_kill_pawn(id, p, int(c.get("downed_by", id)), int(c.get("downed_by_weapon", 0)), false, Revive.Source.BULLET)
-			_stats.bleedouts += 1
-
 func _handle_respawns() -> void:
 	for id in _clients:
 		var c = _clients[id]
@@ -1038,7 +579,7 @@ func _handle_respawns() -> void:
 			p.climbing = false   # clear special-movement state so a pawn that died mid-climb/vault
 			p.vaulting = false   # doesn't resume the arc/ladder at its fresh spawn (ghost-vault fix)
 			p.bleed_halted = false
-			p.bandage_count = Revive.bandage_count_for(_is_medic(id))
+			p.bandage_count = Revive.bandage_count_for(_support.is_medic(id))
 			p.grounded = true
 			p.fall_peak_y = p.pos.y
 			p.landed_fall = 0.0
@@ -1057,12 +598,12 @@ func _select_spawn(id: int) -> Vector3:
 		if mid == id: continue
 		var mp: Pawn = _sim.world.get_pawn(mid)
 		if mp != null and mp.alive: mates.append(mp.pos)
-	var fob_pos = _spawnable_fob_pos(team, int(c["squad"]))
+	var fob_pos = _build.spawnable_fob_pos(team, int(c["squad"]))
 	# fob_disabled is a spawn-DECISION counter: a built+alive FOB exists but was enemy-suppressed.
 	# Tally it here (the spawn path), NOT inside _spawnable_fob_pos — that helper is also called every
 	# tick per human client by _send_fob_lists/_fob_candidates, which would turn the metric into
 	# disabled-render-frames. _fob_built_alive distinguishes "disabled" from "absent/destroyed".
-	if fob_pos == null and _fob_built_alive(team, int(c["squad"])):
+	if fob_pos == null and _build.fob_built_alive(team, int(c["squad"])):
 		_stats.fob_disabled += 1
 	var fobs: Array = [fob_pos] if fob_pos != null else []
 	var r := SpawnSelect.choose(team, _map, _conquest, mates, obj, fobs)
@@ -1071,23 +612,6 @@ func _select_spawn(id: int) -> Vector3:
 	return r["pos"]
 
 ## True if the squad has a completed, not-yet-destroyed FOB structure (regardless of enemy proximity).
-func _fob_built_alive(team: int, squad: int) -> bool:
-	var rec := _fob_for(team, squad)
-	return not rec.is_empty() and bool(rec["built"]) and not _store.get_record(int(rec["id"])).is_empty()
-
-## The squad's FOB world position IFF built + alive + enemy-free; else null. Pure query (no side
-## effects) — fob_disabled is tallied by the caller on the spawn-decision path (see _select_spawn).
-func _spawnable_fob_pos(team: int, squad: int):
-	if not _fob_built_alive(team, squad): return null
-	var rec := _fob_for(team, squad)
-	var center := BuildGrid.world_of(rec["cell"])
-	var enemies: Array = []
-	for oid in _clients:
-		var op: Pawn = _sim.world.get_pawn(oid)
-		if op != null and op.alive and op.team != team:
-			enemies.append(op.pos)
-	return center if Fob.spawn_enabled(center, enemies) else null
-
 func _objective_for(team: int) -> Vector3:
 	var base := _map.base_for(team)
 	var from: Vector3 = base["pos"] if not base.is_empty() else Vector3.ZERO
@@ -1185,9 +709,9 @@ func _send_snapshots() -> void:
 		var reload_remaining: int = maxi(0, int(c["reload_done_tick"]) - _sim.tick) if c["reloading"] else 0
 		# Reliable so the authoritative ammo/reload always reaches the owner — otherwise dropped
 		# SELF_STATE packets (lossy links) leave the client predicting phantom ammo it doesn't have.
-		var rgauge := _repair_gauge_for(id)
+		var rgauge := _support.repair_gauge_for(id)
 		_net.send_to(c["peer"], NetHost.CHANNEL_CONTROL,
-			Protocol.encode_self_state(int(c["ammo"]), bool(c["reloading"]), reload_remaining, int(c["weapon"]), _throwables_for(c), _being_revived.has(id), self_pawn.suppression, clampi(self_pawn.blind_until_tick - _sim.tick, 0, 255), self_pawn.bandage_count, self_pawn.bleed_halted, rgauge.x, rgauge.y),
+			Protocol.encode_self_state(int(c["ammo"]), bool(c["reloading"]), reload_remaining, int(c["weapon"]), _throwables_for(c), _support.being_revived.has(id), self_pawn.suppression, clampi(self_pawn.blind_until_tick - _sim.tick, 0, 255), self_pawn.bandage_count, self_pawn.bleed_halted, rgauge.x, rgauge.y),
 			ENetPacketPeer.FLAG_RELIABLE)
 		c["history"][seq] = current
 		c["history_v"][seq] = current_v
@@ -1213,14 +737,14 @@ func _on_packet(peer: ENetPacketPeer, _channel: int, bytes: PackedByteArray) -> 
 	match Protocol.msg_type(bytes):
 		Protocol.Msg.HELLO: _handle_hello(peer, bytes)
 		Protocol.Msg.INPUT: _handle_input(peer, bytes)
-		Protocol.Msg.BUILD_REQUEST: _handle_build_request(peer, bytes)
-		Protocol.Msg.PLACE_FOB: _handle_place_fob(peer, bytes)
-		Protocol.Msg.REMOVE_FOB: _handle_remove_fob(peer)
-		Protocol.Msg.BUILD_REMOVE: _handle_build_remove(peer, bytes)
+		Protocol.Msg.BUILD_REQUEST: _build.handle_build_request(peer, bytes)
+		Protocol.Msg.PLACE_FOB: _build.handle_place_fob(peer, bytes)
+		Protocol.Msg.REMOVE_FOB: _build.handle_remove_fob(peer)
+		Protocol.Msg.BUILD_REMOVE: _build.handle_build_remove(peer, bytes)
 		Protocol.Msg.GRENADE_THROW: _handle_grenade_throw(peer, bytes)
-		Protocol.Msg.REVIVE_ACTION: _handle_revive_action(peer, bytes)
-		Protocol.Msg.SELF_BANDAGE: _handle_self_bandage(peer, bytes)
-		Protocol.Msg.GIVE_UP: _handle_give_up(peer)
+		Protocol.Msg.REVIVE_ACTION: _support.handle_revive_action(peer, bytes)
+		Protocol.Msg.SELF_BANDAGE: _support.handle_self_bandage(peer, bytes)
+		Protocol.Msg.GIVE_UP: _support.handle_give_up(peer)
 		Protocol.Msg.GADGET_ACTION: _handle_gadget_action(peer, bytes)
 		Protocol.Msg.VEHICLE_ACTION: _handle_vehicle_action(peer, bytes)
 		Protocol.Msg.DEPLOY_REQUEST: _handle_deploy_request(peer, bytes)
@@ -1314,16 +838,6 @@ func _vehicle_candidates(team: int) -> Array:
 	return out
 
 ## M12-P3: one entry per built FOB owned by a squad on `team` (enabled = currently spawnable).
-func _fob_candidates(team: int) -> Array:
-	var out: Array = []
-	for key in _fobs:
-		var rec: Dictionary = _fobs[key]
-		if int(rec["team"]) != team or not bool(rec["built"]): continue
-		var pos = _spawnable_fob_pos(team, int(rec["squad"]))
-		out.append({"squad": int(rec["squad"]), "pos": BuildGrid.world_of(rec["cell"]),
-			"enabled": pos != null})
-	return out
-
 func _throwables_for(c: Dictionary) -> Array:
 	var ready := 1 if _sim.tick - int(c["last_grenade_tick"]) >= GRENADE_COOLDOWN_TICKS else 0
 	var list: Array = [{"kind": Grenade.FRAG, "count": ready}, {"kind": Grenade.SMOKE, "count": ready}]
@@ -1341,7 +855,7 @@ func _handle_deploy_request(peer: ENetPacketPeer, bytes: PackedByteArray) -> voi
 	var ref := int(Protocol.decode_deploy_request(bytes)["spawn_ref"])
 	var mates := _squad_candidates(id, int(c["team"]), int(c["squad"]))
 	var vehs := _vehicle_candidates(int(c["team"]))
-	var fobs := _fob_candidates(int(c["team"]))
+	var fobs := _build.fob_candidates(int(c["team"]))
 	if not DeploySpawn.is_valid(int(c["team"]), ref, _map, _conquest, mates, vehs, fobs): return
 	var dpos := DeploySpawn.resolve(int(c["team"]), ref, _map, _conquest, mates, vehs, fobs)
 	if ref >= DeploySpawn.FOB_BASE: _stats.fob_spawns += 1
@@ -1473,261 +987,6 @@ func _handle_input(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
 		for s in c["history_v"].keys():
 			if s < ack: c["history_v"].erase(s)
 
-func _handle_build_request(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
-	var id = _peer_to_id.get(peer, 0)
-	if id == 0 or not _clients.has(id): return
-	var c = _clients[id]
-	var p: Pawn = _sim.world.get_pawn(id)
-	if p == null or not p.alive: return
-	var d := Protocol.decode_build_request(bytes)
-	var type: int = d["type"]
-	if type < 0 or type >= _catalog.size(): return
-	if int(d["yaw"]) < 0 or int(d["yaw"]) >= BuildGrid.YAW_STEPS: return   # reject malformed/out-of-range yaw (map path validates; player path did not)
-	var cell: Vector3i = d["cell"]
-	var v := _store.validate_place(cell, p.pos, _sim.tick, c["last_build_tick"], Pawn.WORLD_HALF)
-	if not v["ok"]: return
-	if _catalog.is_structural(type): return   # players build only fortifications, not building pieces
-	if _sites.occupied(cell): return          # already a site there
-	# Per-player SITE cap: recycle the oldest unfinished site.
-	if _sites.owner_count(id) >= MAX_SITES_PER_PLAYER:
-		var oldid := _sites.oldest_id(id)
-		if oldid != 0:
-			var ocell: Vector3i = _sites.get_site(oldid)["cell"]
-			_sites.remove(oldid)
-			_emit_structure_delta(Protocol.OP_REMOVE, {"id": oldid}, ocell)
-	var sid := _next_struct_id
-	_next_struct_id += 1
-	c["last_build_tick"] = _sim.tick
-	var site := {"id": sid, "owner": id, "team": p.team, "type": type, "cell": cell, "yaw": int(d["yaw"]),
-		"build_progress": 0.0, "build_cost": _catalog.build_cost_of(type),
-		"min_builders": _catalog.min_builders_of(type), "last_work_tick": _sim.tick}
-	_sites.add(site)
-	_stats.builds += 1
-	_emit_structure_delta(Protocol.OP_PLACE, _site_wire_record(site), cell)
-
-## Wire record for an under-construction site: StructureStore record shape + the M12-P2 fields.
-func _site_wire_record(site: Dictionary) -> Dictionary:
-	return {"id": site["id"], "type": site["type"], "cell": site["cell"], "yaw": site["yaw"],
-		"chunks": ChunkMask.full_mask(_catalog.chunk_grid_of(int(site["type"]))),
-		"building_id": 0, "owner": site["owner"],
-		"under_construction": 1, "build_progress": int(site["build_progress"])}
-
-func _emit_structure_progress(id: int, progress: int, cell: Vector3i) -> void:
-	var region := _store.region_of(cell)
-	var bytes := Protocol.encode_structure_progress(id, progress)
-	for cid in _clients:
-		if _clients[cid]["known_regions"].has(region):
-			_net.send_to(_clients[cid]["peer"], NetHost.CHANNEL_CONTROL, bytes, ENetPacketPeer.FLAG_RELIABLE)
-
-## M12-P3 FOB registry helpers.
-func _fob_key(team: int, squad: int) -> String:
-	return "%d:%d" % [team, squad]
-
-func _fob_for(team: int, squad: int) -> Dictionary:
-	return _fobs.get(_fob_key(team, squad), {})
-
-func _fob_type_index() -> int:
-	for i in _catalog.size():
-		if _catalog.name_of(i) == "fob":
-			return i
-	return -1
-
-## M12-P3: squad leader places a FOB build site. Leader-only, one-per-squad (replace), CP/base
-## exclusion, then reuses the M12-P2 cooperative build path (promotes to a bunker on completion).
-func _handle_place_fob(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
-	var id = _peer_to_id.get(peer, 0)
-	if id == 0 or not _clients.has(id): return
-	var c = _clients[id]
-	var p: Pawn = _sim.world.get_pawn(id)
-	if p == null or not p.alive: return
-	var team: int = int(c["team"])
-	var squad: int = int(c["squad"])
-	if _squads.leader_of(team, squad) != id: return    # leader-only (authoritative)
-	var d := Protocol.decode_place_fob(bytes)
-	if int(d["yaw"]) < 0 or int(d["yaw"]) >= BuildGrid.YAW_STEPS: return
-	var cell: Vector3i = d["cell"]
-	var center := BuildGrid.world_of(cell)
-	if not Fob.placement_ok(center, team, _map, _conquest): return
-	var v := _store.validate_place(cell, p.pos, _sim.tick, c["last_build_tick"], Pawn.WORLD_HALF)
-	if not v["ok"]: return
-	if _sites.occupied(cell): return
-	var fob_type := _fob_type_index()
-	if fob_type < 0: return
-	# One FOB per squad: drop the existing site/structure first.
-	_remove_squad_fob(team, squad)
-	var sid := _next_struct_id
-	_next_struct_id += 1
-	c["last_build_tick"] = _sim.tick
-	var site := {"id": sid, "owner": id, "team": team, "type": fob_type, "cell": cell, "yaw": int(d["yaw"]),
-		"build_progress": 0.0, "build_cost": _catalog.build_cost_of(fob_type),
-		"min_builders": _catalog.min_builders_of(fob_type), "last_work_tick": _sim.tick}
-	_sites.add(site)
-	_fobs[_fob_key(team, squad)] = {"squad": squad, "team": team, "id": sid, "cell": cell, "built": false}
-	_emit_structure_delta(Protocol.OP_PLACE, _site_wire_record(site), cell)
-
-func _handle_remove_fob(peer: ENetPacketPeer) -> void:
-	var id = _peer_to_id.get(peer, 0)
-	if id == 0 or not _clients.has(id): return
-	var c = _clients[id]
-	var team: int = int(c["team"]); var squad: int = int(c["squad"])
-	if _squads.leader_of(team, squad) != id: return
-	_remove_squad_fob(team, squad)
-
-## Remove a squad's FOB entity (under-construction site OR completed structure) + registry record.
-func _remove_squad_fob(team: int, squad: int) -> void:
-	var rec := _fob_for(team, squad)
-	if rec.is_empty(): return
-	var fid := int(rec["id"])
-	var cell: Vector3i = rec["cell"]
-	if _sites.get_site(fid).is_empty() == false:
-		_sites.remove(fid)
-		_emit_structure_delta(Protocol.OP_REMOVE, {"id": fid}, cell)
-	elif _store.get_record(fid).is_empty() == false:
-		_store.remove(fid)
-		_emit_structure_delta(Protocol.OP_REMOVE, {"id": fid}, cell)
-	_fobs.erase(_fob_key(team, squad))
-
-## M12-P3: detect FOB lifecycle transitions against the live stores (robust to every removal path):
-## site->built (tally fobs_built), built->gone (tally fobs_destroyed), site->gone-before-built (decay).
-func _reconcile_fobs() -> void:
-	if _fobs.is_empty(): return
-	var drop: Array = []
-	for key in _fobs:
-		var rec: Dictionary = _fobs[key]
-		var fid := int(rec["id"])
-		if not bool(rec["built"]):
-			if not _store.get_record(fid).is_empty():
-				rec["built"] = true
-				_stats.fobs_built += 1
-			elif _sites.get_site(fid).is_empty():
-				drop.append(key)   # site decayed/removed before completing
-		else:
-			if _store.get_record(fid).is_empty():
-				_stats.fobs_destroyed += 1
-				drop.append(key)   # bunker destroyed via M4 path / dismantle / recycle
-	for key in drop:
-		_fobs.erase(key)
-
-## M12-P2: advance build sites from eligible shovellers; complete -> promote to StructureStore;
-## decay abandoned sites; then repair/dismantle finished structures for the remaining shovellers.
-func _step_build_sites() -> void:
-	# Pawns holding BTN_SHOVEL this tick.
-	var shov := {}
-	for cid in _clients:
-		var inp = _clients[cid]["last_input"]
-		if inp == null or (int(inp["buttons"]) & InputCommand.BTN_SHOVEL) == 0:
-			continue
-		var pp: Pawn = _sim.world.get_pawn(cid)
-		if pp == null or not pp.alive or pp.is_downed:
-			continue
-		shov[cid] = {"pos": pp.pos, "fwd": Combat._forward(pp.yaw, pp.pitch), "team": pp.team}
-	if _sites.count() == 0 and shov.is_empty():
-		return
-	var built: Array = []
-	var decayed: Array = []
-	var busy := {}   # cid -> true: contributed to a site this tick (skip for structure-shovel)
-	for id in _sites.ids():
-		var s: Dictionary = _sites.get_site(id)
-		var center := BuildGrid.world_of(s["cell"])
-		var n := 0
-		for cid in shov:
-			var b = shov[cid]
-			if int(b["team"]) != int(s["team"]):
-				continue
-			if BuildSite.eligible(b["pos"], b["fwd"], center):
-				n += 1
-				busy[cid] = true
-		if n <= 0:
-			if BuildSite.decayed(_sim.tick, int(s["last_work_tick"])):
-				decayed.append(id)
-			continue
-		if n < int(s["min_builders"]):
-			_stats.build_blocked_solo += 1
-			continue
-		var before := float(s["build_progress"])
-		var after := BuildSite.progress_step(before, int(s["build_cost"]), n, int(s["min_builders"]), SimLoop.DT)
-		s["build_progress"] = after
-		s["last_work_tick"] = _sim.tick
-		if int(after / 6.0) != int(before / 6.0):
-			_emit_structure_progress(int(id), int(after), s["cell"])
-		if BuildSite.is_complete(after, int(s["build_cost"])):
-			built.append(id)
-	for id in built:
-		_complete_site(int(id))
-	for id in decayed:
-		var dcell: Vector3i = _sites.get_site(int(id))["cell"]
-		_sites.remove(int(id))
-		_emit_structure_delta(Protocol.OP_REMOVE, {"id": int(id)}, dcell)
-	_step_shovel_structures(shov, busy)
-	_reconcile_fobs()   # M12-P3: detect FOB site->built / built->destroyed / pre-build decay
-
-func _complete_site(id: int) -> void:
-	var s: Dictionary = _sites.get_site(id)
-	if s.is_empty():
-		return
-	_sites.remove(id)
-	# Cap finished pieces per owner (recycle oldest), then promote into the real structure store.
-	if _store.owner_count(int(s["owner"])) >= StructureStore.MAX_PIECES_PER_PLAYER:
-		var oldp := _store.oldest_id(int(s["owner"]))
-		if oldp != 0:
-			var oc := _cell_of_struct(oldp)
-			_store.recycle_oldest(int(s["owner"]))
-			_emit_structure_delta(Protocol.OP_REMOVE, {"id": oldp}, oc)
-	var rec := _store.place(id, int(s["type"]), s["cell"], int(s["yaw"]), int(s["owner"]))
-	if rec.is_empty():
-		return   # lost the cell race
-	var wire := rec.duplicate()
-	wire["under_construction"] = 0
-	wire["build_progress"] = int(s["build_cost"])
-	_emit_structure_delta(Protocol.OP_PLACE, wire, s["cell"])
-	if int(s["min_builders"]) >= 2:
-		_stats.built_large += 1
-	else:
-		_stats.built_small += 1
-
-## Shovellers not busy building a site repair a friendly / dismantle an enemy finished structure they
-## are aiming at within reach. Reuses the M4 melee damage path (dismantle) + repair_chunks (repair).
-func _step_shovel_structures(shov: Dictionary, busy: Dictionary) -> void:
-	for cid in shov:
-		if busy.has(cid):
-			continue
-		var b = shov[cid]
-		var hit := _store.march(b["pos"], b["fwd"], BuildSite.SHOVEL_RANGE)
-		if not hit["hit"]:
-			continue
-		var sidx := int(hit["id"])
-		var rec := _store.get_record(sidx)
-		if rec.is_empty():
-			continue
-		var impact: Vector3 = (b["pos"] as Vector3) + (b["fwd"] as Vector3).normalized() * float(hit["dist"])
-		var op: Pawn = _sim.world.get_pawn(int(rec["owner"]))
-		var struct_team := op.team if op != null else int(b["team"])
-		if int(b["team"]) == struct_team:
-			var rep := _store.repair_chunks(sidx, impact, 0.9)
-			if rep["changed"]:
-				_stats.repaired += 1
-				_emit_structure_delta(Protocol.OP_CHUNK, {"id": sidx, "mask": int(rep["mask"])}, rec["cell"])
-		else:
-			if not _catalog.takes_damage(int(rec["type"]), PieceCatalog.SRC_MELEE):
-				continue
-			var dmg := _store.damage_chunks(sidx, PieceCatalog.SRC_MELEE, impact, 0.6)
-			if dmg["destroyed"]:
-				_stats.dismantled += 1
-				_pending_removes.append({"id": sidx, "cell": rec["cell"]})
-			elif dmg["holed"]:
-				_dmg_touched[sidx] = true
-
-func _handle_build_remove(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
-	var id = _peer_to_id.get(peer, 0)
-	if id == 0 or not _clients.has(id): return
-	var rid: int = Protocol.decode_build_remove(bytes)["id"]
-	var rec := _store.get_record(rid)
-	if rec.is_empty() or int(rec["owner"]) != id: return
-	var cell: Vector3i = rec["cell"]
-	_store.remove(rid)
-	_stats.removes += 1
-	_emit_structure_delta(Protocol.OP_REMOVE, {"id": rid}, cell)
-
 func _handle_grenade_throw(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
 	var id = _peer_to_id.get(peer, 0)
 	if id == 0 or not _clients.has(id): return
@@ -1809,11 +1068,11 @@ func _handle_gadget_action(peer: ENetPacketPeer, bytes: PackedByteArray) -> void
 		Protocol.GA_C4_PLACE: _place_c4(id, p, d["pos"])
 		Protocol.GA_C4_DETONATE: _detonate_c4(id)
 		Protocol.GA_MINE_PLACE: _place_mine(id, p, d["pos"], d["dir"])
-		Protocol.GA_GIVE_START: _giving[id] = _sim.tick
-		Protocol.GA_GIVE_STOP: _giving.erase(id)
+		Protocol.GA_GIVE_START: _support.giving[id] = _sim.tick
+		Protocol.GA_GIVE_STOP: _support.giving.erase(id)
 		Protocol.GA_BAG_THROW: _throw_bag(id, p, d["pos"])
-		Protocol.GA_REPAIR_START: _repairing[id] = true
-		Protocol.GA_REPAIR_STOP: _repairing.erase(id)
+		Protocol.GA_REPAIR_START: _support.repairing[id] = true
+		Protocol.GA_REPAIR_STOP: _support.repairing.erase(id)
 		_: pass
 
 func _handle_vehicle_action(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
@@ -1914,7 +1173,7 @@ func _broadcast_gadget_list() -> void:
 func _broadcast_support_list() -> void:
 	if _human_ids.is_empty():
 		return
-	var list := SupportLinks.build(_support_links_this_tick)
+	var list := SupportLinks.build(_support.links_this_tick)
 	var pkt := Protocol.encode_support_list(list)
 	if not _support_rl.should_send(pkt, list.size() > 0, _sim.tick):
 		return
@@ -1946,13 +1205,13 @@ func _send_fob_lists() -> void:
 	var total := 0
 	for team in [0, 1]:
 		var list: Array = []
-		for key in _fobs:
-			var rec: Dictionary = _fobs[key]
+		for key in _build.fobs:
+			var rec: Dictionary = _build.fobs[key]
 			if int(rec["team"]) != team: continue
 			var built: bool = bool(rec["built"])
 			var enabled := false
 			if built:
-				enabled = _spawnable_fob_pos(team, int(rec["squad"])) != null
+				enabled = _build.spawnable_fob_pos(team, int(rec["squad"])) != null
 			list.append({"squad": int(rec["squad"]), "structure_id": int(rec["id"]),
 				"under_construction": 0 if built else 1, "enabled": 1 if enabled else 0})
 		total += list.size()
@@ -1990,7 +1249,7 @@ func _place_mine(id: int, p: Pawn, pos: Vector3, facing: Vector3) -> void:
 		"armed_after_tick": _sim.tick + int(mdef["arm_delay_ticks"])})
 
 func _throw_bag(id: int, p: Pawn, pos: Vector3) -> void:
-	var kind := _giver_kind(int(_clients[id]["class"]))
+	var kind := _support.giver_kind(int(_clients[id]["class"]))
 	if kind == -1: return
 	var gdef: Dictionary = _gadgets.def_of_kind(kind)
 	var bag_count := 0
@@ -2001,12 +1260,6 @@ func _throw_bag(id: int, p: Pawn, pos: Vector3) -> void:
 	_stats.bags_thrown += 1
 
 ## Maps a class to its give-tool kind (heal/ammo), or -1 if the class has no give tool.
-func _giver_kind(cls: int) -> int:
-	var g := Loadout.gadget_for(cls)
-	if g == Loadout.GADGET_HEAL: return Gadget.KIND_HEAL
-	if g == Loadout.GADGET_AMMO: return Gadget.KIND_AMMO
-	return -1
-
 func _detonate_c4(id: int) -> void:
 	var owned: Array = _c4.get(id, [])
 	if owned.is_empty(): return
@@ -2030,33 +1283,6 @@ func _remove_c4_on_cell(cell: Vector3i) -> void:
 
 ## A DOWNED player chooses to skip the bleed-out and die now (BattleBit give-up) -> true death,
 ## spends a ticket, returns them to the deploy screen.
-func _handle_give_up(peer: ENetPacketPeer) -> void:
-	var id = _peer_to_id.get(peer, 0)
-	if id == 0 or not _clients.has(id): return
-	var p: Pawn = _sim.world.get_pawn(id)
-	if p == null or not p.alive or not p.is_downed: return
-	var c = _clients[id]
-	_kill_pawn(id, p, int(c.get("downed_by", id)), int(c.get("downed_by_weapon", 0)), false, Revive.Source.BULLET)
-	_stats.bleedouts += 1
-
-func _handle_self_bandage(peer: ENetPacketPeer, _bytes: PackedByteArray) -> void:
-	var id = _peer_to_id.get(peer, 0)
-	if id == 0 or not _clients.has(id): return
-	var p: Pawn = _sim.world.get_pawn(id)
-	if p == null or not p.is_downed or p.bleed_halted: return
-	if p.bandage_count <= 0: return
-	p.bandage_count -= 1
-	p.bleed_halted = true
-
-func _handle_revive_action(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
-	var id = _peer_to_id.get(peer, 0)
-	if id == 0 or not _clients.has(id): return
-	var d := Protocol.decode_revive_action(bytes)
-	if bool(d["active"]):
-		_reviving[id] = int(d["target"])
-	else:
-		_reviving.erase(id)
-
 ## Integrate live grenades; detonate on fuse or ground contact (v1). Detonation is present-time.
 func _step_grenades() -> void:
 	if _grenades.is_empty():
@@ -2426,7 +1652,7 @@ func _emit_structure_delta(op: int, rec: Dictionary, cell: Vector3i) -> void:
 ## After computing a client's interest entities, send baselines for any structured regions
 ## newly covered by its interest set. known_regions caches what the client already has.
 func _sync_structure_baselines(c: Dictionary, self_pos: Vector3) -> void:
-	if _store.count() == 0 and _sites.count() == 0:
+	if _store.count() == 0 and _build.sites.count() == 0:
 		return
 	var center := _grid.key_of(self_pos)
 	var span := int(ceil(INTEREST_RADIUS / CELL_SIZE))
@@ -2439,7 +1665,7 @@ func _sync_structure_baselines(c: Dictionary, self_pos: Vector3) -> void:
 			var region := Vector2i(center.x + dx, center.y + dz)
 			if known.has(region):
 				continue
-			var pieces := _store.region_count(region) + _sites.region_count(region)
+			var pieces := _store.region_count(region) + _build.sites.region_count(region)
 			if pieces == 0:
 				continue   # empty region: leave unknown (cheap to re-check; may gain pieces via deltas)
 			var rc := _grid.world_of_key(region)   # region centre, for nearest-first ordering
@@ -2447,8 +1673,8 @@ func _sync_structure_baselines(c: Dictionary, self_pos: Vector3) -> void:
 	for sel in BaselinePacer.pick(candidates, MAX_STRUCTURE_BASELINE_PIECES_PER_TICK):
 		var region: Vector2i = sel["region"]
 		var recs := _store.records_in_region(region)
-		for s in _sites.records_in_region(region):
-			recs.append(_site_wire_record(s))
+		for s in _build.sites.records_in_region(region):
+			recs.append(_build.site_wire_record(s))
 		known[region] = true
 		var bytes := Protocol.encode_structure_baseline(region, recs)
 		_net.send_to(c["peer"], NetHost.CHANNEL_CONTROL, bytes, ENetPacketPeer.FLAG_RELIABLE)
