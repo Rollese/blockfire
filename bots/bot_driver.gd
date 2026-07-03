@@ -35,6 +35,12 @@ const ROCKET_GRAVITY := 20.0  # matches Grenade.GRAVITY; bots aim higher by 1/2 
 const FOB_DRILL_MAX_TICKS := 30 * 30   # M12-P3: safety deadline (~30s) a squad leader drills its FOB
                                        # before giving up and falling through to normal AI (placement
                                        # may keep failing on a contested/occupied cell — don't babysit).
+const MAX_GRENADE_EVENTS := 8      # M7.5-P3: grenade-landing ring size (oldest dropped)
+const GRENADE_LANDING_EST := 8.0   # m ahead of the throw origin — flat landing estimate; the
+                                   # cosmetic arc flies ~1.5s at the server throw speed, so 8m
+                                   # matches well enough for avoidance (plan Task 6)
+const BAG_NEEDY_RANGE := 12.0      # m: allies this close and hurt count toward a bag deploy
+const BAG_NEEDY_HP := 60           # hp below this (0.6 frac) marks an ally as needy
 
 var _map: MapDef
 var _map_path: String = MAP_PATH   # --map=<name> overrides (must match server + client)
@@ -97,6 +103,11 @@ func _spawn_bot(index: int) -> void:
 		"mine_placed": false, "gave_until": 0, "give_target": 0,
 		"vview": {}, "in_vehicle": 0, "boarded_origin": Vector3.ZERO, "repairing": false,
 		"vveh_track": {},
+		# M7.5-P3 support mirrors + latches: SELF_STATE dict, GADGET_LIST wholesale mirror,
+		# GRENADE_FX landing ring; reviving_id = active REVIVE_ACTION latch, bandaged =
+		# once-per-life self-bandage latch, last_bag_tick = needs-driven bag-deploy cooldown.
+		"self_state": {}, "gadgets": [], "grenade_events": [],
+		"reviving_id": 0, "bandaged": false, "last_bag_tick": -100000,
 		"ai": AiDriver.new(_global_seed, index, _ai_profile),
 	}
 	net.peer_connected.connect(func(peer: ENetPacketPeer) -> void:
@@ -145,34 +156,26 @@ func _drive(bot: Dictionary, delta: float) -> void:
 		bot["fob_drill_start"] = -1   # M12-P3: re-evaluate the FOB drill fresh on the next spawn
 		bot["cur_swap_slot"] = 0   # server resets active_slot to 0 on (re)spawn; mirror it
 		bot["give_target"] = 0   # server clears the give latch on death; mirror it
+		bot["bandaged"] = false   # M7.5-P3: re-arm the once-per-life self-bandage on respawn
+		bot["reviving_id"] = 0   # M7.5-P3: server drops the revive on reviver death; mirror it
 		(bot["ai"] as AiDriver).reset()   # re-arm reaction gate, drop stale tracks/behaviour latch
 		_send(bot, 0.0, 0.0, bot["yaw"], 0.0, 0)
 		return
 
 	# DBNO: downed pawns are immune to weapon damage, so a downed bot holds still and waits to be
-	# revived. It does NOT self-bandage — halting the bleed under the immune model would make it
-	# immortal and stall the match; instead it bleeds out if no teammate reaches it in time.
+	# revived. M7.5-P3 (ratified): it self-bandages ONCE per life when it still has a bandage, the
+	# bleed is not already halted, and no teammate is mid-revive — bandages are finite, so matches
+	# still end by bleed-out once they are spent (give-up behaviour unchanged).
 	if me.is_downed:
+		var ss: Dictionary = bot["self_state"]
+		if not bool(bot.get("bandaged", false)) and AiSupport.should_self_bandage(true,
+				int(ss.get("bandage_count", 0)), bool(ss.get("bleed_halted", false)),
+				bool(ss.get("being_revived", false))):
+			(bot["net"] as NetHost).send_to(bot["peer"], NetHost.CHANNEL_INPUT,
+				Protocol.encode_self_bandage(), 0)
+			bot["bandaged"] = true
 		_send(bot, 0.0, 0.0, bot["yaw"], 0.0, 0)
 		return
-
-	# Revive a downed teammate if one is close enough — but ONLY the single nearest alive teammate
-	# goes for the revive; everyone else keeps fighting (no whole-squad swarm that stalls combat).
-	var rid := _ex.nearest_downed_teammate(bot, me)
-	if rid != 0 and _ex.is_closest_reviver(bot, me, rid):
-		var tpos: Vector3 = (bot["view"][rid] as EntityState).pos
-		var to := tpos - me.pos
-		if to.length() <= Revive.REVIVE_RANGE:
-			(bot["net"] as NetHost).send_to(bot["peer"], NetHost.CHANNEL_INPUT,
-				Protocol.encode_revive_action(rid, true), 0)
-			# Hold still, face the downed mate, and crouch over them (BattleBit medic posture —
-			# smaller silhouette / steadier hold) for the duration of the revive.
-			_send(bot, 0.0, 0.0, atan2(to.x, to.z), 0.0, InputCommand.BTN_CROUCH)
-			return
-		else:
-			var myaw := atan2(to.x, to.z)
-			_send(bot, sin(myaw), cos(myaw), myaw, 0.0, 0)
-			return
 
 	var role: int = BotRolesRef.of(int(bot["index"]))
 	var is_crew := role == BotRolesRef.CREW
@@ -296,8 +299,22 @@ func _drive(bot: Dictionary, delta: float) -> void:
 		# M7.5-P3 (§E): map ladders reach the march path (climb_seek) — same MapDef source
 		# the climb-driller cohort already drills on.
 		var map_ladders: Array = _map.ladders if _map != null else []
-		ai.observe(int(bot["id"]), view, bot["vview"], bot["structs"], _match_points, int(bot["server_tick"]), obj, map_ladders)
+		ai.observe(int(bot["id"]), view, bot["vview"], bot["structs"], _match_points, int(bot["server_tick"]), obj, map_ladders,
+			bot["self_state"], bot["gadgets"], bot["grenade_events"])
 		var intent := ai.decide()
+		# M7.5-P3: the utility brain owns revives now — latch REVIVE_ACTION when the intent
+		# carries a target, unlatch when it clears/changes (the server holds the revive while
+		# the latch is active and we stay in range; range/death breaks it server-side too).
+		var want_rid: int = int(intent.get("revive_target_id", 0))
+		var cur_rid: int = int(bot.get("reviving_id", 0))
+		if want_rid != cur_rid:
+			if cur_rid != 0:
+				(bot["net"] as NetHost).send_to(bot["peer"], NetHost.CHANNEL_INPUT,
+					Protocol.encode_revive_action(cur_rid, false), 0)
+			if want_rid != 0:
+				(bot["net"] as NetHost).send_to(bot["peer"], NetHost.CHANNEL_INPUT,
+					Protocol.encode_revive_action(want_rid, true), 0)
+			bot["reviving_id"] = want_rid
 		move_x = float(intent["move_x"]); move_y = float(intent["move_y"])
 		bot["yaw"] = float(intent["yaw"]); bot["pitch"] = float(intent["pitch"])
 		var want_fire: bool = (int(intent["buttons"]) & InputCommand.BTN_FIRE) != 0
@@ -334,8 +351,33 @@ func _drive(bot: Dictionary, delta: float) -> void:
 
 	_ex.maybe_rpg(bot, me)
 	_ex.maybe_give(bot, me, target != null)
+	_maybe_deploy_bag(bot, me)
 	_ex.maybe_weapon_handling(bot, me)
 	_send(bot, move_x, move_y, bot["yaw"], bot["pitch"], buttons)
+
+## M7.5-P3 needs-driven bag deploy: MEDIC/SUPPORT drop a heal/ammo bag at their feet when >=2
+## nearby allies are hurt (BAG_DEPLOY_NEEDY within BAG_NEEDY_RANGE below BAG_NEEDY_HP), cooldown-
+## gated by AiSupport. Complements maybe_give's one-shot throw (its GIVE latching is untouched).
+func _maybe_deploy_bag(bot: Dictionary, me: EntityState) -> void:
+	var cls: int = int(bot["class"])
+	if cls != Loadout.MEDIC and cls != Loadout.SUPPORT:
+		return   # cheap gate before the needy scan (should_deploy_bag re-checks class anyway)
+	var needy := 0
+	var view: Dictionary = bot["view"]
+	for id in view:
+		if int(id) == int(bot["id"]):
+			continue
+		var e: EntityState = view[id]
+		if not e.alive or e.is_downed or e.team != me.team or int(e.health) >= BAG_NEEDY_HP:
+			continue
+		if me.pos.distance_to(e.pos) <= BAG_NEEDY_RANGE:
+			needy += 1
+	var now: int = int(bot["server_tick"])
+	if not AiSupport.should_deploy_bag(cls, needy, now, int(bot.get("last_bag_tick", -100000))):
+		return
+	(bot["net"] as NetHost).send_to(bot["peer"], NetHost.CHANNEL_INPUT,
+		Protocol.encode_gadget_action(Protocol.GA_BAG_THROW, me.pos, Vector3.ZERO, 0), 0)
+	bot["last_bag_tick"] = now
 
 ## Advance a driller's phase state. If the phase changed, reset the tick counter. If the phase
 ## has not changed but the tick counter exceeded DRILL_PHASE_TIMEOUT, force-advance to the next
@@ -377,6 +419,7 @@ func _on_packet(bot: Dictionary, bytes: PackedByteArray) -> void:
 			var w := Protocol.decode_welcome(bytes)
 			bot["id"] = int(w["id"])
 			bot["class"] = int(w["class"])
+			(bot["ai"] as AiDriver).bot_class = int(w["class"])   # MEDIC widens revive reach (M7.5-P3)
 			bot["connected"] = true
 			print("[bots] bot %d connected (id %d class %d) — %d/%d" % [bot["index"], bot["id"], bot["class"], _connected_count(), _bot_count])
 		Protocol.Msg.SNAPSHOT:
@@ -394,6 +437,26 @@ func _on_packet(bot: Dictionary, bytes: PackedByteArray) -> void:
 			_note_sync(bot)
 		Protocol.Msg.SMOKE_DEPLOYED:
 			pass   # no bot-side effect until M7 LOS culling; received reliably, nothing to do
+		Protocol.Msg.SELF_STATE:
+			# M7.5-P3: own ammo/bandage/being-revived state feeds the support behaviours
+			# (Perception reads mag/weapon; the downed branch reads the bandage fields).
+			bot["self_state"] = Protocol.decode_self_state(bytes)
+		Protocol.Msg.GADGET_LIST:
+			# Authoritative deployed-gadget list (mines/bags/C4) — replace wholesale, exactly
+			# like the client's consumption pattern (no per-removal bookkeeping needed).
+			bot["gadgets"] = Protocol.decode_gadget_list(bytes)
+		Protocol.Msg.GRENADE_FX:
+			# A remote pawn threw a grenade: stamp a flat GRENADE_LANDING_EST-ahead landing
+			# estimate into a small ring; AiSupport.danger_zones expires entries by tick.
+			# FRAG only — the server also broadcasts SMOKE arcs (harmless; own team smokes
+			# objectives constantly, and fleeing those would scatter every push).
+			var g := Protocol.decode_grenade_fx(bytes)
+			if int(g["kind"]) == Grenade.FRAG:
+				var events: Array = bot["grenade_events"]
+				events.append({"pos": (g["origin"] as Vector3) + (g["dir"] as Vector3).normalized() * GRENADE_LANDING_EST,
+					"tick": int(bot["server_tick"])})
+				if events.size() > MAX_GRENADE_EVENTS:
+					events.pop_front()
 		_:
 			pass
 

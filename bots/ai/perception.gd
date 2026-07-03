@@ -56,7 +56,11 @@ func reset() -> void:
 	_last_hp = 100.0
 	_pressure = 0.0
 ## Build the WorldModel from the snapshot view. `my_id` is this bot's pawn id.
-func build(my_id: int, view: Dictionary, _vview: Dictionary, structs: Dictionary, match_points: Array, now: int) -> WorldModel:
+## M7.5-P3 trailing inputs (all default-empty so pre-P3 callsites are untouched):
+## `net_self` = decoded SELF_STATE dict (mag/weapon/bandages…), `gadgets` = the bot's
+## GADGET_LIST mirror, `grenade_events` = [{pos, tick}] landing estimates from GRENADE_FX,
+## `is_medic` = bot class is MEDIC (drives revive commit range).
+func build(my_id: int, view: Dictionary, _vview: Dictionary, structs: Dictionary, match_points: Array, now: int, net_self: Dictionary = {}, gadgets: Array = [], grenade_events: Array = [], is_medic: bool = false) -> WorldModel:
 	var w := WorldModel.new()
 	w.now_tick = now
 	var me: EntityState = view.get(my_id)
@@ -111,6 +115,32 @@ func build(my_id: int, view: Dictionary, _vview: Dictionary, structs: Dictionary
 	for i in match_points.size():
 		var mp: Dictionary = match_points[i]
 		w.objectives.append({"pos": mp.get("pos", Vector3.ZERO), "owner": int(mp.get("owner", -1))})
+	# M7.5-P3 Task 6: support & survivability fields from the bot's mirrors.
+	var my_team: int = int(me.team) if me != null else -1
+	w.revive_target = AiSupport.pick_revive_target(w.downed_allies, is_medic)
+	# Ammo fraction from SELF_STATE mag vs the current weapon's mag size (Weapon.get_def
+	# falls back to the AR def for unknown ids, so the division is always sane).
+	var ammo_frac := 1.0
+	if not net_self.is_empty():
+		var mag_size := maxf(1.0, float(Weapon.get_def(int(net_self.get("weapon", 0))).get("mag_size", 30)))
+		ammo_frac = clampf(float(int(net_self.get("mag", 0))) / mag_size, 0.0, 1.0)
+	w.supply_kind = AiSupport.wants_supply(w.metadata_hp_frac, ammo_frac)
+	# The GADGET_LIST wire carries kind/pos only — no owner team and no heal-vs-ammo bag
+	# distinction (a human client gets exactly the same). Adapt fairly: every mine is treated
+	# as dangerous (team -1 never matches mine, so sidestepping a friendly claymore too —
+	# harmless), and every bag is a candidate for the wanted supply kind (standing on an
+	# enemy/wrong-kind bag just dispenses nothing; the bot re-scores and moves on).
+	var bags: Array = []
+	var mines: Array = []
+	for g in gadgets:
+		match int(g.get("kind", -1)):
+			GadgetList.BAG:
+				bags.append({"kind": w.supply_kind, "pos": g["pos"], "team": my_team})
+			GadgetList.MINE:
+				mines.append({"pos": g["pos"], "team": -1})
+	if w.supply_kind != "":
+		w.supply_bag = AiSupport.pick_supply_bag(bags, w.me_pos, my_team, w.supply_kind)
+	w.danger_zones = AiSupport.danger_zones(grenade_events, mines, my_team, now)
 	return w
 ## Reaction gate for a currently-visible enemy id at time `now`. Uses the per-profile
 ## instance delay (recruit 15 .. elite 4), wired from ai_tuning.json by AiDriver (§E).

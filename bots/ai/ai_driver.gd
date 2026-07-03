@@ -28,6 +28,7 @@ const _NEVER_DECIDED := -(1 << 30)   # sentinel: first decide() always runs a fu
 
 var _bot_index: int = 0
 var _last_decide_tick: int = _NEVER_DECIDED
+var bot_class: int = 0   # Loadout class from WELCOME (bot_driver sets it); MEDIC widens revive reach
 
 ## Velocity estimate for an enemy track (batch 6, pure). A gap longer than TRACK_STALE_TICKS
 ## (respawn, interest-range re-entry) restarts the track at zero — averaging across the gap
@@ -70,8 +71,10 @@ func reset() -> void:
 
 ## Update perception state (memory + reaction gate) from the latest snapshot view.
 ## Builds and caches the WorldModel (including metadata_hp_frac + incoming_fire).
-func observe(my_id: int, view: Dictionary, vview: Dictionary, structs: Dictionary, match_points: Array, now: int, objective_pos: Vector3 = Vector3.ZERO, ladders: Array = []) -> void:
-	_world = _perc.build(my_id, view, vview, structs, match_points, now)
+## M7.5-P3 trailing inputs: `net_self` (decoded SELF_STATE), `gadgets` (GADGET_LIST mirror),
+## `grenade_events` ([{pos, tick}] landing estimates) — all default-empty for old callsites.
+func observe(my_id: int, view: Dictionary, vview: Dictionary, structs: Dictionary, match_points: Array, now: int, objective_pos: Vector3 = Vector3.ZERO, ladders: Array = [], net_self: Dictionary = {}, gadgets: Array = [], grenade_events: Array = []) -> void:
+	_world = _perc.build(my_id, view, vview, structs, match_points, now, net_self, gadgets, grenade_events, bot_class == Loadout.MEDIC)
 	_now = now
 	_objective = objective_pos
 	_ladders = ladders
@@ -189,6 +192,41 @@ func decide() -> Dictionary:
 					var to := (lk["pos"] as Vector3) - me.pos
 					intent["yaw"] = atan2(to.x, to.z) + _human.aim_jitter(float(_profile.get("aim_error_deg", 3.0)))
 			# movement stays 0 (hold and pin)
+		"revive":
+			# M7.5-P3: steer to the chosen downed ally; once inside the revive envelope
+			# (×0.8 so quantization/lag never leaves us hovering at the exact boundary),
+			# stop, crouch (BattleBit medic posture) and hand the target id to the driver,
+			# which latches REVIVE_ACTION on the wire.
+			var rt := w.revive_target
+			if not rt.is_empty():
+				var tpos: Vector3 = rt["pos"]
+				var to := tpos - me.pos
+				intent["yaw"] = atan2(to.x, to.z)
+				if me.pos.distance_to(tpos) <= Revive.REVIVE_RANGE * 0.8:
+					intent["stance"] = Stance.CROUCH
+					intent["revive_target_id"] = int(rt["id"])
+				else:
+					var mv := _flat_dir(me.pos, tpos)
+					intent["move_x"] = mv.x; intent["move_y"] = mv.y
+		"seek_supply":
+			# M7.5-P3: path to the nearest known friendly bag; on arrival stand on it —
+			# the server's bag radius dispenses passively, no action message needed.
+			var bag := w.supply_bag
+			if not bag.is_empty():
+				var bpos: Vector3 = bag["pos"]
+				if me.pos.distance_to(bpos) > AiSupport.BAG_ARRIVE_RANGE:
+					var mv := _flat_dir(me.pos, bpos)
+					intent["move_x"] = mv.x; intent["move_y"] = mv.y
+					if mv != Vector2.ZERO:
+						intent["yaw"] = atan2(mv.x, mv.y)
+		"avoid_danger":
+			# M7.5-P3: sprint out of the grenade/mine zone along the pure flee vector.
+			# move axes are world-space XZ (Pawn.step applies them unrotated), so the
+			# flee vector maps directly. buttons stay 0 — never fire while fleeing.
+			var flee := AiSupport.flee_vector(w.me_pos, w.danger_zones)
+			intent["move_x"] = flee.x; intent["move_y"] = flee.z
+			if flee != Vector3.ZERO:
+				intent["yaw"] = atan2(flee.x, flee.z)
 		_:   # push_obj / default: march to the objective on this bot's lateral lane (batch 6
 			# spread: a squad advances as a line abreast, converging inside the capture zone)
 			var march := AiObjective.spread_march_target(me.pos, _objective, _bot_index)
