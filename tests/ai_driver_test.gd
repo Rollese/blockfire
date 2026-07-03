@@ -250,6 +250,33 @@ func test_suppress_aims_at_last_known_when_enemy_hides() -> void:
 	assert_almost_eq(float(intent["yaw"]), atan2(10.0, 10.0), deg_to_rad(5.0), "aims within 5 deg of last-known bearing")
 	assert_true(int(intent["buttons"]) & InputCommand.BTN_FIRE == 0, "no blind fire at a memory")
 
+# --- M7.5-P3 Task 4 (§E regression 214b7e4): climb_seek back in the push_obj march path.
+
+func test_push_obj_steers_to_ladder_base_when_objective_beyond_it() -> void:
+	# Elevated objective beyond a nearby ladder: the march diverts to the ladder base
+	# (+x here) instead of pushing the straight spread lane (bot 0's lane is -x of the
+	# 0,0,0 -> 0,*,100 line, so a clearly positive move_x proves the divert).
+	var ai := AiDriver.new(42, 0, "regular")
+	var ladders := [{"bottom": Vector3(5, 0, 5), "top": Vector3(5, 6, 5), "radius": 0.8}]
+	ai.observe(1, {1: _es(0, Vector3.ZERO)}, {}, {}, [], 100, Vector3(0, 6, 100), ladders)
+	var intent := ai.decide()
+	assert_eq(String(intent["behavior"]), "push_obj", "no enemy -> push_obj")
+	assert_true(float(intent["move_x"]) > 0.5, "march diverted toward the ladder base (+x)")
+
+func test_push_obj_march_unchanged_without_relevant_ladder() -> void:
+	# Regression guard: an empty ladder list and a far-away irrelevant ladder both leave
+	# the spread-march movement exactly as it is today.
+	var plain := AiDriver.new(42, 0, "regular")
+	plain.observe(1, {1: _es(0, Vector3.ZERO)}, {}, {}, [], 100, Vector3(0, 0, 100))
+	var pi := plain.decide()
+	var far := AiDriver.new(42, 0, "regular")
+	var ladders := [{"bottom": Vector3(500, 0, 0), "top": Vector3(500, 6, 0), "radius": 0.8}]
+	far.observe(1, {1: _es(0, Vector3.ZERO)}, {}, {}, [], 100, Vector3(0, 0, 100), ladders)
+	var fi := far.decide()
+	assert_almost_eq(float(fi["move_x"]), float(pi["move_x"]), 0.0001, "irrelevant ladder: same lane x")
+	assert_almost_eq(float(fi["move_y"]), float(pi["move_y"]), 0.0001, "irrelevant ladder: same lane y")
+	assert_true(float(pi["move_y"]) > 0.5, "still marches toward the +z objective")
+
 func test_bot_driver_ai_profile_flag() -> void:
 	# --ai-profile selects the difficulty profile every spawned AiDriver gets.
 	var bd := BotDriver.new()

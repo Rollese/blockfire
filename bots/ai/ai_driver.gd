@@ -14,6 +14,7 @@ var _aim_ticks: int = 0
 var _world: WorldModel = null
 var _now: int = 0
 var _objective: Vector3 = Vector3.ZERO
+var _ladders: Array = []  # map ladders [{bottom, top, radius}] for climb_seek on the march
 var _enemy_track := {}  # id -> {pos: Vector3, tick: int, vel: Vector3}
 
 const ENGAGE_RANGE := 50.0
@@ -69,10 +70,11 @@ func reset() -> void:
 
 ## Update perception state (memory + reaction gate) from the latest snapshot view.
 ## Builds and caches the WorldModel (including metadata_hp_frac + incoming_fire).
-func observe(my_id: int, view: Dictionary, vview: Dictionary, structs: Dictionary, match_points: Array, now: int, objective_pos: Vector3 = Vector3.ZERO) -> void:
+func observe(my_id: int, view: Dictionary, vview: Dictionary, structs: Dictionary, match_points: Array, now: int, objective_pos: Vector3 = Vector3.ZERO, ladders: Array = []) -> void:
 	_world = _perc.build(my_id, view, vview, structs, match_points, now)
 	_now = now
 	_objective = objective_pos
+	_ladders = ladders
 	# Update per-enemy velocity estimates from the new snapshot.
 	var self_state: EntityState = view.get(my_id)
 	var self_team: int = int(self_state.team) if self_state != null else -1
@@ -189,7 +191,14 @@ func decide() -> Dictionary:
 			# movement stays 0 (hold and pin)
 		_:   # push_obj / default: march to the objective on this bot's lateral lane (batch 6
 			# spread: a squad advances as a line abreast, converging inside the capture zone)
-			var mv := _flat_dir(me.pos, AiObjective.spread_march_target(me.pos, _objective, _bot_index))
+			var march := AiObjective.spread_march_target(me.pos, _objective, _bot_index)
+			# M7.5-P3 (§E): climb_seek back in the march path (dropped from the march in
+			# 214b7e4) — steer onto a nearby ladder base when the objective lies beyond it
+			# (M14 multi-floor maps). climb_seek returns seek=false when no ladder is relevant.
+			var cs := AiObjective.climb_seek(me.pos, march, _ladders)
+			if bool(cs["seek"]):
+				march = cs["target"]
+			var mv := _flat_dir(me.pos, march)
 			intent["move_x"] = mv.x; intent["move_y"] = mv.y
 			if mv != Vector2.ZERO:
 				intent["yaw"] = atan2(mv.x, mv.y)

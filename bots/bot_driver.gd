@@ -293,7 +293,10 @@ func _drive(bot: Dictionary, delta: float) -> void:
 	else:
 		# AI brain drives normal infantry combat + movement (retires the reflex nearest-enemy logic).
 		var ai: AiDriver = bot["ai"]
-		ai.observe(int(bot["id"]), view, bot["vview"], bot["structs"], _match_points, int(bot["server_tick"]), obj)
+		# M7.5-P3 (§E): map ladders reach the march path (climb_seek) — same MapDef source
+		# the climb-driller cohort already drills on.
+		var map_ladders: Array = _map.ladders if _map != null else []
+		ai.observe(int(bot["id"]), view, bot["vview"], bot["structs"], _match_points, int(bot["server_tick"]), obj, map_ladders)
 		var intent := ai.decide()
 		move_x = float(intent["move_x"]); move_y = float(intent["move_y"])
 		bot["yaw"] = float(intent["yaw"]); bot["pitch"] = float(intent["pitch"])
