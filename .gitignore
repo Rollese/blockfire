@@ -30,6 +30,11 @@ export_presets.cfg.local
 # graphify derived knowledge graph (rebuild with /graphify --update)
 /graphify-out/
 
+# Live server config (per-operator; copy data/server_config.example.json). NEVER commit a
+# real one: a committed rotation config would flip every gate/smoke server into the
+# persistent multi-match loop and the scripts would hang waiting for server exit.
+/data/server_config.json
+
 # Local Claude Code settings (per-developer)
 /.claude/settings.local.json
 __pycache__/

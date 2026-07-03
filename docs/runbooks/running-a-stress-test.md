@@ -46,6 +46,33 @@ The summary line reports peak tick, aggregate bandwidth, peak players, kills, an
 `ai_us_mean`. For a full field glossary and health interpretation see
 [`reading-telemetry.md`](reading-telemetry.md). The persisted `srvlog-*.log` is the recorded evidence.
 
+## Persistent server + map rotation (M8-P3)
+
+Outside the gate scripts, a long-running server can play matches back-to-back via a config file
+(spec: [`docs/specs/server-ops.md`](../specs/server-ops.md)). Copy
+`data/server_config.example.json` to `data/server_config.json` (gitignored) or point at any path
+with `--config=<path>`:
+
+```json
+{
+  "maps": ["conquest_town", "conquest_proving_grounds", "conquest_arena_buildings"],
+  "tickets": 300,
+  "time_limit": 1800
+}
+```
+
+```bash
+godot --headless --path . -- --server --config=/abs/path/server_config.json
+```
+
+A non-empty `maps` list (and no `--map` CLI override) enables rotation: at match end the server
+disconnects everyone, resets all match state, and starts the next map — **it never exits**.
+CLI args still win over the file; `--map` pins one map + exit-on-end (gate semantics).
+
+> **⚠ Never place a rotation config on a gate host.** Every gate/stress script waits for the
+> server to exit at match end — a `data/server_config.json` with a `maps` list would make them
+> hang until `MAX_WAIT`. The real config file is gitignored for exactly this reason.
+
 ## Cross-host / feature gates
 - Bots-here-server-elsewhere and other topologies: see [`docker/README.md`](../../docker/README.md).
 - Per-feature assertions (melee, FOB, ballistics, …) live in the milestone `docker/run-*-gate.sh`

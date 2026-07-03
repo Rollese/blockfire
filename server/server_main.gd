@@ -88,6 +88,11 @@ var _lag := LagComp.new()
 var _tele := Telemetry.new()
 var _map: MapDef
 var _map_path: String = MAP_PATH   # --map=<name> overrides (must match client + bots)
+var _max_players := MAX_PLAYERS    # config-file max_players (M8-P3); no CLI flag
+var _maps: Array = []        # rotation list (map basenames); empty = single-match default map
+var _map_index := 0
+var _rotate := false         # persistent multi-match loop active (config maps, no --map override)
+var _boot_failed := false    # configure() ran pre-add_child (get_tree()==null there); _ready() exits on it
 var _human_rpg := false   # --human-rpg: force human (manual-deploy) players to spawn Engineer + RPG (destruction testing)
 var _conquest: ConquestState
 var _squads := SquadManager.new()
@@ -139,35 +144,83 @@ var _clients := {}
 var _peer_to_id := {}
 
 func configure(args: Dictionary) -> void:
-	_port = int(args.get("port", _port))
-	_start_tickets = int(args.get("tickets", -1))
-	_time_limit = float(args.get("time-limit", -1.0))
-	if args.has("map"):
-		_map_path = "res://maps/%s.json" % String(args["map"])
+	var loaded := ServerConfig.load_file(String(args.get("config", ServerConfig.DEFAULT_PATH)))
+	if not loaded["ok"]:
+		# An operator-authored config that doesn't parse must fail loud, not silently
+		# fall back to defaults mid-LAN-party. get_tree() is null here (configure runs
+		# pre-add_child) — flag it and _ready() exits.
+		push_error("[server] %s" % loaded["error"])
+		_boot_failed = true
+		return
+	var eff := ServerConfig.resolve(loaded["config"], args)
+	_port = eff["port"]
+	_max_players = eff["max_players"]
+	_start_tickets = eff["tickets"]
+	_time_limit = eff["time_limit"]
+	_maps = eff["maps"]
+	_rotate = eff["rotate"]
+	if not _maps.is_empty():
+		_map_path = "res://maps/%s.json" % String(_maps[0])
 	_human_rpg = args.has("human-rpg")
-	_degrade_high_ms = float(args.get("degrade-high-ms", _degrade_high_ms))
-	_degrade_low_ms = float(args.get("degrade-low-ms", _degrade_low_ms))
+	if eff["degrade_high_ms"] > 0.0:
+		_degrade_high_ms = eff["degrade_high_ms"]
+	if eff["degrade_low_ms"] > 0.0:
+		_degrade_low_ms = eff["degrade_low_ms"]
 	if _degrade_low_ms >= _degrade_high_ms:
 		# An inverted band makes Degrade.next_level climb one window and descend the next,
 		# thrashing the snapshot stride every second. Operator error -> safe defaults.
-		push_warning("[server] --degrade-low-ms (%.1f) must be < --degrade-high-ms (%.1f); using defaults %0.1f/%0.1f"
+		push_warning("[server] degrade band low (%.1f) must be < high (%.1f); using defaults %0.1f/%0.1f"
 			% [_degrade_low_ms, _degrade_high_ms, Degrade.LOW_MS, Degrade.HIGH_MS])
 		_degrade_high_ms = Degrade.HIGH_MS
 		_degrade_low_ms = Degrade.LOW_MS
+	if _rotate:
+		print("[server] map rotation active: %s" % ", ".join(PackedStringArray(_maps)))
 
 func _ready() -> void:
+	if _boot_failed:
+		get_tree().quit(1); return
+	_catalog = PieceCatalog.load_file(PIECES_PATH)
+	if _catalog == null:
+		push_error("[server] failed to load pieces %s" % PIECES_PATH); get_tree().quit(1); return
+	_gadgets = Gadget.load_file(GADGETS_PATH)
+	if _gadgets == null:
+		push_error("[server] failed to load gadgets %s" % GADGETS_PATH); get_tree().quit(1); return
+	_attachments = Attachment.load_file(ATTACHMENTS_PATH)
+	if _attachments == null:
+		push_error("[server] failed to load attachments %s" % ATTACHMENTS_PATH); get_tree().quit(1); return
+	_vehicles_cat = VehicleCatalog.load_file(VEHICLES_PATH)
+	if _vehicles_cat == null:
+		push_error("[server] failed to load vehicles %s" % VEHICLES_PATH); get_tree().quit(1); return
+	if not _start_match():
+		get_tree().quit(1); return
+	_net = NetHost.new()
+	add_child(_net)
+	_net.peer_connected.connect(func(_p): pass)
+	_net.peer_disconnected.connect(_on_peer_disconnected)
+	_net.packet_received.connect(_on_packet)
+	var err := _net.start_server(_port, _max_players)
+	if err != OK:
+		push_error("[server] bind failed on %d: %s" % [_port, error_string(err)]); get_tree().quit(1); return
+	print("[server] listening on %d, tick=%dHz, max=%d map=%s" % [_port, TICK_RATE, _max_players, _map.name])
+	# NOTE (M8-P3): graceful SIGTERM/SIGINT shutdown is NOT implemented — verified that headless
+	# Godot 4.6 does not deliver POSIX signals as NOTIFICATION_WM_CLOSE_REQUEST (no display server),
+	# and GDScript has no signal-handler API, so the process takes the OS default (exit 143/130).
+	# A clean teardown needs either a native GDExtension signal handler or an admin control-channel
+	# SHUTDOWN command; deferred. For a LAN dedicated server this is benign — a terminated match just
+	# ends (no persistence), peers ENet-timeout, and `docker stop` SIGKILLs after its grace period.
+
+## Load the map and build all match-scoped state. Called at boot and again at each
+## map-rotation boundary (M8-P3). Returns false when the map fails to load.
+func _start_match() -> bool:
 	_map = MapDef.load_file(_map_path)
 	if _map == null:
-		push_error("[server] failed to load map %s" % _map_path); get_tree().quit(1); return
+		push_error("[server] failed to load map %s" % _map_path); return false
 	_conquest = ConquestState.new(_map)
 	if _start_tickets > 0:
 		_conquest.tickets = [float(_start_tickets), float(_start_tickets)]
 	if _time_limit > 0.0:
 		_conquest.time_limit = _time_limit
 	_prev_owners = _owner_snapshot()
-	_catalog = PieceCatalog.load_file(PIECES_PATH)
-	if _catalog == null:
-		push_error("[server] failed to load pieces %s" % PIECES_PATH); get_tree().quit(1); return
 	_store = StructureStore.new(_catalog)
 	_sim.structures = _store
 	_sim.ladders = _map.ladders
@@ -198,31 +251,73 @@ func _ready() -> void:
 			var placed := _store.place(bsid, int(piece["type"]), cell, (int(piece["yaw"]) + inst_yaw) % BuildGrid.YAW_STEPS, -1, bid)
 			if placed.is_empty():
 				push_error("[map] building '%s' piece at cell %s overlaps an occupied cell (dropped)" % [b["prefab"], cell])
-	_gadgets = Gadget.load_file(GADGETS_PATH)
-	if _gadgets == null:
-		push_error("[server] failed to load gadgets %s" % GADGETS_PATH); get_tree().quit(1); return
-	_attachments = Attachment.load_file(ATTACHMENTS_PATH)
-	if _attachments == null:
-		push_error("[server] failed to load attachments %s" % ATTACHMENTS_PATH); get_tree().quit(1); return
-	_vehicles_cat = VehicleCatalog.load_file(VEHICLES_PATH)
-	if _vehicles_cat == null:
-		push_error("[server] failed to load vehicles %s" % VEHICLES_PATH); get_tree().quit(1); return
 	_spawn_map_vehicles()
-	_net = NetHost.new()
-	add_child(_net)
-	_net.peer_connected.connect(func(_p): pass)
-	_net.peer_disconnected.connect(_on_peer_disconnected)
-	_net.packet_received.connect(_on_packet)
-	var err := _net.start_server(_port, MAX_PLAYERS)
-	if err != OK:
-		push_error("[server] bind failed on %d: %s" % [_port, error_string(err)]); get_tree().quit(1); return
-	print("[server] listening on %d, tick=%dHz, max=%d map=%s" % [_port, TICK_RATE, MAX_PLAYERS, _map.name])
-	# NOTE (M8-P3): graceful SIGTERM/SIGINT shutdown is NOT implemented — verified that headless
-	# Godot 4.6 does not deliver POSIX signals as NOTIFICATION_WM_CLOSE_REQUEST (no display server),
-	# and GDScript has no signal-handler API, so the process takes the OS default (exit 143/130).
-	# A clean teardown needs either a native GDExtension signal handler or an admin control-channel
-	# SHUTDOWN command; deferred. For a LAN dedicated server this is benign — a terminated match just
-	# ends (no persistence), peers ENet-timeout, and `docker stop` SIGKILLs after its grace period.
+	return true
+
+## Match boundary in rotation mode: disconnect everyone, wipe every piece of
+## match-scoped state, load the next map, keep listening. Boot-scoped state
+## (net host, catalogs, config, rolling telemetry) survives.
+func _rotate_match() -> void:
+	_map_index = ServerConfig.next_map_index(_map_index, _maps.size())
+	_map_path = "res://maps/%s.json" % String(_maps[_map_index])
+	print("[server] match complete — rotating to %s" % String(_maps[_map_index]))
+	if _net != null:
+		_net.disconnect_all()
+	_reset_match_state()
+	if not _start_match():
+		# A rotation entry pointing at a missing/broken map is an operator config error;
+		# a dead persistent server is worse than a loud exit.
+		push_error("[server] rotation failed to load %s — exiting" % _map_path)
+		get_tree().quit(1)
+
+## Wipe all match-scoped state. Complements _start_match(), which rebuilds
+## map/conquest/store/vehicles. Keep this list in sync with the var block at the
+## top of the file: every match-scoped var either resets HERE or is rebuilt in
+## _start_match(). (Modules holding a `srv` back-ref dereference _sim/_store
+## lazily, so re-instantiating them BEFORE _start_match rebuilds _store is safe.)
+func _reset_match_state() -> void:
+	_sim = SimLoop.new()
+	_grid.clear()
+	_lag.clear()
+	_squads = SquadManager.new()
+	_stats = ServerStats.new()
+	_fire = ServerFire.new(self)
+	_support = ServerSupport.new(self)
+	_build = ServerBuild.new(self)
+	_gadget_rl = ReliableList.new()
+	_support_rl = ReliableList.new()
+	_downed_rl = ReliableList.new()
+	_fob_rl = ReliableList.new()
+	_clients.clear()
+	_peer_to_id.clear()
+	_human_ids.clear()
+	_team_counts = {0: 0, 1: 0}
+	_positions.clear()
+	_prev_climb_vault.clear()
+	_transport_origin.clear()
+	_pending_removes.clear()
+	_dmg_touched.clear()
+	_buildings_to_cascade.clear()
+	_grenades.clear()
+	_rockets.clear()
+	_mines.clear()
+	_bags.clear()
+	_c4.clear()
+	_smoke_zones.clear()
+	_prev_owners = []
+	_match_over_broadcast = false
+	_match_end_tick = -1
+	_roster_tick = 0
+	_next_struct_id = 1
+	_next_id = 1
+	_degrade_level = 0
+	_snapshot_stride = SNAPSHOT_STRIDE
+	_max_enemy_snapshot = MAX_ENEMY_SNAPSHOT
+	_tele_accum = 0.0            # per-second telemetry window restarts with the match
+	_impact_fx_this_tick = 0     # cosmetic impact-FX budget counter
+	_phase_ticks = 0
+	for k in _phase_us:
+		_phase_us[k] = 0
 
 func _physics_process(delta: float) -> void:
 	var t0 := Time.get_ticks_usec()
@@ -315,7 +410,10 @@ func _physics_process(delta: float) -> void:
 	if _tele_accum >= 1.0:
 		_log_telemetry(); _tele_accum = 0.0
 	if _match_over_broadcast and _sim.tick >= _match_end_tick + MATCH_END_DRAIN_TICKS:
-		print("[server] match complete, exiting"); get_tree().quit(0)
+		if _rotate:
+			_rotate_match()
+		else:
+			print("[server] match complete, exiting"); get_tree().quit(0)
 
 func _build_interest() -> void:
 	# Built once per tick here so the grid/_positions are reused by BOTH the fire
@@ -762,7 +860,7 @@ func _handle_hello(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
 	if ver != Protocol.VERSION:
 		_net.send_to(peer, NetHost.CHANNEL_CONTROL, Protocol.encode_reject("version mismatch"), ENetPacketPeer.FLAG_RELIABLE)
 		peer.peer_disconnect_later(); return
-	if _clients.size() >= MAX_PLAYERS:
+	if _clients.size() >= _max_players:
 		_net.send_to(peer, NetHost.CHANNEL_CONTROL, Protocol.encode_reject("server full"), ENetPacketPeer.FLAG_RELIABLE)
 		peer.peer_disconnect_later(); return
 	var id := _next_id
