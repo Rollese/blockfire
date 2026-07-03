@@ -64,6 +64,13 @@ func peers() -> Array:
 	return _host.get_peers() if _host != null else []
 
 
+## Politely disconnect every connected peer (flushes queued reliable sends first).
+## Used at the map-rotation match boundary (M8-P3).
+func disconnect_all() -> void:
+	for peer in peers():
+		peer.peer_disconnect_later()
+
+
 func close() -> void:
 	if _host != null:
 		_host.destroy()
