@@ -1,18 +1,43 @@
-# Weapon SFX (CC0)
+# SFX assets — sources & licenses
 
-Real firearm samples used in place of the placeholder synth tones in `AudioDirector._gen_tone`.
-Sourced from a CC0 (public-domain) weapon-sound pack the owner supplied. CC0 requires no
-attribution, but for provenance these are caliber "single shot" + reload takes:
+Real recordings replacing the placeholder synth tones in `AudioDirector._gen_tone`. Layout mirrors
+the catalog: `data/sounds.json` `stream` values are paths relative to this folder (e.g.
+`weapons/gunfire_ar` -> `res://assets/audio/sfx/weapons/gunfire_ar.wav`). New assets are converted
+to 48 kHz 16-bit mono (3D voices spatialize mono sources); the three original Snake takes kept
+their as-shipped 44.1 kHz stereo since they're owner-playtested.
 
-| asset                | event(s)        | source take            | in-game weapon |
-|----------------------|-----------------|------------------------|----------------|
-| `gunfire_ar.wav`     | `gunfire`       | 5.56 Single            | AR (+ remote)  |
-| `gunfire_smg.wav`    | `gunfire_smg`   | 9mm Single             | SMG            |
-| `gunfire_dmr.wav`    | `gunfire_dmr`   | 7.62x54R Single        | DMR            |
-| `reload.wav`         | `reload`        | AR Reload Full         | all            |
+Sources (both royalty-free for commercial use, no attribution required; local copies live in
+`~/projects/blockfire-audio/` on game2):
+
+- **Snake** — "Snake's Authentic Gun Sounds" packs 1+2 (f8studios.itch.io, CC0). Real firearm
+  recordings, `Full Sound` = with natural outdoor reverb tail, `Isolated` = dry.
+- **Sonniss** — GDC Game Audio Bundle Part 9 (sonniss.com, royalty-free commercial license, see
+  `License - GDC Game Audio.pdf` in the bundle).
+
+| asset | event(s) | source take | notes |
+|---|---|---|---|
+| `weapons/gunfire_ar.wav` | `gunfire` | Snake 1: 5.56 Single | AR + fallback/remote report |
+| `weapons/gunfire_smg.wav` | `gunfire_smg` | Snake 2: 9mm Single | |
+| `weapons/gunfire_dmr.wav` | `gunfire_dmr` | Snake 2: .308 (7.62x51) Single | replaced the 7.62x54R take — correct FAL/DMR cartridge |
+| `weapons/gunfire_pistol.wav` | `gunfire_pistol` | Snake 2: 9mm Single Isolated | dry take reads as handgun vs the SMG's full take |
+| `weapons/gunfire_supp.wav` | `gunfire_supp` | Snake 1: .22LR Single Isolated | suppressed-tier report (event not emitted yet) |
+| `weapons/bullet_crack.wav` | `bullet_crack` | Sonniss: D. Dumais "WHIP Snap Crack 05" | whip crack = literal supersonic crack |
+| `weapons/bullet_whiz.wav` | `bullet_whiz` | Sonniss: D. Dumais blade-swing scrape 14 (0.35 s cut, LP 7 kHz) | flyby zip |
+| `foley/reload.wav` | `reload` | Snake 1: AR Reload Full | |
+| `foley/melee.wav` | `melee` | Sonniss: D. Dumais blade-swing scrape 14 (1.0 s cut) | own-swing whoosh cue |
+| `impacts/impact_concrete.wav` | `impact` | Sonniss: InMotionAudio case-down-on-concrete 12 (0.7 s cut) | bullet thud on world |
+| `explosions/explosion.wav` | `explosion` | Sonniss: Ivo Vicic "Fireworks powerful explosions near" (single blast cut @6.6 s) | frag/C4/RPG/vehicle detonations |
+| `explosions/flashbang.wav` | `flashbang` | Sonniss: same recording, different blast (@16.5 s) | brighter pop |
+| `vehicles/engine_loop.wav` | `engine` | Sonniss: ESM diesel boat idle (8 s cut, tail crossfaded into head) | `.import` sets `edit/loop_mode=2` (forward) — keep that on reimport |
+| `ui/hitmarker.wav` | `hitmarker` | Sonniss: CSD "Interface Sci-Fi Ping Down" (0.5 s trim) | |
+| `ui/ui_click.wav` | `ui_click` | Sonniss: ESM "Click Deep Mechanism Latch" | |
+
+Still on synth-tone fallback (no usable source in either pack): `footstep` — neither pack has
+boot-on-terrain footsteps (the Sonniss part-9 sample only has flip-flops). Source a CC0 footstep
+set (dirt/concrete/metal variants) when wiring audio.md §12 P2.5 distance layers.
 
 `AudioDirector._stream_for()` loads `res://assets/audio/sfx/<def.stream>.wav` when present and
-falls back to the synth tone for any event whose asset isn't authored yet (crack/whiz/impact/
-footstep/explosion/engine/flash/melee/hitmarker/ui_click). The full CC0 pack (bipod, mag-pack,
-per-weapon racks/chamber-checks, burst/spray variants) lives on the laptop at `~/projects/blockfire/sounds/`
-for future wiring.
+falls back to the synth tone otherwise (`tools/synth_gunshot.py` stays as the procedural fallback
+generator). Unused pack material (bipod, mag packs, racks/chamber checks, burst/spray variants,
+20-gauge, revolvers) remains in `~/projects/blockfire-audio/` for future wiring — e.g. per-weapon
+reloads, suppressor mechanic, shotgun.

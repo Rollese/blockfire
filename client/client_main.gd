@@ -1457,6 +1457,7 @@ func _fire_event_for(weapon_id: int) -> String:
 	match weapon_id:
 		Weapon.SMG: return "gunfire_smg"
 		Weapon.DMR: return "gunfire_dmr"
+		Weapon.PISTOL: return "gunfire_pistol"
 		_: return "gunfire"
 
 ## Per-weapon aim-down-sights FOV (absolute degrees, horizontal). The DMR is scoped (strong zoom); the
