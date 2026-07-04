@@ -110,8 +110,9 @@ static func decode_welcome(bytes: PackedByteArray) -> Dictionary:
 	var id := r.get_u32()
 	var tick_rate := r.get_u16()
 	var cls := r.get_u8()
-	# Map name is a trailing field — guard so a legacy welcome without it still decodes.
-	var map_name := r.get_utf8_string() if r.get_available_bytes() > 0 else ""
+	# Map name is a trailing field — get_string_bounded returns "" when absent OR truncated,
+	# so a legacy welcome without it still decodes.
+	var map_name := get_string_bounded(r)
 	return {"id": id, "tick_rate": tick_rate, "class": cls, "map": map_name}
 
 
@@ -134,11 +135,27 @@ const MAX_NAME_LEN := 24
 # strings/paths) even though names aren't currently rendered through any markup-parsing UI.
 const _ALLOWED_NAME_SYMBOLS := " .-_'()[]{}#@~^!?"
 
+## Bounded replacement for StreamPeerBuffer.get_utf8_string(): the wire format is a u32 length
+## prefix + bytes, and get_utf8_string() trusts that attacker-controlled length blindly (a truncated
+## HELLO claiming a ~2 GB name reaches the read before _sanitize_name's cap applies). Validates the
+## claimed length against the bytes actually present; returns "" on a lying prefix.
+static func get_string_bounded(r: StreamPeerBuffer) -> String:
+	if r.get_available_bytes() < 4:
+		return ""
+	var n := r.get_u32()
+	if n == 0 or n > r.get_available_bytes():
+		return ""
+	var res: Array = r.get_data(n)
+	if int(res[0]) != OK:
+		return ""
+	return (res[1] as PackedByteArray).get_string_from_utf8()
+
+
 ## HELLO body: protocol version + player name + auto_deploy (trailing byte, legacy default true).
 static func decode_hello(bytes: PackedByteArray) -> Dictionary:
 	var r := body_reader(bytes)
 	var ver := r.get_u16()
-	var pname := _sanitize_name(r.get_utf8_string())
+	var pname := _sanitize_name(get_string_bounded(r))
 	var auto_deploy: bool = (r.get_u8() == 1) if r.get_available_bytes() > 0 else true
 	return {"ver": ver, "name": pname, "auto_deploy": auto_deploy}
 
@@ -160,7 +177,7 @@ static func _sanitize_name(raw: String) -> String:
 
 
 static func decode_reject(bytes: PackedByteArray) -> String:
-	return body_reader(bytes).get_utf8_string()
+	return get_string_bounded(body_reader(bytes))
 
 
 # ---- shared field codecs ----------------------------------------------------
@@ -385,7 +402,7 @@ static func decode_grenade_throw(bytes: PackedByteArray) -> Dictionary:
 static func encode_smoke_deployed(pos: Vector3, radius: float, expire_tick: int, vel: Vector3 = Vector3.ZERO) -> PackedByteArray:
 	var buf := StreamPeerBuffer.new()
 	buf.put_u8(Msg.SMOKE_DEPLOYED)
-	buf.put_16(roundi(pos.x)); buf.put_16(roundi(pos.y)); buf.put_16(roundi(pos.z))
+	buf.put_16(clampi(roundi(pos.x), -32768, 32767)); buf.put_16(clampi(roundi(pos.y), -32768, 32767)); buf.put_16(clampi(roundi(pos.z), -32768, 32767))   # clamp like put_pos10 (no i16 wrap)
 	buf.put_u8(clampi(roundi(radius), 0, 255))
 	buf.put_u16(clampi(expire_tick, 0, 65535))   # absolute tick (u16); fine for gate-length matches
 	# Canister velocity AT POP (m/s) so the client can integrate the same fall and the cloud follows the
@@ -823,7 +840,7 @@ static func decode_roster(bytes: PackedByteArray) -> Dictionary:
 	var rows: Array = []
 	for _i in n:
 		var id := r.get_u32()
-		var nm := r.get_utf8_string()
+		var nm := get_string_bounded(r)
 		rows.append({"id": id, "name": nm, "team": r.get_u8(), "squad": r.get_u8(),
 			"kills": r.get_u16(), "deaths": r.get_u16(), "score": r.get_u16()})
 	return {"rows": rows}

@@ -18,7 +18,12 @@ func assign(client_id: int, team: int) -> int:
 		if squads[k].size() < SQUAD_SIZE:
 			sid = k; break
 	if sid == -1:
-		sid = squads.size()
+		# Next FREE id, not squads.size(): join() creates arbitrary (non-contiguous) bucket keys, so
+		# size() can collide with an existing key and wipe that squad's member array (orphaning its
+		# members' squad_of/pawn.squad and hijacking its leadership).
+		sid = 0
+		while squads.has(sid):
+			sid += 1
 		squads[sid] = []
 	squads[sid].append(client_id)
 	squad_of[client_id] = sid

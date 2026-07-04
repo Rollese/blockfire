@@ -61,12 +61,14 @@ func region_count(region: Vector2i) -> int:
 	return (_by_region.get(region, {}) as Dictionary).size()
 
 ## Insert a record. Returns the record on success, {} if the cell is occupied.
-func place(id: int, type: int, cell: Vector3i, yaw: int, owner: int, building_id: int = 0) -> Dictionary:
+## `team` -1 = neutral/world piece; player fortifications record their builder's team at completion
+## so friend/foe shovel classification survives the owner disconnecting (was derived from the live pawn).
+func place(id: int, type: int, cell: Vector3i, yaw: int, owner: int, building_id: int = 0, team: int = -1) -> Dictionary:
 	if _occupancy.has(cell):
 		return {}
 	var rec := {"id": id, "type": type, "cell": cell, "yaw": yaw,
 		"chunks": ChunkMask.full_mask(_catalog.chunk_grid_of(type)),
-		"building_id": building_id, "owner": owner}
+		"building_id": building_id, "owner": owner, "team": team}
 	return insert(rec)
 
 ## Insert a fully-formed record (used by clients applying deltas/baselines).

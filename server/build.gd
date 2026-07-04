@@ -52,7 +52,7 @@ func handle_build_request(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
 	if id == 0 or not srv._clients.has(id): return
 	var c = srv._clients[id]
 	var p: Pawn = srv._sim.world.get_pawn(id)
-	if p == null or not p.alive: return
+	if p == null or not p.alive or p.is_downed: return   # downed = incapacitated (same gate as the shovel step)
 	var d := Protocol.decode_build_request(bytes)
 	var type: int = d["type"]
 	if type < 0 or type >= srv._catalog.size(): return
@@ -113,7 +113,7 @@ func handle_place_fob(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
 	if id == 0 or not srv._clients.has(id): return
 	var c = srv._clients[id]
 	var p: Pawn = srv._sim.world.get_pawn(id)
-	if p == null or not p.alive: return
+	if p == null or not p.alive or p.is_downed: return   # downed leaders can't place FOBs
 	var team: int = int(c["team"])
 	var squad: int = int(c["squad"])
 	if srv._squads.leader_of(team, squad) != id: return    # leader-only (authoritative)
@@ -247,7 +247,7 @@ func complete_site(id: int) -> void:
 			var oc: Vector3i = srv._cell_of_struct(oldp)
 			srv._store.recycle_oldest(int(s["owner"]))
 			srv._emit_structure_delta(Protocol.OP_REMOVE, {"id": oldp}, oc)
-	var rec: Dictionary = srv._store.place(id, int(s["type"]), s["cell"], int(s["yaw"]), int(s["owner"]))
+	var rec: Dictionary = srv._store.place(id, int(s["type"]), s["cell"], int(s["yaw"]), int(s["owner"]), 0, int(s["team"]))
 	if rec.is_empty():
 		return   # lost the cell race
 	var wire := rec.duplicate()
@@ -274,8 +274,12 @@ func step_shovel_structures(shov: Dictionary, busy: Dictionary) -> void:
 		if rec.is_empty():
 			continue
 		var impact: Vector3 = (b["pos"] as Vector3) + (b["fwd"] as Vector3).normalized() * float(hit["dist"])
-		var op: Pawn = srv._sim.world.get_pawn(int(rec["owner"]))
-		var struct_team := op.team if op != null else int(b["team"])
+		# Team recorded at completion (survives the owner disconnecting). Legacy/world records without
+		# one (-1): fall back to the old live-pawn derivation, else neutral-friendly (repair, no dismantle).
+		var struct_team: int = int(rec.get("team", -1))
+		if struct_team < 0:
+			var op: Pawn = srv._sim.world.get_pawn(int(rec["owner"]))
+			struct_team = op.team if op != null else int(b["team"])
 		if int(b["team"]) == struct_team:
 			var rep: Dictionary = srv._store.repair_chunks(sidx, impact, 0.9)
 			if rep["changed"]:
@@ -294,10 +298,15 @@ func step_shovel_structures(shov: Dictionary, busy: Dictionary) -> void:
 func handle_build_remove(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
 	var id = srv._peer_to_id.get(peer, 0)
 	if id == 0 or not srv._clients.has(id): return
+	# Ownership alone isn't enough: without a pawn-state + range gate a dead player could demolish
+	# their own fortifications from the deploy screen at unlimited range (removing teammates' cover).
+	var p: Pawn = srv._sim.world.get_pawn(id)
+	if p == null or not p.alive or p.is_downed: return
 	var rid: int = Protocol.decode_build_remove(bytes)["id"]
 	var rec: Dictionary = srv._store.get_record(rid)
 	if rec.is_empty() or int(rec["owner"]) != id: return
 	var cell: Vector3i = rec["cell"]
+	if p.pos.distance_to(BuildGrid.world_of(cell)) > StructureStore.BUILD_RANGE + BuildGrid.CELL_SIZE: return
 	srv._store.remove(rid)
 	srv._stats.removes += 1
 	srv._emit_structure_delta(Protocol.OP_REMOVE, {"id": rid}, cell)

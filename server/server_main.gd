@@ -58,7 +58,7 @@ const BLAST_STRUCT_RADIUS := 4.0      # m (~2 build cells)
 const GRENADE_DAMAGE_PAWN := 100      # frag pawn splash at centre, linear falloff
 const GRENADE_DAMAGE_STRUCT := 200    # frag structure blast GATE (>0 = enabled; magnitude unused — carve is governed by struct_radius, M11)
 const IMPACT_CONTACT_RADIUS := 1.0    # m — an impact grenade detonates this close to an enemy pawn
-const MELEE_DAMAGE := 50              # knife body-hit damage (M5.5-P3); rear-arc back-stab instant-kills
+const MELEE_DAMAGE := 75              # knife body hit; 2 front hits down EVERY armor tier (75*0.7=53 HEAVY -> 106), rear-arc back-stab instant-kills
 const MELEE_COOLDOWN_TICKS := 18      # ~0.6s @30Hz between melee swings (was 24 — 0.8s felt like spam for a 2-hit front kill)
 const SLEDGE_PAWN_DAMAGE := 35        # Engineer sledgehammer pawn-bonk (no structure in reach)
 const SLEDGE_STRUCT_RADIUS := 1.5     # m — carve radius of one sledge swing on a structure cell
@@ -703,6 +703,8 @@ func _handle_respawns() -> void:
 			p.grounded = true
 			p.fall_peak_y = p.pos.y
 			p.landed_fall = 0.0
+			p.suppression = 0.0       # fresh life: no residual spread penalty
+			p.blind_until_tick = 0    # a flashbang taken last life doesn't white-out the respawn
 			c["respawn_tick"] = 0
 			_reset_weapon_loadout(c)   # both slots full, fire-mode defaults, back on primary
 			_force_reenter(id)         # a swapper who died holding secondary respawns on primary
@@ -878,6 +880,16 @@ func _on_packet(peer: ENetPacketPeer, _channel: int, bytes: PackedByteArray) -> 
 		_: pass
 
 func _handle_hello(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
+	# One HELLO per connection: a repeated HELLO on an already-welcomed peer would mint a fresh
+	# id/pawn/team/squad slot every time (slot-exhaustion DoS; only the newest id would be cleaned
+	# on disconnect). Re-send the WELCOME idempotently instead — covers a reliable-channel retry.
+	var existing_id: int = _peer_to_id.get(peer, 0)
+	if existing_id != 0 and _clients.has(existing_id):
+		var ec = _clients[existing_id]
+		_net.send_to(peer, NetHost.CHANNEL_CONTROL,
+			Protocol.encode_welcome(existing_id, TICK_RATE, int(ec["class"]), _map_path.get_file().get_basename()),
+			ENetPacketPeer.FLAG_RELIABLE)
+		return
 	var hello := Protocol.decode_hello(bytes)
 	var ver := int(hello["ver"])
 	var pname := String(hello["name"])
@@ -949,6 +961,9 @@ func _squad_candidates(req_id: int, team: int, squad_id: int) -> Array:
 		if mid == req_id: continue
 		var mp: Pawn = _sim.world.get_pawn(mid)
 		if mp == null: continue
+		# Same anti-HQ-camp rule as the auto-respawn path (_select_spawn): a mate who took fire in
+		# the last COMBAT_FLAG_TICKS is not a valid spawn anchor. Without this, only bots honoured it.
+		if _sim.tick < mp.combat_until_tick: continue
 		out.append({"id": mid, "pos": mp.pos, "team": mp.team, "alive": mp.alive, "downed": mp.is_downed})
 	return out
 
@@ -1004,6 +1019,8 @@ func _handle_deploy_request(peer: ENetPacketPeer, bytes: PackedByteArray) -> voi
 	p.grounded = true
 	p.fall_peak_y = p.pos.y
 	p.landed_fall = 0.0
+	p.suppression = 0.0       # fresh life: no residual spread penalty (same as _handle_respawns)
+	p.blind_until_tick = 0    # a flashbang taken last life doesn't white-out the fresh deploy
 	_reset_weapon_loadout(c)   # both slots full, fire-mode defaults, back on primary
 	_force_reenter(id)         # weapon rides ENTER-only — refresh remote silhouettes after reset
 	c["rockets"] = int(_gadgets.def_of_kind(Gadget.KIND_RPG)["ammo"]) if int(c["weapon"]) == Weapon.RPG else 0   # refill rockets on (re)deploy, not just respawn (reads restored primary weapon)
@@ -1124,7 +1141,7 @@ func _handle_grenade_throw(peer: ENetPacketPeer, bytes: PackedByteArray) -> void
 	if id == 0 or not _clients.has(id): return
 	var c = _clients[id]
 	var p: Pawn = _sim.world.get_pawn(id)
-	if p == null or not p.alive: return
+	if p == null or not p.alive or p.is_downed: return   # downed = incapacitated (same gate as fire/melee/gadgets)
 	if _sim.tick - int(c["last_grenade_tick"]) < GRENADE_COOLDOWN_TICKS: return
 	var d := Protocol.decode_grenade_throw(bytes)
 	var dir: Vector3 = d["dir"]
@@ -1133,6 +1150,10 @@ func _handle_grenade_throw(peer: ENetPacketPeer, bytes: PackedByteArray) -> void
 	var gtype := int(d["type"])
 	if gtype < Grenade.FRAG or gtype > Grenade.IMPACT:
 		gtype = Grenade.FRAG   # reject unknown throwable ids (default to frag)
+	# Humans own only what SELF_STATE advertises (frag + smoke); FLASHBANG/IMPACT are bot-exerciser
+	# throwables. Without this a modified client throws IMPACT — strictly better than frag (contact fuse).
+	if not bool(c["auto_deploy"]) and gtype != Grenade.FRAG and gtype != Grenade.SMOKE:
+		gtype = Grenade.FRAG
 	var charge := float(d.get("charge", 1.0))   # hold-strength: longer hold -> faster/farther throw
 	_grenades.append({
 		"owner": id, "team": p.team, "type": gtype,
@@ -1380,7 +1401,9 @@ func _place_c4(id: int, p: Pawn, pos: Vector3) -> void:
 	var owned: Array = _c4.get(id, [])
 	if owned.size() >= int(cdef["max_active"]): return
 	if p.pos.distance_to(pos) > StructureStore.BUILD_RANGE: return   # within reach
-	owned.append({"pos": pos, "cell": BuildGrid.cell_of(Vector3(pos.x, 0.0, pos.z))})
+	# Keep the REAL cell (y layer included): _remove_c4_on_cell is keyed by the destroyed piece's
+	# actual cell, so a y=0-flattened key left C4 floating when an elevated piece was destroyed.
+	owned.append({"pos": pos, "cell": BuildGrid.cell_of(pos)})
 	_c4[id] = owned
 
 func _place_mine(id: int, p: Pawn, pos: Vector3, facing: Vector3) -> void:
@@ -1403,6 +1426,7 @@ func _throw_bag(id: int, p: Pawn, pos: Vector3) -> void:
 	for b in _bags:
 		if int(b["owner"]) == id: bag_count += 1
 	if bag_count >= int(gdef["max_bags"]): return
+	if p.pos.distance_to(pos) > StructureStore.BUILD_RANGE: return   # within throwing reach, like C4/mine placement
 	_bags.append({"owner": id, "team": p.team, "kind": kind, "pos": pos, "pool": int(gdef["bag_pool"])})
 	_stats.bags_thrown += 1
 
@@ -1881,6 +1905,13 @@ func _on_peer_disconnected(peer: ENetPacketPeer) -> void:
 		_clients.erase(id)
 		_sim.world.despawn(id)
 		_prev_climb_vault.erase(id)
+		# Drop the leaver's deployed gadgets: their C4 can never be detonated again (handler needs the
+		# client) and orphaned entries would render + ride the GADGET_LIST heartbeat for the whole match.
+		_c4.erase(id)
+		var kept_mines: Array = []
+		for m in _mines:
+			if int(m["owner"]) != id: kept_mines.append(m)
+		_mines = kept_mines
 		print("[server] peer %d disconnected — %d peers" % [id, _clients.size()])
 
 func _log_telemetry() -> void:
