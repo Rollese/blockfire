@@ -49,8 +49,6 @@ var _tracer_idx: int = 0
 const SUPPORT_POOL := 16
 const SUPPORT_CHEST_Y := 1.2       # raise both endpoints to ~chest so the beam reads as person-to-person
 const SUPPORT_REVIVE_KIND := 3     # matches Support/SUPPORT_COLORS REVIVE
-const MEDIC_CROSS_COLOR := Color(0.2, 1.0, 0.45)   # saturated medic green for the revive-in-progress cross
-const SUPPORT_CROSS_Y := 1.05      # metres above the target's chest endpoint (floats over the head)
 const SUPPORT_COLORS := {
 	0: Color(0.25, 1.0, 0.35),     # HEAL   — green
 	1: Color(1.0, 0.78, 0.22),     # AMMO   — amber
@@ -439,22 +437,7 @@ func setup(map: MapDef, camera: Camera3D) -> void:
 		aura.visible = false
 		aura.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		add_child(aura)
-		# Revive-only medic cross: a floating "+" over the teammate being revived, so the link reads as
-		# "reviving" instead of an ambiguous ball + box (D4). Billboarded to the camera each frame.
-		var cross := Node3D.new()
-		var cross_mat := fx_material(MEDIC_CROSS_COLOR, true, true)
-		for bar_size in [Vector3(0.52, 0.16, 0.05), Vector3(0.16, 0.52, 0.05)]:
-			var bar := MeshInstance3D.new()
-			var barmesh := BoxMesh.new()
-			barmesh.size = bar_size
-			bar.mesh = barmesh
-			bar.material_override = cross_mat
-			bar.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-			cross.add_child(bar)
-		cross.visible = false
-		add_child(cross)
-		_support_slots.append({"beam": beam, "beam_mat": bmat, "aura": aura, "aura_mat": amat,
-			"cross": cross, "cross_mat": cross_mat})
+		_support_slots.append({"beam": beam, "beam_mat": bmat, "aura": aura, "aura_mat": amat})
 
 	# Muzzle flash pool — brief emissive plates at the muzzle, hidden until a shot is fired.
 	for _i in FLASH_POOL:
@@ -951,7 +934,6 @@ func _update_support_links(world_view: WorldView, remotes: Dictionary, predictor
 	for i in range(slot, _support_slots.size()):
 		_support_slots[i]["beam"].visible = false
 		_support_slots[i]["aura"].visible = false
-		_support_slots[i]["cross"].visible = false
 
 ## Position of an entity id this frame, or Vector3.INF if not visible. Pawns come from `remotes`
 ## (or the predicted local pawn); vehicle-range ids come from the vehicle pool.
@@ -965,28 +947,12 @@ func _resolve_support_pos(id: int, local_id: int, local_pos: Vector3, remotes: D
 	return Vector3.INF
 
 func _draw_support_slot(s: Dictionary, a: Vector3, b: Vector3, kind: int, now: float) -> void:
-	var cross: Node3D = s["cross"]
-	# Revive reads best as a recognizable medic "+" floating over the teammate (D4) rather than the
-	# generic beam + ball used by heal/ammo/repair. Show the cross and suppress the beam/aura for it.
+	# Revive draws no support FX — the downed teammate's red indicator marker already shows it (owner
+	# asked to drop the extra revive beam/ball/cross). Heal/ammo/repair still draw their beam + aura.
 	if kind == SUPPORT_REVIVE_KIND:
 		s["beam"].visible = false
 		s["aura"].visible = false
-		var top := b + Vector3.UP * SUPPORT_CROSS_Y
-		var pulse := 0.65 + 0.35 * (0.5 + 0.5 * sin(now * 6.0))
-		var basis := Basis()
-		if _camera != null:
-			# Billboard to the camera so the "+" always reads (a bare 3-D cross is a line edge-on).
-			var to_cam := (_camera.global_transform.origin - top)
-			if to_cam.length() > 0.01:
-				basis = Basis.looking_at(-to_cam.normalized(), Vector3.UP)
-		var bob := 0.06 * sin(now * 3.0)
-		cross.global_transform = Transform3D(basis, top + Vector3.UP * bob)
-		var cmat: StandardMaterial3D = s["cross_mat"]
-		cmat.albedo_color = Color(MEDIC_CROSS_COLOR.r, MEDIC_CROSS_COLOR.g, MEDIC_CROSS_COLOR.b, pulse)
-		cmat.emission = MEDIC_CROSS_COLOR
-		cross.visible = true
 		return
-	cross.visible = false
 	var dir := b - a
 	var dist := dir.length()
 	var beam: MeshInstance3D = s["beam"]
