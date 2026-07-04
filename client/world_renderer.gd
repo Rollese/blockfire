@@ -1141,8 +1141,8 @@ func fire_rocket(origin: Vector3, dir: Vector3, now: float) -> void:
 func cull_rockets_near(pos: Vector3, radius: float) -> void:
 	_fx.cull_rockets_near(pos, radius)
 
-func throw_grenade(origin: Vector3, vel: Vector3, kind: int, now: float) -> void:
-	_fx.throw_grenade(origin, vel, kind, now)
+func throw_grenade(origin: Vector3, vel: Vector3, kind: int, now: float, friendly: bool = false) -> void:
+	_fx.throw_grenade(origin, vel, kind, now, friendly)
 
 func live_grenade_positions() -> Array:
 	return _fx.live_grenade_positions()

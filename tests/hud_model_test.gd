@@ -25,6 +25,15 @@ func test_grenade_danger_none_when_no_grenades() -> void:
 	var out := m.build({"self_pos": Vector3.ZERO, "self_yaw": 0.0, "tick": 0})
 	assert_true((out["grenade_danger"] as Dictionary).is_empty(), "no grenades -> no danger indicator")
 
+func test_throw_charge_meter_visible_only_while_charging() -> void:
+	var m := HudModel.new()
+	var idle := m.build({"self_pos": Vector3.ZERO, "self_yaw": 0.0, "tick": 0})
+	assert_false(bool((idle["throw_charge"] as Dictionary).get("visible", true)), "no charge -> meter hidden")
+	var mid := m.build({"self_pos": Vector3.ZERO, "self_yaw": 0.0, "tick": 0, "throw_charge": 0.6})
+	var tc: Dictionary = mid["throw_charge"]
+	assert_true(bool(tc["visible"]), "charging -> meter shown")
+	assert_almost_eq(float(tc["charge"]), 0.6, 0.001, "meter reflects the hold strength")
+
 func test_grenade_danger_ignores_far_grenade() -> void:
 	var m := HudModel.new()
 	var out := m.build({"self_pos": Vector3.ZERO, "self_eye": Vector3.ZERO, "self_yaw": 0.0,

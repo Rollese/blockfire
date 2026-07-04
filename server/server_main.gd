@@ -53,7 +53,7 @@ const MAX_STRUCTURE_BASELINE_PIECES_PER_TICK := 256
 const BULLET_CARVE_RADIUS := 0.30   # m: chunks a single blocked bullet clears (M11)
 const GRENADE_FUSE_TICKS := 45        # 1.5s @30Hz
 const GRENADE_COOLDOWN_TICKS := 300   # 10s between a player's throws (shared frag/smoke)
-const BLAST_PAWN_RADIUS := 6.0        # m, sphere (current positions, FF-off)
+const BLAST_PAWN_RADIUS := 8.0        # m, sphere (current positions, FF-off) — was 6, felt too small
 const BLAST_STRUCT_RADIUS := 4.0      # m (~2 build cells)
 const GRENADE_DAMAGE_PAWN := 100      # frag pawn splash at centre, linear falloff
 const GRENADE_DAMAGE_STRUCT := 200    # frag structure blast GATE (>0 = enabled; magnitude unused — carve is governed by struct_radius, M11)
@@ -1124,15 +1124,16 @@ func _handle_grenade_throw(peer: ENetPacketPeer, bytes: PackedByteArray) -> void
 	var gtype := int(d["type"])
 	if gtype < Grenade.FRAG or gtype > Grenade.IMPACT:
 		gtype = Grenade.FRAG   # reject unknown throwable ids (default to frag)
+	var charge := float(d.get("charge", 1.0))   # hold-strength: longer hold -> faster/farther throw
 	_grenades.append({
 		"owner": id, "team": p.team, "type": gtype,
-		"pos": p.eye_position(), "vel": Grenade.launch_velocity(dir),
+		"pos": p.eye_position(), "vel": Grenade.launch_velocity(dir, charge),
 		"detonate_tick": _sim.tick + GRENADE_FUSE_TICKS,
 	})
 	# Cosmetic: let other human clients see the grenade arc through the air (FRAG/SMOKE only — IMPACT
 	# isn't in a human loadout and detonates on contact). The thrower renders their own locally.
 	if gtype == Grenade.FRAG or gtype == Grenade.SMOKE:
-		_broadcast_grenade_fx(id, p.eye_position(), dir.normalized(), gtype)
+		_broadcast_grenade_fx(id, p.eye_position(), dir.normalized(), gtype, p.team, charge)
 
 func _handle_melee(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
 	var id = _peer_to_id.get(peer, 0)
@@ -1361,8 +1362,8 @@ func _send_fob_lists() -> void:
 ## input — fair play, same packet a rendered client receives. Excludes the thrower (humans arc their
 ## own grenade from client_main; a bot knows its own throw). Unreliable/droppable like the other
 ## *_FX broadcasts, per-throw only (no steady-state cost); encoded once, sent N.
-func _broadcast_grenade_fx(thrower_id: int, origin: Vector3, dir: Vector3, kind: int) -> void:
-	_broadcast_all(NetHost.CHANNEL_SNAPSHOT, Protocol.encode_grenade_fx(origin, dir, kind), 0, thrower_id)
+func _broadcast_grenade_fx(thrower_id: int, origin: Vector3, dir: Vector3, kind: int, team: int = 0, charge: float = 1.0) -> void:
+	_broadcast_all(NetHost.CHANNEL_SNAPSHOT, Protocol.encode_grenade_fx(origin, dir, kind, team, charge), 0, thrower_id)
 
 func _place_c4(id: int, p: Pawn, pos: Vector3) -> void:
 	if Loadout.gadget_for_player(int(_clients[id]["class"]), id) != Loadout.GADGET_C4: return

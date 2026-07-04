@@ -52,6 +52,8 @@ var _downed_root: Control
 var _downed_timer: Label
 var _downed_friendly: Label
 var _downed_bandage: Label   # DBNO self-bandage prompt / charges / stabilized state
+var _throw_bar_bg: ColorRect     # C3 grenade throw-strength meter background
+var _throw_bar_fill: ColorRect   # C3 grenade throw-strength meter fill (0..1 of the bar width)
 var _downed_giveup_fill: ColorRect
 var _perf_label: Label            # debug perf overlay (FPS / frame-time / draw calls)
 var _perf_accum: float = 0.0      # throttle perf-label refresh to ~4 Hz
@@ -129,6 +131,7 @@ func render(model: Dictionary) -> void:
 	_render_throwables(model.get("throwables", {}))
 	_render_death_recap(model.get("death_recap"))
 	_render_repair_gauge(model.get("repair_heat", {}))
+	_render_throw_charge(model.get("throw_charge", {}))
 
 
 # -----------------------------------------------------------------------
@@ -151,6 +154,7 @@ func _build_tree() -> void:
 
 	_build_suppression()   # first: samples only the rendered world; the HUD below draws crisp over it
 	_build_crosshair()
+	_build_throw_charge()
 	_build_scope()         # sniper scope mask + reticle (over the world, under the flashbang/blind)
 	_hitmarker = _Hitmarker.new()
 	add_child(_hitmarker)
@@ -209,6 +213,34 @@ func _build_crosshair() -> void:
 	_ch_dot.mouse_filter = MOUSE_FILTER_IGNORE
 	add_child(_ch_dot)
 	update_crosshair(0.0, false)
+
+## C3 grenade throw-strength bar: a thin meter just under the reticle that fills while "throw" is held.
+const _THROW_BAR_W := 120.0
+func _build_throw_charge() -> void:
+	_throw_bar_bg = ColorRect.new()
+	_throw_bar_bg.color = Color(0, 0, 0, 0.5)
+	_throw_bar_bg.anchor_left = 0.5; _throw_bar_bg.anchor_right = 0.5
+	_throw_bar_bg.anchor_top = 0.5; _throw_bar_bg.anchor_bottom = 0.5
+	_throw_bar_bg.offset_left = -_THROW_BAR_W * 0.5; _throw_bar_bg.offset_right = _THROW_BAR_W * 0.5
+	_throw_bar_bg.offset_top = 34.0; _throw_bar_bg.offset_bottom = 40.0
+	_throw_bar_bg.mouse_filter = MOUSE_FILTER_IGNORE
+	_throw_bar_bg.visible = false
+	add_child(_throw_bar_bg)
+	_throw_bar_fill = ColorRect.new()
+	_throw_bar_fill.color = Color(1.0, 0.75, 0.2, 0.95)
+	_throw_bar_fill.anchor_left = 0.0; _throw_bar_fill.anchor_right = 0.0
+	_throw_bar_fill.anchor_top = 0.0; _throw_bar_fill.anchor_bottom = 1.0
+	_throw_bar_fill.offset_left = 0.0; _throw_bar_fill.offset_top = 0.0; _throw_bar_fill.offset_bottom = 0.0
+	_throw_bar_fill.mouse_filter = MOUSE_FILTER_IGNORE
+	_throw_bar_bg.add_child(_throw_bar_fill)
+
+func _render_throw_charge(tc: Dictionary) -> void:
+	if _throw_bar_bg == null:
+		return
+	var vis := bool(tc.get("visible", false))
+	_throw_bar_bg.visible = vis
+	if vis:
+		_throw_bar_fill.offset_right = _THROW_BAR_W * clampf(float(tc.get("charge", 0.0)), 0.0, 1.0)
 
 ## Reposition the reticle ticks for the given spread (px added to the resting gap). `hidden` pulls
 ## the whole reticle (e.g. while dead / on the deploy screen / in a menu).

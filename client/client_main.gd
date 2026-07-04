@@ -167,6 +167,9 @@ var _life_down_count: int = 0      # times downed this life (client mirror; driv
 var _repair_heat: float = 0.0      # latest Engineer repair-tool heat fraction from SELF_STATE (HUD gauge)
 var _repair_cooldown: float = 0.0  # latest repair overheat-lockout remaining fraction from SELF_STATE
 var _self_stamina: float = 100.0   # latest authoritative stamina from SELF_STATE (sprint reconcile baseline)
+var _throw_charge: float = 0.0     # C3: current grenade hold-charge 0..1 (grows while "throw" is held)
+var _throw_charging: bool = false  # whether we're mid-charge on a throwable
+const THROW_CHARGE_SECS := 1.1     # hold time to reach full throw strength
 var _repair_heat_test := false     # --repair-heat-test: drive a demo heat/cooldown cycle for a QA screenshot
 var _revive_hold: float = 0.0      # seconds the interact key has been held on a revive target
 
@@ -606,6 +609,7 @@ func _process(_dt: float) -> void:
 		"vehicles_near": _vehicles_near(),
 		"repair_heat": _repair_heat,
 		"repair_cooldown": _repair_cooldown,
+		"throw_charge": _throw_charge if _throw_charging else 0.0,   # C3 grenade charge bar (0 when idle)
 	}
 	if _repair_heat_test:   # visual QA: cycle heat 0->overheat->cooldown so the gauge is on-screen
 		var phase: float = fmod(_elapsed, 6.0)
@@ -817,32 +821,41 @@ func _process(_dt: float) -> void:
 		else:
 			_build_wheel = 0   # preview + hint are cleared by the inactive-state tail block in _process
 
-		# Throw: send grenade or RPG based on active throwable kind
-		if Input.is_action_just_pressed("throw") and not combat_locked:
-			var throwables_model: Dictionary = _model.get("throwables", {})
-			var tlist: Array = throwables_model.get("list", [])
-			var active_idx: int = int(throwables_model.get("active", 0))
-			if active_idx < tlist.size():
-				var slot: Dictionary = tlist[active_idx]
-				var kind: int = int(slot.get("kind", -1))
-				# Aim direction: same camera-forward the server rebuilds for bullets
-				var aim_dir: Vector3 = -Vector3(sin(_input_ctrl.yaw), 0.0,
-					cos(_input_ctrl.yaw)).normalized()
-				# Tilt by pitch so thrown arc matches the look direction
-				var pitch: float = _input_ctrl.pitch
-				aim_dir = Vector3(aim_dir.x * cos(pitch), sin(pitch), aim_dir.z * cos(pitch)).normalized()
-				if kind == Grenade.FRAG or kind == Grenade.SMOKE:
-					_net.send_to(_peer, NetHost.CHANNEL_CONTROL,
-						Protocol.encode_grenade_throw(aim_dir, kind), ENetPacketPeer.FLAG_RELIABLE)
-					if _renderer != null:
-						# Instant thrower feedback: a cosmetic grenade arcs along the shared Grenade
-						# model from the eye (matching the server) and vanishes on landing / at the fuse.
-						_renderer.throw_grenade(_pred.predicted.eye_position(),
-							Grenade.launch_velocity(aim_dir), kind, _elapsed)
-				elif kind == 100:  # RPG
-					_net.send_to(_peer, NetHost.CHANNEL_CONTROL,
-						Protocol.encode_gadget_action(Protocol.GA_RPG_FIRE,
-							_pred.predicted.pos, aim_dir, 0), ENetPacketPeer.FLAG_RELIABLE)
+		# Throw: hold to charge (longer hold = farther), release to lob. RPG fires immediately on press.
+		var throwables_model: Dictionary = _model.get("throwables", {})
+		var tlist: Array = throwables_model.get("list", [])
+		var active_idx: int = int(throwables_model.get("active", 0))
+		var active_kind: int = int((tlist[active_idx] as Dictionary).get("kind", -1)) if active_idx < tlist.size() else -1
+		var throwable_is_nade: bool = active_kind == Grenade.FRAG or active_kind == Grenade.SMOKE
+		if Input.is_action_pressed("throw") and throwable_is_nade and not combat_locked:
+			# Grow the charge while the key is held (clamped to full).
+			_throw_charging = true
+			_throw_charge = minf(_throw_charge + _dt / THROW_CHARGE_SECS, 1.0)
+		elif _throw_charging and throwable_is_nade and (Input.is_action_just_released("throw") or combat_locked):
+			# Release: throw at the accumulated strength, matching what the server integrates.
+			var aim_dir: Vector3 = -Vector3(sin(_input_ctrl.yaw), 0.0, cos(_input_ctrl.yaw)).normalized()
+			var pitch: float = _input_ctrl.pitch
+			aim_dir = Vector3(aim_dir.x * cos(pitch), sin(pitch), aim_dir.z * cos(pitch)).normalized()
+			var charge: float = _throw_charge
+			_net.send_to(_peer, NetHost.CHANNEL_CONTROL,
+				Protocol.encode_grenade_throw(aim_dir, active_kind, charge), ENetPacketPeer.FLAG_RELIABLE)
+			if _renderer != null:
+				# Instant thrower feedback: own grenade -> friendly=true so it never triggers our own danger warning.
+				_renderer.throw_grenade(_pred.predicted.eye_position(),
+					Grenade.launch_velocity(aim_dir, charge), active_kind, _elapsed, true)
+			_throw_charging = false
+			_throw_charge = 0.0
+		elif not Input.is_action_pressed("throw"):
+			_throw_charging = false
+			_throw_charge = 0.0
+		# RPG throwable fires immediately on press (not a charged lob).
+		if Input.is_action_just_pressed("throw") and active_kind == 100 and not combat_locked:
+			var rpg_dir: Vector3 = -Vector3(sin(_input_ctrl.yaw), 0.0, cos(_input_ctrl.yaw)).normalized()
+			var rpg_pitch: float = _input_ctrl.pitch
+			rpg_dir = Vector3(rpg_dir.x * cos(rpg_pitch), sin(rpg_pitch), rpg_dir.z * cos(rpg_pitch)).normalized()
+			_net.send_to(_peer, NetHost.CHANNEL_CONTROL,
+				Protocol.encode_gadget_action(Protocol.GA_RPG_FIRE,
+					_pred.predicted.pos, rpg_dir, 0), ENetPacketPeer.FLAG_RELIABLE)
 
 		# Left-click also fires the RPG when it's the equipped weapon. The RPG isn't a hit-scan
 		# click weapon, so without this the primary-fire button feels dead for an RPG loadout.
@@ -992,8 +1005,12 @@ func _on_packet(_from: ENetPacketPeer, _channel: int, bytes: PackedByteArray) ->
 		Protocol.Msg.GRENADE_FX:
 			var gfx: Dictionary = Protocol.decode_grenade_fx(bytes)
 			if _renderer != null:
-				# Remote pawn's thrown grenade arcs the shared Grenade model (same as the local thrower).
-				_renderer.throw_grenade(gfx["origin"], Grenade.launch_velocity(gfx["dir"]), int(gfx["kind"]), _elapsed)
+				# Remote pawn's thrown grenade arcs the shared Grenade model (same as the local thrower),
+				# at the charged speed. Same-team throws are friendly -> excluded from the danger warning.
+				var g_friendly: bool = int(gfx.get("team", -1)) == _local_team()
+				_renderer.throw_grenade(gfx["origin"],
+					Grenade.launch_velocity(gfx["dir"], float(gfx.get("charge", 1.0))),
+					int(gfx["kind"]), _elapsed, g_friendly)
 		Protocol.Msg.GADGET_LIST:
 			if bytes != _gadget_bytes:
 				_gadget_bytes = bytes   # skip the rebuild on an unchanged 1 Hz heartbeat

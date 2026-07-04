@@ -363,17 +363,23 @@ static func decode_collapse(bytes: PackedByteArray) -> int:
 	return body_reader(bytes).get_u16()
 
 
-static func encode_grenade_throw(dir: Vector3, type: int) -> PackedByteArray:
+static func encode_grenade_throw(dir: Vector3, type: int, charge: float = 1.0) -> PackedByteArray:
 	var buf := StreamPeerBuffer.new()
 	buf.put_u8(Msg.GRENADE_THROW)
 	put_dir10k(buf, dir.normalized())
 	buf.put_u8(type)
+	buf.put_u8(int(round(clampf(charge, 0.0, 1.0) * 255.0)))   # hold-charge 0..1 -> throw strength
 	return buf.data_array
 
 
 static func decode_grenade_throw(bytes: PackedByteArray) -> Dictionary:
 	var r := body_reader(bytes)
-	return {"dir": get_dir10k(r), "type": r.get_u8()}
+	var dir := get_dir10k(r)
+	var type := r.get_u8()
+	var charge := 1.0   # old clients (no charge byte) -> full-strength throw
+	if r.get_available_bytes() > 0:
+		charge = float(r.get_u8()) / 255.0
+	return {"dir": dir, "type": type, "charge": charge}
 
 
 static func encode_smoke_deployed(pos: Vector3, radius: float, expire_tick: int) -> PackedByteArray:
@@ -515,17 +521,28 @@ static func decode_rocket_fx(bytes: PackedByteArray) -> Dictionary:
 
 ## Remote thrown grenade — same wire shape as ROCKET_FX (origin ×10, look dir ×10000) plus a kind
 ## byte (Grenade.FRAG/SMOKE); the client rebuilds the launch velocity and arcs a cosmetic grenade.
-static func encode_grenade_fx(origin: Vector3, dir: Vector3, kind: int) -> PackedByteArray:
+static func encode_grenade_fx(origin: Vector3, dir: Vector3, kind: int, team: int = 0, charge: float = 1.0) -> PackedByteArray:
 	var buf := StreamPeerBuffer.new()
 	buf.put_u8(Msg.GRENADE_FX)
 	put_pos10(buf, origin)
 	put_dir10k(buf, dir)
 	buf.put_u8(clampi(kind, 0, 255))
+	buf.put_u8(clampi(team, 0, 255))                          # thrower team: client warns only for enemy nades
+	buf.put_u8(int(round(clampf(charge, 0.0, 1.0) * 255.0)))  # so the remote arc matches the charged throw
 	return buf.data_array
 
 static func decode_grenade_fx(bytes: PackedByteArray) -> Dictionary:
 	var r := body_reader(bytes)
-	return {"origin": get_pos10(r), "dir": get_dir10k(r), "kind": r.get_u8()}
+	var origin := get_pos10(r)
+	var dir := get_dir10k(r)
+	var kind := r.get_u8()
+	var team := 0
+	var charge := 1.0
+	if r.get_available_bytes() > 0:
+		team = r.get_u8()
+	if r.get_available_bytes() > 0:
+		charge = float(r.get_u8()) / 255.0
+	return {"origin": origin, "dir": dir, "kind": kind, "team": team, "charge": charge}
 
 ## Authoritative deployed-gadget list — each entry: kind byte (GadgetList.C4/MINE/BAG), pos ×10,
 ## facing x/z ×10000 (zero for C4/bags). The client replaces its rendered gadget set on each receipt.
