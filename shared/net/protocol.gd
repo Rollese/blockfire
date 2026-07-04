@@ -693,7 +693,7 @@ static func decode_damage_event(bytes: PackedByteArray) -> Dictionary:
 	return {"bearing": Quantize.dec_angle(r.get_u16()), "amount": r.get_u8()}
 
 
-static func encode_self_state(mag: int, reloading: bool, reload_remaining: int, weapon: int, throwables: Array = [], being_revived: bool = false, suppression: float = 0.0, blind_ticks: int = 0, bandage_count: int = 0, bleed_halted: bool = false, repair_heat: float = 0.0, repair_cooldown: float = 0.0) -> PackedByteArray:
+static func encode_self_state(mag: int, reloading: bool, reload_remaining: int, weapon: int, throwables: Array = [], being_revived: bool = false, suppression: float = 0.0, blind_ticks: int = 0, bandage_count: int = 0, bleed_halted: bool = false, repair_heat: float = 0.0, repair_cooldown: float = 0.0, stamina: float = 100.0) -> PackedByteArray:
 	var buf := StreamPeerBuffer.new()
 	buf.put_u8(Msg.SELF_STATE)
 	buf.put_u8(clampi(mag, 0, 255))
@@ -722,6 +722,10 @@ static func encode_self_state(mag: int, reloading: bool, reload_remaining: int, 
 	# SELF_STATE), appended last so older decoders ignore them. Zero for non-engineers / not repairing.
 	buf.put_u8(int(round(clampf(repair_heat, 0.0, 1.0) * 255.0)))
 	buf.put_u8(int(round(clampf(repair_cooldown, 0.0, 1.0) * 255.0)))
+	# Authoritative stamina (0..100 fits a byte) for client sprint-prediction reconcile. Owner-only
+	# (rides SELF_STATE), appended last so older decoders ignore it. Without it the client double-drains
+	# stamina during replay and rubber-bands while sprinting.
+	buf.put_u8(clampi(int(round(stamina)), 0, 255))
 	return buf.data_array
 
 static func decode_self_state(bytes: PackedByteArray) -> Dictionary:
@@ -738,6 +742,7 @@ static func decode_self_state(bytes: PackedByteArray) -> Dictionary:
 	var bleed_halted := false
 	var repair_heat := 0.0
 	var repair_cooldown := 0.0
+	var stamina := 100.0   # full by default so a short/old packet never wrongly stalls sprint prediction
 	if r.get_available_bytes() > 0:
 		being_revived = r.get_u8() == 1
 	if r.get_available_bytes() > 0:
@@ -756,7 +761,9 @@ static func decode_self_state(bytes: PackedByteArray) -> Dictionary:
 		repair_heat = float(r.get_u8()) / 255.0
 	if r.get_available_bytes() > 0:
 		repair_cooldown = float(r.get_u8()) / 255.0
-	return {"mag": mag, "reloading": reloading, "reload_remaining": reload_remaining, "weapon": weapon, "throwables": throwables, "being_revived": being_revived, "suppression": suppression, "blind_ticks": blind_ticks, "bandage_count": bandage_count, "bleed_halted": bleed_halted, "repair_heat": repair_heat, "repair_cooldown": repair_cooldown}
+	if r.get_available_bytes() > 0:
+		stamina = float(r.get_u8())
+	return {"mag": mag, "reloading": reloading, "reload_remaining": reload_remaining, "weapon": weapon, "throwables": throwables, "being_revived": being_revived, "suppression": suppression, "blind_ticks": blind_ticks, "bandage_count": bandage_count, "bleed_halted": bleed_halted, "repair_heat": repair_heat, "repair_cooldown": repair_cooldown, "stamina": stamina}
 
 
 static func encode_roster(rows: Array) -> PackedByteArray:

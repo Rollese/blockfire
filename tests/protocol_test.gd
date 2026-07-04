@@ -325,6 +325,21 @@ func test_self_state_carries_repair_heat() -> void:
 	assert_true(absf(float(d["repair_heat"]) - 0.6) <= 1.0 / 255.0, "repair_heat round-trips ~0.6")
 	assert_eq(float(d["repair_cooldown"]), 1.0, "full cooldown round-trips exactly")
 
+func test_self_state_carries_stamina() -> void:
+	# Authoritative stamina (0..100, one byte) feeds the client sprint-prediction reconcile.
+	var b := Protocol.encode_self_state(17, false, 0, Weapon.AR, [], false, 0.0, 0, 0, false, 0.0, 0.0, 42.0)
+	var d := Protocol.decode_self_state(b)
+	assert_almost_eq(float(d["stamina"]), 42.0, 0.5, "stamina round-trips")
+
+func test_self_state_stamina_defaults_full_for_old_senders() -> void:
+	# A packet from a sender that predates the stamina byte must decode as full stamina so the client
+	# never wrongly stalls sprint prediction on an absent field.
+	var b := Protocol.encode_self_state(17, false, 0, Weapon.AR)   # no trailing stamina byte written...
+	# (encode always writes it now; simulate an old/short packet by truncating the final byte)
+	b.resize(b.size() - 1)
+	var d := Protocol.decode_self_state(b)
+	assert_almost_eq(float(d["stamina"]), Pawn.STAMINA_MAX, 0.001, "absent stamina -> full")
+
 func test_version_bumped_for_deploy_ref_rebase() -> void:
 	# The deploy-ref spaces were re-based 2026-07-02 (SQUADMATE/VEHICLE/FOB bases moved) — a
 	# wire-MEANING change: an old build's refs would be misinterpreted, so the handshake must

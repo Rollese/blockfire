@@ -51,7 +51,8 @@ func record_cmd(client_tick: int, cmd: Dictionary) -> void:
 	_advance(cmd)
 	pending.append({"tick": client_tick, "cmd": cmd})
 
-func reconcile_full(auth_pos: Vector3, auth_yaw: float, auth_pitch: float, last_input_tick: int) -> void:
+func reconcile_full(auth_pos: Vector3, auth_yaw: float, auth_pitch: float, last_input_tick: int,
+		auth_stamina: float = Pawn.STAMINA_MAX) -> void:
 	var kept: Array = []
 	for inp in pending:
 		if inp["tick"] > last_input_tick:
@@ -60,6 +61,10 @@ func reconcile_full(auth_pos: Vector3, auth_yaw: float, auth_pitch: float, last_
 	predicted.pos = auth_pos
 	predicted.yaw = auth_yaw
 	predicted.pitch = auth_pitch
+	# Reset stamina to authority BEFORE replaying pending inputs. Without this, each snapshot replayed
+	# every pending input and re-drained stamina (~RTT x too fast), so predicted sprint kept hitting
+	# empty and dropping to walk speed while the server sprinted on -> forward rubber-band in the open.
+	predicted.stamina = auth_stamina
 	for inp in pending:
 		if inp.has("cmd"):
 			_advance(inp["cmd"])

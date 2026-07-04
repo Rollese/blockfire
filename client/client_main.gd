@@ -166,6 +166,7 @@ var _bandage_count: int = 0        # latest bandage charges from SELF_STATE (res
 var _life_down_count: int = 0      # times downed this life (client mirror; drives the halving bleedout timer)
 var _repair_heat: float = 0.0      # latest Engineer repair-tool heat fraction from SELF_STATE (HUD gauge)
 var _repair_cooldown: float = 0.0  # latest repair overheat-lockout remaining fraction from SELF_STATE
+var _self_stamina: float = 100.0   # latest authoritative stamina from SELF_STATE (sprint reconcile baseline)
 var _repair_heat_test := false     # --repair-heat-test: drive a demo heat/cooldown cycle for a QA screenshot
 var _revive_hold: float = 0.0      # seconds the interact key has been held on a revive target
 
@@ -1110,7 +1111,7 @@ func _handle_snapshot(bytes: PackedByteArray) -> void:
 		# Reconcile movement prediction from authoritative position + pitch. Smooth only a genuine
 		# correction (deadzone..snap): ease it into the camera via _pos_err instead of snapping.
 		var pre_pos: Vector3 = _pred.predicted.pos
-		_pred.reconcile_full(ss.pos, ss.yaw, ss.pitch, int(hdr["last_input_tick"]))
+		_pred.reconcile_full(ss.pos, ss.yaw, ss.pitch, int(hdr["last_input_tick"]), _self_stamina)
 		var cl: float = (pre_pos - _pred.predicted.pos).length()
 		if cl > RECON_DEADZONE and cl <= RECON_SNAP:
 			_pos_err += pre_pos - _pred.predicted.pos
@@ -1167,6 +1168,7 @@ func _handle_self_state(bytes: PackedByteArray) -> void:
 	_bandage_count = int(d.get("bandage_count", 0))        # bandage charges (reserved: standing-bleed cure)
 	_repair_heat = float(d.get("repair_heat", 0.0))        # Engineer repair-tool heat (HUD gauge)
 	_repair_cooldown = float(d.get("repair_cooldown", 0.0))# repair overheat-lockout remaining fraction
+	_self_stamina = float(d.get("stamina", Pawn.STAMINA_MAX))  # authoritative stamina for sprint reconcile
 
 # ---- MATCH_STATE ------------------------------------------------------------
 func _handle_match_state(bytes: PackedByteArray) -> void:

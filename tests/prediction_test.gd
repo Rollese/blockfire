@@ -38,3 +38,22 @@ func test_reconcile_full_sets_pitch_and_replays() -> void:
 	pred.reconcile_full(Vector3(0.1, 0, 0), 0.0, 0.0, 1)
 	assert_eq(pred.pending.size(), 1, "tick 2 replayed")
 	assert_almost_eq(pred.predicted.pitch, 0.3, 0.001, "pitch from replayed cmd")
+
+func test_reconcile_restores_stamina_so_sprint_replay_doesnt_double_drain() -> void:
+	# Regression (M7 playtest): reconcile reset pos/yaw/pitch but NOT stamina, while replaying every
+	# pending input re-drained stamina each snapshot (~RTT x too fast). The predicted sprint then hit
+	# empty stamina and dropped to walk speed while the server kept sprinting -> forward rubber-band in
+	# the open. Reconciling stamina to authority makes replay drain from the correct baseline.
+	var pred := Prediction.new()
+	pred.world_half = 1000.0
+	var sprint := {"move_x": 0.0, "move_y": 1.0, "yaw": 0.0, "pitch": 0.0, "buttons": InputCommand.BTN_SPRINT}
+	for t in range(1, 11):
+		pred.record_cmd(t, sprint)   # client predicts 10 sprint ticks ahead of the server
+	# Server acked through tick 7 with its authoritative stamina (7 sprint-steps drained).
+	var auth_stamina: float = Pawn.STAMINA_MAX - Pawn.SPRINT_DRAIN * SimLoop.DT * 7.0
+	pred.reconcile_full(Vector3.ZERO, 0.0, 0.0, 7, auth_stamina)
+	assert_eq(pred.pending.size(), 3, "ticks 8,9,10 replayed")
+	# Replays 3 sprint steps from the AUTHORITATIVE stamina, not the drifted predicted value.
+	var expected: float = auth_stamina - Pawn.SPRINT_DRAIN * SimLoop.DT * 3.0
+	assert_almost_eq(pred.predicted.stamina, expected, 0.5,
+		"stamina reconciles to authority + replay drain, not accumulated double-drain")
