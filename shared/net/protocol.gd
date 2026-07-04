@@ -848,10 +848,18 @@ static func encode_swap_weapon(slot: int) -> PackedByteArray:
 static func decode_swap_weapon(bytes: PackedByteArray) -> int:
 	return body_reader(bytes).get_u8()
 
-static func encode_melee() -> PackedByteArray:
+static func encode_melee(view_server_tick: int = 0) -> PackedByteArray:
 	var buf := StreamPeerBuffer.new()
 	buf.put_u8(Msg.MELEE)
+	buf.put_u32(view_server_tick)   # rendered-time tick so the server lag-comp rewinds targets like bullets
 	return buf.data_array
+
+static func decode_melee(bytes: PackedByteArray) -> Dictionary:
+	var r := body_reader(bytes)
+	var vt := 0
+	if r.get_available_bytes() >= 4:
+		vt = r.get_u32()   # zero (or absent) => present-time, back-compatible with old clients
+	return {"view_server_tick": vt}
 
 
 static func encode_place_fob(cell: Vector3i, yaw: int) -> PackedByteArray:

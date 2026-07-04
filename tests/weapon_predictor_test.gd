@@ -13,6 +13,22 @@ func test_fire_decrements_mag_respecting_cadence() -> void:
 	assert_false(wp.step(1, true, false, false), "next-tick shot gated by RPM cadence")
 	assert_eq(wp.mag, 29)
 
+func test_fire_mode_persists_per_weapon_across_swaps() -> void:
+	# C1/E1: fire mode reset to AUTO after swapping to the pistol and back. It must be remembered
+	# per weapon so a selection survives a weapon swap (and, via the same map, a respawn).
+	var wp := WeaponPredictor.new()
+	wp.set_weapon(Weapon.AR)
+	assert_eq(wp.fire_mode, Weapon.MODE_AUTO, "AR defaults to AUTO (first in its list)")
+	assert_eq(wp.cycle_fire_mode(), Weapon.MODE_SEMI, "V cycles AUTO -> SEMI")
+	wp.set_weapon(Weapon.PISTOL)   # swap away
+	wp.set_weapon(Weapon.AR)       # swap back
+	assert_eq(wp.fire_mode, Weapon.MODE_SEMI, "AR restores its remembered SEMI, not the AUTO default")
+
+func test_fire_mode_defaults_for_never_cycled_weapon() -> void:
+	var wp := WeaponPredictor.new()
+	wp.set_weapon(Weapon.SMG)
+	assert_eq(wp.fire_mode, Weapon.default_mode(Weapon.SMG), "unseen weapon uses its default mode")
+
 func test_no_fire_while_sprinting_or_empty() -> void:
 	var wp := _wp()
 	assert_false(wp.step(0, true, true, false), "sprint blocks fire")

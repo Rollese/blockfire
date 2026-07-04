@@ -2,7 +2,7 @@ extends TestCase
 ## M5.5-P3: pure melee geometry — reach, rear-arc back-stab, nearest-frontal target selection.
 
 func test_in_reach() -> void:
-	assert_true(Melee.in_reach(Vector3.ZERO, Vector3(0, 0, 1.0)))    # 1.0m < 1.5m
+	assert_true(Melee.in_reach(Vector3.ZERO, Vector3(0, 0, 2.0)))    # 2.0m < 2.2m reach
 	assert_false(Melee.in_reach(Vector3.ZERO, Vector3(0, 0, 3.0)))
 
 func test_is_backstab_from_behind() -> void:

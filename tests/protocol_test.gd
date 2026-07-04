@@ -325,6 +325,15 @@ func test_self_state_carries_repair_heat() -> void:
 	assert_true(absf(float(d["repair_heat"]) - 0.6) <= 1.0 / 255.0, "repair_heat round-trips ~0.6")
 	assert_eq(float(d["repair_cooldown"]), 1.0, "full cooldown round-trips exactly")
 
+func test_melee_carries_view_tick() -> void:
+	var d := Protocol.decode_melee(Protocol.encode_melee(4242))
+	assert_eq(int(d["view_server_tick"]), 4242, "melee view tick round-trips for lag-comp rewind")
+
+func test_melee_view_tick_defaults_zero() -> void:
+	# A bare/old melee packet (no payload) decodes as present-time (0), not a crash.
+	var d := Protocol.decode_melee(PackedByteArray([Protocol.Msg.MELEE]))
+	assert_eq(int(d["view_server_tick"]), 0, "absent view tick -> present-time")
+
 func test_self_state_carries_stamina() -> void:
 	# Authoritative stamina (0..100, one byte) feeds the client sprint-prediction reconcile.
 	var b := Protocol.encode_self_state(17, false, 0, Weapon.AR, [], false, 0.0, 0, 0, false, 0.0, 0.0, 42.0)
@@ -452,7 +461,7 @@ func test_swap_weapon_roundtrip() -> void:
 func test_melee_message_encodes() -> void:
 	var b := Protocol.encode_melee()
 	assert_eq(b[0], Protocol.Msg.MELEE)
-	assert_eq(b.size(), 1, "MELEE is a zero-payload trigger")
+	assert_eq(b.size(), 5, "MELEE now carries a u32 view tick for lag-comp rewind")
 
 func test_record_carries_under_construction_and_progress() -> void:
 	var rec := {"id": 7, "type": 1, "cell": Vector3i(2, 0, 3), "yaw": 1, "chunks": -1,

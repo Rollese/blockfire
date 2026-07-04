@@ -874,7 +874,7 @@ func _on_packet(peer: ENetPacketPeer, _channel: int, bytes: PackedByteArray) -> 
 		Protocol.Msg.SET_SQUAD: _handle_set_squad(peer, bytes)
 		Protocol.Msg.SET_FIRE_MODE: _handle_set_fire_mode(peer, bytes)
 		Protocol.Msg.SWAP_WEAPON: _handle_swap_weapon(peer, bytes)
-		Protocol.Msg.MELEE: _handle_melee(peer)
+		Protocol.Msg.MELEE: _handle_melee(peer, bytes)
 		_: pass
 
 func _handle_hello(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
@@ -1134,20 +1134,24 @@ func _handle_grenade_throw(peer: ENetPacketPeer, bytes: PackedByteArray) -> void
 	if gtype == Grenade.FRAG or gtype == Grenade.SMOKE:
 		_broadcast_grenade_fx(id, p.eye_position(), dir.normalized(), gtype)
 
-func _handle_melee(peer: ENetPacketPeer) -> void:
+func _handle_melee(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
 	var id = _peer_to_id.get(peer, 0)
 	if id == 0 or not _clients.has(id): return
-	_resolve_melee(id)
+	_resolve_melee(id, int(Protocol.decode_melee(bytes)["view_server_tick"]))
 
 ## Melee swing (M5.5-P3). Knife (all classes): the nearest enemy in the frontal reach cone takes
 ## MELEE_DAMAGE, or an instant kill if struck within the rear arc (back-stab). Cooldown-gated per
 ## client. (The Engineer sledgehammer structure branch is added in Task 4.)
-func _resolve_melee(id: int) -> void:
+func _resolve_melee(id: int, view_tick: int = 0) -> void:
 	var c = _clients[id]
 	if _sim.tick < int(c.get("melee_ready_tick", 0)): return
 	c["melee_ready_tick"] = _sim.tick + MELEE_COOLDOWN_TICKS
 	var atk: Pawn = _sim.world.get_pawn(id)
 	if atk == null or not atk.alive or atk.is_downed: return
+	# Lag-comp: rewind target positions to the attacker's rendered view tick (like fire.gd), so a swing
+	# at a moving target lands where the player saw them instead of missing present-time. The attacker
+	# stays present (well-predicted local pawn). view_tick 0 => present-time (old client / sledge march).
+	var lag_frame: Dictionary = _lag.rewind(view_tick) if view_tick > 0 and _lag.has_history() else {}
 	_broadcast_melee_fx(id)   # cosmetic: a real swing happened (cooldown passed, attacker valid)
 	var melee_damage := MELEE_DAMAGE
 	# Engineer sledgehammer: demolish the structure cell under the crosshair first (heavy carve via
@@ -1166,12 +1170,15 @@ func _resolve_melee(id: int) -> void:
 	for tid in _sim.world.pawns:
 		var v: Pawn = _sim.world.pawns[tid]
 		if v != null and v.alive and not v.is_downed and v.team != atk.team:
-			enemies.append({"id": tid, "pos": v.pos, "team": v.team})
+			var tpos: Vector3 = lag_frame[tid]["pos"] if lag_frame.has(tid) else v.pos
+			enemies.append({"id": tid, "pos": tpos, "team": v.team})
 	var vid := Melee.best_target({"pos": atk.pos, "yaw": atk.yaw, "team": atk.team}, enemies)
 	if vid == 0: return
 	var victim: Pawn = _sim.world.get_pawn(vid)
 	var weapon_id := int(c.get("weapon", 0))
-	if Melee.is_backstab(victim.yaw, atk.pos - victim.pos):
+	# Rear-arc test against where the victim was seen (rewound), so a back-stab reads the same as on-screen.
+	var vpos: Vector3 = lag_frame[vid]["pos"] if lag_frame.has(vid) else victim.pos
+	if Melee.is_backstab(victim.yaw, atk.pos - vpos):
 		# Rear-arc back-stab = instant kill: headshot=true routes through Revive.is_instant_kill,
 		# bypassing DBNO (same path the M4.5 head/blast instant-kill uses).
 		_apply_pawn_damage(vid, victim, 100000, true, Revive.Source.BULLET, id, weapon_id)

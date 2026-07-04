@@ -753,7 +753,7 @@ func _process(_dt: float) -> void:
 
 		# Quick melee (C): send the swing + play the viewmodel swing. Server resolves the hit.
 		if Input.is_action_just_pressed("melee") and not combat_locked:
-			_net.send_to(_peer, NetHost.CHANNEL_CONTROL, Protocol.encode_melee(), ENetPacketPeer.FLAG_RELIABLE)
+			_net.send_to(_peer, NetHost.CHANNEL_CONTROL, Protocol.encode_melee(_wv.view_tick(_elapsed)), ENetPacketPeer.FLAG_RELIABLE)
 			if _renderer != null:
 				_renderer.play_viewmodel_swing(_elapsed)
 			if _audio != null:
@@ -1103,7 +1103,15 @@ func _handle_snapshot(bytes: PackedByteArray) -> void:
 		_life_down_count = 0  # fresh life next spawn: re-arm the full 60 s bleedout window (revives keep it)
 		if _hud_view != null:
 			_hud_view.set_squad_menu_open(false)   # don't leave the squad overlay up over the deploy screen
+	var just_respawned: bool = alive and not _was_alive
 	_was_alive = alive
+	if just_respawned and _peer != null:
+		# Respawn resets the server's fire mode to the weapon default even when the weapon is unchanged
+		# (so the SELF_STATE weapon-change branch won't re-send). Re-assert the remembered mode here so
+		# a selection survives death (C1/E1).
+		_wpred.set_weapon(_wpred.weapon)   # restore remembered mode for the current weapon locally
+		_net.send_to(_peer, NetHost.CHANNEL_CONTROL,
+			Protocol.encode_set_fire_mode(_wpred.fire_mode), ENetPacketPeer.FLAG_RELIABLE)
 	if alive:
 		# Mirror downed state BEFORE reconcile so the replayed inputs crawl (1 m/s) on the very tick
 		# the down/revive lands — otherwise that transition tick replays full-speed and rubber-bands.
@@ -1158,6 +1166,11 @@ func _handle_self_state(bytes: PackedByteArray) -> void:
 	# Switch weapon if server assigned a different one (e.g. class change)
 	if int(d["weapon"]) != _wpred.weapon:
 		_wpred.set_weapon(int(d["weapon"]))
+		# The server resets fire mode to the weapon default on a swap; re-assert this weapon's
+		# remembered mode so its gating matches the client's persisted selection (C1/E1).
+		if _peer != null:
+			_net.send_to(_peer, NetHost.CHANNEL_CONTROL,
+				Protocol.encode_set_fire_mode(_wpred.fire_mode), ENetPacketPeer.FLAG_RELIABLE)
 	# Reconcile ammo from authority — no client rule logic, just snap
 	_wpred.reconcile(int(d["mag"]), bool(d["reloading"]), int(d["reload_remaining"]), _client_tick)
 	# Store throwable list for HUD ctx (C3: SELF_STATE now carries per-kind counts)
