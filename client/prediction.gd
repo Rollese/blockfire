@@ -52,7 +52,7 @@ func record_cmd(client_tick: int, cmd: Dictionary) -> void:
 	pending.append({"tick": client_tick, "cmd": cmd})
 
 func reconcile_full(auth_pos: Vector3, auth_yaw: float, auth_pitch: float, last_input_tick: int,
-		auth_stamina: float = Pawn.STAMINA_MAX) -> void:
+		auth_stamina: float = Pawn.STAMINA_MAX, auth_vel_y: float = 0.0, auth_grounded: bool = true) -> void:
 	var kept: Array = []
 	for inp in pending:
 		if inp["tick"] > last_input_tick:
@@ -65,6 +65,10 @@ func reconcile_full(auth_pos: Vector3, auth_yaw: float, auth_pitch: float, last_
 	# every pending input and re-drained stamina (~RTT x too fast), so predicted sprint kept hitting
 	# empty and dropping to walk speed while the server sprinted on -> forward rubber-band in the open.
 	predicted.stamina = auth_stamina
+	# Likewise reset the vertical velocity + grounded flag to authority before replay. Without this the
+	# jump replay integrated gravity from a stale velocity.y and the predicted arc snapped back mid-jump.
+	predicted.velocity.y = auth_vel_y
+	predicted.grounded = auth_grounded
 	for inp in pending:
 		if inp.has("cmd"):
 			_advance(inp["cmd"])

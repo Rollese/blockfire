@@ -48,3 +48,22 @@ func test_deploy_resets_ledger_and_clears_downed_state() -> void:
 	srv._clients[1]["dmg_ledger"] = {9: 55}
 	srv._handle_deploy_request(null, Protocol.encode_deploy_request(0))
 	assert_eq((srv._clients[1]["dmg_ledger"] as Dictionary).size(), 0, "fresh life, fresh recap ledger")
+
+
+func test_deploy_rearms_full_bleedout_window() -> void:
+	# G1 regression: the halving-bleedout down_count carried across lives for manually-deploying humans
+	# (only _handle_respawns reset it, not the deploy path). A player who accrued a few downs earlier in
+	# the match then bled out almost instantly on the FIRST down of a fresh life — and eventually skipped
+	# DBNO entirely (bleedout_window(down_count+1) <= 0). A fresh deploy must re-arm the full 60 s window.
+	var srv := _srv_with_awaiting_pawn(0)
+	var p: Pawn = srv._sim.world.get_pawn(1)
+	p.down_count = 6         # simulate several downs accrued across prior lives this match
+	p.bleed_floor = -20
+	p.bleed_halted = true
+	srv._handle_deploy_request(null, Protocol.encode_deploy_request(0))
+	assert_eq(p.down_count, 0, "fresh life re-arms down_count")
+	assert_eq(p.bleed_floor, 0, "bleed floor cleared on deploy")
+	assert_false(p.bleed_halted, "bleed-halt flag cleared on deploy")
+	# The next down of this fresh life gets the full initial window, not a heavily-halved one.
+	assert_eq(Revive.bleedout_window(p.down_count + 1), Revive.INITIAL_BLEEDOUT_TICKS,
+		"first down of the fresh life has the full 60 s bleedout window")

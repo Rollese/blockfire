@@ -79,6 +79,25 @@ func test_vaults_low_structure_blocker() -> void:
 	assert_true(p.pos.z <= 5.5, "ended near the vault landing, not free-walked far past the blocker")
 	assert_true(saw_vault, "a vault was actually triggered")
 
+func test_vault_refused_when_wall_directly_behind_low_blocker() -> void:
+	# B2 playtest regression: the vault carried the pawn a fixed 2.5 m forward with NO collision check
+	# on the landing, so vaulting a low box/half-wall with a full wall right behind it teleported the
+	# pawn INTO the wall (clip-through / stuck). A vault with no clear ground to land on must be refused.
+	var cat_res := PieceCatalog.from_json_string('{"pieces":[{"id":"hb","height":"half","health":100,"material":"METAL_THIN"},{"id":"wl","height":"full","health":100,"material":"METAL_THICK"}]}')
+	var store := StructureStore.new(cat_res["catalog"])
+	# Half blocker at cell (0,0,1) [z 2..4); FULL wall immediately behind it at cell (0,0,2) [z 4..6).
+	store.place(1, 0, BuildGrid.cell_of(Vector3(0, 0, 2.0)), 0, 0)
+	store.place(2, 1, BuildGrid.cell_of(Vector3(0, 0, 4.0)), 0, 0)
+	var sl := _loop_with_pawn(Vector3(0, 0, 1.6))
+	sl.structures = store
+	for i in Vault.VAULT_TICKS + 8:
+		sl.step({1: {"move_y": 1.0}})
+	var p: Pawn = sl.world.pawns[1]
+	# The pawn must never end up inside/past the wall (wall front is z=4). It stays in front of the
+	# low blocker instead of clipping through — no vault into the wall, no getting stuck inside it.
+	assert_true(p.pos.z < 4.0, "did not clip through / into the wall behind the low blocker")
+	assert_false(p.vaulting, "not left mid-vault")
+
 func test_descends_ladder_and_dismounts_at_bottom() -> void:
 	var sl := _loop_with_pawn(Vector3(5, 3.5, 5))
 	sl.ladders = [{"bottom": Vector3(5, 0, 5), "top": Vector3(5, 4, 5), "radius": 0.6}]

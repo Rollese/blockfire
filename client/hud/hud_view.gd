@@ -154,6 +154,7 @@ func _build_tree() -> void:
 
 	_build_suppression()   # first: samples only the rendered world; the HUD below draws crisp over it
 	_build_crosshair()
+	_build_reddot()        # C2: red-dot ADS reticle for non-scoped weapons (hidden until aiming)
 	_build_throw_charge()
 	_build_scope()         # sniper scope mask + reticle (over the world, under the flashbang/blind)
 	_hitmarker = _Hitmarker.new()
@@ -184,6 +185,8 @@ const CH_TICK_THICK := 2.0     # px thickness
 const CH_BASE_GAP := 4.0       # px from centre to the inner end of a tick at rest
 var _ch_ticks: Array = []      # 4 ColorRects: top, bottom, left, right
 var _ch_dot: ColorRect
+var _reddot: ColorRect         # C2: red-dot ADS reticle (non-scoped weapons) — a usable aim point
+var _reddot_ring: ColorRect    # faint outer glow so the dot reads as a red-dot sight
 
 func _build_crosshair() -> void:
 	# Dynamic 4-tick reticle: the gap between the ticks blooms with movement/airborne/fire and
@@ -213,6 +216,36 @@ func _build_crosshair() -> void:
 	_ch_dot.mouse_filter = MOUSE_FILTER_IGNORE
 	add_child(_ch_dot)
 	update_crosshair(0.0, false)
+
+## C2 red-dot ADS reticle: a small centred red dot (with a faint glow ring) shown when aiming down an
+## iron-sighted weapon, since misaligned placeholder sights are unusable without an aim point. Scoped
+## weapons (DMR) use the sniper scope overlay instead, so this stays hidden for them.
+const _REDDOT_R := 3.5    # dot half-size, px
+const _REDDOT_RING_R := 9.0
+func _build_reddot() -> void:
+	_reddot_ring = ColorRect.new()
+	_reddot_ring.color = Color(1.0, 0.15, 0.1, 0.22)
+	for a in [_reddot_ring]:
+		a.anchor_left = 0.5; a.anchor_top = 0.5; a.anchor_right = 0.5; a.anchor_bottom = 0.5
+		a.mouse_filter = MOUSE_FILTER_IGNORE
+		a.visible = false
+	_reddot_ring.offset_left = -_REDDOT_RING_R; _reddot_ring.offset_top = -_REDDOT_RING_R
+	_reddot_ring.offset_right = _REDDOT_RING_R; _reddot_ring.offset_bottom = _REDDOT_RING_R
+	add_child(_reddot_ring)
+	_reddot = ColorRect.new()
+	_reddot.color = Color(1.0, 0.12, 0.08, 0.95)
+	_reddot.anchor_left = 0.5; _reddot.anchor_top = 0.5; _reddot.anchor_right = 0.5; _reddot.anchor_bottom = 0.5
+	_reddot.offset_left = -_REDDOT_R; _reddot.offset_top = -_REDDOT_R
+	_reddot.offset_right = _REDDOT_R; _reddot.offset_bottom = _REDDOT_R
+	_reddot.mouse_filter = MOUSE_FILTER_IGNORE
+	_reddot.visible = false
+	add_child(_reddot)
+
+## Show/hide the red-dot ADS reticle. Called each frame by client_main from the ADS blend + weapon.
+func set_reddot(shown: bool) -> void:
+	if _reddot != null:
+		_reddot.visible = shown
+		_reddot_ring.visible = shown
 
 ## C3 grenade throw-strength bar: a thin meter just under the reticle that fills while "throw" is held.
 const _THROW_BAR_W := 120.0

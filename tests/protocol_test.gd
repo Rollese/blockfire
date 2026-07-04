@@ -241,6 +241,20 @@ func test_smoke_deployed_roundtrip() -> void:
 	assert_eq(d["pos"], Vector3(10, 0, -20))
 	assert_eq(d["radius"], 6)
 	assert_eq(d["expire_tick"], 1234)
+	assert_eq(d["vel"], Vector3.ZERO, "no velocity given -> stationary cloud")
+
+func test_smoke_deployed_carries_pop_velocity() -> void:
+	# C3: the cloud follows the canister, so the pop velocity rides SMOKE_DEPLOYED for the client to
+	# integrate the same fall arc.
+	var d := Protocol.decode_smoke_deployed(Protocol.encode_smoke_deployed(Vector3(0, 8, 0), 6.0, 500, Vector3(3.0, -2.0, 7.5)))
+	assert_almost_eq(float(d["vel"].x), 3.0, 0.01)
+	assert_almost_eq(float(d["vel"].y), -2.0, 0.01)
+	assert_almost_eq(float(d["vel"].z), 7.5, 0.01)
+
+func test_smoke_deployed_velocity_defaults_zero_for_old_senders() -> void:
+	var b := Protocol.encode_smoke_deployed(Vector3(0, 0, 0), 6.0, 500, Vector3(9, 9, 9))
+	b.resize(b.size() - 12)   # lop off the three trailing velocity floats (old/short packet)
+	assert_eq(Protocol.decode_smoke_deployed(b)["vel"], Vector3.ZERO, "absent velocity -> stationary")
 
 func test_revive_action_roundtrip() -> void:
 	var bytes := Protocol.encode_revive_action(4242, true)
@@ -363,6 +377,22 @@ func test_self_state_stamina_defaults_full_for_old_senders() -> void:
 	b.resize(b.size() - 1)
 	var d := Protocol.decode_self_state(b)
 	assert_almost_eq(float(d["stamina"]), Pawn.STAMINA_MAX, 0.001, "absent stamina -> full")
+
+func test_self_state_carries_vertical_state() -> void:
+	# Authoritative vertical velocity + grounded feed the client jump-prediction reconcile. Without
+	# them the replay after a snapshot starts from a stale velocity.y and the jump arc rubber-bands.
+	var b := Protocol.encode_self_state(17, false, 0, Weapon.AR, [], false, 0.0, 0, 0, false, 0.0, 0.0, 100.0, 6.5, false)
+	var d := Protocol.decode_self_state(b)
+	assert_almost_eq(float(d["vel_y"]), 6.5, 0.01, "vertical velocity round-trips")
+	assert_false(bool(d["grounded"]), "airborne grounded flag round-trips")
+
+func test_self_state_vertical_defaults_grounded_for_old_senders() -> void:
+	# A packet predating the vertical-state fields must decode as grounded / zero vertical velocity so
+	# the client jump reconcile treats an absent field as "standing on the ground".
+	var b := Protocol.encode_self_state(17, false, 0, Weapon.AR)   # pre-jump-fix sender: no vel_y/grounded
+	var d := Protocol.decode_self_state(b)
+	assert_almost_eq(float(d["vel_y"]), 0.0, 0.001, "absent vel_y -> 0")
+	assert_true(bool(d["grounded"]), "absent grounded -> true")
 
 func test_version_bumped_for_deploy_ref_rebase() -> void:
 	# The deploy-ref spaces were re-based 2026-07-02 (SQUADMATE/VEHICLE/FOB bases moved) — a

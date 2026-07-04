@@ -112,6 +112,8 @@ var _meleepose_test := false       # --remote-melee-test: pin a melee-lunge-pose
 var _vaultpose_test := false       # --remote-vault-test: pin a mantle-posed dummy beside an upright one
 var _glbshoot_test := false        # --glbshoot-test: GLB hold vs holding-both-shoot clip A/B
 var _ads_t := 0.0                   # 0..1 eased aim-down-sights blend (client-only visual zoom/pose)
+var _supp_fx := 0.0                 # A6: peak-held suppression FX strength (snaps up, decays slowly so a spike is visible)
+const SUPP_FX_DECAY := 1.4          # per-second decay of the suppression veil after a spike (~0.7 s to clear)
 const ADS_RATE := 16.0              # ADS ease speed (per second); ~1/e in ~60 ms
 var _prev_grounded := true          # for the local landing viewmodel dip (airborne->grounded edge)
 var _prev_vy := 0.0                 # local vertical velocity from the previous frame (fall impact speed)
@@ -167,6 +169,8 @@ var _life_down_count: int = 0      # times downed this life (client mirror; driv
 var _repair_heat: float = 0.0      # latest Engineer repair-tool heat fraction from SELF_STATE (HUD gauge)
 var _repair_cooldown: float = 0.0  # latest repair overheat-lockout remaining fraction from SELF_STATE
 var _self_stamina: float = 100.0   # latest authoritative stamina from SELF_STATE (sprint reconcile baseline)
+var _self_vel_y: float = 0.0       # latest authoritative vertical velocity from SELF_STATE (jump reconcile baseline)
+var _self_grounded: bool = true    # latest authoritative grounded flag from SELF_STATE (jump reconcile baseline)
 var _throw_charge: float = 0.0     # C3: current grenade hold-charge 0..1 (grows while "throw" is held)
 var _throw_charging: bool = false  # whether we're mid-charge on a throwable
 const THROW_CHARGE_SECS := 1.1     # hold time to reach full throw strength
@@ -689,7 +693,11 @@ func _process(_dt: float) -> void:
 		# Hide the hip crosshair once aiming down sights — the sights (or scope reticle) take over.
 		_hud_view.update_crosshair(cspread, (not ch_alive and not _crosshair_test) or _ads_t > 0.5)
 		# Sniper scope overlay: only for a scoped weapon (DMR), scaled by the ADS blend. --scope-test forces it.
-		_hud_view.set_scope(_ads_t if (_scope_test or _is_scoped(weapon0)) else 0.0)
+		var scoped0: bool = _scope_test or _is_scoped(weapon0)
+		_hud_view.set_scope(_ads_t if scoped0 else 0.0)
+		# C2 red-dot ADS reticle: give iron-sighted weapons a usable aim point while aiming (scoped
+		# weapons use the scope overlay instead). ch_alive gates it to a live, deployed pawn.
+		_hud_view.set_reddot(ch_alive and _ads_t > 0.5 and not scoped0)
 		# M5.5-P3 flashbang white-out from the SELF_STATE blind byte (cleared on death/deploy).
 		# --flash-test forces a strong-but-translucent veil so the world shows through (visual QA);
 		# it still routes through blind_intensity so the real render chain is exercised.
@@ -699,7 +707,15 @@ func _process(_dt: float) -> void:
 		# M5.5-P2 suppression screen FX from the SELF_STATE suppression byte (same gating as blind:
 		# only while alive + not downed). --suppress-test forces a strong veil for visual QA.
 		var supp := (0.8 if _suppress_qa_on else 0.0) if _suppress_test else (_suppression if blinded else 0.0)
-		_hud_view.set_suppression(HudModel.suppression_intensity(supp))
+		# Peak-hold the veil: snap up to a new suppression peak instantly, then decay slowly. The server
+		# bleeds suppression off ~0.04/tick, so a near-miss spike would otherwise flash for one frame and
+		# vanish — this keeps it on screen long enough to actually register (A6). Cleared on death/downed.
+		var supp_target := HudModel.suppression_intensity(supp)
+		if blinded or _suppress_test:
+			_supp_fx = maxf(supp_target, _supp_fx - SUPP_FX_DECAY * _dt)
+		else:
+			_supp_fx = 0.0
+		_hud_view.set_suppression(_supp_fx)
 
 	# ---- C3: revive intent (no self-recovery — a teammate must revive you, BattleBit-style) ----
 	var sss: EntityState = _wv.self_state()
@@ -1069,11 +1085,12 @@ func _on_packet(_from: ENetPacketPeer, _channel: int, bytes: PackedByteArray) ->
 			var sm: Dictionary = Protocol.decode_smoke_deployed(bytes)
 			if _renderer != null:
 				# Lifetime from the server's absolute expiry tick vs our latest server tick (30 Hz);
-				# clamp to a sane window, fall back to the 5 s server smoke duration if unknown.
+				# clamp to a sane window, fall back to the server smoke duration if unknown.
 				var dur := float(int(sm["expire_tick"]) - _last_server_tick) / 30.0
-				if dur <= 0.5 or dur > 12.0:
-					dur = 5.0
-				_renderer.spawn_smoke(sm["pos"], float(int(sm["radius"])), dur, _elapsed)
+				if dur <= 0.5 or dur > 20.0:
+					dur = 13.0
+				# Pass the pop velocity so the cloud follows the canister's fall (C3), not a static puff.
+				_renderer.spawn_smoke(sm["pos"], float(int(sm["radius"])), dur, _elapsed, sm.get("vel", Vector3.ZERO))
 
 # ---- WELCOME ----------------------------------------------------------------
 func _handle_welcome(bytes: PackedByteArray) -> void:
@@ -1140,7 +1157,7 @@ func _handle_snapshot(bytes: PackedByteArray) -> void:
 		# Reconcile movement prediction from authoritative position + pitch. Smooth only a genuine
 		# correction (deadzone..snap): ease it into the camera via _pos_err instead of snapping.
 		var pre_pos: Vector3 = _pred.predicted.pos
-		_pred.reconcile_full(ss.pos, ss.yaw, ss.pitch, int(hdr["last_input_tick"]), _self_stamina)
+		_pred.reconcile_full(ss.pos, ss.yaw, ss.pitch, int(hdr["last_input_tick"]), _self_stamina, _self_vel_y, _self_grounded)
 		var cl: float = (pre_pos - _pred.predicted.pos).length()
 		if cl > RECON_DEADZONE and cl <= RECON_SNAP:
 			_pos_err += pre_pos - _pred.predicted.pos
@@ -1203,6 +1220,8 @@ func _handle_self_state(bytes: PackedByteArray) -> void:
 	_repair_heat = float(d.get("repair_heat", 0.0))        # Engineer repair-tool heat (HUD gauge)
 	_repair_cooldown = float(d.get("repair_cooldown", 0.0))# repair overheat-lockout remaining fraction
 	_self_stamina = float(d.get("stamina", Pawn.STAMINA_MAX))  # authoritative stamina for sprint reconcile
+	_self_vel_y = float(d.get("vel_y", 0.0))                   # authoritative vertical velocity for jump reconcile
+	_self_grounded = bool(d.get("grounded", true))             # authoritative grounded flag for jump reconcile
 
 # ---- MATCH_STATE ------------------------------------------------------------
 func _handle_match_state(bytes: PackedByteArray) -> void:

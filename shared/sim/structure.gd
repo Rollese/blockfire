@@ -299,6 +299,23 @@ func _blocks_ground(p: Vector3) -> bool:
 	var t := int(_by_id[_occupancy[cell]]["type"])
 	return not (_catalog.passable_of(t) or _catalog.is_flat_surface(t) or _catalog.is_ramp(t))
 
+## True when a pawn can stand at world point `p` (feet cell not blocked at ground level). Used by the
+## vault landing scan to reject a landing spot that is inside the low blocker's own cell or a wall.
+func stands_clear(p: Vector3) -> bool:
+	return not _blocks_ground(p)
+
+## True when the cell at `p` is a solid, non-vaultable blocker — a real wall (face taller than the vault
+## clearance), as opposed to a low box/half-wall the pawn vaults over. The vault landing scan stops at
+## the first tall blocker so a vault can never carry the pawn through a wall.
+func is_tall_blocker(p: Vector3) -> bool:
+	var cell := BuildGrid.cell_of(Vector3(p.x, p.y + FEET_EPS, p.z))
+	if not _occupancy.has(cell):
+		return false
+	var t := int(_by_id[_occupancy[cell]]["type"])
+	if _catalog.passable_of(t) or _catalog.is_flat_surface(t) or _catalog.is_ramp(t):
+		return false
+	return _face_height(t) > Vault.VAULT_MAX_HEIGHT
+
 ## Highest walkable structure surface at or below `y` at column (x,z); -INF if none. Floors yield
 ## their cell-base plane; stairs yield a ramped height. Bounded by building height (a handful of cells).
 func floor_height_at(x: float, z: float, y: float) -> float:

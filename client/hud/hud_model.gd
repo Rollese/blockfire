@@ -10,8 +10,8 @@ const BLIND_FULL_TICKS := 45.0   # remaining-blind ticks at/above which the flas
 # C4: the FX onset was 0.25 ramping to full at 1.0, so brief near-miss suppression (which spikes to
 # ~0.15–0.4 then decays 0.04/tick) never rendered a visible veil. Onset below the gameplay spread
 # threshold, full at a realistic sustained-fire level, so being shot at reads on-screen.
-const SUPPRESS_FX_THRESHOLD := 0.12   # veil starts here (one dead-on near-miss ≈ 0.15)
-const SUPPRESS_FX_FULL := 0.55        # veil is full here (sustained incoming fire ≈ 0.3–0.5)
+const SUPPRESS_FX_THRESHOLD := 0.10   # veil starts just below one dead-on near-miss (≈0.15)
+const SUPPRESS_FX_FULL := 0.35        # veil is full at a couple of near-misses / brief sustained fire
 
 ## Flashbang white-out opacity (0..1) from the SELF_STATE remaining-blind-ticks byte (M5.5-P3).
 ## Saturated white while ≥ BLIND_FULL_TICKS remain, then a linear fade over the final tail — so a
@@ -20,12 +20,15 @@ static func blind_intensity(blind_ticks: int) -> float:
 	return clampf(float(blind_ticks) / BLIND_FULL_TICKS, 0.0, 1.0)
 
 ## Suppression screen-FX strength (0..1) from the SELF_STATE own-suppression scalar (M5.5-P2).
-## Zero below the threshold (so audio + visual suppression onset align and idle shows nothing),
-## then a smoothstep ramp to full — same shaping as the audio duck/cutoff (client/audio/audio_mix.gd).
+## Zero below the threshold (so audio + visual suppression onset align and idle shows nothing), then a
+## pow(0.7) ramp to full. A6: smoothstep buried a single near-miss (0.15) down near zero, so being shot
+## at was invisible; the concave low-end curve makes even one near-miss read while sustained fire caps.
+## The client also peak-holds this (see client_main _supp_fx) so a spike lingers long enough to see.
 static func suppression_intensity(suppression: float) -> float:
 	if suppression < SUPPRESS_FX_THRESHOLD:
 		return 0.0
-	return smoothstep(SUPPRESS_FX_THRESHOLD, SUPPRESS_FX_FULL, clampf(suppression, 0.0, 1.0))
+	var t := clampf((suppression - SUPPRESS_FX_THRESHOLD) / (SUPPRESS_FX_FULL - SUPPRESS_FX_THRESHOLD), 0.0, 1.0)
+	return pow(t, 0.7)
 var _killfeed: Array = []   # [{killer,victim,headshot,weapon,t}]
 var _capture_feed: Array = []   # [{label:String, status:int, t:float}] — capture-point announcements
 const CAPTURE_FEED_TTL := 4.0   # seconds a capture banner lingers

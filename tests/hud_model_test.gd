@@ -251,14 +251,16 @@ func test_blind_intensity_saturates_then_fades() -> void:
 
 
 func test_suppression_intensity_threshold_and_ramp() -> void:
-	# C4: veil off below the (lowered) onset, smoothstep ramp to full at SUPPRESS_FX_FULL; clamped.
+	# A6: veil off below the onset, pow(0.7) ramp to full at SUPPRESS_FX_FULL; clamped.
 	assert_almost_eq(HudModel.suppression_intensity(0.0), 0.0, 0.001)    # idle -> nothing
-	assert_almost_eq(HudModel.suppression_intensity(0.10), 0.0, 0.001)   # below the lowered onset -> off
-	assert_true(HudModel.suppression_intensity(0.24) > 0.0, "realistic near-miss suppression now shows a veil")
-	assert_almost_eq(HudModel.suppression_intensity(0.55), 1.0, 0.001)   # full at the sustained-fire level
+	assert_almost_eq(HudModel.suppression_intensity(0.09), 0.0, 0.001)   # below the onset -> off
+	# A single dead-on near-miss (~0.15) must now be clearly visible (not buried near zero as smoothstep did).
+	assert_true(HudModel.suppression_intensity(0.15) > 0.2, "one near-miss reads on screen")
+	assert_true(HudModel.suppression_intensity(0.24) > 0.0, "realistic near-miss suppression shows a veil")
+	assert_almost_eq(HudModel.suppression_intensity(0.35), 1.0, 0.001)   # full at the sustained-fire level
 	assert_almost_eq(HudModel.suppression_intensity(1.0), 1.0, 0.001)    # clamped at full above that
-	var lo := HudModel.suppression_intensity(0.2)
-	var hi := HudModel.suppression_intensity(0.4)
+	var lo := HudModel.suppression_intensity(0.15)
+	var hi := HudModel.suppression_intensity(0.3)
 	assert_true(lo > 0.0 and lo < 1.0, "above threshold ramps in (0,1)")
 	assert_true(hi > lo, "monotonic increasing with suppression")
 

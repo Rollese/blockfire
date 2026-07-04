@@ -23,10 +23,15 @@ static func arc_pos(from: Vector3, to: Vector3, progress: float) -> Vector3:
 ## Begin a vault on `pawn` from `from` in flat unit direction `dir`. Landing target is FORWARD
 ## ahead at y=0 (SimLoop applies platform floor on completion if relevant).
 static func begin(pawn: Pawn, from: Vector3, dir: Vector3) -> void:
+	begin_at(pawn, from, Vector3(from.x + dir.x * VAULT_FORWARD, from.y, from.z + dir.z * VAULT_FORWARD))
+
+## Begin a vault with an explicit, collision-clamped landing target `to` (SimLoop computes a safe
+## landing so the arc never carries the pawn through a wall). Landing stays at the start floor level.
+static func begin_at(pawn: Pawn, from: Vector3, to: Vector3) -> void:
 	pawn.vaulting = true
 	pawn.vault_tick = 0
 	pawn.vault_from = from
-	pawn.vault_to = Vector3(from.x + dir.x * VAULT_FORWARD, from.y, from.z + dir.z * VAULT_FORWARD)   # M14: land at the pawn's floor level, not the ground
+	pawn.vault_to = Vector3(to.x, from.y, to.z)   # M14: land at the pawn's floor level, not the ground
 
 ## Advance the arc one tick; returns the new position. Clears `vaulting` and snaps to `vault_to`
 ## on the final tick.

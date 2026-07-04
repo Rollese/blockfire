@@ -59,12 +59,12 @@ const GRENADE_DAMAGE_PAWN := 100      # frag pawn splash at centre, linear fallo
 const GRENADE_DAMAGE_STRUCT := 200    # frag structure blast GATE (>0 = enabled; magnitude unused — carve is governed by struct_radius, M11)
 const IMPACT_CONTACT_RADIUS := 1.0    # m — an impact grenade detonates this close to an enemy pawn
 const MELEE_DAMAGE := 50              # knife body-hit damage (M5.5-P3); rear-arc back-stab instant-kills
-const MELEE_COOLDOWN_TICKS := 24      # ~0.8s @30Hz between melee swings
+const MELEE_COOLDOWN_TICKS := 18      # ~0.6s @30Hz between melee swings (was 24 — 0.8s felt like spam for a 2-hit front kill)
 const SLEDGE_PAWN_DAMAGE := 35        # Engineer sledgehammer pawn-bonk (no structure in reach)
 const SLEDGE_STRUCT_RADIUS := 1.5     # m — carve radius of one sledge swing on a structure cell
 const FLASH_RADIUS := 8.0             # m — flashbang blinds exposed pawns within this radius (any team)
 const FLASH_BLIND_TICKS := 90         # 3s @30Hz of white-out at the centre
-const SMOKE_DURATION_TICKS := 150     # 5s @30Hz — smoke zone lifetime
+const SMOKE_DURATION_TICKS := 390     # 13s @30Hz — smoke zone lifetime (long enough to cross an objective)
 const SMOKE_RADIUS := 6.0             # m — smoke zone radius (matches blast radius)
 const PIECES_PATH := "res://pieces/pieces.json"
 const GADGETS_PATH := "res://data/gadgets.json"
@@ -835,7 +835,7 @@ func _send_snapshots() -> void:
 		# SELF_STATE packets (lossy links) leave the client predicting phantom ammo it doesn't have.
 		var rgauge := _support.repair_gauge_for(id)
 		_net.send_to(c["peer"], NetHost.CHANNEL_CONTROL,
-			Protocol.encode_self_state(int(c["ammo"]), bool(c["reloading"]), reload_remaining, int(c["weapon"]), _throwables_for(c), _support.being_revived.has(id), self_pawn.suppression, clampi(self_pawn.blind_until_tick - _sim.tick, 0, 255), self_pawn.bandage_count, self_pawn.bleed_halted, rgauge.x, rgauge.y, self_pawn.stamina),
+			Protocol.encode_self_state(int(c["ammo"]), bool(c["reloading"]), reload_remaining, int(c["weapon"]), _throwables_for(c), _support.being_revived.has(id), self_pawn.suppression, clampi(self_pawn.blind_until_tick - _sim.tick, 0, 255), self_pawn.bandage_count, self_pawn.bleed_halted, rgauge.x, rgauge.y, self_pawn.stamina, self_pawn.velocity.y, self_pawn.grounded),
 			ENetPacketPeer.FLAG_RELIABLE)
 		c["history"][seq] = current
 		c["history_v"][seq] = current_v
@@ -988,6 +988,15 @@ func _handle_deploy_request(peer: ENetPacketPeer, bytes: PackedByteArray) -> voi
 	p.alive = true
 	p.stamina = Pawn.STAMINA_MAX
 	p.is_downed = false
+	# Fresh life: re-arm the halving-bleedout state exactly like _handle_respawns. Without this the
+	# manual-deploy path carried down_count across lives, so a human who accrued a few downs earlier in
+	# the match bled out almost instantly on the FIRST down of a new life (G1 playtest regression).
+	p.down_count = 0
+	p.bleed_floor = 0
+	p.bleed_health = 0
+	p.bleed_halted = false
+	p.bandage_count = Revive.bandage_count_for(_support.is_medic(id))
+	p.combat_until_tick = 0
 	p.climbing = false
 	p.vaulting = false
 	p.in_vehicle = 0   # defensive: never deploy still bound to a seat
@@ -1434,17 +1443,40 @@ func _step_grenades() -> void:
 				continue
 			still.append(g)
 			continue
+		if int(g["type"]) == Grenade.SMOKE:
+			# Smoke integrates every tick (falls, rests on the ground). It begins billowing at the fuse
+			# and then keeps emitting — the canister and its cloud stay live until the cloud lifetime
+			# ends, so the cloud follows the grenade wherever it flies/tumbles to (C3). The grenade item
+			# is only dropped from the pool once the smoke finishes.
+			_integrate_grenade(g)
+			if not bool(g.get("smoking", false)):
+				if _sim.tick >= int(g["detonate_tick"]):
+					_begin_smoke(g)
+			else:
+				g["zone"]["pos"] = g["pos"]   # cloud + LOS zone track the canister
+				if _sim.tick >= int(g["smoke_until"]):
+					continue   # cloud finished — drop the canister (zone expires via _expire_smoke_zones)
+			still.append(g)
+			continue
+		# Frag / flashbang: airburst on the fuse, or blast on first ground contact.
 		if _sim.tick >= int(g["detonate_tick"]):
 			_detonate(g)
 			continue
-		var s := Grenade.integrate(g["pos"], g["vel"], SimLoop.DT)
-		g["pos"] = s["pos"]; g["vel"] = s["vel"]
+		_integrate_grenade(g)
 		if g["pos"].y <= 0.0:
-			g["pos"].y = 0.0
 			_detonate(g)
 		else:
 			still.append(g)
 	_grenades = still
+
+## Integrate one live grenade one tick under the shared ballistic model and rest it on the ground
+## (no bounce in v1). Shared by the frag ground-contact check and the smoke-canister follow.
+func _integrate_grenade(g: Dictionary) -> void:
+	var s := Grenade.integrate(g["pos"], g["vel"], SimLoop.DT)
+	g["pos"] = s["pos"]; g["vel"] = s["vel"]
+	if g["pos"].y <= 0.0:
+		g["pos"].y = 0.0
+		g["vel"] = Vector3.ZERO
 
 ## One integration step for an impact grenade. Detonates (frag blast via _detonate) on the first
 ## contact: ground, a structure crossed this step, or an enemy pawn within IMPACT_CONTACT_RADIUS.
@@ -1597,7 +1629,7 @@ func _step_mines() -> void:
 ## (Smoke is handled by a branch added in Task 9.)
 func _detonate(g: Dictionary) -> void:
 	if int(g["type"]) == Grenade.SMOKE:
-		_deploy_smoke(g)
+		_begin_smoke(g)   # defensive: smoke normally billows via _step_grenades, never through _detonate
 		return
 	if int(g["type"]) == Grenade.FLASHBANG:
 		_detonate_flash(g)
@@ -1638,14 +1670,20 @@ func _detonate_flash(g: Dictionary) -> void:
 		p.blind_until_tick = maxi(p.blind_until_tick, _sim.tick + FLASH_BLIND_TICKS)
 		_stats.flash_blinds += 1
 
-## Smoke detonation: no damage. Record a server-side zone and broadcast it (low-frequency, like
-## KILL — bounded by the throw cooldown). M7 LOS culling will read _smoke_zones; here it just
-## replicates the zone so clients know it exists.
-func _deploy_smoke(g: Dictionary) -> void:
+## Smoke begins billowing (no damage). Records a server-side zone (referenced back on the grenade so
+## _step_grenades can move it as the canister falls/rests — M7 LOS culling reads _smoke_zones) and
+## broadcasts the deploy once, carrying the canister's pop position + velocity so the client integrates
+## the same fall and the cloud follows the grenade. Low-frequency (bounded by the throw cooldown).
+func _begin_smoke(g: Dictionary) -> void:
+	if bool(g.get("smoking", false)):
+		return
 	_stats.smokes += 1
-	var expire: int = _sim.tick + SMOKE_DURATION_TICKS
-	_smoke_zones.append({"pos": g["pos"], "radius": SMOKE_RADIUS, "expire_tick": expire})
-	var bytes := Protocol.encode_smoke_deployed(g["pos"], SMOKE_RADIUS, expire)
+	g["smoking"] = true
+	g["smoke_until"] = _sim.tick + SMOKE_DURATION_TICKS
+	var zone := {"pos": g["pos"], "radius": SMOKE_RADIUS, "expire_tick": int(g["smoke_until"])}
+	_smoke_zones.append(zone)
+	g["zone"] = zone
+	var bytes := Protocol.encode_smoke_deployed(g["pos"], SMOKE_RADIUS, int(g["smoke_until"]), g["vel"])
 	for cid in _clients:
 		_net.send_to(_clients[cid]["peer"], NetHost.CHANNEL_CONTROL, bytes, ENetPacketPeer.FLAG_RELIABLE)
 

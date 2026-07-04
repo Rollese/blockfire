@@ -67,9 +67,13 @@ func _step_normal(p: Pawn, prev: Vector3, cmd: Dictionary) -> void:
 			var flat := Vector3(intended.x - prev.x, 0.0, intended.z - prev.z)
 			var moving := flat.length() > MIN_MOVE_LEN
 			if Vault.can_vault(top, p.stance, moving):
-				Vault.begin(p, prev, flat.normalized())
-				p.pos = prev
-				return
+				var land := _vault_landing(prev, flat.normalized())
+				if bool(land["ok"]):
+					Vault.begin_at(p, prev, land["to"])
+					p.pos = prev
+					return
+				# No clear ground to land on (e.g. a wall right behind the low blocker) -> refuse the
+				# vault and stay blocked, so the arc never teleports the pawn into/through the wall.
 			p.pos = resolved
 		else:
 			p.pos = resolved
@@ -79,6 +83,26 @@ func _step_normal(p: Pawn, prev: Vector3, cmd: Dictionary) -> void:
 		var ladder := Ladder.capture(ladders, p.pos)
 		if Ladder.should_engage(ladder, p.pos, cmd.get("move_y", 0.0)):
 			p.climbing = true
+
+## Farthest collision-safe vault landing along `dir` from `from`, on the vault's floor plane. Scans
+## outward and stops at the first tall (non-vaultable) blocker so the arc can never carry the pawn
+## through a wall; returns the last point that is past the low blocker AND clear ground to stand on.
+## {ok:false} when nothing qualifies (e.g. a wall directly behind the low blocker) -> refuse the vault.
+const _VAULT_SCAN_STEP := 0.25
+const _VAULT_MIN_FORWARD := 1.8   # m; must clear the ~1 cell (2 m) low blocker we are vaulting
+func _vault_landing(from: Vector3, dir: Vector3) -> Dictionary:
+	var best := -1.0
+	var d := _VAULT_MIN_FORWARD
+	while d <= Vault.VAULT_FORWARD + 0.001:
+		var cand := Vector3(from.x + dir.x * d, from.y, from.z + dir.z * d)
+		if structures.is_tall_blocker(cand):
+			break   # a wall ahead — cannot land past it
+		if structures.stands_clear(cand):
+			best = d
+		d += _VAULT_SCAN_STEP
+	if best < 0.0:
+		return {"ok": false}
+	return {"ok": true, "to": Vector3(from.x + dir.x * best, from.y, from.z + dir.z * best)}
 
 func _apply_platform_floor(p: Pawn) -> void:
 	var floor_y := Ladder.platform_floor(platforms, p.pos.x, p.pos.z, p.pos.y)

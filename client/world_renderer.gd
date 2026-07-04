@@ -48,6 +48,9 @@ var _tracer_idx: int = 0
 # SUPPORT_LIST. The beam spans giver->target chest; the aura pulses on the target. View-only.
 const SUPPORT_POOL := 16
 const SUPPORT_CHEST_Y := 1.2       # raise both endpoints to ~chest so the beam reads as person-to-person
+const SUPPORT_REVIVE_KIND := 3     # matches Support/SUPPORT_COLORS REVIVE
+const MEDIC_CROSS_COLOR := Color(0.2, 1.0, 0.45)   # saturated medic green for the revive-in-progress cross
+const SUPPORT_CROSS_Y := 1.05      # metres above the target's chest endpoint (floats over the head)
 const SUPPORT_COLORS := {
 	0: Color(0.25, 1.0, 0.35),     # HEAL   — green
 	1: Color(1.0, 0.78, 0.22),     # AMMO   — amber
@@ -436,7 +439,22 @@ func setup(map: MapDef, camera: Camera3D) -> void:
 		aura.visible = false
 		aura.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		add_child(aura)
-		_support_slots.append({"beam": beam, "beam_mat": bmat, "aura": aura, "aura_mat": amat})
+		# Revive-only medic cross: a floating "+" over the teammate being revived, so the link reads as
+		# "reviving" instead of an ambiguous ball + box (D4). Billboarded to the camera each frame.
+		var cross := Node3D.new()
+		var cross_mat := fx_material(MEDIC_CROSS_COLOR, true, true)
+		for bar_size in [Vector3(0.52, 0.16, 0.05), Vector3(0.16, 0.52, 0.05)]:
+			var bar := MeshInstance3D.new()
+			var barmesh := BoxMesh.new()
+			barmesh.size = bar_size
+			bar.mesh = barmesh
+			bar.material_override = cross_mat
+			bar.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			cross.add_child(bar)
+		cross.visible = false
+		add_child(cross)
+		_support_slots.append({"beam": beam, "beam_mat": bmat, "aura": aura, "aura_mat": amat,
+			"cross": cross, "cross_mat": cross_mat})
 
 	# Muzzle flash pool — brief emissive plates at the muzzle, hidden until a shot is fired.
 	for _i in FLASH_POOL:
@@ -702,7 +720,9 @@ func fire_tracer(now: float) -> void:
 	var fwd := (-cb.basis.z).normalized()
 	# Muzzle: from the eye, nudged right/down/forward so the beam doesn't emit from screen centre.
 	var origin := cb.origin + cb.basis.x * 0.18 - cb.basis.y * 0.12 + fwd * 0.5
-	_spawn_tracer(origin, fwd, now)
+	# Own muzzle flash sits ~0.5 m from the camera, so the full-size plate filled the lower-right of the
+	# screen. Shrink it hard for the first-person shot (remote shots keep full size — see tracer_from).
+	_spawn_tracer(origin, fwd, now, LOCAL_FLASH_SCALE)
 
 
 ## Cosmetic tracer for a REMOTE pawn's shot (from a server SHOT_FX): a beam from the shooter's
@@ -713,7 +733,11 @@ func tracer_from(origin: Vector3, dir: Vector3, now: float) -> void:
 	_spawn_tracer(origin, dir.normalized(), now)
 
 
-func _spawn_tracer(origin: Vector3, fwd: Vector3, now: float) -> void:
+# First-person muzzle flash spawns right in front of the camera, so it needs to be a fraction of the
+# world-space plate size a distant remote shot uses, or it fills the screen.
+const LOCAL_FLASH_SCALE := 0.3
+
+func _spawn_tracer(origin: Vector3, fwd: Vector3, now: float, flash_scale: float = 1.0) -> void:
 	if _tracers.is_empty():
 		return
 	var up := Vector3.UP if absf(fwd.dot(Vector3.UP)) < 0.99 else Vector3.RIGHT
@@ -724,7 +748,7 @@ func _spawn_tracer(origin: Vector3, fwd: Vector3, now: float) -> void:
 	(t["mat"] as StandardMaterial3D).albedo_color = TRACER_COLOR
 	node.visible = true
 	t["die"] = now + TRACER_TTL
-	_spawn_flash(origin, fwd, now)
+	_spawn_flash(origin, fwd, now, flash_scale)
 
 
 func _age_tracers(now: float) -> void:
@@ -741,14 +765,15 @@ func _age_tracers(now: float) -> void:
 			(t["mat"] as StandardMaterial3D).albedo_color = c
 
 
-func _spawn_flash(origin: Vector3, fwd: Vector3, now: float) -> void:
+func _spawn_flash(origin: Vector3, fwd: Vector3, now: float, scale: float = 1.0) -> void:
 	if _flashes.is_empty():
 		return
 	var up := Vector3.UP if absf(fwd.dot(Vector3.UP)) < 0.99 else Vector3.RIGHT
 	var f: Dictionary = _flashes[_flash_idx]
 	_flash_idx = (_flash_idx + 1) % _flashes.size()
 	var node: MeshInstance3D = f["node"]
-	node.global_transform = Transform3D(Basis.looking_at(fwd, up), origin)
+	# Scale the pooled plate per-spawn (small for the first-person shot, full for distant remote shots).
+	node.global_transform = Transform3D(Basis.looking_at(fwd, up).scaled(Vector3.ONE * scale), origin)
 	var c := MuzzleFlashKit.COLOR
 	c.a = 1.0
 	(f["mat"] as StandardMaterial3D).albedo_color = c
@@ -775,7 +800,7 @@ func _age_flashes(now: float) -> void:
 ## soft unshaded puffs scattered in the zone; opacity is driven per-frame by SmokeCloud.envelope in
 ## _age_smokes (billow-in / hold / fade-out). Deterministic offsets (golden-angle spiral) so the
 ## cloud reads the same every time; capped at SMOKE_MAX_CLOUDS (oldest dropped) to bound mesh count.
-func spawn_smoke(pos: Vector3, radius: float, duration: float, now: float) -> void:
+func spawn_smoke(pos: Vector3, radius: float, duration: float, now: float, vel: Vector3 = Vector3.ZERO) -> void:
 	if not pos.is_finite() or radius <= 0.0 or duration <= 0.0:
 		return
 	while _smokes.size() >= SMOKE_MAX_CLOUDS:
@@ -805,7 +830,10 @@ func spawn_smoke(pos: Vector3, radius: float, duration: float, now: float) -> vo
 		root.add_child(node)
 		mats.append(mat)
 		bases.append(node.position)
-	_smokes.append({"root": root, "mats": mats, "born": now, "dur": duration, "base": bases})
+	# Canister kinematics so the cloud follows the grenade's fall/roll (C3): pos+vel integrated per
+	# frame under the shared Grenade model, clamped to the ground. Zero vel -> the cloud stays put.
+	_smokes.append({"root": root, "mats": mats, "born": now, "dur": duration, "base": bases,
+		"pos": pos, "vel": vel, "t": now})
 
 
 func _age_smokes(now: float) -> void:
@@ -827,6 +855,21 @@ func _age_smokes(now: float) -> void:
 		var grow := 1.0 + clampf(age / dur, 0.0, 1.0) * 0.25
 		var root := s["root"] as Node3D
 		root.scale = Vector3(grow, grow, grow)
+		# Follow the canister: integrate its fall under the shared Grenade model and rest it on the
+		# ground, so the cloud trails the grenade wherever it flew before settling (C3). Skips work
+		# once the canister is at rest (vel zero on the ground).
+		var vel: Vector3 = s["vel"]
+		if vel != Vector3.ZERO:
+			var dt: float = maxf(0.0, now - float(s["t"]))
+			var step := Grenade.integrate(s["pos"], vel, dt)
+			var np: Vector3 = step["pos"]
+			var nv: Vector3 = step["vel"]
+			if np.y <= 0.0:
+				np.y = 0.0
+				nv = Vector3.ZERO
+			s["pos"] = np; s["vel"] = nv
+			root.position = np
+		s["t"] = now
 		live.append(s)
 	_smokes = live
 
@@ -908,6 +951,7 @@ func _update_support_links(world_view: WorldView, remotes: Dictionary, predictor
 	for i in range(slot, _support_slots.size()):
 		_support_slots[i]["beam"].visible = false
 		_support_slots[i]["aura"].visible = false
+		_support_slots[i]["cross"].visible = false
 
 ## Position of an entity id this frame, or Vector3.INF if not visible. Pawns come from `remotes`
 ## (or the predicted local pawn); vehicle-range ids come from the vehicle pool.
@@ -921,6 +965,28 @@ func _resolve_support_pos(id: int, local_id: int, local_pos: Vector3, remotes: D
 	return Vector3.INF
 
 func _draw_support_slot(s: Dictionary, a: Vector3, b: Vector3, kind: int, now: float) -> void:
+	var cross: Node3D = s["cross"]
+	# Revive reads best as a recognizable medic "+" floating over the teammate (D4) rather than the
+	# generic beam + ball used by heal/ammo/repair. Show the cross and suppress the beam/aura for it.
+	if kind == SUPPORT_REVIVE_KIND:
+		s["beam"].visible = false
+		s["aura"].visible = false
+		var top := b + Vector3.UP * SUPPORT_CROSS_Y
+		var pulse := 0.65 + 0.35 * (0.5 + 0.5 * sin(now * 6.0))
+		var basis := Basis()
+		if _camera != null:
+			# Billboard to the camera so the "+" always reads (a bare 3-D cross is a line edge-on).
+			var to_cam := (_camera.global_transform.origin - top)
+			if to_cam.length() > 0.01:
+				basis = Basis.looking_at(-to_cam.normalized(), Vector3.UP)
+		var bob := 0.06 * sin(now * 3.0)
+		cross.global_transform = Transform3D(basis, top + Vector3.UP * bob)
+		var cmat: StandardMaterial3D = s["cross_mat"]
+		cmat.albedo_color = Color(MEDIC_CROSS_COLOR.r, MEDIC_CROSS_COLOR.g, MEDIC_CROSS_COLOR.b, pulse)
+		cmat.emission = MEDIC_CROSS_COLOR
+		cross.visible = true
+		return
+	cross.visible = false
 	var dir := b - a
 	var dist := dir.length()
 	var beam: MeshInstance3D = s["beam"]
