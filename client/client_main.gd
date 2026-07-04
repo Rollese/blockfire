@@ -830,25 +830,26 @@ func _process(_dt: float) -> void:
 		var active_idx: int = int(throwables_model.get("active", 0))
 		var active_kind: int = int((tlist[active_idx] as Dictionary).get("kind", -1)) if active_idx < tlist.size() else -1
 		var throwable_is_nade: bool = active_kind == Grenade.FRAG or active_kind == Grenade.SMOKE
-		if Input.is_action_pressed("throw") and throwable_is_nade and not combat_locked:
+		if throwable_is_nade and not combat_locked and Input.is_action_pressed("throw"):
 			# Grow the charge while the key is held (clamped to full).
 			_throw_charging = true
 			_throw_charge = minf(_throw_charge + _dt / THROW_CHARGE_SECS, 1.0)
-		elif _throw_charging and throwable_is_nade and (Input.is_action_just_released("throw") or combat_locked):
-			# Release: throw at the accumulated strength, matching what the server integrates.
-			var aim_dir: Vector3 = -Vector3(sin(_input_ctrl.yaw), 0.0, cos(_input_ctrl.yaw)).normalized()
-			var pitch: float = _input_ctrl.pitch
-			aim_dir = Vector3(aim_dir.x * cos(pitch), sin(pitch), aim_dir.z * cos(pitch)).normalized()
-			var charge: float = _throw_charge
-			_net.send_to(_peer, NetHost.CHANNEL_CONTROL,
-				Protocol.encode_grenade_throw(aim_dir, active_kind, charge), ENetPacketPeer.FLAG_RELIABLE)
-			if _renderer != null:
-				# Instant thrower feedback: own grenade -> friendly=true so it never triggers our own danger warning.
-				_renderer.throw_grenade(_pred.predicted.eye_position(),
-					Grenade.launch_velocity(aim_dir, charge), active_kind, _elapsed, true)
-			_throw_charging = false
-			_throw_charge = 0.0
-		elif not Input.is_action_pressed("throw"):
+		else:
+			# Not actively charging this frame. Throw only on a CLEAN release (was charging, still a
+			# grenade, not combat-locked) — a mid-charge lock (downed / menu / vehicle) or throwable
+			# switch cancels without throwing. Always reset the charge afterward.
+			if _throw_charging and throwable_is_nade and not combat_locked \
+					and Input.is_action_just_released("throw"):
+				var aim_dir: Vector3 = -Vector3(sin(_input_ctrl.yaw), 0.0, cos(_input_ctrl.yaw)).normalized()
+				var pitch: float = _input_ctrl.pitch
+				aim_dir = Vector3(aim_dir.x * cos(pitch), sin(pitch), aim_dir.z * cos(pitch)).normalized()
+				var charge: float = _throw_charge
+				_net.send_to(_peer, NetHost.CHANNEL_CONTROL,
+					Protocol.encode_grenade_throw(aim_dir, active_kind, charge), ENetPacketPeer.FLAG_RELIABLE)
+				if _renderer != null:
+					# Own grenade -> friendly=true so it never triggers our own danger warning.
+					_renderer.throw_grenade(_pred.predicted.eye_position(),
+						Grenade.launch_velocity(aim_dir, charge), active_kind, _elapsed, true)
 			_throw_charging = false
 			_throw_charge = 0.0
 		# RPG throwable fires immediately on press (not a charged lob).
