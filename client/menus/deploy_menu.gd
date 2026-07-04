@@ -61,21 +61,10 @@ func _build_layout() -> void:
 	_vbox = VBoxContainer.new()
 	_vbox.add_theme_constant_override("separation", 6)
 	panel.add_child(_vbox)
-	# Squad selection row — minimal: numbered buttons 0..(SQUAD_DISPLAY_COUNT-1).
-	var squad_label := Label.new()
-	squad_label.text = "Squad:"
-	squad_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	panel.add_child(squad_label)
-	_squad_hbox = HBoxContainer.new()
-	_squad_hbox.add_theme_constant_override("separation", 6)
-	_squad_hbox.alignment = BoxContainer.ALIGNMENT_CENTER
-	panel.add_child(_squad_hbox)
-	for i in SQUAD_DISPLAY_COUNT:
-		var sbtn := Button.new()
-		sbtn.text = str(i)
-		sbtn.custom_minimum_size = Vector2(44, 36)
-		sbtn.pressed.connect(_on_squad_pressed.bind(i))
-		_squad_hbox.add_child(sbtn)
+	# D3: squad selection is NOT on the deploy/spawn screen — you rarely change squads on death, and it
+	# cluttered the spawn list. Squad changes live on the in-game squad menu (the "squad_menu" key,
+	# set_squad_menu_open) instead; move to a class-select screen when that exists. The squad_selected
+	# signal + _on_squad_pressed handler remain for that future host.
 
 ## Populate the spawn list. Clears any previous buttons.
 ## squadmates: Array of {pos, team, alive, downed, ...} — may include an optional "name" key

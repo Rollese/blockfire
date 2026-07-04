@@ -30,6 +30,7 @@ const VM_YAW := PI   # GlbWeaponKit aims the barrel +Z; camera-forward is -Z, so
 var _ads_t := 0.0   # 0..1 aim-down-sights blend (client-only visual zoom/pose); set each frame by client_main
 var _vm_photo_hidden := false   # viewmodel hidden by photo/free-fly mode
 var _vm_scope_hidden := false   # viewmodel hidden while scoped (look through the scope, not at the gun)
+var _vm_downed_hidden := false  # viewmodel hidden while downed (DBNO — you drop your weapon; C5)
 
 # -- tracer (shot feedback) ---------------------------------------------------
 const TRACER_POOL := 16
@@ -463,9 +464,15 @@ func set_viewmodel_scope_hidden(h: bool) -> void:
 	_vm_scope_hidden = h
 	_apply_vm_visibility()
 
+## Hide the viewmodel while downed (DBNO): a downed player has no weapon in hand. Composes with the
+## photo/scope hides.
+func set_viewmodel_downed_hidden(h: bool) -> void:
+	_vm_downed_hidden = h
+	_apply_vm_visibility()
+
 func _apply_vm_visibility() -> void:
 	if _viewmodel != null:
-		_viewmodel.visible = not (_vm_photo_hidden or _vm_scope_hidden)
+		_viewmodel.visible = not (_vm_photo_hidden or _vm_scope_hidden or _vm_downed_hidden)
 
 ## Aim-down-sights blend (0 = hip, 1 = fully aimed). Client-only visual: shifts the viewmodel to the
 ## sight line (see _pose_viewmodel) and damps the locomotion bob. The matching FOV zoom is applied by

@@ -251,14 +251,14 @@ func test_blind_intensity_saturates_then_fades() -> void:
 
 
 func test_suppression_intensity_threshold_and_ramp() -> void:
-	# Below the 0.25 threshold the screen FX is fully off (matches the audio onset);
-	# above it, a smoothstep ramp to full at s=1.0; clamped to [0,1].
+	# C4: veil off below the (lowered) onset, smoothstep ramp to full at SUPPRESS_FX_FULL; clamped.
 	assert_almost_eq(HudModel.suppression_intensity(0.0), 0.0, 0.001)    # idle -> nothing
-	assert_almost_eq(HudModel.suppression_intensity(0.24), 0.0, 0.001)   # just below threshold -> off
-	assert_almost_eq(HudModel.suppression_intensity(1.0), 1.0, 0.001)    # fully suppressed -> full
-	assert_almost_eq(HudModel.suppression_intensity(2.0), 1.0, 0.001)    # clamped above 1
-	var lo := HudModel.suppression_intensity(0.4)
-	var hi := HudModel.suppression_intensity(0.8)
+	assert_almost_eq(HudModel.suppression_intensity(0.10), 0.0, 0.001)   # below the lowered onset -> off
+	assert_true(HudModel.suppression_intensity(0.24) > 0.0, "realistic near-miss suppression now shows a veil")
+	assert_almost_eq(HudModel.suppression_intensity(0.55), 1.0, 0.001)   # full at the sustained-fire level
+	assert_almost_eq(HudModel.suppression_intensity(1.0), 1.0, 0.001)    # clamped at full above that
+	var lo := HudModel.suppression_intensity(0.2)
+	var hi := HudModel.suppression_intensity(0.4)
 	assert_true(lo > 0.0 and lo < 1.0, "above threshold ramps in (0,1)")
 	assert_true(hi > lo, "monotonic increasing with suppression")
 

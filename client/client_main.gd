@@ -580,6 +580,9 @@ func _process(_dt: float) -> void:
 	_renderer.set_ads(_ads_t)   # viewmodel sight pose + bob damping (before update -> _pose_viewmodel reads it)
 	# Hide the gun while scoped (you look through the scope, not at the centred gun).
 	_renderer.set_viewmodel_scope_hidden((_scope_test or _is_scoped(weapon0)) and _ads_t > 0.6)
+	# Hide the gun while downed (DBNO): no weapon in hand on the ground (C5).
+	var _self_ss_vm: EntityState = _wv.self_state()
+	_renderer.set_viewmodel_downed_hidden(_self_ss_vm != null and _self_ss_vm.is_downed)
 	var cam_fov: float = lerpf(_settings.fov, _ads_fov(weapon0), _ads_t)   # FOV zoom toward the per-weapon ADS FOV
 	var _t0 := Time.get_ticks_usec()
 	_renderer.update(_wv, _pred, _elapsed, cam_fov, _input_ctrl.yaw, _input_ctrl.pitch, eye, _dt)

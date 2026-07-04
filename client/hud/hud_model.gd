@@ -7,7 +7,11 @@ const LOW_AMMO_FRAC := 0.34
 const KILLFEED_TTL := 6.0
 const DAMAGE_TTL := 1.5
 const BLIND_FULL_TICKS := 45.0   # remaining-blind ticks at/above which the flash white-out is opaque
-const SUPPRESS_FX_THRESHOLD := 0.25   # mirrors shared/sim/suppress.gd SUPPRESS_THRESHOLD (audio + visual onset align)
+# C4: the FX onset was 0.25 ramping to full at 1.0, so brief near-miss suppression (which spikes to
+# ~0.15–0.4 then decays 0.04/tick) never rendered a visible veil. Onset below the gameplay spread
+# threshold, full at a realistic sustained-fire level, so being shot at reads on-screen.
+const SUPPRESS_FX_THRESHOLD := 0.12   # veil starts here (one dead-on near-miss ≈ 0.15)
+const SUPPRESS_FX_FULL := 0.55        # veil is full here (sustained incoming fire ≈ 0.3–0.5)
 
 ## Flashbang white-out opacity (0..1) from the SELF_STATE remaining-blind-ticks byte (M5.5-P3).
 ## Saturated white while ≥ BLIND_FULL_TICKS remain, then a linear fade over the final tail — so a
@@ -21,7 +25,7 @@ static func blind_intensity(blind_ticks: int) -> float:
 static func suppression_intensity(suppression: float) -> float:
 	if suppression < SUPPRESS_FX_THRESHOLD:
 		return 0.0
-	return smoothstep(SUPPRESS_FX_THRESHOLD, 1.0, clampf(suppression, 0.0, 1.0))
+	return smoothstep(SUPPRESS_FX_THRESHOLD, SUPPRESS_FX_FULL, clampf(suppression, 0.0, 1.0))
 var _killfeed: Array = []   # [{killer,victim,headshot,weapon,t}]
 var _capture_feed: Array = []   # [{label:String, status:int, t:float}] — capture-point announcements
 const CAPTURE_FEED_TTL := 4.0   # seconds a capture banner lingers

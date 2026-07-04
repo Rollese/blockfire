@@ -1399,22 +1399,12 @@ func _render_capture(capture) -> void:
 	_cap_fill.size = Vector2(_cap_bar.size.x * cap, _cap_bar.size.y)
 
 
-func _render_killfeed(entries: Array) -> void:
-	var n: int = mini(entries.size(), KILLFEED_MAX)
-	# Show most-recent at the top.
+func _render_killfeed(_entries: Array) -> void:
+	# D5: the text killfeed is intentionally disabled — BattleBit has no killfeed. Kills are conveyed
+	# by the hitmarker + kill-confirm feedback only. The model still tracks kills (see hud_model) in
+	# case it's wanted later; here we keep every line hidden so nothing renders.
 	for i in KILLFEED_MAX:
-		var lbl: Label = _killfeed_labels[i]
-		var entry_idx: int = entries.size() - 1 - i
-		if i >= n or entry_idx < 0:
-			lbl.visible = false
-		else:
-			var e: Dictionary = entries[entry_idx]
-			var hs: String = " ☆" if bool(e.get("headshot", false)) else ""
-			lbl.text = "%s → %s%s" % [String(e.get("killer_name", "?")), String(e.get("victim_name", "?")), hs]
-			# Tint toward the killer's allegiance (friend = blue, foe = red), neutral grey if unknown.
-			lbl.modulate = (Color(0.55, 0.75, 1.0, 0.95) if bool(e.get("killer_friendly", false))
-				else Color(1.0, 0.55, 0.5, 0.95))
-			lbl.visible = true
+		_killfeed_labels[i].visible = false
 
 
 func _render_damage(arcs: Array, vignette: float) -> void:
