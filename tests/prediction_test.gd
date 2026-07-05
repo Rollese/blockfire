@@ -58,6 +58,18 @@ func test_reconcile_restores_stamina_so_sprint_replay_doesnt_double_drain() -> v
 	assert_almost_eq(pred.predicted.stamina, expected, 0.5,
 		"stamina reconciles to authority + replay drain, not accumulated double-drain")
 
+func test_reconcile_restores_regen_cooldown_so_stamina_agrees_at_boundary() -> void:
+	# C6 fix (round-5 playtest): reconcile reset stamina but NOT its regen cooldown, so the two drifted
+	# and predicted stamina regenerated on a different tick than the server — diverging exactly at the
+	# sprint-empty (1 Hz snap) and JUMP_COST (jump-apex snap) boundaries. Reconcile must sync it too.
+	var pred := Prediction.new()
+	pred.world_half = 1000.0
+	pred.predicted._regen_cooldown = 0.0   # client thinks it may regen right now
+	# Server acked with a FRESH cooldown (just sprinted/jumped): stamina must not regen for ~1 s.
+	pred.reconcile_full(Vector3.ZERO, 0.0, 0.0, 0, 40.0, 0.0, true, false, 0, Pawn.STAMINA_REGEN_DELAY)
+	assert_almost_eq(pred.predicted._regen_cooldown, Pawn.STAMINA_REGEN_DELAY, 0.001,
+		"regen cooldown reconciles to authority (no pending inputs -> stays at the reset value)")
+
 func test_reconcile_restores_vertical_velocity_so_jump_arc_doesnt_snap() -> void:
 	# Regression (M7 playtest B3): reconcile reset pos but NOT velocity.y/grounded. Replaying pending
 	# inputs after a mid-jump snapshot integrated gravity from a stale vertical velocity, so the predicted

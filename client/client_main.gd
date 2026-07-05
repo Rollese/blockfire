@@ -178,6 +178,7 @@ var _self_vel_y: float = 0.0       # latest authoritative vertical velocity from
 var _self_grounded: bool = true    # latest authoritative grounded flag from SELF_STATE (jump reconcile baseline)
 var _self_vaulting: bool = false   # latest authoritative vault flag from SELF_STATE (vault-arc reconcile)
 var _self_vault_tick: int = 0      # latest authoritative vault progress from SELF_STATE
+var _self_regen_cooldown: float = 0.0   # latest authoritative stamina regen-cooldown (C6 sprint/jump-stamina reconcile)
 var _conn_lost: bool = false       # in-game disconnect: freeze the loop under the overlay
 var _conn_lost_overlay: CanvasLayer = null
 var _reject_reason: String = ""    # last REJECT text — shown on the menu when the disconnect lands
@@ -1272,7 +1273,7 @@ func _handle_snapshot(bytes: PackedByteArray) -> void:
 		# Reconcile movement prediction from authoritative position + pitch. Smooth only a genuine
 		# correction (deadzone..snap): ease it into the camera via _pos_err instead of snapping.
 		var pre_pos: Vector3 = _pred.predicted.pos
-		_pred.reconcile_full(ss.pos, ss.yaw, ss.pitch, int(hdr["last_input_tick"]), _self_stamina, _self_vel_y, _self_grounded, _self_vaulting, _self_vault_tick)
+		_pred.reconcile_full(ss.pos, ss.yaw, ss.pitch, int(hdr["last_input_tick"]), _self_stamina, _self_vel_y, _self_grounded, _self_vaulting, _self_vault_tick, _self_regen_cooldown)
 		var cl: float = (pre_pos - _pred.predicted.pos).length()
 		_recon_peak = maxf(_recon_peak, cl)
 		if not _self_grounded: _recon_air_peak = maxf(_recon_air_peak, cl)   # airborne = mid-jump correction
@@ -1343,6 +1344,7 @@ func _handle_self_state(bytes: PackedByteArray) -> void:
 	_self_grounded = bool(d.get("grounded", true))             # authoritative grounded flag for jump reconcile
 	_self_vaulting = bool(d.get("vaulting", false))            # authoritative vault progress for arc reconcile
 	_self_vault_tick = int(d.get("vault_tick", 0))
+	_self_regen_cooldown = float(d.get("regen_cooldown", 0.0)) # authoritative stamina regen-cooldown (C6 reconcile)
 
 # ---- MATCH_STATE ------------------------------------------------------------
 func _handle_match_state(bytes: PackedByteArray) -> void:
