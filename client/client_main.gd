@@ -35,13 +35,6 @@ var _eye_init := false
 # per-tick corrections (sub-mm quantization) are ignored so the render interpolation stays intact.
 var _pos_err := Vector3.ZERO
 var _reconciled := false
-# TEMP reconcile-diagnostic (round-5 movement-lag hunt): peak/counted corrections per 1 Hz dbg window.
-var _recon_peak := 0.0
-var _recon_count := 0
-var _recon_snaps := 0
-var _recon_air_peak := 0.0   # peak correction while airborne (server grounded=false) — isolates jump-arc lag
-var _recon_peak_vec := Vector3.ZERO   # the correction VECTOR at peak cl this window (x/z=horizontal drift, y=floor divergence)
-var _recon_peak_post_y := 0.0   # authoritative (post-reconcile) pawn y at the peak; pre_y = post_y + vec.y
 const RECON_DEADZONE := 0.12   # corrections under this (m) are noise — left to smooth 30->60 interpolation
                                # instead of the _pos_err ease. Was 0.04, right at the per-connect
                                # prediction-lead jitter magnitude (~4-6 cm), so constant tiny corrections
@@ -1045,12 +1038,13 @@ func _process(_dt: float) -> void:
 	if _dbg_accum >= 1.0:
 		_dbg_accum = 0.0
 		var dss: EntityState = _wv.self_state()
-		print("[client-dbg] deployed=%s w=%s peak=%.3f vec_y=%.3f post_y=%.3f pre_y=%.3f air=%.2f n=%d" % [
-			str(dss != null and dss.alive),
+		print("[client-dbg] deployed=%s mouse_mode=%d menu_vis=%s refs=%d motion=%d w=%s fire=%s" % [
+			str(dss != null and dss.alive), int(Input.mouse_mode),
+			str(_deploy_menu.visible if _deploy_menu != null else false),
+			(_deploy_menu.refs.size() if _deploy_menu != null else 0),
+			_input_ctrl.motion_events,
 			str(Input.is_action_pressed("move_fwd")),
-			_recon_peak, _recon_peak_vec.y, _recon_peak_post_y, _recon_peak_post_y + _recon_peak_vec.y,
-			_recon_air_peak, _recon_count])
-		_recon_peak = 0.0; _recon_air_peak = 0.0; _recon_count = 0; _recon_snaps = 0; _recon_peak_vec = Vector3.ZERO; _recon_peak_post_y = 0.0
+			str(Input.is_action_pressed("fire"))])
 
 # ---- connect callback -------------------------------------------------------
 func _on_connected(peer: ENetPacketPeer) -> void:
@@ -1284,13 +1278,6 @@ func _handle_snapshot(bytes: PackedByteArray) -> void:
 		var pre_pos: Vector3 = _pred.predicted.pos
 		_pred.reconcile_full(ss.pos, ss.yaw, ss.pitch, int(hdr["last_input_tick"]), _self_stamina, _self_vel_y, _self_grounded, _self_vaulting, _self_vault_tick, _self_regen_cooldown)
 		var cl: float = (pre_pos - _pred.predicted.pos).length()
-		if cl >= _recon_peak:
-			_recon_peak_vec = pre_pos - _pred.predicted.pos   # capture the vector at the peak
-			_recon_peak_post_y = _pred.predicted.pos.y        # authoritative y at the peak
-		_recon_peak = maxf(_recon_peak, cl)
-		if not _self_grounded: _recon_air_peak = maxf(_recon_air_peak, cl)   # airborne = mid-jump correction
-		if cl > RECON_DEADZONE: _recon_count += 1
-		if cl > RECON_SNAP: _recon_snaps += 1
 		if cl > RECON_DEADZONE and cl <= RECON_SNAP:
 			_pos_err += pre_pos - _pred.predicted.pos
 			_reconciled = true
