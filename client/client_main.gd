@@ -42,7 +42,12 @@ var _recon_snaps := 0
 var _recon_air_peak := 0.0   # peak correction while airborne (server grounded=false) — isolates jump-arc lag
 var _recon_peak_vec := Vector3.ZERO   # the correction VECTOR at peak cl this window (x/z=horizontal drift, y=floor divergence)
 var _recon_peak_post_y := 0.0   # authoritative (post-reconcile) pawn y at the peak; pre_y = post_y + vec.y
-const RECON_DEADZONE := 0.04   # corrections under this (m) are noise — left to normal interpolation
+const RECON_DEADZONE := 0.12   # corrections under this (m) are noise — left to smooth 30->60 interpolation
+                               # instead of the _pos_err ease. Was 0.04, right at the per-connect
+                               # prediction-lead jitter magnitude (~4-6 cm), so constant tiny corrections
+                               # took the active-ease path and never settled -> perceived micro-snapping.
+                               # predicted.pos is still set to authority either way; this only changes the
+                               # visual easing of sub-12 cm corrections. Genuine desyncs (>RECON_SNAP) snap.
 const RECON_SNAP := 2.5        # corrections over this (m) snap (respawn/teleport), not smoothed
 const RECON_SMOOTH := 13.0     # per-second decay of _pos_err (~a correction fades over ~150 ms)
 # DBNO downed screen
