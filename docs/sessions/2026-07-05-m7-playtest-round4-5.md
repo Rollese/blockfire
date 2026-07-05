@@ -1,17 +1,17 @@
 # Session log — 2026-07-05 — M7 desktop playtest rounds 4–5
 
 Owner-driven live playtest of the M7 rendered client on the desktop (192.168.1.194,
-CachyOS/Wayland/RX 9070 XT), client driven over SSH; server + bots on game2. All work
-landed on branch **`playtest-fixes-m7-round2`** (pushed to origin, **NOT merged to
-master** — awaiting the owner's overall playtest sign-off, which is the M7 gate).
-Suite **1256/0** at session end.
+CachyOS/Wayland/RX 9070 XT), client driven over SSH; server + bots on game2. Work landed
+on branch **`playtest-fixes-m7-round2`** and, at the owner's request end of session, was
+**MERGED to `master` (`70946b3`, pushed)** so a concurrent agent can branch from master
+with these fixes included. Suite **1256/0**. (The full end-to-end M7-P1 playtest gate
+sign-off remains open — not every item was re-tested; the owner left mid-loop.)
 
 ## ⚠️ Handoff notes for a concurrent/next agent (read first)
 
-- **Do not disturb `playtest-fixes-m7-round2`.** It carries unmerged round-3 + round-4/5
-  playtest fixes and merges to `master` only after the owner signs off the playtest.
-  If you work on **other features**, branch from **`master`** (not this branch), and
-  `git fetch` + reconcile before any push — sessions share this repo.
+- **The playtest fixes are now on `master` (`70946b3`).** Branch your work from **`master`**
+  and `git fetch` + reconcile before any push — sessions share this repo. The
+  `playtest-fixes-m7-round2` branch is merged (safe to ignore).
 - **Run the server/bots in detached `tmux`** (`tmux new-session -d -s bf-srv "… --server …"`
   / `-s bf-bots "… --bots …"`). Session-bound `run_in_background` Bash tasks get
   **SIGKILLed when the Claude session tears down** — that killed the server mid-playtest
