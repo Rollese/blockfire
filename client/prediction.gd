@@ -20,6 +20,7 @@ var structures:
 
 func _init() -> void:
 	predicted = Pawn.new(0)
+	predicted.auto_vault = false   # the local pawn is always a human: vault only on jump (matches the server)
 	_loop.world.pawns[0] = predicted
 
 ## Ladders/platforms from the adopted map, so climb + platform-floor predict like the server.

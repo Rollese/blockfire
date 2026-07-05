@@ -40,6 +40,7 @@ var combat_until_tick: int = 0     # "in combat" until this tick (set when damag
 var last_stance_change_tick: int = -1000   # set by SimLoop when stance changes; drop-shoot gate
 var climbing: bool = false
 var vaulting: bool = false
+var auto_vault: bool = true   # bots vault a low blocker on contact; humans (set false) must press jump (BattleBit)
 var fall_peak_y: float = 0.0   # highest y reached since leaving the ground (for fall damage)
 var landed_fall: float = 0.0   # transient: fall distance on the tick a landing occurred, else 0 (not replicated)
 var vault_tick: int = 0

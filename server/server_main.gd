@@ -945,6 +945,7 @@ func _handle_hello(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
 	var p := _sim.world.spawn(id)
 	p.team = team
 	p.squad = squad
+	p.auto_vault = bool(auto_deploy)   # bots (auto_deploy) vault on contact; humans press jump to vault (BattleBit)
 	p.pos = _select_spawn(id)
 	p.armor_class = Loadout.armor_for(cls)   # M5.5-P2: tier is class-derived, immutable per life
 	p.bandage_count = Revive.bandage_count_for(cls == Loadout.MEDIC)

@@ -33,7 +33,7 @@ func step(inputs: Dictionary, world_half: float = Pawn.WORLD_HALF) -> void:
 			if not p.vaulting:
 				_apply_platform_floor(p)
 		else:
-			_step_normal(p, prev, cmd)
+			_step_normal(p, prev, cmd, prev_grounded)
 		if p.stance != prev_stance:
 			p.last_stance_change_tick = tick
 		_account_fall(p, prev_grounded)
@@ -59,7 +59,7 @@ func _step_climb(p: Pawn, cmd: Dictionary) -> void:
 		p.grounded = true
 		p.climbing = false
 
-func _step_normal(p: Pawn, prev: Vector3, cmd: Dictionary) -> void:
+func _step_normal(p: Pawn, prev: Vector3, cmd: Dictionary, prev_grounded: bool) -> void:
 	var intended := p.pos
 	if structures != null:
 		var resolved: Vector3 = structures.resolve_movement(prev, intended)
@@ -68,13 +68,25 @@ func _step_normal(p: Pawn, prev: Vector3, cmd: Dictionary) -> void:
 			var top: float = structures.ground_blocker_top(intended)
 			var flat := Vector3(intended.x - prev.x, 0.0, intended.z - prev.z)
 			var moving := flat.length() > MIN_MOVE_LEN
-			# grounded gate: a FALLING pawn whose feet pass a 2 m wall's upper band would otherwise see
-			# a relative blocker top <= VAULT_MAX_HEIGHT and vault clean over a non-vaultable wall.
-			if p.grounded and Vault.can_vault(top, p.stance, moving):
+			var jump_pressed := bool(int(cmd.get("buttons", 0)) & InputCommand.BTN_JUMP)
+			# Manual vault (BattleBit): a human (auto_vault=false) must press jump to mount a low blocker;
+			# bots keep vaulting on contact so navigation and the fleet gate's vaults>=1 hold. Gate on
+			# prev_grounded, not p.grounded: a jump THIS tick already cleared p.grounded in Pawn.step(),
+			# and a truthful grounded also keeps a FALLING pawn (prev_grounded=false) from vaulting a
+			# 2 m wall whose upper band its feet happen to pass.
+			if prev_grounded and (p.auto_vault or jump_pressed) and Vault.can_vault(top, p.stance, moving):
 				var land := _vault_landing(prev, flat.normalized())
 				if bool(land["ok"]):
 					Vault.begin_at(p, prev, land["to"])
 					p.pos = prev
+					# If a JUMP press triggered this vault, undo the jump impulse/cost Pawn.step() just
+					# applied so the pawn neither launches upward when the arc completes nor pays stamina
+					# (vaulting is free, as the old auto-vault was). Auto-vault (bots) never jumped, so
+					# this leaves their state untouched.
+					if jump_pressed and not p.grounded:
+						p.velocity.y = 0.0
+						p.grounded = true
+						p.stamina = minf(Pawn.STAMINA_MAX, p.stamina + Pawn.JUMP_COST)
 					return
 				# No clear ground to land on (e.g. a wall right behind the low blocker) -> refuse the
 				# vault and stay blocked, so the arc never teleports the pawn into/through the wall.
