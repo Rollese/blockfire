@@ -389,11 +389,13 @@ func _physics_process(delta: float) -> void:
 			cmd["move_y"] = 0.0
 			cmd["buttons"] = 0
 		elif _in_vehicle() >= 0:
-			# Slaved to the vehicle server-side: predicting free movement only rubber-bands the eye.
-			# Zero movement + movement buttons (keep look + fire) and snap the predicted pawn onto the
-			# authoritative vehicle-seat position so the POV rides along instead of drifting/bouncing.
-			cmd["move_x"] = 0.0
-			cmd["move_y"] = 0.0
+			# Slaved to the vehicle server-side: predicting free movement only rubber-bands the eye, so
+			# snap the predicted pawn onto the authoritative seat position (the POV rides along instead
+			# of drifting/bouncing). KEEP move_x/move_y: the server steers the vehicle from the DRIVER's
+			# last_input axes (server_main._build_vehicle_inputs) — zeroing them here meant the driver
+			# could never turn. Non-driver seats ignore the axes and the seated pawn never free-moves
+			# (pawn.gd skips movement while in_vehicle), so forwarding them is safe. Mask the movement
+			# buttons (jump/crouch/sprint do nothing seated); keep fire so passengers can shoot out.
 			cmd["buttons"] = int(cmd["buttons"]) & InputCommand.BTN_FIRE
 			_pred.predicted.pos = ss.pos
 			_pred.predicted.velocity = Vector3.ZERO
