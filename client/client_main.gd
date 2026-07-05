@@ -35,6 +35,10 @@ var _eye_init := false
 # per-tick corrections (sub-mm quantization) are ignored so the render interpolation stays intact.
 var _pos_err := Vector3.ZERO
 var _reconciled := false
+# TEMP reconcile-diagnostic (round-5 movement-lag hunt): peak/counted corrections per 1 Hz dbg window.
+var _recon_peak := 0.0
+var _recon_count := 0
+var _recon_snaps := 0
 const RECON_DEADZONE := 0.04   # corrections under this (m) are noise — left to normal interpolation
 const RECON_SNAP := 2.5        # corrections over this (m) snap (respawn/teleport), not smoothed
 const RECON_SMOOTH := 13.0     # per-second decay of _pos_err (~a correction fades over ~150 ms)
@@ -1027,13 +1031,15 @@ func _process(_dt: float) -> void:
 	if _dbg_accum >= 1.0:
 		_dbg_accum = 0.0
 		var dss: EntityState = _wv.self_state()
-		print("[client-dbg] deployed=%s mouse_mode=%d menu_vis=%s refs=%d motion=%d w=%s fire=%s" % [
+		print("[client-dbg] deployed=%s mouse_mode=%d menu_vis=%s refs=%d motion=%d w=%s fire=%s recon_peak=%.2f recon_n=%d snaps=%d" % [
 			str(dss != null and dss.alive), int(Input.mouse_mode),
 			str(_deploy_menu.visible if _deploy_menu != null else false),
 			(_deploy_menu.refs.size() if _deploy_menu != null else 0),
 			_input_ctrl.motion_events,
 			str(Input.is_action_pressed("move_fwd")),
-			str(Input.is_action_pressed("fire"))])
+			str(Input.is_action_pressed("fire")),
+			_recon_peak, _recon_count, _recon_snaps])
+		_recon_peak = 0.0; _recon_count = 0; _recon_snaps = 0
 
 # ---- connect callback -------------------------------------------------------
 func _on_connected(peer: ENetPacketPeer) -> void:
@@ -1267,6 +1273,9 @@ func _handle_snapshot(bytes: PackedByteArray) -> void:
 		var pre_pos: Vector3 = _pred.predicted.pos
 		_pred.reconcile_full(ss.pos, ss.yaw, ss.pitch, int(hdr["last_input_tick"]), _self_stamina, _self_vel_y, _self_grounded, _self_vaulting, _self_vault_tick)
 		var cl: float = (pre_pos - _pred.predicted.pos).length()
+		_recon_peak = maxf(_recon_peak, cl)
+		if cl > RECON_DEADZONE: _recon_count += 1
+		if cl > RECON_SNAP: _recon_snaps += 1
 		if cl > RECON_DEADZONE and cl <= RECON_SNAP:
 			_pos_err += pre_pos - _pred.predicted.pos
 			_reconciled = true
