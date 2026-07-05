@@ -35,6 +35,7 @@ var _eye_init := false
 # per-tick corrections (sub-mm quantization) are ignored so the render interpolation stays intact.
 var _pos_err := Vector3.ZERO
 var _reconciled := false
+var _recon_peak := 0.0   # largest reconcile correction (m) this dbg window — the A1 apex-feel meter
 const RECON_DEADZONE := 0.12   # corrections under this (m) are noise — left to smooth 30->60 interpolation
                                # instead of the _pos_err ease. Was 0.04, right at the per-connect
                                # prediction-lead jitter magnitude (~4-6 cm), so constant tiny corrections
@@ -410,9 +411,8 @@ func _show_match_end_overlay(winner: int) -> void:
 	add_child(_match_end_overlay)
 
 # ---- physics tick -----------------------------------------------------------
-## True while a menu owns the cursor and input production is paused (the alive-with-menu branch
-## below). Shared with the tick-lead feed in _handle_self_state: while paused, no frames are sent,
-## so the reported buffer depth is meaningless and must not integrate into the clock loop.
+## True while a menu owns the cursor and keyboard: gameplay intent is zeroed (the alive-with-menu
+## branch below keeps sending stop-frames — A5) and raw Input reads must not reach gameplay.
 func _input_paused_by_menu() -> bool:
 	return (_settings_menu != null and _settings_menu.visible) \
 		or (_hud_view != null and _hud_view.is_squad_menu_open())
@@ -442,6 +442,16 @@ func _physics_process(delta: float) -> void:
 			_input_ctrl.drain_look()
 			if _deploy_menu != null:
 				_deploy_menu.visible = false
+		# Keep producing input ticks with ZEROED intent while a menu owns the keyboard (A5 fix,
+		# playtest 2026-07-05). Stopping production entirely starved the server's input buffer,
+		# and starvation reuses the LAST frame — hold W, press Esc, and the soldier kept walking
+		# forward unattended. Zeroed frames stop the pawn explicitly, and the buffer stays fed so
+		# the tick-lead loop keeps its depth signal (no windup, no re-converge on menu close).
+		# Same shape as the photo-mode freeze; skip gather() — menu keystrokes must not reach
+		# gameplay state (e.g. the prone toggle).
+		var mcmd := {"move_x": 0.0, "move_y": 0.0, "yaw": _input_ctrl.yaw, "pitch": _input_ctrl.pitch, "buttons": 0}
+		for _rep in _tick_lead.frame_repeats():
+			_produce_input_frame(ss, mcmd.duplicate())
 	elif deployed:
 		# Gather local input ONCE per physics frame — gather() flips the prone toggle through
 		# is_action_just_pressed, so calling it per produced frame would double-flip prone on a
@@ -529,7 +539,7 @@ func _produce_input_frame(ss: EntityState, cmd: Dictionary) -> void:
 			var bfwd := Combat._forward(wrapf(float(cmd["yaw"]) + PI, -PI, PI), float(cmd["pitch"]))
 			var bcell := _build_ctrl.aimed_cell(beye, bfwd)
 			if _build_ctrl.action_at(bcell, _wv.structures(), beye) == BuildController.SHOVEL \
-					and (Input.is_action_pressed("fire") or _build_test):
+					and ((Input.is_action_pressed("fire") and not _input_paused_by_menu()) or _build_test):
 				bb |= InputCommand.BTN_SHOVEL   # _build_test forces the shovel so the QA shot shows it rise
 			cmd["buttons"] = bb
 	_pred.record_cmd(_client_tick, cmd)
@@ -1122,14 +1132,15 @@ func _process(_dt: float) -> void:
 	if _dbg_accum >= 1.0:
 		_dbg_accum = 0.0
 		var dss: EntityState = _wv.self_state()
-		print("[client-dbg] deployed=%s mouse_mode=%d menu_vis=%s refs=%d motion=%d w=%s fire=%s lead_d=%d holds=%d extras=%d" % [
+		print("[client-dbg] deployed=%s mouse_mode=%d menu_vis=%s refs=%d motion=%d w=%s fire=%s lead_d=%d holds=%d extras=%d recon_pk=%.3f" % [
 			str(dss != null and dss.alive), int(Input.mouse_mode),
 			str(_deploy_menu.visible if _deploy_menu != null else false),
 			(_deploy_menu.refs.size() if _deploy_menu != null else 0),
 			_input_ctrl.motion_events,
 			str(Input.is_action_pressed("move_fwd")),
 			str(Input.is_action_pressed("fire")),
-			_tick_lead.last_depth, _tick_lead.holds, _tick_lead.extras])
+			_tick_lead.last_depth, _tick_lead.holds, _tick_lead.extras, _recon_peak])
+		_recon_peak = 0.0   # per-window peak: correlate a felt snap with its second's line
 
 # ---- connect callback -------------------------------------------------------
 func _on_connected(peer: ENetPacketPeer) -> void:
@@ -1179,6 +1190,7 @@ func _on_packet(_from: ENetPacketPeer, _channel: int, bytes: PackedByteArray) ->
 			_apply_struct_delta_to_store(bytes)
 		Protocol.Msg.COLLAPSE:
 			var _bid := Protocol.decode_collapse(bytes)
+			print("[client] building %d collapsed" % _bid)   # also fires on join-replay (A3 ghost-ladder fix)
 			_collapse_struct_store(_bid)
 			_wv.apply_collapse(_bid)
 		Protocol.Msg.SHOT_FX:
@@ -1365,6 +1377,7 @@ func _handle_snapshot(bytes: PackedByteArray) -> void:
 		var pre_pos: Vector3 = _pred.predicted.pos
 		_pred.reconcile_full(ss.pos, ss.yaw, ss.pitch, int(hdr["last_input_tick"]), _self_stamina, _self_vel_y, _self_grounded, _self_vaulting, _self_vault_tick, _self_regen_cooldown, _self_sprint_locked)
 		var cl: float = (pre_pos - _pred.predicted.pos).length()
+		_recon_peak = maxf(_recon_peak, cl)   # A1 meter: is the residual apex feel a real correction?
 		if cl > RECON_DEADZONE and cl <= RECON_SNAP:
 			_pos_err += pre_pos - _pred.predicted.pos
 			_reconciled = true
@@ -1433,12 +1446,12 @@ func _handle_self_state(bytes: PackedByteArray) -> void:
 	_self_regen_cooldown = float(d.get("regen_cooldown", 0.0)) # authoritative stamina regen-cooldown (C6 reconcile)
 	_self_sprint_locked = bool(d.get("sprint_locked", false))  # authoritative sprint-lockout flag (hysteresis reconcile)
 	# Tick-lead: feed the post-drain buffer depth to the input-clock loop. Only while input is
-	# actually being produced (deployed, menu closed, on foot) — a dead or menu-paused client
-	# sends no frames, so its depth reads 0 and would wrongly integrate catch-up phase (windup);
-	# seated pawns are server-slaved. -1 = absent byte (old/short packet): stay idle.
+	# actually being produced (deployed, on foot; menus now keep producing zeroed frames — A5) —
+	# a dead client sends no frames, so its depth reads 0 and would wrongly integrate catch-up
+	# phase (windup); seated pawns are server-slaved. -1 = absent byte (old/short packet): idle.
 	var ibd := int(d.get("input_buf_depth", -1))
 	var lss: EntityState = _wv.self_state()
-	if ibd >= 0 and lss != null and lss.alive and not _input_paused_by_menu() and _in_vehicle() < 0:
+	if ibd >= 0 and lss != null and lss.alive and _in_vehicle() < 0:
 		_tick_lead.on_depth(ibd)
 
 # ---- MATCH_STATE ------------------------------------------------------------

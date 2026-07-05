@@ -128,6 +128,9 @@ var _transport_origin := {}   # id -> Vector3 boarding pos (transport-distance m
 var _pending_removes: Array = []   # [{id, cell}] removes awaiting send (degradation queue)
 var _dmg_touched := {}             # id -> true: pieces holed (alive) this tick, for end-of-tick chunk-mask resend
 var _buildings_to_cascade := {}    # building_id -> true; resolved at end of tick
+var _collapsed_bids: Array = []    # building_ids fully collapsed this match — replayed to late joiners
+                                   # (A3 playtest bug: a reconnecting client rebuilt every map ladder
+                                   # from the static MapDef and showed ghost ladders on dead buildings)
 var _grenades: Array = []     # [{owner, team, type, pos, vel, detonate_tick}] — server-side, not replicated
 var _rockets: Array = []      # [{owner, team, pos, vel}] — server-side, not replicated
 var _mines: Array = []        # [{owner, team, pos, facing, armed_after_tick}]
@@ -968,6 +971,12 @@ func _handle_hello(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
 	# Tell the client which map to render (its roads/points/bases come from its local MapDef) so it
 	# never has to be launched with a matching --map. Send the file basename, not the display name.
 	_net.send_to(peer, NetHost.CHANNEL_CONTROL, Protocol.encode_welcome(id, TICK_RATE, cls, _map_path.get_file().get_basename()), ENetPacketPeer.FLAG_RELIABLE)
+	# Replay this match's building collapses to the joiner (reliable, a few bytes each). The client
+	# builds ladders/geometry from the static MapDef, so without this a late joiner renders ghost
+	# roof ladders (and no rubble) where buildings already fell (A3, playtest 2026-07-05). The
+	# client-side COLLAPSE path is idempotent, so joiners who lived through the event are unaffected.
+	for cbid in _collapsed_bids:
+		_net.send_to(peer, NetHost.CHANNEL_CONTROL, Protocol.encode_collapse(int(cbid)), ENetPacketPeer.FLAG_RELIABLE)
 	print("[server] welcomed peer %d ('%s') team=%d squad=%d class=%d — %d peers" % [id, pname, team, squad, cls, _clients.size()])
 
 func _squad_candidates(req_id: int, team: int, squad_id: int) -> Array:
@@ -1848,6 +1857,7 @@ func _resolve_cascades() -> void:
 			var bytes := Protocol.encode_collapse(bid)
 			for cid in _clients:
 				_net.send_to(_clients[cid]["peer"], NetHost.CHANNEL_CONTROL, bytes, ENetPacketPeer.FLAG_RELIABLE)
+			_collapsed_bids.append(bid)   # so a late joiner's welcome replays this collapse (ghost ladders)
 		else:
 			for oid in orphans:
 				var orec := _store.get_record(oid)
