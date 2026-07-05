@@ -87,6 +87,10 @@ The moment a coherent unit of work is finished and verified, land it:
 
 This applies to **every** deliverable, **including spec/plan-only branches** — a written spec or plan is completed work worth preserving. Pushing to `origin/master` on completion is owner-ratified (2026-06-27, **reaffirmed 2026-07-03** after the reclaimed-worktree loss). If you must stop with work genuinely incomplete, at minimum **commit and push the branch to `origin`** (`git push -u origin <branch>`) so nothing lives only in a reclaimable local worktree. When done inside a worktree, prefer the `finishing-a-development-branch` skill, which walks the merge/PR/cleanup decision — but do not `ExitWorktree`/end the session on unpushed completed work.
 
+## 12. Current build priority — infantry + real maps + destruction; vehicles deferred
+
+Owner-directed 2026-07-05: the near-term priority is, in order, **infantry combat → proper real maps → destruction**. Get those complete and playtested before starting anything else. **All remaining and future vehicle work is deferred to a dedicated post-core milestone** — see the "🚧 VEHICLES DEFERRED" banner at the top of `docs/TASKS.md`. The existing M5 land-vehicle sim stays on master (prediction-ready, gate-proven) but gets no further investment; do not pick up manual turret, client vehicle riding/exit polish, vehicle combat AI, or M10 air vehicles until the core is signed off. This does not require reverting any landed vehicle code — it's a *don't-start-new-vehicle-work* rule.
+
 ## Quick map
 
 - Plan of record: the milestone index in `docs/TASKS.md` (an external plan file previously named here no longer exists)

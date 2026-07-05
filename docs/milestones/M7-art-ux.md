@@ -87,7 +87,7 @@ desktop→game2 and signed off.
 
 **Deferred (P2 / separate vehicle-netcode pass — not C3 blockers):** ~~grenade explosion VFX~~ *(done 2026-06-24)*, ~~corpse
 remains on death~~ *(done 2026-06-24)*, and vehicle riding-jitter / exit / friendly-only enter (needs `in_vehicle` + vehicle
-`team` on the wire + seated-prediction suppression). This closes the **M7-P1 build order (C1→C2→C3)**;
+`team` on the wire + seated-prediction suppression). **The vehicle items here are now folded into the project-wide VEHICLES DEFERRAL** (owner-directed 2026-07-05 — infantry/maps/destruction first; see the banner atop `docs/TASKS.md` and AGENTS.md §12): do not pick them up until the core is signed off. This closes the **M7-P1 build order (C1→C2→C3)**;
 next is the P1 gate (full-match human playtest with complete HUD).
 
 #### P2 increment — Grenade explosion VFX — visual-validated ✅ 2026-06-24

@@ -1330,46 +1330,5 @@
       "radius": 22
     }
   ],
-  "vehicle_spawns": [
-    {
-      "team": 0,
-      "type": "transport",
-      "pos": [
-        -14,
-        0,
-        -150
-      ],
-      "heading": 0.0
-    },
-    {
-      "team": 0,
-      "type": "transport",
-      "pos": [
-        14,
-        0,
-        -150
-      ],
-      "heading": 0.0
-    },
-    {
-      "team": 1,
-      "type": "transport",
-      "pos": [
-        -14,
-        0,
-        150
-      ],
-      "heading": 3.14159
-    },
-    {
-      "team": 1,
-      "type": "transport",
-      "pos": [
-        14,
-        0,
-        150
-      ],
-      "heading": 3.14159
-    }
-  ]
+  "vehicle_spawns": []
 }
