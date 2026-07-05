@@ -410,6 +410,13 @@ func _show_match_end_overlay(winner: int) -> void:
 	add_child(_match_end_overlay)
 
 # ---- physics tick -----------------------------------------------------------
+## True while a menu owns the cursor and input production is paused (the alive-with-menu branch
+## below). Shared with the tick-lead feed in _handle_self_state: while paused, no frames are sent,
+## so the reported buffer depth is meaningless and must not integrate into the clock loop.
+func _input_paused_by_menu() -> bool:
+	return (_settings_menu != null and _settings_menu.visible) \
+		or (_hud_view != null and _hud_view.is_squad_menu_open())
+
 func _physics_process(delta: float) -> void:
 	if _net != null:
 		_net.poll()
@@ -427,8 +434,7 @@ func _physics_process(delta: float) -> void:
 	# Alive but with the settings menu open: free the cursor and pause input so the player can
 	# click the menu without walking/looking. (Without this, the per-tick capture_mouse() below
 	# re-grabs the cursor every frame and the centered menu is unclickable.)
-	var menu_open: bool = (_settings_menu != null and _settings_menu.visible) \
-		or (_hud_view != null and _hud_view.is_squad_menu_open())
+	var menu_open: bool = _input_paused_by_menu()
 
 	if deployed and menu_open:
 		if _scene_built:
@@ -1426,12 +1432,13 @@ func _handle_self_state(bytes: PackedByteArray) -> void:
 	_self_vault_tick = int(d.get("vault_tick", 0))
 	_self_regen_cooldown = float(d.get("regen_cooldown", 0.0)) # authoritative stamina regen-cooldown (C6 reconcile)
 	_self_sprint_locked = bool(d.get("sprint_locked", false))  # authoritative sprint-lockout flag (hysteresis reconcile)
-	# Tick-lead: feed the post-drain buffer depth to the input-clock loop. Only while deployed and
-	# on foot — a dead client sends no input, so its depth reads 0 and would wrongly accumulate
-	# catch-up phase; seated pawns are server-slaved. -1 = absent byte (old/short packet): stay idle.
+	# Tick-lead: feed the post-drain buffer depth to the input-clock loop. Only while input is
+	# actually being produced (deployed, menu closed, on foot) — a dead or menu-paused client
+	# sends no frames, so its depth reads 0 and would wrongly integrate catch-up phase (windup);
+	# seated pawns are server-slaved. -1 = absent byte (old/short packet): stay idle.
 	var ibd := int(d.get("input_buf_depth", -1))
 	var lss: EntityState = _wv.self_state()
-	if ibd >= 0 and lss != null and lss.alive and _in_vehicle() < 0:
+	if ibd >= 0 and lss != null and lss.alive and not _input_paused_by_menu() and _in_vehicle() < 0:
 		_tick_lead.on_depth(ibd)
 
 # ---- MATCH_STATE ------------------------------------------------------------

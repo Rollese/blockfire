@@ -9,6 +9,9 @@ extends RefCounted
 
 const TARGET := 2      # frames (~66 ms at 30 Hz): 1 above empty, well under InputBuffer.MAX_DEPTH=4
 const GAIN := 0.05     # phase per depth-error unit per sample — slow, below perceptual threshold
+const PHASE_MAX := 2.0 # anti-windup: max banked whole-frame adjusts. A no-production window that
+                       # slips through the callers' gating (menu pause, etc.) must not integrate a
+                       # correction debt that bursts holds/catch-ups for seconds afterwards.
 
 var _phase := 0.0      # fractional pending correction; +-1.0 converts to one whole-frame adjust
 
@@ -21,7 +24,7 @@ var last_depth := -1   # most recent reported depth (-1: none yet)
 ## +-1 so a single outlier sample can never swing the phase by more than GAIN.
 func on_depth(depth: int) -> void:
 	last_depth = depth
-	_phase += clampf(float(depth - TARGET), -1.0, 1.0) * GAIN
+	_phase = clampf(_phase + clampf(float(depth - TARGET), -1.0, 1.0) * GAIN, -PHASE_MAX, PHASE_MAX)
 
 ## How many input frames to produce this physics frame: 0 = hold (let the server drain the
 ## surplus), 1 = normal, 2 = catch up. At most one whole-frame adjust per call.

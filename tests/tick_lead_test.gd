@@ -41,6 +41,20 @@ func test_error_is_clamped_per_sample() -> void:
 	l.on_depth(255)
 	assert_eq(l.frame_repeats(), 1, "one outlier sample never triggers an immediate adjust")
 
+func test_windup_is_clamped() -> void:
+	# Anti-windup: a long stretch of one-sided samples (e.g. a mis-fed no-production window) must
+	# not bank a huge correction debt — after it ends, at most PHASE_MAX whole-frame adjusts fire.
+	var l := TickLead.new()
+	for _i in 300:
+		l.on_depth(0)   # 300 starved samples would integrate to phase -15 unclamped
+	var extras := 0
+	for _i in 60:
+		l.on_depth(TickLead.TARGET)   # back to normal
+		if l.frame_repeats() == 2:
+			extras += 1
+	assert_true(extras <= int(TickLead.PHASE_MAX),
+		"windup capped at PHASE_MAX adjusts (got %d catch-ups)" % extras)
+
 func test_reset_clears_phase() -> void:
 	var l := TickLead.new()
 	for _i in 25:
