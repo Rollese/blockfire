@@ -946,7 +946,11 @@ func _process(_dt: float) -> void:
 		var tlist: Array = throwables_model.get("list", [])
 		var active_idx: int = int(throwables_model.get("active", 0))
 		var active_kind: int = int((tlist[active_idx] as Dictionary).get("kind", -1)) if active_idx < tlist.size() else -1
-		var throwable_is_nade: bool = active_kind == Grenade.FRAG or active_kind == Grenade.SMOKE
+		var active_count: int = int((tlist[active_idx] as Dictionary).get("count", 0)) if active_idx < tlist.size() else 0
+		# Require count > 0: an empty grenade slot must not charge, send a (server-rejected) throw, or
+		# play the local throw cosmetic — otherwise every keypress lobs a phantom grenade that never
+		# detonates (round-5 playtest).
+		var throwable_is_nade: bool = (active_kind == Grenade.FRAG or active_kind == Grenade.SMOKE) and active_count > 0
 		if throwable_is_nade and not combat_locked and Input.is_action_pressed("throw"):
 			# Grow the charge while the key is held (clamped to full).
 			_throw_charging = true
