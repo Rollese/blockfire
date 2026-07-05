@@ -189,6 +189,7 @@ var _self_regen_cooldown: float = 0.0   # latest authoritative stamina regen-coo
 var _self_sprint_locked: bool = false   # latest authoritative sprint-lockout flag (empty-sprint hysteresis reconcile)
 var _conn_lost: bool = false       # in-game disconnect: freeze the loop under the overlay
 var _conn_lost_overlay: CanvasLayer = null
+var _match_end_overlay: CanvasLayer = null   # victory/defeat end-of-match screen (from MATCH_STATE match_over)
 var _reject_reason: String = ""    # last REJECT text — shown on the menu when the disconnect lands
 var _my_class: int = 0             # own class from WELCOME (medic revive-rate for the HUD bar)
 var _throw_charge: float = 0.0     # C3: current grenade hold-charge 0..1 (grows while "throw" is held)
@@ -362,6 +363,50 @@ func _show_conn_lost_overlay() -> void:
 	quit.pressed.connect(func(): get_tree().quit())
 	box.add_child(quit)
 	add_child(_conn_lost_overlay)
+
+## Victory / Defeat end-of-match screen (from MATCH_STATE match_over). Anchor/container-based so it
+## centres at any resolution. Layer is under the conn-lost overlay so a later disconnect still shows.
+func _show_match_end_overlay(winner: int) -> void:
+	if _match_end_overlay != null:
+		return
+	var my := _local_team()
+	_match_end_overlay = CanvasLayer.new()
+	_match_end_overlay.layer = 99
+	var dim := ColorRect.new()
+	dim.color = Color(0.0, 0.0, 0.0, 0.55)
+	dim.set_anchors_preset(Control.PRESET_FULL_RECT)
+	dim.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_match_end_overlay.add_child(dim)
+	var box := VBoxContainer.new()
+	box.set_anchors_preset(Control.PRESET_CENTER)
+	box.alignment = BoxContainer.ALIGNMENT_CENTER
+	_match_end_overlay.add_child(box)
+	var title := Label.new()
+	var col: Color
+	if winner < 0:
+		title.text = "MATCH OVER"; col = Color(0.90, 0.90, 0.90)
+	elif my >= 0 and winner == my:
+		title.text = "VICTORY"; col = Color(0.40, 0.95, 0.50)
+	else:
+		title.text = "DEFEAT"; col = Color(0.95, 0.40, 0.35)
+	title.add_theme_font_size_override("font_size", 66)
+	title.add_theme_color_override("font_color", col)
+	title.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.6))
+	title.add_theme_constant_override("outline_size", 6)
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	box.add_child(title)
+	var sub := Label.new()
+	var tk: Array = _match_state.get("tickets", [0, 0])
+	var t0: int = int(tk[0]) if tk.size() > 0 else 0
+	var t1: int = int(tk[1]) if tk.size() > 1 else 0
+	sub.text = "Tickets   %d : %d" % [t0, t1]
+	sub.add_theme_font_size_override("font_size", 26)
+	sub.add_theme_color_override("font_color", Color(0.9, 0.9, 0.9))
+	sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	sub.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	box.add_child(sub)
+	add_child(_match_end_overlay)
 
 # ---- physics tick -----------------------------------------------------------
 func _physics_process(delta: float) -> void:
@@ -1364,6 +1409,13 @@ func _handle_self_state(bytes: PackedByteArray) -> void:
 # ---- MATCH_STATE ------------------------------------------------------------
 func _handle_match_state(bytes: PackedByteArray) -> void:
 	_match_state = Protocol.decode_match_state(bytes)
+	# Match over → show the victory/defeat end screen (the server holds a few seconds before it exits
+	# or rotates). Without this the round just ends in a CONNECTION LOST overlay (B3 playtest gap).
+	if bool(_match_state.get("match_over", false)):
+		_show_match_end_overlay(int(_match_state.get("winner", -1)))
+	elif _match_end_overlay != null:
+		_match_end_overlay.queue_free()   # a new match began (map rotation) — clear the end screen
+		_match_end_overlay = null
 	# Mirror point ownership into local ConquestState so DeployMenu sees current owners
 	var pts: Array = _match_state.get("points", [])
 	for i in mini(pts.size(), _conquest.points.size()):

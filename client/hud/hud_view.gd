@@ -518,29 +518,28 @@ func _build_killfeed() -> void:
 
 
 func _build_capture_feed() -> void:
-	# Capture announcements — BattleBit-style: large, thin, white, upper-centre of the screen (clear of
-	# the crosshair), fading away. A short stack so back-to-back captures don't overwrite each other.
-	var panel := Control.new()
-	panel.anchor_left = 0.5
-	panel.anchor_right = 0.5
-	panel.anchor_top = 0.30   # ~30% down — upper-middle, above the reticle
-	panel.mouse_filter = MOUSE_FILTER_IGNORE
-	add_child(panel)
+	# Capture announcements — BattleBit-style: large white text, upper-centre of the screen (clear of
+	# the crosshair), fading away. Resolution-independent: a full-width VBox at a FRACTION of the height
+	# stacks the banners, and each label fills the width with centred text — no static pixel offsets, so
+	# it stays centred on any display (4K desktop / 1080p laptop).
+	var box := VBoxContainer.new()
+	box.set_anchors_preset(Control.PRESET_TOP_WIDE)   # full width, pinned to the top edge
+	box.anchor_top = 0.28
+	box.anchor_bottom = 0.28
+	box.alignment = BoxContainer.ALIGNMENT_BEGIN
+	box.mouse_filter = MOUSE_FILTER_IGNORE
+	add_child(box)
 	for i in CAPTURE_FEED_MAX:
 		var lbl := Label.new()
 		lbl.add_theme_font_size_override("font_size", 40)
-		# Thin, airy read: a soft dark outline for legibility over bright terrain (white on white).
+		# Soft dark outline so white text stays legible over bright terrain.
 		lbl.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.55))
 		lbl.add_theme_constant_override("outline_size", 4)
 		lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		lbl.anchor_left = 0.5
-		lbl.anchor_right = 0.5
-		lbl.offset_left = -460.0
-		lbl.offset_right = 460.0
-		lbl.position = Vector2(0, i * 50.0)
+		lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL   # fill the row so centre-align centres on screen
 		lbl.visible = false
 		lbl.mouse_filter = MOUSE_FILTER_IGNORE
-		panel.add_child(lbl)
+		box.add_child(lbl)
 		_capture_labels.append(lbl)
 
 
