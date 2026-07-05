@@ -54,6 +54,8 @@ var _downed_friendly: Label
 var _downed_bandage: Label   # DBNO self-bandage prompt / charges / stabilized state
 var _throw_bar_bg: ColorRect     # C3 grenade throw-strength meter background
 var _throw_bar_fill: ColorRect   # C3 grenade throw-strength meter fill (0..1 of the bar width)
+var _stam_bar_bg: ColorRect      # stamina bar background (bottom centre; shown only when stamina < full)
+var _stam_bar_fill: ColorRect    # stamina bar fill (white, 0..1 of the bar width)
 var _downed_giveup_fill: ColorRect
 var _perf_label: Label            # debug perf overlay (FPS / frame-time / draw calls)
 var _perf_accum: float = 0.0      # throttle perf-label refresh to ~4 Hz
@@ -132,6 +134,7 @@ func render(model: Dictionary) -> void:
 	_render_death_recap(model.get("death_recap"))
 	_render_repair_gauge(model.get("repair_heat", {}))
 	_render_throw_charge(model.get("throw_charge", {}))
+	_render_stamina(model.get("stamina", {}))
 
 
 # -----------------------------------------------------------------------
@@ -156,6 +159,7 @@ func _build_tree() -> void:
 	_build_crosshair()
 	_build_reddot()        # C2: red-dot ADS reticle for non-scoped weapons (hidden until aiming)
 	_build_throw_charge()
+	_build_stamina_bar()
 	_build_scope()         # sniper scope mask + reticle (over the world, under the flashbang/blind)
 	_hitmarker = _Hitmarker.new()
 	add_child(_hitmarker)
@@ -274,6 +278,35 @@ func _render_throw_charge(tc: Dictionary) -> void:
 	_throw_bar_bg.visible = vis
 	if vis:
 		_throw_bar_fill.offset_right = _THROW_BAR_W * clampf(float(tc.get("charge", 0.0)), 0.0, 1.0)
+
+const _STAM_BAR_W := 120.0   # px
+## Slim white stamina bar, bottom centre. Appears only when stamina is spent (below full) so the
+## player can see why jump/sprint gate out (there is otherwise no stamina UI).
+func _build_stamina_bar() -> void:
+	_stam_bar_bg = ColorRect.new()
+	_stam_bar_bg.color = Color(0, 0, 0, 0.45)
+	_stam_bar_bg.anchor_left = 0.5; _stam_bar_bg.anchor_right = 0.5
+	_stam_bar_bg.anchor_top = 1.0; _stam_bar_bg.anchor_bottom = 1.0
+	_stam_bar_bg.offset_left = -_STAM_BAR_W * 0.5; _stam_bar_bg.offset_right = _STAM_BAR_W * 0.5
+	_stam_bar_bg.offset_top = -30.0; _stam_bar_bg.offset_bottom = -26.0   # 4 px tall, ~26 px off the bottom edge
+	_stam_bar_bg.mouse_filter = MOUSE_FILTER_IGNORE
+	_stam_bar_bg.visible = false
+	add_child(_stam_bar_bg)
+	_stam_bar_fill = ColorRect.new()
+	_stam_bar_fill.color = Color(1, 1, 1, 0.9)   # white
+	_stam_bar_fill.anchor_left = 0.0; _stam_bar_fill.anchor_right = 0.0
+	_stam_bar_fill.anchor_top = 0.0; _stam_bar_fill.anchor_bottom = 1.0
+	_stam_bar_fill.offset_left = 0.0; _stam_bar_fill.offset_top = 0.0; _stam_bar_fill.offset_bottom = 0.0
+	_stam_bar_fill.mouse_filter = MOUSE_FILTER_IGNORE
+	_stam_bar_bg.add_child(_stam_bar_fill)
+
+func _render_stamina(st: Dictionary) -> void:
+	if _stam_bar_bg == null:
+		return
+	var vis := bool(st.get("visible", false))
+	_stam_bar_bg.visible = vis
+	if vis:
+		_stam_bar_fill.offset_right = _STAM_BAR_W * clampf(float(st.get("frac", 1.0)), 0.0, 1.0)
 
 ## Reposition the reticle ticks for the given spread (px added to the resting gap). `hidden` pulls
 ## the whole reticle (e.g. while dead / on the deploy screen / in a menu).

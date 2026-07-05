@@ -34,6 +34,17 @@ func test_throw_charge_meter_visible_only_while_charging() -> void:
 	assert_true(bool(tc["visible"]), "charging -> meter shown")
 	assert_almost_eq(float(tc["charge"]), 0.6, 0.001, "meter reflects the hold strength")
 
+func test_stamina_bar_hidden_at_full_shown_when_spent() -> void:
+	var m := HudModel.new()
+	var full := m.build({"self_pos": Vector3.ZERO, "self_yaw": 0.0, "tick": 0})   # no stamina_frac -> defaults full
+	assert_false(bool((full["stamina"] as Dictionary).get("visible", true)), "full stamina -> bar hidden")
+	var full2 := m.build({"self_pos": Vector3.ZERO, "self_yaw": 0.0, "tick": 0, "stamina_frac": 1.0})
+	assert_false(bool((full2["stamina"] as Dictionary)["visible"]), "exactly full -> bar hidden")
+	var spent := m.build({"self_pos": Vector3.ZERO, "self_yaw": 0.0, "tick": 0, "stamina_frac": 0.4})
+	var st: Dictionary = spent["stamina"]
+	assert_true(bool(st["visible"]), "spent stamina -> bar shown")
+	assert_almost_eq(float(st["frac"]), 0.4, 0.001, "bar reflects the stamina fraction")
+
 func test_grenade_danger_ignores_far_grenade() -> void:
 	var m := HudModel.new()
 	var out := m.build({"self_pos": Vector3.ZERO, "self_eye": Vector3.ZERO, "self_yaw": 0.0,

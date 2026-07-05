@@ -708,6 +708,7 @@ func _process(_dt: float) -> void:
 		"repair_heat": _repair_heat,
 		"repair_cooldown": _repair_cooldown,
 		"throw_charge": _throw_charge if _throw_charging else 0.0,   # C3 grenade charge bar (0 when idle)
+		"stamina_frac": _pred.predicted.stamina / Pawn.STAMINA_MAX,   # bottom-centre stamina bar (shown when spent)
 	}
 	if _repair_heat_test:   # visual QA: cycle heat 0->overheat->cooldown so the gauge is on-screen
 		var phase: float = fmod(_elapsed, 6.0)

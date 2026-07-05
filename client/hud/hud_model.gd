@@ -133,12 +133,19 @@ func _grenade_danger(ctx: Dictionary):
 
 func build(ctx: Dictionary) -> Dictionary:
 	var dmg := _damage(ctx)
-	return {"ammo": _ammo(ctx), "compass": _compass(ctx), "tickets": _tickets(ctx), "capture": _capture(ctx), "killfeed": _killfeed_current(ctx), "damage_arcs": dmg["arcs"], "vignette": dmg["vignette"], "scoreboard": _scoreboard(ctx), "squad_roster": _squad_roster(ctx), "interaction_prompt": _interaction_prompt(ctx), "throwables": _throwables(ctx), "death_recap": _death_recap(ctx), "grenade_danger": _grenade_danger(ctx), "capture_feed": _capture_feed_current(ctx), "repair_heat": _repair_heat(ctx), "throw_charge": _throw_charge(ctx)}
+	return {"ammo": _ammo(ctx), "compass": _compass(ctx), "tickets": _tickets(ctx), "capture": _capture(ctx), "killfeed": _killfeed_current(ctx), "damage_arcs": dmg["arcs"], "vignette": dmg["vignette"], "scoreboard": _scoreboard(ctx), "squad_roster": _squad_roster(ctx), "interaction_prompt": _interaction_prompt(ctx), "throwables": _throwables(ctx), "death_recap": _death_recap(ctx), "grenade_danger": _grenade_danger(ctx), "capture_feed": _capture_feed_current(ctx), "repair_heat": _repair_heat(ctx), "throw_charge": _throw_charge(ctx), "stamina": _stamina(ctx)}
 
 ## C3 grenade hold-to-charge: a 0..1 throw-strength meter, shown only while charging.
 func _throw_charge(ctx: Dictionary) -> Dictionary:
 	var c := clampf(float(ctx.get("throw_charge", 0.0)), 0.0, 1.0)
 	return {"visible": c > 0.0, "charge": c}
+
+## Stamina bar: a slim bottom-centre readout that appears only when stamina is spent (below full),
+## so the player can see why jump/sprint gate out (there is otherwise no stamina UI). Pure — reads
+## the predicted stamina fraction from ctx.
+func _stamina(ctx: Dictionary) -> Dictionary:
+	var frac := clampf(float(ctx.get("stamina_frac", 1.0)), 0.0, 1.0)
+	return {"visible": frac < 0.999, "frac": frac}
 
 ## Engineer repair-tool heat gauge. Visible only while heating or in the overheat-lockout cooldown
 ## (so it never shows for non-engineers). `overheated` drives the red lockout look; the beam is
