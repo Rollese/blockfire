@@ -248,6 +248,31 @@ func march(origin: Vector3, dir: Vector3, max_dist: float) -> Dictionary:
 		t_max[axis] += t_delta[axis]
 	return {"hit": false, "dist": INF, "id": 0}
 
+## Like march(), but on a hit also returns the contact `point` and the axis-aligned surface `normal`
+## of the struck piece's AABB face — used to bounce grenades off walls. {"hit": false} when nothing
+## is struck within max_dist.
+func march_normal(origin: Vector3, dir: Vector3, max_dist: float) -> Dictionary:
+	var m := march(origin, dir, max_dist)
+	if not bool(m["hit"]):
+		return {"hit": false}
+	var d := dir.normalized()
+	var pt: Vector3 = origin + d * float(m["dist"])
+	var rec: Dictionary = _by_id[int(m["id"])]
+	var mn := BuildGrid.cell_min(rec["cell"])
+	var h := _face_height(int(rec["type"]))
+	var mx := Vector3(mn.x + BuildGrid.CELL_SIZE, mn.y + h, mn.z + BuildGrid.CELL_SIZE)
+	# Normal = the axis whose slab face the contact point sits on (smallest distance to a face plane).
+	var n := Vector3.ZERO
+	var best := INF
+	for a in 3:
+		var dlo: float = absf(pt[a] - mn[a])
+		if dlo < best:
+			best = dlo; n = Vector3.ZERO; n[a] = -1.0
+		var dhi: float = absf(pt[a] - mx[a])
+		if dhi < best:
+			best = dhi; n = Vector3.ZERO; n[a] = 1.0
+	return {"hit": true, "dist": float(m["dist"]), "id": int(m["id"]), "point": pt, "normal": n}
+
 func _ray_piece(origin: Vector3, d: Vector3, rec: Dictionary) -> float:
 	var mn := BuildGrid.cell_min(rec["cell"])
 	var h := _face_height(int(rec["type"]))

@@ -1494,11 +1494,30 @@ func _step_grenades() -> void:
 			still.append(g)
 	_grenades = still
 
-## Integrate one live grenade one tick under the shared ballistic model and rest it on the ground
-## (no bounce in v1). Shared by the frag ground-contact check and the smoke-canister follow.
+## Integrate one live grenade one tick under the shared ballistic model, bouncing off structures and
+## resting it on the ground. Shared by the frag ground-contact check and the smoke-canister follow.
+const GRENADE_RESTITUTION := 0.45   # velocity retained after a wall bounce
+const GRENADE_BOUNCE_SKIN := 0.15   # m; rest the grenade this far off the struck face so it can't re-embed
 func _integrate_grenade(g: Dictionary) -> void:
 	var s := Grenade.integrate(g["pos"], g["vel"], SimLoop.DT)
-	g["pos"] = s["pos"]; g["vel"] = s["vel"]
+	var new_pos: Vector3 = s["pos"]
+	# Bounce off structures instead of tunnelling through walls (frag + smoke). Impact grenades have
+	# their own contact detonation in _step_impact and never come through here.
+	if _store != null and _store.count() > 0:
+		var seg: Vector3 = new_pos - (g["pos"] as Vector3)
+		var seg_len := seg.length()
+		if seg_len > 0.0001:
+			var hit := _store.march_normal(g["pos"], seg / seg_len, seg_len)
+			if bool(hit.get("hit", false)):
+				var n: Vector3 = hit["normal"]
+				var v: Vector3 = s["vel"]
+				g["pos"] = (hit["point"] as Vector3) + n * GRENADE_BOUNCE_SKIN
+				g["vel"] = (v - 2.0 * v.dot(n) * n) * GRENADE_RESTITUTION   # reflect + lose energy
+				if g["pos"].y <= 0.0:
+					g["pos"].y = 0.0
+					g["vel"] = Vector3.ZERO
+				return
+	g["pos"] = new_pos; g["vel"] = s["vel"]
 	if g["pos"].y <= 0.0:
 		g["pos"].y = 0.0
 		g["vel"] = Vector3.ZERO
