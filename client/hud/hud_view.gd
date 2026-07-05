@@ -518,23 +518,26 @@ func _build_killfeed() -> void:
 
 
 func _build_capture_feed() -> void:
-	# Capture announcements — a short stack of centred banners just under the top bar.
+	# Capture announcements — BattleBit-style: large, thin, white, upper-centre of the screen (clear of
+	# the crosshair), fading away. A short stack so back-to-back captures don't overwrite each other.
 	var panel := Control.new()
 	panel.anchor_left = 0.5
 	panel.anchor_right = 0.5
-	panel.anchor_top = 0.0
-	panel.offset_top = 54.0
+	panel.anchor_top = 0.30   # ~30% down — upper-middle, above the reticle
 	panel.mouse_filter = MOUSE_FILTER_IGNORE
 	add_child(panel)
 	for i in CAPTURE_FEED_MAX:
 		var lbl := Label.new()
-		lbl.add_theme_font_size_override("font_size", 19)
+		lbl.add_theme_font_size_override("font_size", 40)
+		# Thin, airy read: a soft dark outline for legibility over bright terrain (white on white).
+		lbl.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.55))
+		lbl.add_theme_constant_override("outline_size", 4)
 		lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		lbl.anchor_left = 0.5
 		lbl.anchor_right = 0.5
-		lbl.offset_left = -200.0
-		lbl.offset_right = 200.0
-		lbl.position = Vector2(0, i * 26.0)
+		lbl.offset_left = -460.0
+		lbl.offset_right = 460.0
+		lbl.position = Vector2(0, i * 50.0)
 		lbl.visible = false
 		lbl.mouse_filter = MOUSE_FILTER_IGNORE
 		panel.add_child(lbl)
@@ -553,16 +556,17 @@ func _render_capture_feed(feed: Array) -> void:
 		var e: Dictionary = feed[src_i]
 		var status := int(e["status"])
 		var label := String(e["label"])
-		var col: Color
+		# BattleBit-style: white text, the verb conveys who; older banners in the stack dim slightly.
 		var verb: String
 		match status:
-			0: col = Color(0.35, 0.95, 0.45); verb = "CAPTURED"          # FRIENDLY
-			2: col = Color(0.95, 0.85, 0.30); verb = "NEUTRALIZED"       # NEUTRAL
-			_: col = Color(0.95, 0.35, 0.30); verb = "LOST"             # HOSTILE
+			0: verb = "CAPTURED"          # FRIENDLY
+			2: verb = "NEUTRALIZED"       # NEUTRAL
+			_: verb = "LOST"             # HOSTILE
 		var age := float(e.get("age", 0.0))
 		var fade: float = clampf((CAPTURE_FEED_TTL_VIEW - age) / 1.0, 0.0, 1.0)   # fade over the last second
+		var depth: float = 1.0 - 0.18 * float(i)   # newest fully bright, older ones a touch dimmer
 		lbl.text = "%s  %s" % [label, verb]
-		lbl.modulate = Color(col.r, col.g, col.b, fade)
+		lbl.modulate = Color(1, 1, 1, fade * depth)
 		lbl.visible = true
 
 
