@@ -53,18 +53,18 @@ const MAX_STRUCTURE_BASELINE_PIECES_PER_TICK := 256
 const BULLET_CARVE_RADIUS := 0.30   # m: chunks a single blocked bullet clears (M11)
 const GRENADE_FUSE_TICKS := 45        # 1.5s @30Hz
 const GRENADE_COOLDOWN_TICKS := 300   # 10s between a player's throws (shared frag/smoke)
-const BLAST_PAWN_RADIUS := 6.0        # m, sphere (current positions, FF-off)
+const BLAST_PAWN_RADIUS := 8.0        # m, sphere (current positions, FF-off) — was 6, felt too small
 const BLAST_STRUCT_RADIUS := 4.0      # m (~2 build cells)
 const GRENADE_DAMAGE_PAWN := 100      # frag pawn splash at centre, linear falloff
 const GRENADE_DAMAGE_STRUCT := 200    # frag structure blast GATE (>0 = enabled; magnitude unused — carve is governed by struct_radius, M11)
 const IMPACT_CONTACT_RADIUS := 1.0    # m — an impact grenade detonates this close to an enemy pawn
-const MELEE_DAMAGE := 50              # knife body-hit damage (M5.5-P3); rear-arc back-stab instant-kills
-const MELEE_COOLDOWN_TICKS := 24      # ~0.8s @30Hz between melee swings
+const MELEE_DAMAGE := 75              # knife body hit; 2 front hits down EVERY armor tier (75*0.7=53 HEAVY -> 106), rear-arc back-stab instant-kills
+const MELEE_COOLDOWN_TICKS := 18      # ~0.6s @30Hz between melee swings (was 24 — 0.8s felt like spam for a 2-hit front kill)
 const SLEDGE_PAWN_DAMAGE := 35        # Engineer sledgehammer pawn-bonk (no structure in reach)
 const SLEDGE_STRUCT_RADIUS := 1.5     # m — carve radius of one sledge swing on a structure cell
 const FLASH_RADIUS := 8.0             # m — flashbang blinds exposed pawns within this radius (any team)
 const FLASH_BLIND_TICKS := 90         # 3s @30Hz of white-out at the centre
-const SMOKE_DURATION_TICKS := 150     # 5s @30Hz — smoke zone lifetime
+const SMOKE_DURATION_TICKS := 390     # 13s @30Hz — smoke zone lifetime (long enough to cross an objective)
 const SMOKE_RADIUS := 6.0             # m — smoke zone radius (matches blast radius)
 const PIECES_PATH := "res://pieces/pieces.json"
 const GADGETS_PATH := "res://data/gadgets.json"
@@ -703,6 +703,8 @@ func _handle_respawns() -> void:
 			p.grounded = true
 			p.fall_peak_y = p.pos.y
 			p.landed_fall = 0.0
+			p.suppression = 0.0       # fresh life: no residual spread penalty
+			p.blind_until_tick = 0    # a flashbang taken last life doesn't white-out the respawn
 			c["respawn_tick"] = 0
 			_reset_weapon_loadout(c)   # both slots full, fire-mode defaults, back on primary
 			_force_reenter(id)         # a swapper who died holding secondary respawns on primary
@@ -835,7 +837,7 @@ func _send_snapshots() -> void:
 		# SELF_STATE packets (lossy links) leave the client predicting phantom ammo it doesn't have.
 		var rgauge := _support.repair_gauge_for(id)
 		_net.send_to(c["peer"], NetHost.CHANNEL_CONTROL,
-			Protocol.encode_self_state(int(c["ammo"]), bool(c["reloading"]), reload_remaining, int(c["weapon"]), _throwables_for(c), _support.being_revived.has(id), self_pawn.suppression, clampi(self_pawn.blind_until_tick - _sim.tick, 0, 255), self_pawn.bandage_count, self_pawn.bleed_halted, rgauge.x, rgauge.y),
+			Protocol.encode_self_state(int(c["ammo"]), bool(c["reloading"]), reload_remaining, int(c["weapon"]), _throwables_for(c), _support.being_revived.has(id), self_pawn.suppression, clampi(self_pawn.blind_until_tick - _sim.tick, 0, 255), self_pawn.bandage_count, self_pawn.bleed_halted, rgauge.x, rgauge.y, self_pawn.stamina, self_pawn.velocity.y, self_pawn.grounded, self_pawn.vaulting, self_pawn.vault_tick, self_pawn._regen_cooldown),
 			ENetPacketPeer.FLAG_RELIABLE)
 		c["history"][seq] = current
 		c["history_v"][seq] = current_v
@@ -874,10 +876,20 @@ func _on_packet(peer: ENetPacketPeer, _channel: int, bytes: PackedByteArray) -> 
 		Protocol.Msg.SET_SQUAD: _handle_set_squad(peer, bytes)
 		Protocol.Msg.SET_FIRE_MODE: _handle_set_fire_mode(peer, bytes)
 		Protocol.Msg.SWAP_WEAPON: _handle_swap_weapon(peer, bytes)
-		Protocol.Msg.MELEE: _handle_melee(peer)
+		Protocol.Msg.MELEE: _handle_melee(peer, bytes)
 		_: pass
 
 func _handle_hello(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
+	# One HELLO per connection: a repeated HELLO on an already-welcomed peer would mint a fresh
+	# id/pawn/team/squad slot every time (slot-exhaustion DoS; only the newest id would be cleaned
+	# on disconnect). Re-send the WELCOME idempotently instead — covers a reliable-channel retry.
+	var existing_id: int = _peer_to_id.get(peer, 0)
+	if existing_id != 0 and _clients.has(existing_id):
+		var ec = _clients[existing_id]
+		_net.send_to(peer, NetHost.CHANNEL_CONTROL,
+			Protocol.encode_welcome(existing_id, TICK_RATE, int(ec["class"]), _map_path.get_file().get_basename()),
+			ENetPacketPeer.FLAG_RELIABLE)
+		return
 	var hello := Protocol.decode_hello(bytes)
 	var ver := int(hello["ver"])
 	var pname := String(hello["name"])
@@ -933,6 +945,7 @@ func _handle_hello(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
 	var p := _sim.world.spawn(id)
 	p.team = team
 	p.squad = squad
+	p.auto_vault = bool(auto_deploy)   # bots (auto_deploy) vault on contact; humans press jump to vault (BattleBit)
 	p.pos = _select_spawn(id)
 	p.armor_class = Loadout.armor_for(cls)   # M5.5-P2: tier is class-derived, immutable per life
 	p.bandage_count = Revive.bandage_count_for(cls == Loadout.MEDIC)
@@ -949,6 +962,9 @@ func _squad_candidates(req_id: int, team: int, squad_id: int) -> Array:
 		if mid == req_id: continue
 		var mp: Pawn = _sim.world.get_pawn(mid)
 		if mp == null: continue
+		# Same anti-HQ-camp rule as the auto-respawn path (_select_spawn): a mate who took fire in
+		# the last COMBAT_FLAG_TICKS is not a valid spawn anchor. Without this, only bots honoured it.
+		if _sim.tick < mp.combat_until_tick: continue
 		out.append({"id": mid, "pos": mp.pos, "team": mp.team, "alive": mp.alive, "downed": mp.is_downed})
 	return out
 
@@ -988,6 +1004,15 @@ func _handle_deploy_request(peer: ENetPacketPeer, bytes: PackedByteArray) -> voi
 	p.alive = true
 	p.stamina = Pawn.STAMINA_MAX
 	p.is_downed = false
+	# Fresh life: re-arm the halving-bleedout state exactly like _handle_respawns. Without this the
+	# manual-deploy path carried down_count across lives, so a human who accrued a few downs earlier in
+	# the match bled out almost instantly on the FIRST down of a new life (G1 playtest regression).
+	p.down_count = 0
+	p.bleed_floor = 0
+	p.bleed_health = 0
+	p.bleed_halted = false
+	p.bandage_count = Revive.bandage_count_for(_support.is_medic(id))
+	p.combat_until_tick = 0
 	p.climbing = false
 	p.vaulting = false
 	p.in_vehicle = 0   # defensive: never deploy still bound to a seat
@@ -995,6 +1020,8 @@ func _handle_deploy_request(peer: ENetPacketPeer, bytes: PackedByteArray) -> voi
 	p.grounded = true
 	p.fall_peak_y = p.pos.y
 	p.landed_fall = 0.0
+	p.suppression = 0.0       # fresh life: no residual spread penalty (same as _handle_respawns)
+	p.blind_until_tick = 0    # a flashbang taken last life doesn't white-out the fresh deploy
 	_reset_weapon_loadout(c)   # both slots full, fire-mode defaults, back on primary
 	_force_reenter(id)         # weapon rides ENTER-only — refresh remote silhouettes after reset
 	c["rockets"] = int(_gadgets.def_of_kind(Gadget.KIND_RPG)["ammo"]) if int(c["weapon"]) == Weapon.RPG else 0   # refill rockets on (re)deploy, not just respawn (reads restored primary weapon)
@@ -1115,7 +1142,7 @@ func _handle_grenade_throw(peer: ENetPacketPeer, bytes: PackedByteArray) -> void
 	if id == 0 or not _clients.has(id): return
 	var c = _clients[id]
 	var p: Pawn = _sim.world.get_pawn(id)
-	if p == null or not p.alive: return
+	if p == null or not p.alive or p.is_downed: return   # downed = incapacitated (same gate as fire/melee/gadgets)
 	if _sim.tick - int(c["last_grenade_tick"]) < GRENADE_COOLDOWN_TICKS: return
 	var d := Protocol.decode_grenade_throw(bytes)
 	var dir: Vector3 = d["dir"]
@@ -1124,30 +1151,39 @@ func _handle_grenade_throw(peer: ENetPacketPeer, bytes: PackedByteArray) -> void
 	var gtype := int(d["type"])
 	if gtype < Grenade.FRAG or gtype > Grenade.IMPACT:
 		gtype = Grenade.FRAG   # reject unknown throwable ids (default to frag)
+	# Humans own only what SELF_STATE advertises (frag + smoke); FLASHBANG/IMPACT are bot-exerciser
+	# throwables. Without this a modified client throws IMPACT — strictly better than frag (contact fuse).
+	if not bool(c["auto_deploy"]) and gtype != Grenade.FRAG and gtype != Grenade.SMOKE:
+		gtype = Grenade.FRAG
+	var charge := float(d.get("charge", 1.0))   # hold-strength: longer hold -> faster/farther throw
 	_grenades.append({
 		"owner": id, "team": p.team, "type": gtype,
-		"pos": p.eye_position(), "vel": Grenade.launch_velocity(dir),
+		"pos": p.eye_position(), "vel": Grenade.launch_velocity(dir, charge),
 		"detonate_tick": _sim.tick + GRENADE_FUSE_TICKS,
 	})
 	# Cosmetic: let other human clients see the grenade arc through the air (FRAG/SMOKE only — IMPACT
 	# isn't in a human loadout and detonates on contact). The thrower renders their own locally.
 	if gtype == Grenade.FRAG or gtype == Grenade.SMOKE:
-		_broadcast_grenade_fx(id, p.eye_position(), dir.normalized(), gtype)
+		_broadcast_grenade_fx(id, p.eye_position(), dir.normalized(), gtype, p.team, charge)
 
-func _handle_melee(peer: ENetPacketPeer) -> void:
+func _handle_melee(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
 	var id = _peer_to_id.get(peer, 0)
 	if id == 0 or not _clients.has(id): return
-	_resolve_melee(id)
+	_resolve_melee(id, int(Protocol.decode_melee(bytes)["view_server_tick"]))
 
 ## Melee swing (M5.5-P3). Knife (all classes): the nearest enemy in the frontal reach cone takes
 ## MELEE_DAMAGE, or an instant kill if struck within the rear arc (back-stab). Cooldown-gated per
 ## client. (The Engineer sledgehammer structure branch is added in Task 4.)
-func _resolve_melee(id: int) -> void:
+func _resolve_melee(id: int, view_tick: int = 0) -> void:
 	var c = _clients[id]
 	if _sim.tick < int(c.get("melee_ready_tick", 0)): return
 	c["melee_ready_tick"] = _sim.tick + MELEE_COOLDOWN_TICKS
 	var atk: Pawn = _sim.world.get_pawn(id)
 	if atk == null or not atk.alive or atk.is_downed: return
+	# Lag-comp: rewind target positions to the attacker's rendered view tick (like fire.gd), so a swing
+	# at a moving target lands where the player saw them instead of missing present-time. The attacker
+	# stays present (well-predicted local pawn). view_tick 0 => present-time (old client / sledge march).
+	var lag_frame: Dictionary = _lag.rewind(view_tick) if view_tick > 0 and _lag.has_history() else {}
 	_broadcast_melee_fx(id)   # cosmetic: a real swing happened (cooldown passed, attacker valid)
 	var melee_damage := MELEE_DAMAGE
 	# Engineer sledgehammer: demolish the structure cell under the crosshair first (heavy carve via
@@ -1166,12 +1202,15 @@ func _resolve_melee(id: int) -> void:
 	for tid in _sim.world.pawns:
 		var v: Pawn = _sim.world.pawns[tid]
 		if v != null and v.alive and not v.is_downed and v.team != atk.team:
-			enemies.append({"id": tid, "pos": v.pos, "team": v.team})
+			var tpos: Vector3 = lag_frame[tid]["pos"] if lag_frame.has(tid) else v.pos
+			enemies.append({"id": tid, "pos": tpos, "team": v.team})
 	var vid := Melee.best_target({"pos": atk.pos, "yaw": atk.yaw, "team": atk.team}, enemies)
 	if vid == 0: return
 	var victim: Pawn = _sim.world.get_pawn(vid)
 	var weapon_id := int(c.get("weapon", 0))
-	if Melee.is_backstab(victim.yaw, atk.pos - victim.pos):
+	# Rear-arc test against where the victim was seen (rewound), so a back-stab reads the same as on-screen.
+	var vpos: Vector3 = lag_frame[vid]["pos"] if lag_frame.has(vid) else victim.pos
+	if Melee.is_backstab(victim.yaw, atk.pos - vpos):
 		# Rear-arc back-stab = instant kill: headshot=true routes through Revive.is_instant_kill,
 		# bypassing DBNO (same path the M4.5 head/blast instant-kill uses).
 		_apply_pawn_damage(vid, victim, 100000, true, Revive.Source.BULLET, id, weapon_id)
@@ -1354,8 +1393,8 @@ func _send_fob_lists() -> void:
 ## input — fair play, same packet a rendered client receives. Excludes the thrower (humans arc their
 ## own grenade from client_main; a bot knows its own throw). Unreliable/droppable like the other
 ## *_FX broadcasts, per-throw only (no steady-state cost); encoded once, sent N.
-func _broadcast_grenade_fx(thrower_id: int, origin: Vector3, dir: Vector3, kind: int) -> void:
-	_broadcast_all(NetHost.CHANNEL_SNAPSHOT, Protocol.encode_grenade_fx(origin, dir, kind), 0, thrower_id)
+func _broadcast_grenade_fx(thrower_id: int, origin: Vector3, dir: Vector3, kind: int, team: int = 0, charge: float = 1.0) -> void:
+	_broadcast_all(NetHost.CHANNEL_SNAPSHOT, Protocol.encode_grenade_fx(origin, dir, kind, team, charge), 0, thrower_id)
 
 func _place_c4(id: int, p: Pawn, pos: Vector3) -> void:
 	if Loadout.gadget_for_player(int(_clients[id]["class"]), id) != Loadout.GADGET_C4: return
@@ -1363,7 +1402,9 @@ func _place_c4(id: int, p: Pawn, pos: Vector3) -> void:
 	var owned: Array = _c4.get(id, [])
 	if owned.size() >= int(cdef["max_active"]): return
 	if p.pos.distance_to(pos) > StructureStore.BUILD_RANGE: return   # within reach
-	owned.append({"pos": pos, "cell": BuildGrid.cell_of(Vector3(pos.x, 0.0, pos.z))})
+	# Keep the REAL cell (y layer included): _remove_c4_on_cell is keyed by the destroyed piece's
+	# actual cell, so a y=0-flattened key left C4 floating when an elevated piece was destroyed.
+	owned.append({"pos": pos, "cell": BuildGrid.cell_of(pos)})
 	_c4[id] = owned
 
 func _place_mine(id: int, p: Pawn, pos: Vector3, facing: Vector3) -> void:
@@ -1386,6 +1427,7 @@ func _throw_bag(id: int, p: Pawn, pos: Vector3) -> void:
 	for b in _bags:
 		if int(b["owner"]) == id: bag_count += 1
 	if bag_count >= int(gdef["max_bags"]): return
+	if p.pos.distance_to(pos) > StructureStore.BUILD_RANGE: return   # within throwing reach, like C4/mine placement
 	_bags.append({"owner": id, "team": p.team, "kind": kind, "pos": pos, "pool": int(gdef["bag_pool"])})
 	_stats.bags_thrown += 1
 
@@ -1426,17 +1468,59 @@ func _step_grenades() -> void:
 				continue
 			still.append(g)
 			continue
+		if int(g["type"]) == Grenade.SMOKE:
+			# Smoke integrates every tick (falls, rests on the ground). It begins billowing at the fuse
+			# and then keeps emitting — the canister and its cloud stay live until the cloud lifetime
+			# ends, so the cloud follows the grenade wherever it flies/tumbles to (C3). The grenade item
+			# is only dropped from the pool once the smoke finishes.
+			_integrate_grenade(g)
+			if not bool(g.get("smoking", false)):
+				if _sim.tick >= int(g["detonate_tick"]):
+					_begin_smoke(g)
+			else:
+				g["zone"]["pos"] = g["pos"]   # cloud + LOS zone track the canister
+				if _sim.tick >= int(g["smoke_until"]):
+					continue   # cloud finished — drop the canister (zone expires via _expire_smoke_zones)
+			still.append(g)
+			continue
+		# Frag / flashbang: airburst on the fuse, or blast on first ground contact.
 		if _sim.tick >= int(g["detonate_tick"]):
 			_detonate(g)
 			continue
-		var s := Grenade.integrate(g["pos"], g["vel"], SimLoop.DT)
-		g["pos"] = s["pos"]; g["vel"] = s["vel"]
+		_integrate_grenade(g)
 		if g["pos"].y <= 0.0:
-			g["pos"].y = 0.0
 			_detonate(g)
 		else:
 			still.append(g)
 	_grenades = still
+
+## Integrate one live grenade one tick under the shared ballistic model, bouncing off structures and
+## resting it on the ground. Shared by the frag ground-contact check and the smoke-canister follow.
+const GRENADE_RESTITUTION := 0.45   # velocity retained after a wall bounce
+const GRENADE_BOUNCE_SKIN := 0.15   # m; rest the grenade this far off the struck face so it can't re-embed
+func _integrate_grenade(g: Dictionary) -> void:
+	var s := Grenade.integrate(g["pos"], g["vel"], SimLoop.DT)
+	var new_pos: Vector3 = s["pos"]
+	# Bounce off structures instead of tunnelling through walls (frag + smoke). Impact grenades have
+	# their own contact detonation in _step_impact and never come through here.
+	if _store != null and _store.count() > 0:
+		var seg: Vector3 = new_pos - (g["pos"] as Vector3)
+		var seg_len := seg.length()
+		if seg_len > 0.0001:
+			var hit := _store.march_normal(g["pos"], seg / seg_len, seg_len)
+			if bool(hit.get("hit", false)):
+				var n: Vector3 = hit["normal"]
+				var v: Vector3 = s["vel"]
+				g["pos"] = (hit["point"] as Vector3) + n * GRENADE_BOUNCE_SKIN
+				g["vel"] = (v - 2.0 * v.dot(n) * n) * GRENADE_RESTITUTION   # reflect + lose energy
+				if g["pos"].y <= 0.0:
+					g["pos"].y = 0.0
+					g["vel"] = Vector3.ZERO
+				return
+	g["pos"] = new_pos; g["vel"] = s["vel"]
+	if g["pos"].y <= 0.0:
+		g["pos"].y = 0.0
+		g["vel"] = Vector3.ZERO
 
 ## One integration step for an impact grenade. Detonates (frag blast via _detonate) on the first
 ## contact: ground, a structure crossed this step, or an enemy pawn within IMPACT_CONTACT_RADIUS.
@@ -1589,7 +1673,7 @@ func _step_mines() -> void:
 ## (Smoke is handled by a branch added in Task 9.)
 func _detonate(g: Dictionary) -> void:
 	if int(g["type"]) == Grenade.SMOKE:
-		_deploy_smoke(g)
+		_begin_smoke(g)   # defensive: smoke normally billows via _step_grenades, never through _detonate
 		return
 	if int(g["type"]) == Grenade.FLASHBANG:
 		_detonate_flash(g)
@@ -1630,14 +1714,20 @@ func _detonate_flash(g: Dictionary) -> void:
 		p.blind_until_tick = maxi(p.blind_until_tick, _sim.tick + FLASH_BLIND_TICKS)
 		_stats.flash_blinds += 1
 
-## Smoke detonation: no damage. Record a server-side zone and broadcast it (low-frequency, like
-## KILL — bounded by the throw cooldown). M7 LOS culling will read _smoke_zones; here it just
-## replicates the zone so clients know it exists.
-func _deploy_smoke(g: Dictionary) -> void:
+## Smoke begins billowing (no damage). Records a server-side zone (referenced back on the grenade so
+## _step_grenades can move it as the canister falls/rests — M7 LOS culling reads _smoke_zones) and
+## broadcasts the deploy once, carrying the canister's pop position + velocity so the client integrates
+## the same fall and the cloud follows the grenade. Low-frequency (bounded by the throw cooldown).
+func _begin_smoke(g: Dictionary) -> void:
+	if bool(g.get("smoking", false)):
+		return
 	_stats.smokes += 1
-	var expire: int = _sim.tick + SMOKE_DURATION_TICKS
-	_smoke_zones.append({"pos": g["pos"], "radius": SMOKE_RADIUS, "expire_tick": expire})
-	var bytes := Protocol.encode_smoke_deployed(g["pos"], SMOKE_RADIUS, expire)
+	g["smoking"] = true
+	g["smoke_until"] = _sim.tick + SMOKE_DURATION_TICKS
+	var zone := {"pos": g["pos"], "radius": SMOKE_RADIUS, "expire_tick": int(g["smoke_until"])}
+	_smoke_zones.append(zone)
+	g["zone"] = zone
+	var bytes := Protocol.encode_smoke_deployed(g["pos"], SMOKE_RADIUS, int(g["smoke_until"]), g["vel"])
 	for cid in _clients:
 		_net.send_to(_clients[cid]["peer"], NetHost.CHANNEL_CONTROL, bytes, ENetPacketPeer.FLAG_RELIABLE)
 
@@ -1835,6 +1925,13 @@ func _on_peer_disconnected(peer: ENetPacketPeer) -> void:
 		_clients.erase(id)
 		_sim.world.despawn(id)
 		_prev_climb_vault.erase(id)
+		# Drop the leaver's deployed gadgets: their C4 can never be detonated again (handler needs the
+		# client) and orphaned entries would render + ride the GADGET_LIST heartbeat for the whole match.
+		_c4.erase(id)
+		var kept_mines: Array = []
+		for m in _mines:
+			if int(m["owner"]) != id: kept_mines.append(m)
+		_mines = kept_mines
 		print("[server] peer %d disconnected — %d peers" % [id, _clients.size()])
 
 func _log_telemetry() -> void:

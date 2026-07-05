@@ -7,7 +7,11 @@ const LOW_AMMO_FRAC := 0.34
 const KILLFEED_TTL := 6.0
 const DAMAGE_TTL := 1.5
 const BLIND_FULL_TICKS := 45.0   # remaining-blind ticks at/above which the flash white-out is opaque
-const SUPPRESS_FX_THRESHOLD := 0.25   # mirrors shared/sim/suppress.gd SUPPRESS_THRESHOLD (audio + visual onset align)
+# C4: the FX onset was 0.25 ramping to full at 1.0, so brief near-miss suppression (which spikes to
+# ~0.15–0.4 then decays 0.04/tick) never rendered a visible veil. Onset below the gameplay spread
+# threshold, full at a realistic sustained-fire level, so being shot at reads on-screen.
+const SUPPRESS_FX_THRESHOLD := 0.10   # veil starts just below one dead-on near-miss (≈0.15)
+const SUPPRESS_FX_FULL := 0.35        # veil is full at a couple of near-misses / brief sustained fire
 
 ## Flashbang white-out opacity (0..1) from the SELF_STATE remaining-blind-ticks byte (M5.5-P3).
 ## Saturated white while ≥ BLIND_FULL_TICKS remain, then a linear fade over the final tail — so a
@@ -16,12 +20,15 @@ static func blind_intensity(blind_ticks: int) -> float:
 	return clampf(float(blind_ticks) / BLIND_FULL_TICKS, 0.0, 1.0)
 
 ## Suppression screen-FX strength (0..1) from the SELF_STATE own-suppression scalar (M5.5-P2).
-## Zero below the threshold (so audio + visual suppression onset align and idle shows nothing),
-## then a smoothstep ramp to full — same shaping as the audio duck/cutoff (client/audio/audio_mix.gd).
+## Zero below the threshold (so audio + visual suppression onset align and idle shows nothing), then a
+## pow(0.7) ramp to full. A6: smoothstep buried a single near-miss (0.15) down near zero, so being shot
+## at was invisible; the concave low-end curve makes even one near-miss read while sustained fire caps.
+## The client also peak-holds this (see client_main _supp_fx) so a spike lingers long enough to see.
 static func suppression_intensity(suppression: float) -> float:
 	if suppression < SUPPRESS_FX_THRESHOLD:
 		return 0.0
-	return smoothstep(SUPPRESS_FX_THRESHOLD, 1.0, clampf(suppression, 0.0, 1.0))
+	var t := clampf((suppression - SUPPRESS_FX_THRESHOLD) / (SUPPRESS_FX_FULL - SUPPRESS_FX_THRESHOLD), 0.0, 1.0)
+	return pow(t, 0.7)
 var _killfeed: Array = []   # [{killer,victim,headshot,weapon,t}]
 var _capture_feed: Array = []   # [{label:String, status:int, t:float}] — capture-point announcements
 const CAPTURE_FEED_TTL := 4.0   # seconds a capture banner lingers
@@ -126,7 +133,19 @@ func _grenade_danger(ctx: Dictionary):
 
 func build(ctx: Dictionary) -> Dictionary:
 	var dmg := _damage(ctx)
-	return {"ammo": _ammo(ctx), "compass": _compass(ctx), "tickets": _tickets(ctx), "capture": _capture(ctx), "killfeed": _killfeed_current(ctx), "damage_arcs": dmg["arcs"], "vignette": dmg["vignette"], "scoreboard": _scoreboard(ctx), "squad_roster": _squad_roster(ctx), "interaction_prompt": _interaction_prompt(ctx), "throwables": _throwables(ctx), "death_recap": _death_recap(ctx), "grenade_danger": _grenade_danger(ctx), "capture_feed": _capture_feed_current(ctx), "repair_heat": _repair_heat(ctx)}
+	return {"ammo": _ammo(ctx), "compass": _compass(ctx), "tickets": _tickets(ctx), "capture": _capture(ctx), "killfeed": _killfeed_current(ctx), "damage_arcs": dmg["arcs"], "vignette": dmg["vignette"], "scoreboard": _scoreboard(ctx), "squad_roster": _squad_roster(ctx), "interaction_prompt": _interaction_prompt(ctx), "throwables": _throwables(ctx), "death_recap": _death_recap(ctx), "grenade_danger": _grenade_danger(ctx), "capture_feed": _capture_feed_current(ctx), "repair_heat": _repair_heat(ctx), "throw_charge": _throw_charge(ctx), "stamina": _stamina(ctx)}
+
+## C3 grenade hold-to-charge: a 0..1 throw-strength meter, shown only while charging.
+func _throw_charge(ctx: Dictionary) -> Dictionary:
+	var c := clampf(float(ctx.get("throw_charge", 0.0)), 0.0, 1.0)
+	return {"visible": c > 0.0, "charge": c}
+
+## Stamina bar: a slim bottom-centre readout that appears only when stamina is spent (below full),
+## so the player can see why jump/sprint gate out (there is otherwise no stamina UI). Pure — reads
+## the predicted stamina fraction from ctx.
+func _stamina(ctx: Dictionary) -> Dictionary:
+	var frac := clampf(float(ctx.get("stamina_frac", 1.0)), 0.0, 1.0)
+	return {"visible": frac < 0.999, "frac": frac}
 
 ## Engineer repair-tool heat gauge. Visible only while heating or in the overheat-lockout cooldown
 ## (so it never shows for non-engineers). `overheated` drives the red lockout look; the beam is

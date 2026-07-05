@@ -52,6 +52,10 @@ var _downed_root: Control
 var _downed_timer: Label
 var _downed_friendly: Label
 var _downed_bandage: Label   # DBNO self-bandage prompt / charges / stabilized state
+var _throw_bar_bg: ColorRect     # C3 grenade throw-strength meter background
+var _throw_bar_fill: ColorRect   # C3 grenade throw-strength meter fill (0..1 of the bar width)
+var _stam_bar_bg: ColorRect      # stamina bar background (bottom centre; shown only when stamina < full)
+var _stam_bar_fill: ColorRect    # stamina bar fill (white, 0..1 of the bar width)
 var _downed_giveup_fill: ColorRect
 var _perf_label: Label            # debug perf overlay (FPS / frame-time / draw calls)
 var _perf_accum: float = 0.0      # throttle perf-label refresh to ~4 Hz
@@ -129,6 +133,8 @@ func render(model: Dictionary) -> void:
 	_render_throwables(model.get("throwables", {}))
 	_render_death_recap(model.get("death_recap"))
 	_render_repair_gauge(model.get("repair_heat", {}))
+	_render_throw_charge(model.get("throw_charge", {}))
+	_render_stamina(model.get("stamina", {}))
 
 
 # -----------------------------------------------------------------------
@@ -151,6 +157,9 @@ func _build_tree() -> void:
 
 	_build_suppression()   # first: samples only the rendered world; the HUD below draws crisp over it
 	_build_crosshair()
+	_build_reddot()        # C2: red-dot ADS reticle for non-scoped weapons (hidden until aiming)
+	_build_throw_charge()
+	_build_stamina_bar()
 	_build_scope()         # sniper scope mask + reticle (over the world, under the flashbang/blind)
 	_hitmarker = _Hitmarker.new()
 	add_child(_hitmarker)
@@ -180,6 +189,8 @@ const CH_TICK_THICK := 2.0     # px thickness
 const CH_BASE_GAP := 4.0       # px from centre to the inner end of a tick at rest
 var _ch_ticks: Array = []      # 4 ColorRects: top, bottom, left, right
 var _ch_dot: ColorRect
+var _reddot: ColorRect         # C2: red-dot ADS reticle (non-scoped weapons) — a usable aim point
+var _reddot_ring: ColorRect    # faint outer glow so the dot reads as a red-dot sight
 
 func _build_crosshair() -> void:
 	# Dynamic 4-tick reticle: the gap between the ticks blooms with movement/airborne/fire and
@@ -209,6 +220,93 @@ func _build_crosshair() -> void:
 	_ch_dot.mouse_filter = MOUSE_FILTER_IGNORE
 	add_child(_ch_dot)
 	update_crosshair(0.0, false)
+
+## C2 red-dot ADS reticle: a small centred red dot (with a faint glow ring) shown when aiming down an
+## iron-sighted weapon, since misaligned placeholder sights are unusable without an aim point. Scoped
+## weapons (DMR) use the sniper scope overlay instead, so this stays hidden for them.
+const _REDDOT_R := 3.5    # dot half-size, px
+const _REDDOT_RING_R := 9.0
+func _build_reddot() -> void:
+	_reddot_ring = ColorRect.new()
+	_reddot_ring.color = Color(1.0, 0.15, 0.1, 0.22)
+	for a in [_reddot_ring]:
+		a.anchor_left = 0.5; a.anchor_top = 0.5; a.anchor_right = 0.5; a.anchor_bottom = 0.5
+		a.mouse_filter = MOUSE_FILTER_IGNORE
+		a.visible = false
+	_reddot_ring.offset_left = -_REDDOT_RING_R; _reddot_ring.offset_top = -_REDDOT_RING_R
+	_reddot_ring.offset_right = _REDDOT_RING_R; _reddot_ring.offset_bottom = _REDDOT_RING_R
+	add_child(_reddot_ring)
+	_reddot = ColorRect.new()
+	_reddot.color = Color(1.0, 0.12, 0.08, 0.95)
+	_reddot.anchor_left = 0.5; _reddot.anchor_top = 0.5; _reddot.anchor_right = 0.5; _reddot.anchor_bottom = 0.5
+	_reddot.offset_left = -_REDDOT_R; _reddot.offset_top = -_REDDOT_R
+	_reddot.offset_right = _REDDOT_R; _reddot.offset_bottom = _REDDOT_R
+	_reddot.mouse_filter = MOUSE_FILTER_IGNORE
+	_reddot.visible = false
+	add_child(_reddot)
+
+## Show/hide the red-dot ADS reticle. Called each frame by client_main from the ADS blend + weapon.
+func set_reddot(shown: bool) -> void:
+	if _reddot != null:
+		_reddot.visible = shown
+		_reddot_ring.visible = shown
+
+## C3 grenade throw-strength bar: a thin meter just under the reticle that fills while "throw" is held.
+const _THROW_BAR_W := 120.0
+func _build_throw_charge() -> void:
+	_throw_bar_bg = ColorRect.new()
+	_throw_bar_bg.color = Color(0, 0, 0, 0.5)
+	_throw_bar_bg.anchor_left = 0.5; _throw_bar_bg.anchor_right = 0.5
+	_throw_bar_bg.anchor_top = 0.5; _throw_bar_bg.anchor_bottom = 0.5
+	_throw_bar_bg.offset_left = -_THROW_BAR_W * 0.5; _throw_bar_bg.offset_right = _THROW_BAR_W * 0.5
+	_throw_bar_bg.offset_top = 34.0; _throw_bar_bg.offset_bottom = 40.0
+	_throw_bar_bg.mouse_filter = MOUSE_FILTER_IGNORE
+	_throw_bar_bg.visible = false
+	add_child(_throw_bar_bg)
+	_throw_bar_fill = ColorRect.new()
+	_throw_bar_fill.color = Color(1.0, 0.75, 0.2, 0.95)
+	_throw_bar_fill.anchor_left = 0.0; _throw_bar_fill.anchor_right = 0.0
+	_throw_bar_fill.anchor_top = 0.0; _throw_bar_fill.anchor_bottom = 1.0
+	_throw_bar_fill.offset_left = 0.0; _throw_bar_fill.offset_top = 0.0; _throw_bar_fill.offset_bottom = 0.0
+	_throw_bar_fill.mouse_filter = MOUSE_FILTER_IGNORE
+	_throw_bar_bg.add_child(_throw_bar_fill)
+
+func _render_throw_charge(tc: Dictionary) -> void:
+	if _throw_bar_bg == null:
+		return
+	var vis := bool(tc.get("visible", false))
+	_throw_bar_bg.visible = vis
+	if vis:
+		_throw_bar_fill.offset_right = _THROW_BAR_W * clampf(float(tc.get("charge", 0.0)), 0.0, 1.0)
+
+const _STAM_BAR_W := 120.0   # px
+## Slim white stamina bar, bottom centre. Appears only when stamina is spent (below full) so the
+## player can see why jump/sprint gate out (there is otherwise no stamina UI).
+func _build_stamina_bar() -> void:
+	_stam_bar_bg = ColorRect.new()
+	_stam_bar_bg.color = Color(0, 0, 0, 0.45)
+	_stam_bar_bg.anchor_left = 0.5; _stam_bar_bg.anchor_right = 0.5
+	_stam_bar_bg.anchor_top = 1.0; _stam_bar_bg.anchor_bottom = 1.0
+	_stam_bar_bg.offset_left = -_STAM_BAR_W * 0.5; _stam_bar_bg.offset_right = _STAM_BAR_W * 0.5
+	_stam_bar_bg.offset_top = -30.0; _stam_bar_bg.offset_bottom = -26.0   # 4 px tall, ~26 px off the bottom edge
+	_stam_bar_bg.mouse_filter = MOUSE_FILTER_IGNORE
+	_stam_bar_bg.visible = false
+	add_child(_stam_bar_bg)
+	_stam_bar_fill = ColorRect.new()
+	_stam_bar_fill.color = Color(1, 1, 1, 0.9)   # white
+	_stam_bar_fill.anchor_left = 0.0; _stam_bar_fill.anchor_right = 0.0
+	_stam_bar_fill.anchor_top = 0.0; _stam_bar_fill.anchor_bottom = 1.0
+	_stam_bar_fill.offset_left = 0.0; _stam_bar_fill.offset_top = 0.0; _stam_bar_fill.offset_bottom = 0.0
+	_stam_bar_fill.mouse_filter = MOUSE_FILTER_IGNORE
+	_stam_bar_bg.add_child(_stam_bar_fill)
+
+func _render_stamina(st: Dictionary) -> void:
+	if _stam_bar_bg == null:
+		return
+	var vis := bool(st.get("visible", false))
+	_stam_bar_bg.visible = vis
+	if vis:
+		_stam_bar_fill.offset_right = _STAM_BAR_W * clampf(float(st.get("frac", 1.0)), 0.0, 1.0)
 
 ## Reposition the reticle ticks for the given spread (px added to the resting gap). `hidden` pulls
 ## the whole reticle (e.g. while dead / on the deploy screen / in a menu).
@@ -1367,22 +1465,12 @@ func _render_capture(capture) -> void:
 	_cap_fill.size = Vector2(_cap_bar.size.x * cap, _cap_bar.size.y)
 
 
-func _render_killfeed(entries: Array) -> void:
-	var n: int = mini(entries.size(), KILLFEED_MAX)
-	# Show most-recent at the top.
+func _render_killfeed(_entries: Array) -> void:
+	# D5: the text killfeed is intentionally disabled — BattleBit has no killfeed. Kills are conveyed
+	# by the hitmarker + kill-confirm feedback only. The model still tracks kills (see hud_model) in
+	# case it's wanted later; here we keep every line hidden so nothing renders.
 	for i in KILLFEED_MAX:
-		var lbl: Label = _killfeed_labels[i]
-		var entry_idx: int = entries.size() - 1 - i
-		if i >= n or entry_idx < 0:
-			lbl.visible = false
-		else:
-			var e: Dictionary = entries[entry_idx]
-			var hs: String = " ☆" if bool(e.get("headshot", false)) else ""
-			lbl.text = "%s → %s%s" % [String(e.get("killer_name", "?")), String(e.get("victim_name", "?")), hs]
-			# Tint toward the killer's allegiance (friend = blue, foe = red), neutral grey if unknown.
-			lbl.modulate = (Color(0.55, 0.75, 1.0, 0.95) if bool(e.get("killer_friendly", false))
-				else Color(1.0, 0.55, 0.5, 0.95))
-			lbl.visible = true
+		_killfeed_labels[i].visible = false
 
 
 func _render_damage(arcs: Array, vignette: float) -> void:

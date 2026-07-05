@@ -24,14 +24,16 @@ func step(inputs: Dictionary, world_half: float = Pawn.WORLD_HALF) -> void:
 		var prev_grounded: bool = p.grounded
 		var cmd: Dictionary = inputs.get(id, {})
 		p.step(DT, cmd, world_half)
-		if p.climbing:
+		if p.in_vehicle != 0:
+			pass   # seat-slaved by step_vehicles — no ground collision/platform/ladder/vault while seated
+		elif p.climbing:
 			_step_climb(p, cmd)
 		elif p.vaulting:
 			p.pos = Vault.advance(p)
 			if not p.vaulting:
 				_apply_platform_floor(p)
 		else:
-			_step_normal(p, prev, cmd)
+			_step_normal(p, prev, cmd, prev_grounded)
 		if p.stance != prev_stance:
 			p.last_stance_change_tick = tick
 		_account_fall(p, prev_grounded)
@@ -57,7 +59,7 @@ func _step_climb(p: Pawn, cmd: Dictionary) -> void:
 		p.grounded = true
 		p.climbing = false
 
-func _step_normal(p: Pawn, prev: Vector3, cmd: Dictionary) -> void:
+func _step_normal(p: Pawn, prev: Vector3, cmd: Dictionary, prev_grounded: bool) -> void:
 	var intended := p.pos
 	if structures != null:
 		var resolved: Vector3 = structures.resolve_movement(prev, intended)
@@ -66,19 +68,69 @@ func _step_normal(p: Pawn, prev: Vector3, cmd: Dictionary) -> void:
 			var top: float = structures.ground_blocker_top(intended)
 			var flat := Vector3(intended.x - prev.x, 0.0, intended.z - prev.z)
 			var moving := flat.length() > MIN_MOVE_LEN
-			if Vault.can_vault(top, p.stance, moving):
-				Vault.begin(p, prev, flat.normalized())
-				p.pos = prev
-				return
+			var jump_pressed := bool(int(cmd.get("buttons", 0)) & InputCommand.BTN_JUMP)
+			# Manual vault (BattleBit): a human (auto_vault=false) must press jump to mount a low blocker;
+			# bots keep vaulting on contact so navigation and the fleet gate's vaults>=1 hold. Gate on
+			# prev_grounded, not p.grounded: a jump THIS tick already cleared p.grounded in Pawn.step(),
+			# and a truthful grounded also keeps a FALLING pawn (prev_grounded=false) from vaulting a
+			# 2 m wall whose upper band its feet happen to pass.
+			if prev_grounded and (p.auto_vault or jump_pressed) and Vault.can_vault(top, p.stance, moving):
+				var land := _vault_landing(prev, flat.normalized())
+				if bool(land["ok"]):
+					Vault.begin_at(p, prev, land["to"])
+					p.pos = prev
+					# If a JUMP press triggered this vault, undo the jump impulse/cost Pawn.step() just
+					# applied so the pawn neither launches upward when the arc completes nor pays stamina
+					# (vaulting is free, as the old auto-vault was). Auto-vault (bots) never jumped, so
+					# this leaves their state untouched.
+					if jump_pressed and not p.grounded:
+						p.velocity.y = 0.0
+						p.grounded = true
+						p.stamina = minf(Pawn.STAMINA_MAX, p.stamina + Pawn.JUMP_COST)
+					return
+				# No clear ground to land on (e.g. a wall right behind the low blocker) -> refuse the
+				# vault and stay blocked, so the arc never teleports the pawn into/through the wall.
 			p.pos = resolved
 		else:
 			p.pos = resolved
 	_apply_platform_floor(p)
 	# Ladder engage (after movement, so a pawn that walked into the volume this tick climbs next tick).
-	if not p.climbing:
+	# Downed pawns crawl — they don't grab ladders (3 m/s climb would triple their crawl speed).
+	if not p.climbing and not p.is_downed:
 		var ladder := Ladder.capture(ladders, p.pos)
 		if Ladder.should_engage(ladder, p.pos, cmd.get("move_y", 0.0)):
 			p.climbing = true
+
+## First collision-safe vault landing along `dir` from `from`, on the vault's floor plane. The scan
+## walks outward, requires actually CROSSING the blocked band first (so a clear point between the
+## pawn and the blocker face never "lands" short of the wall), stops dead at the first tall
+## (non-vaultable) blocker, and accepts the first clear-standing point past the band (+1 step of
+## clearance when that is also clear). The scan range covers the worst case: up to ~0.32 m sprint
+## stopping gap before the cell face + a 2.83 m diagonal chord through one 2 m cell + clearance —
+## the old fixed 1.8..2.3 m window silently refused head-on sprints and any approach >~30° off
+## perpendicular, leaving the pawn stuck pushing against a plain vaultable box.
+## {ok:false} when nothing qualifies (e.g. a wall directly behind the low blocker) -> refuse the vault.
+const _VAULT_SCAN_STEP := 0.25
+const _VAULT_MAX_SCAN := 3.6   # m; stopping gap + one-cell diagonal chord + landing clearance
+func _vault_landing(from: Vector3, dir: Vector3) -> Dictionary:
+	var crossed := false   # have we sampled inside the blocked (low-blocker) band yet?
+	var d := _VAULT_SCAN_STEP
+	while d <= _VAULT_MAX_SCAN + 0.001:
+		var cand := Vector3(from.x + dir.x * d, from.y, from.z + dir.z * d)
+		if structures.is_tall_blocker(cand):
+			return {"ok": false}   # a wall in/behind the vault path — refuse
+		if not structures.stands_clear(cand):
+			crossed = true
+		elif crossed:
+			# First clear ground past the band. Land one step farther when that's also clear, so the
+			# pawn doesn't come to rest kissing the blocker's far face.
+			var land_d := d + _VAULT_SCAN_STEP
+			var land := Vector3(from.x + dir.x * land_d, from.y, from.z + dir.z * land_d)
+			if land_d > _VAULT_MAX_SCAN or structures.is_tall_blocker(land) or not structures.stands_clear(land):
+				land = cand
+			return {"ok": true, "to": land}
+		d += _VAULT_SCAN_STEP
+	return {"ok": false}
 
 func _apply_platform_floor(p: Pawn) -> void:
 	var floor_y := Ladder.platform_floor(platforms, p.pos.x, p.pos.z, p.pos.y)
@@ -90,6 +142,11 @@ func _apply_platform_floor(p: Pawn) -> void:
 		p.grounded = true
 	elif p.pos.y <= floor_y + Ladder.ANCHOR_EPS and floor_y > 0.0:
 		p.grounded = true
+	elif p.pos.y > maxf(floor_y, 0.0) + Ladder.ANCHOR_EPS:
+		# Airborne: above the ground plane AND above any platform/structure floor. Without clearing
+		# this, a pawn that WALKED off a roof kept grounded=true for the whole fall — no false->true
+		# landing edge (zero fall damage from any height) and a free mid-air jump (BTN_JUMP gate).
+		p.grounded = false
 
 ## Track airborne peak height and emit landed_fall (distance) on the tick a pawn lands. Climbing pawns
 ## are anchored to the ladder line (no fall). Server reads landed_fall to apply fall damage.

@@ -16,11 +16,17 @@ static func is_contact_fuse(type: int) -> bool:
 	return type == IMPACT
 
 const GRAVITY := 20.0      # m/s^2 downward (gameplay gravity, not realistic 9.8)
-const THROW_SPEED := 18.0  # initial launch speed (m/s)
+const THROW_SPEED := 18.0  # legacy reference launch speed (m/s)
+const MIN_THROW_SPEED := 12.0  # a tap-throw (charge 0) — short lob
+const MAX_THROW_SPEED := 32.0  # a fully-charged hold (charge 1) — long throw
 
-## Initial velocity for a throw in look-direction `dir`.
-static func launch_velocity(dir: Vector3) -> Vector3:
-	return dir.normalized() * THROW_SPEED
+## Launch speed for a hold-charge in [0,1]. Longer hold -> faster throw -> longer range.
+static func charged_speed(charge: float) -> float:
+	return lerpf(MIN_THROW_SPEED, MAX_THROW_SPEED, clampf(charge, 0.0, 1.0))
+
+## Initial velocity for a throw in look-direction `dir` at charge `charge` (default full).
+static func launch_velocity(dir: Vector3, charge: float = 1.0) -> Vector3:
+	return dir.normalized() * charged_speed(charge)
 
 ## One integration step of the ballistic arc. Returns {pos:Vector3, vel:Vector3}.
 static func integrate(pos: Vector3, vel: Vector3, dt: float) -> Dictionary:

@@ -61,12 +61,14 @@ func region_count(region: Vector2i) -> int:
 	return (_by_region.get(region, {}) as Dictionary).size()
 
 ## Insert a record. Returns the record on success, {} if the cell is occupied.
-func place(id: int, type: int, cell: Vector3i, yaw: int, owner: int, building_id: int = 0) -> Dictionary:
+## `team` -1 = neutral/world piece; player fortifications record their builder's team at completion
+## so friend/foe shovel classification survives the owner disconnecting (was derived from the live pawn).
+func place(id: int, type: int, cell: Vector3i, yaw: int, owner: int, building_id: int = 0, team: int = -1) -> Dictionary:
 	if _occupancy.has(cell):
 		return {}
 	var rec := {"id": id, "type": type, "cell": cell, "yaw": yaw,
 		"chunks": ChunkMask.full_mask(_catalog.chunk_grid_of(type)),
-		"building_id": building_id, "owner": owner}
+		"building_id": building_id, "owner": owner, "team": team}
 	return insert(rec)
 
 ## Insert a fully-formed record (used by clients applying deltas/baselines).
@@ -246,6 +248,31 @@ func march(origin: Vector3, dir: Vector3, max_dist: float) -> Dictionary:
 		t_max[axis] += t_delta[axis]
 	return {"hit": false, "dist": INF, "id": 0}
 
+## Like march(), but on a hit also returns the contact `point` and the axis-aligned surface `normal`
+## of the struck piece's AABB face — used to bounce grenades off walls. {"hit": false} when nothing
+## is struck within max_dist.
+func march_normal(origin: Vector3, dir: Vector3, max_dist: float) -> Dictionary:
+	var m := march(origin, dir, max_dist)
+	if not bool(m["hit"]):
+		return {"hit": false}
+	var d := dir.normalized()
+	var pt: Vector3 = origin + d * float(m["dist"])
+	var rec: Dictionary = _by_id[int(m["id"])]
+	var mn := BuildGrid.cell_min(rec["cell"])
+	var h := _face_height(int(rec["type"]))
+	var mx := Vector3(mn.x + BuildGrid.CELL_SIZE, mn.y + h, mn.z + BuildGrid.CELL_SIZE)
+	# Normal = the axis whose slab face the contact point sits on (smallest distance to a face plane).
+	var n := Vector3.ZERO
+	var best := INF
+	for a in 3:
+		var dlo: float = absf(pt[a] - mn[a])
+		if dlo < best:
+			best = dlo; n = Vector3.ZERO; n[a] = -1.0
+		var dhi: float = absf(pt[a] - mx[a])
+		if dhi < best:
+			best = dhi; n = Vector3.ZERO; n[a] = 1.0
+	return {"hit": true, "dist": float(m["dist"]), "id": int(m["id"]), "point": pt, "normal": n}
+
 func _ray_piece(origin: Vector3, d: Vector3, rec: Dictionary) -> float:
 	var mn := BuildGrid.cell_min(rec["cell"])
 	var h := _face_height(int(rec["type"]))
@@ -298,6 +325,23 @@ func _blocks_ground(p: Vector3) -> bool:
 	# Walk-through pieces: doors (aperture), floors (you stand on them), stairs (you walk up them).
 	var t := int(_by_id[_occupancy[cell]]["type"])
 	return not (_catalog.passable_of(t) or _catalog.is_flat_surface(t) or _catalog.is_ramp(t))
+
+## True when a pawn can stand at world point `p` (feet cell not blocked at ground level). Used by the
+## vault landing scan to reject a landing spot that is inside the low blocker's own cell or a wall.
+func stands_clear(p: Vector3) -> bool:
+	return not _blocks_ground(p)
+
+## True when the cell at `p` is a solid, non-vaultable blocker — a real wall (face taller than the vault
+## clearance), as opposed to a low box/half-wall the pawn vaults over. The vault landing scan stops at
+## the first tall blocker so a vault can never carry the pawn through a wall.
+func is_tall_blocker(p: Vector3) -> bool:
+	var cell := BuildGrid.cell_of(Vector3(p.x, p.y + FEET_EPS, p.z))
+	if not _occupancy.has(cell):
+		return false
+	var t := int(_by_id[_occupancy[cell]]["type"])
+	if _catalog.passable_of(t) or _catalog.is_flat_surface(t) or _catalog.is_ramp(t):
+		return false
+	return _face_height(t) > Vault.VAULT_MAX_HEIGHT
 
 ## Highest walkable structure surface at or below `y` at column (x,z); -INF if none. Floors yield
 ## their cell-base plane; stairs yield a ramped height. Bounded by building height (a handful of cells).

@@ -8,6 +8,7 @@ var weapon: int = Weapon.AR
 var mag: int = 30
 var reloading: bool = false
 var fire_mode: int = Weapon.MODE_AUTO   # selected fire mode (HUD + local-tracer gating; sent via SET_FIRE_MODE)
+var fire_mode_by_weapon: Dictionary = {}   # weapon_id -> last-selected mode; persists across swaps + respawns
 var _reload_done_tick: int = 0
 var _last_fire_tick: int = -100000
 var _shot_index: int = 0                # shots fired in the current trigger hold (gates SEMI/BURST)
@@ -16,7 +17,9 @@ var _was_firing: bool = false           # previous-tick trigger state, for press
 func set_weapon(w: int) -> void:
 	weapon = w
 	mag = int(Weapon.get_def(w)["mag_size"])
-	fire_mode = Weapon.default_mode(w)
+	# Restore this weapon's remembered fire mode (default the first time we hold it), so swapping away
+	# and back — or respawning — keeps the selection instead of snapping back to AUTO.
+	fire_mode = int(fire_mode_by_weapon.get(w, Weapon.default_mode(w)))
 	_shot_index = 0
 
 ## Advance to the next fire mode in the weapon's allowed list (wraps). No-op for single-mode
@@ -27,6 +30,7 @@ func cycle_fire_mode() -> int:
 		return fire_mode
 	var i := modes.find(fire_mode)
 	fire_mode = int(modes[(i + 1) % modes.size()]) if i >= 0 else int(modes[0])
+	fire_mode_by_weapon[weapon] = fire_mode   # remember the choice for this weapon
 	return fire_mode
 
 ## Returns true if a shot fired this tick. Mirrors server gating (cadence, mag, reload, sprint) AND

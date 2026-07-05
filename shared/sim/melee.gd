@@ -3,8 +3,11 @@ extends Object
 ## Pure melee geometry (M5.5-P3): reach + rear-arc back-stab + nearest-frontal-target selection.
 ## Server applies damage; these are side-effect-free. See docs/specs/combat-depth-2.md §3.
 
-const MELEE_RANGE := 1.5
-const BACKSTAB_ARC_DEG := 60.0
+const MELEE_RANGE := 2.2   # forgiving knife-lunge reach (was 1.5 — too tight for a lag-comp swing at a mover)
+# Rear arc for the instant-kill back-stab. 120 deg (was 60) so sneaking behind a strafing/turning
+# target still reads as a back-stab — anything clearly behind the victim's facing instant-kills; only
+# near-perpendicular (>60 deg off dead-behind) and frontal hits fall through to the 2-hit knife path.
+const BACKSTAB_ARC_DEG := 120.0
 
 static func in_reach(attacker_pos: Vector3, target_pos: Vector3) -> bool:
 	return attacker_pos.distance_to(target_pos) <= MELEE_RANGE

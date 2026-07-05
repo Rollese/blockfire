@@ -66,3 +66,35 @@ func test_march_zero_direction_is_safe() -> void:
 	var s := _store()
 	s.place(1, 1, Vector3i(2, 0, 0), 0, 7)
 	assert_eq(s.march(Vector3(0.0, 1.0, 1.0), Vector3.ZERO, 10.0)["hit"], false, "degenerate dir: no hit, no hang")
+
+func test_march_normal_front_face() -> void:
+	# Grenade-bounce primitive: a ray into the -x face of a wall returns a normal pointing back
+	# at the shooter (-x) and the contact point on that face.
+	var s := _store()
+	s.place(1, 1, Vector3i(2, 0, 0), 0, 7)   # wall AABB x:[4,6] y:[0,2] z:[0,2]
+	var r := s.march_normal(Vector3(0.0, 1.0, 1.0), Vector3(1, 0, 0), 50.0)
+	assert_eq(r["hit"], true)
+	assert_eq(r["normal"], Vector3(-1, 0, 0), "hit the -x face; normal faces the shooter")
+	assert_almost_eq((r["point"] as Vector3).x, 4.0, 0.05, "contact on the x=4 plane")
+
+func test_march_normal_side_face() -> void:
+	var s := _store()
+	s.place(1, 1, Vector3i(2, 0, 0), 0, 7)   # wall AABB x:[4,6] z:[0,2]
+	var r := s.march_normal(Vector3(5.0, 1.0, 6.0), Vector3(0, 0, -1), 50.0)   # into the +z face
+	assert_eq(r["hit"], true)
+	assert_eq(r["normal"], Vector3(0, 0, 1), "hit the +z face; normal faces +z")
+
+func test_march_normal_reflection_flips_incoming_velocity() -> void:
+	# The bounce reflects v about n (v' = v - 2(v·n)n): a +x throw into a -x face flips x, keeps z.
+	var s := _store()
+	s.place(1, 1, Vector3i(2, 0, 0), 0, 7)
+	var n: Vector3 = s.march_normal(Vector3(0.0, 1.0, 1.0), Vector3(1, 0, 0), 50.0)["normal"]
+	var v := Vector3(8.0, -1.0, 2.0)
+	var reflected: Vector3 = v - 2.0 * v.dot(n) * n
+	assert_true(reflected.x < 0.0, "x component reverses off the wall")
+	assert_almost_eq(reflected.z, 2.0, 0.001, "tangential z is unchanged")
+
+func test_march_normal_miss_returns_no_hit() -> void:
+	var s := _store()
+	s.place(1, 1, Vector3i(2, 0, 0), 0, 7)
+	assert_eq(s.march_normal(Vector3(0.0, 1.0, 1.0), Vector3(0, 0, 1), 50.0).get("hit", false), false)

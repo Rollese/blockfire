@@ -110,8 +110,9 @@ static func decode_welcome(bytes: PackedByteArray) -> Dictionary:
 	var id := r.get_u32()
 	var tick_rate := r.get_u16()
 	var cls := r.get_u8()
-	# Map name is a trailing field — guard so a legacy welcome without it still decodes.
-	var map_name := r.get_utf8_string() if r.get_available_bytes() > 0 else ""
+	# Map name is a trailing field — get_string_bounded returns "" when absent OR truncated,
+	# so a legacy welcome without it still decodes.
+	var map_name := get_string_bounded(r)
 	return {"id": id, "tick_rate": tick_rate, "class": cls, "map": map_name}
 
 
@@ -134,11 +135,27 @@ const MAX_NAME_LEN := 24
 # strings/paths) even though names aren't currently rendered through any markup-parsing UI.
 const _ALLOWED_NAME_SYMBOLS := " .-_'()[]{}#@~^!?"
 
+## Bounded replacement for StreamPeerBuffer.get_utf8_string(): the wire format is a u32 length
+## prefix + bytes, and get_utf8_string() trusts that attacker-controlled length blindly (a truncated
+## HELLO claiming a ~2 GB name reaches the read before _sanitize_name's cap applies). Validates the
+## claimed length against the bytes actually present; returns "" on a lying prefix.
+static func get_string_bounded(r: StreamPeerBuffer) -> String:
+	if r.get_available_bytes() < 4:
+		return ""
+	var n := r.get_u32()
+	if n == 0 or n > r.get_available_bytes():
+		return ""
+	var res: Array = r.get_data(n)
+	if int(res[0]) != OK:
+		return ""
+	return (res[1] as PackedByteArray).get_string_from_utf8()
+
+
 ## HELLO body: protocol version + player name + auto_deploy (trailing byte, legacy default true).
 static func decode_hello(bytes: PackedByteArray) -> Dictionary:
 	var r := body_reader(bytes)
 	var ver := r.get_u16()
-	var pname := _sanitize_name(r.get_utf8_string())
+	var pname := _sanitize_name(get_string_bounded(r))
 	var auto_deploy: bool = (r.get_u8() == 1) if r.get_available_bytes() > 0 else true
 	return {"ver": ver, "name": pname, "auto_deploy": auto_deploy}
 
@@ -160,7 +177,7 @@ static func _sanitize_name(raw: String) -> String:
 
 
 static func decode_reject(bytes: PackedByteArray) -> String:
-	return body_reader(bytes).get_utf8_string()
+	return get_string_bounded(body_reader(bytes))
 
 
 # ---- shared field codecs ----------------------------------------------------
@@ -363,32 +380,46 @@ static func decode_collapse(bytes: PackedByteArray) -> int:
 	return body_reader(bytes).get_u16()
 
 
-static func encode_grenade_throw(dir: Vector3, type: int) -> PackedByteArray:
+static func encode_grenade_throw(dir: Vector3, type: int, charge: float = 1.0) -> PackedByteArray:
 	var buf := StreamPeerBuffer.new()
 	buf.put_u8(Msg.GRENADE_THROW)
 	put_dir10k(buf, dir.normalized())
 	buf.put_u8(type)
+	buf.put_u8(int(round(clampf(charge, 0.0, 1.0) * 255.0)))   # hold-charge 0..1 -> throw strength
 	return buf.data_array
 
 
 static func decode_grenade_throw(bytes: PackedByteArray) -> Dictionary:
 	var r := body_reader(bytes)
-	return {"dir": get_dir10k(r), "type": r.get_u8()}
+	var dir := get_dir10k(r)
+	var type := r.get_u8()
+	var charge := 1.0   # old clients (no charge byte) -> full-strength throw
+	if r.get_available_bytes() > 0:
+		charge = float(r.get_u8()) / 255.0
+	return {"dir": dir, "type": type, "charge": charge}
 
 
-static func encode_smoke_deployed(pos: Vector3, radius: float, expire_tick: int) -> PackedByteArray:
+static func encode_smoke_deployed(pos: Vector3, radius: float, expire_tick: int, vel: Vector3 = Vector3.ZERO) -> PackedByteArray:
 	var buf := StreamPeerBuffer.new()
 	buf.put_u8(Msg.SMOKE_DEPLOYED)
-	buf.put_16(roundi(pos.x)); buf.put_16(roundi(pos.y)); buf.put_16(roundi(pos.z))
+	buf.put_16(clampi(roundi(pos.x), -32768, 32767)); buf.put_16(clampi(roundi(pos.y), -32768, 32767)); buf.put_16(clampi(roundi(pos.z), -32768, 32767))   # clamp like put_pos10 (no i16 wrap)
 	buf.put_u8(clampi(roundi(radius), 0, 255))
 	buf.put_u16(clampi(expire_tick, 0, 65535))   # absolute tick (u16); fine for gate-length matches
+	# Canister velocity AT POP (m/s) so the client can integrate the same fall and the cloud follows the
+	# grenade wherever it flies/tumbles to, instead of hanging where the fuse popped. Trailing-optional.
+	buf.put_float(vel.x); buf.put_float(vel.y); buf.put_float(vel.z)
 	return buf.data_array
 
 
 static func decode_smoke_deployed(bytes: PackedByteArray) -> Dictionary:
 	var r := body_reader(bytes)
 	var pos := Vector3(r.get_16(), r.get_16(), r.get_16())
-	return {"pos": pos, "radius": r.get_u8(), "expire_tick": r.get_u16()}
+	var radius := r.get_u8()
+	var expire_tick := r.get_u16()
+	var vel := Vector3.ZERO   # old senders / short packets: a stationary cloud where it popped
+	if r.get_available_bytes() >= 12:
+		vel = Vector3(r.get_float(), r.get_float(), r.get_float())
+	return {"pos": pos, "radius": radius, "expire_tick": expire_tick, "vel": vel}
 
 
 static func encode_revive_action(target_id: int, active: bool) -> PackedByteArray:
@@ -515,17 +546,28 @@ static func decode_rocket_fx(bytes: PackedByteArray) -> Dictionary:
 
 ## Remote thrown grenade — same wire shape as ROCKET_FX (origin ×10, look dir ×10000) plus a kind
 ## byte (Grenade.FRAG/SMOKE); the client rebuilds the launch velocity and arcs a cosmetic grenade.
-static func encode_grenade_fx(origin: Vector3, dir: Vector3, kind: int) -> PackedByteArray:
+static func encode_grenade_fx(origin: Vector3, dir: Vector3, kind: int, team: int = 0, charge: float = 1.0) -> PackedByteArray:
 	var buf := StreamPeerBuffer.new()
 	buf.put_u8(Msg.GRENADE_FX)
 	put_pos10(buf, origin)
 	put_dir10k(buf, dir)
 	buf.put_u8(clampi(kind, 0, 255))
+	buf.put_u8(clampi(team, 0, 255))                          # thrower team: client warns only for enemy nades
+	buf.put_u8(int(round(clampf(charge, 0.0, 1.0) * 255.0)))  # so the remote arc matches the charged throw
 	return buf.data_array
 
 static func decode_grenade_fx(bytes: PackedByteArray) -> Dictionary:
 	var r := body_reader(bytes)
-	return {"origin": get_pos10(r), "dir": get_dir10k(r), "kind": r.get_u8()}
+	var origin := get_pos10(r)
+	var dir := get_dir10k(r)
+	var kind := r.get_u8()
+	var team := 0
+	var charge := 1.0
+	if r.get_available_bytes() > 0:
+		team = r.get_u8()
+	if r.get_available_bytes() > 0:
+		charge = float(r.get_u8()) / 255.0
+	return {"origin": origin, "dir": dir, "kind": kind, "team": team, "charge": charge}
 
 ## Authoritative deployed-gadget list — each entry: kind byte (GadgetList.C4/MINE/BAG), pos ×10,
 ## facing x/z ×10000 (zero for C4/bags). The client replaces its rendered gadget set on each receipt.
@@ -693,7 +735,7 @@ static func decode_damage_event(bytes: PackedByteArray) -> Dictionary:
 	return {"bearing": Quantize.dec_angle(r.get_u16()), "amount": r.get_u8()}
 
 
-static func encode_self_state(mag: int, reloading: bool, reload_remaining: int, weapon: int, throwables: Array = [], being_revived: bool = false, suppression: float = 0.0, blind_ticks: int = 0, bandage_count: int = 0, bleed_halted: bool = false, repair_heat: float = 0.0, repair_cooldown: float = 0.0) -> PackedByteArray:
+static func encode_self_state(mag: int, reloading: bool, reload_remaining: int, weapon: int, throwables: Array = [], being_revived: bool = false, suppression: float = 0.0, blind_ticks: int = 0, bandage_count: int = 0, bleed_halted: bool = false, repair_heat: float = 0.0, repair_cooldown: float = 0.0, stamina: float = 100.0, vel_y: float = 0.0, grounded: bool = true, vaulting: bool = false, vault_tick: int = 0, regen_cooldown: float = 0.0) -> PackedByteArray:
 	var buf := StreamPeerBuffer.new()
 	buf.put_u8(Msg.SELF_STATE)
 	buf.put_u8(clampi(mag, 0, 255))
@@ -722,6 +764,27 @@ static func encode_self_state(mag: int, reloading: bool, reload_remaining: int, 
 	# SELF_STATE), appended last so older decoders ignore them. Zero for non-engineers / not repairing.
 	buf.put_u8(int(round(clampf(repair_heat, 0.0, 1.0) * 255.0)))
 	buf.put_u8(int(round(clampf(repair_cooldown, 0.0, 1.0) * 255.0)))
+	# Authoritative stamina (0..100 fits a byte) for client sprint-prediction reconcile. Owner-only
+	# (rides SELF_STATE), appended last so older decoders ignore it. Without it the client double-drains
+	# stamina during replay and rubber-bands while sprinting.
+	buf.put_u8(clampi(int(round(stamina)), 0, 255))
+	# Authoritative vertical velocity + grounded flag for the client JUMP-prediction reconcile. Owner-only
+	# (rides SELF_STATE), appended last so older decoders ignore them. Without them the client keeps a
+	# stale velocity.y through reconcile and the jump arc rubber-bands ("pulled back" mid-jump).
+	buf.put_float(vel_y)
+	buf.put_u8(1 if grounded else 0)
+	# Authoritative vault progress for the client VAULT-prediction reconcile. Owner-only, appended
+	# last so older decoders ignore it. Without it a reconcile mid-vault kept the stale local arc
+	# (which overrides the authoritative position) and every replayed input advanced the 8-tick arc
+	# again — the predicted vault finished (1+pending)x too fast and stuttered every auto-vault.
+	buf.put_u8(1 if vaulting else 0)
+	buf.put_u8(clampi(vault_tick, 0, 255))
+	# Authoritative stamina regen-cooldown for the client SPRINT/JUMP-stamina reconcile (fixes the
+	# deferred C6). Without it the client's _regen_cooldown drifts from the server's, so predicted
+	# stamina diverges exactly at the boundaries that matter — empty-sprint (sprint flickers on/off,
+	# ~1 Hz snap) and the JUMP_COST threshold (the jump fires a tick apart -> the arc apex snaps).
+	# Owner-only, appended last so older decoders ignore it. Normalized to STAMINA_REGEN_DELAY.
+	buf.put_u8(clampi(roundi(regen_cooldown / Pawn.STAMINA_REGEN_DELAY * 255.0), 0, 255))
 	return buf.data_array
 
 static func decode_self_state(bytes: PackedByteArray) -> Dictionary:
@@ -738,6 +801,9 @@ static func decode_self_state(bytes: PackedByteArray) -> Dictionary:
 	var bleed_halted := false
 	var repair_heat := 0.0
 	var repair_cooldown := 0.0
+	var stamina := 100.0   # full by default so a short/old packet never wrongly stalls sprint prediction
+	var vel_y := 0.0       # standing still by default
+	var grounded := true   # on the ground by default so an old/short packet never mis-predicts a jump
 	if r.get_available_bytes() > 0:
 		being_revived = r.get_u8() == 1
 	if r.get_available_bytes() > 0:
@@ -756,7 +822,22 @@ static func decode_self_state(bytes: PackedByteArray) -> Dictionary:
 		repair_heat = float(r.get_u8()) / 255.0
 	if r.get_available_bytes() > 0:
 		repair_cooldown = float(r.get_u8()) / 255.0
-	return {"mag": mag, "reloading": reloading, "reload_remaining": reload_remaining, "weapon": weapon, "throwables": throwables, "being_revived": being_revived, "suppression": suppression, "blind_ticks": blind_ticks, "bandage_count": bandage_count, "bleed_halted": bleed_halted, "repair_heat": repair_heat, "repair_cooldown": repair_cooldown}
+	if r.get_available_bytes() > 0:
+		stamina = float(r.get_u8())
+	if r.get_available_bytes() >= 4:
+		vel_y = r.get_float()
+	if r.get_available_bytes() > 0:
+		grounded = r.get_u8() == 1
+	var vaulting := false   # not vaulting by default so an old/short packet never freezes the pawn mid-arc
+	var vault_tick := 0
+	if r.get_available_bytes() > 0:
+		vaulting = r.get_u8() == 1
+	if r.get_available_bytes() > 0:
+		vault_tick = r.get_u8()
+	var regen_cooldown := 0.0   # 0 by default: an old/short packet lets stamina regen immediately (harmless)
+	if r.get_available_bytes() > 0:
+		regen_cooldown = float(r.get_u8()) / 255.0 * Pawn.STAMINA_REGEN_DELAY
+	return {"mag": mag, "reloading": reloading, "reload_remaining": reload_remaining, "weapon": weapon, "throwables": throwables, "being_revived": being_revived, "suppression": suppression, "blind_ticks": blind_ticks, "bandage_count": bandage_count, "bleed_halted": bleed_halted, "repair_heat": repair_heat, "repair_cooldown": repair_cooldown, "stamina": stamina, "vel_y": vel_y, "grounded": grounded, "vaulting": vaulting, "vault_tick": vault_tick, "regen_cooldown": regen_cooldown}
 
 
 static func encode_roster(rows: Array) -> PackedByteArray:
@@ -780,7 +861,7 @@ static func decode_roster(bytes: PackedByteArray) -> Dictionary:
 	var rows: Array = []
 	for _i in n:
 		var id := r.get_u32()
-		var nm := r.get_utf8_string()
+		var nm := get_string_bounded(r)
 		rows.append({"id": id, "name": nm, "team": r.get_u8(), "squad": r.get_u8(),
 			"kills": r.get_u16(), "deaths": r.get_u16(), "score": r.get_u16()})
 	return {"rows": rows}
@@ -841,10 +922,18 @@ static func encode_swap_weapon(slot: int) -> PackedByteArray:
 static func decode_swap_weapon(bytes: PackedByteArray) -> int:
 	return body_reader(bytes).get_u8()
 
-static func encode_melee() -> PackedByteArray:
+static func encode_melee(view_server_tick: int = 0) -> PackedByteArray:
 	var buf := StreamPeerBuffer.new()
 	buf.put_u8(Msg.MELEE)
+	buf.put_u32(view_server_tick)   # rendered-time tick so the server lag-comp rewinds targets like bullets
 	return buf.data_array
+
+static func decode_melee(bytes: PackedByteArray) -> Dictionary:
+	var r := body_reader(bytes)
+	var vt := 0
+	if r.get_available_bytes() >= 4:
+		vt = r.get_u32()   # zero (or absent) => present-time, back-compatible with old clients
+	return {"view_server_tick": vt}
 
 
 static func encode_place_fob(cell: Vector3i, yaw: int) -> PackedByteArray:

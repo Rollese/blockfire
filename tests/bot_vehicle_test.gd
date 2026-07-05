@@ -16,9 +16,29 @@ func test_nearest_free_own_vehicle_picks_closest_with_a_free_seat() -> void:
 	assert_eq(got, Vehicle.id_for(1))
 
 func test_nearest_free_vehicle_skips_full() -> void:
-	var full := VehicleState.new(); full.pos = Vector3(2, 0, 0); full.seats = [1, 2, 3, 4, 5]
+	var full := VehicleState.new(); full.pos = Vector3(2, 0, 0); full.hp = 1000; full.seats = [1, 2, 3, 4, 5]
 	var vview := {Vehicle.id_for(0): full}
 	assert_eq(VC.nearest_free_vehicle(vview, Vector3.ZERO), 0)
+
+func test_nearest_free_vehicle_skips_wrecks() -> void:
+	# Global-review B1: destroyed hulls stay replicated with hp 0 and every seat zeroed — they
+	# looked maximally "free", so crew bots walked to them, sent doomed VA_ENTERs, and wedged in
+	# phantom-driver mode for the rest of that life.
+	var wreck := VehicleState.new(); wreck.pos = Vector3(2, 0, 0); wreck.hp = 0
+	wreck.seats = [0, 0, 0, 0, 0]
+	var live := _vs(Vector3(40, 0, 0), 0)
+	var vview := {Vehicle.id_for(0): wreck, Vehicle.id_for(1): live}
+	assert_eq(VC.nearest_free_vehicle(vview, Vector3.ZERO), Vehicle.id_for(1), "wreck skipped, live hull picked")
+
+func test_nearest_free_vehicle_skips_enemy_crewed() -> void:
+	# VehicleState carries no team — enemy-ness is inferred from seated occupants, like
+	# vehicle_is_enemy. An enemy-crewed hull is unboardable (server can_enter rejects it).
+	var theirs := _vs(Vector3(2, 0, 0), 42)    # occupant 42 seated
+	var ours := _vs(Vector3(40, 0, 0), 0)      # empty
+	var enemy := EntityState.new(); enemy.team = 1
+	var view := {42: enemy}
+	var vview := {Vehicle.id_for(0): theirs, Vehicle.id_for(1): ours}
+	assert_eq(VC.nearest_free_vehicle(vview, Vector3.ZERO, view, 0), Vehicle.id_for(1), "enemy-crewed hull skipped")
 
 func test_drive_dir_points_at_objective() -> void:
 	# steering toward an objective to the +x returns positive throttle-forward intent

@@ -30,6 +30,7 @@ const VM_YAW := PI   # GlbWeaponKit aims the barrel +Z; camera-forward is -Z, so
 var _ads_t := 0.0   # 0..1 aim-down-sights blend (client-only visual zoom/pose); set each frame by client_main
 var _vm_photo_hidden := false   # viewmodel hidden by photo/free-fly mode
 var _vm_scope_hidden := false   # viewmodel hidden while scoped (look through the scope, not at the gun)
+var _vm_downed_hidden := false  # viewmodel hidden while downed (DBNO — you drop your weapon; C5)
 
 # -- tracer (shot feedback) ---------------------------------------------------
 const TRACER_POOL := 16
@@ -47,6 +48,7 @@ var _tracer_idx: int = 0
 # SUPPORT_LIST. The beam spans giver->target chest; the aura pulses on the target. View-only.
 const SUPPORT_POOL := 16
 const SUPPORT_CHEST_Y := 1.2       # raise both endpoints to ~chest so the beam reads as person-to-person
+const SUPPORT_REVIVE_KIND := 3     # matches Support/SUPPORT_COLORS REVIVE
 const SUPPORT_COLORS := {
 	0: Color(0.25, 1.0, 0.35),     # HEAL   — green
 	1: Color(1.0, 0.78, 0.22),     # AMMO   — amber
@@ -463,9 +465,15 @@ func set_viewmodel_scope_hidden(h: bool) -> void:
 	_vm_scope_hidden = h
 	_apply_vm_visibility()
 
+## Hide the viewmodel while downed (DBNO): a downed player has no weapon in hand. Composes with the
+## photo/scope hides.
+func set_viewmodel_downed_hidden(h: bool) -> void:
+	_vm_downed_hidden = h
+	_apply_vm_visibility()
+
 func _apply_vm_visibility() -> void:
 	if _viewmodel != null:
-		_viewmodel.visible = not (_vm_photo_hidden or _vm_scope_hidden)
+		_viewmodel.visible = not (_vm_photo_hidden or _vm_scope_hidden or _vm_downed_hidden)
 
 ## Aim-down-sights blend (0 = hip, 1 = fully aimed). Client-only visual: shifts the viewmodel to the
 ## sight line (see _pose_viewmodel) and damps the locomotion bob. The matching FOV zoom is applied by
@@ -695,7 +703,9 @@ func fire_tracer(now: float) -> void:
 	var fwd := (-cb.basis.z).normalized()
 	# Muzzle: from the eye, nudged right/down/forward so the beam doesn't emit from screen centre.
 	var origin := cb.origin + cb.basis.x * 0.18 - cb.basis.y * 0.12 + fwd * 0.5
-	_spawn_tracer(origin, fwd, now)
+	# Own muzzle flash sits ~0.5 m from the camera, so the full-size plate filled the lower-right of the
+	# screen. Shrink it hard for the first-person shot (remote shots keep full size — see tracer_from).
+	_spawn_tracer(origin, fwd, now, LOCAL_FLASH_SCALE)
 
 
 ## Cosmetic tracer for a REMOTE pawn's shot (from a server SHOT_FX): a beam from the shooter's
@@ -706,7 +716,11 @@ func tracer_from(origin: Vector3, dir: Vector3, now: float) -> void:
 	_spawn_tracer(origin, dir.normalized(), now)
 
 
-func _spawn_tracer(origin: Vector3, fwd: Vector3, now: float) -> void:
+# First-person muzzle flash spawns right in front of the camera, so it needs to be a fraction of the
+# world-space plate size a distant remote shot uses, or it fills the screen.
+const LOCAL_FLASH_SCALE := 0.3
+
+func _spawn_tracer(origin: Vector3, fwd: Vector3, now: float, flash_scale: float = 1.0) -> void:
 	if _tracers.is_empty():
 		return
 	var up := Vector3.UP if absf(fwd.dot(Vector3.UP)) < 0.99 else Vector3.RIGHT
@@ -717,7 +731,7 @@ func _spawn_tracer(origin: Vector3, fwd: Vector3, now: float) -> void:
 	(t["mat"] as StandardMaterial3D).albedo_color = TRACER_COLOR
 	node.visible = true
 	t["die"] = now + TRACER_TTL
-	_spawn_flash(origin, fwd, now)
+	_spawn_flash(origin, fwd, now, flash_scale)
 
 
 func _age_tracers(now: float) -> void:
@@ -734,14 +748,15 @@ func _age_tracers(now: float) -> void:
 			(t["mat"] as StandardMaterial3D).albedo_color = c
 
 
-func _spawn_flash(origin: Vector3, fwd: Vector3, now: float) -> void:
+func _spawn_flash(origin: Vector3, fwd: Vector3, now: float, scale: float = 1.0) -> void:
 	if _flashes.is_empty():
 		return
 	var up := Vector3.UP if absf(fwd.dot(Vector3.UP)) < 0.99 else Vector3.RIGHT
 	var f: Dictionary = _flashes[_flash_idx]
 	_flash_idx = (_flash_idx + 1) % _flashes.size()
 	var node: MeshInstance3D = f["node"]
-	node.global_transform = Transform3D(Basis.looking_at(fwd, up), origin)
+	# Scale the pooled plate per-spawn (small for the first-person shot, full for distant remote shots).
+	node.global_transform = Transform3D(Basis.looking_at(fwd, up).scaled(Vector3.ONE * scale), origin)
 	var c := MuzzleFlashKit.COLOR
 	c.a = 1.0
 	(f["mat"] as StandardMaterial3D).albedo_color = c
@@ -768,7 +783,7 @@ func _age_flashes(now: float) -> void:
 ## soft unshaded puffs scattered in the zone; opacity is driven per-frame by SmokeCloud.envelope in
 ## _age_smokes (billow-in / hold / fade-out). Deterministic offsets (golden-angle spiral) so the
 ## cloud reads the same every time; capped at SMOKE_MAX_CLOUDS (oldest dropped) to bound mesh count.
-func spawn_smoke(pos: Vector3, radius: float, duration: float, now: float) -> void:
+func spawn_smoke(pos: Vector3, radius: float, duration: float, now: float, vel: Vector3 = Vector3.ZERO) -> void:
 	if not pos.is_finite() or radius <= 0.0 or duration <= 0.0:
 		return
 	while _smokes.size() >= SMOKE_MAX_CLOUDS:
@@ -798,7 +813,10 @@ func spawn_smoke(pos: Vector3, radius: float, duration: float, now: float) -> vo
 		root.add_child(node)
 		mats.append(mat)
 		bases.append(node.position)
-	_smokes.append({"root": root, "mats": mats, "born": now, "dur": duration, "base": bases})
+	# Canister kinematics so the cloud follows the grenade's fall/roll (C3): pos+vel integrated per
+	# frame under the shared Grenade model, clamped to the ground. Zero vel -> the cloud stays put.
+	_smokes.append({"root": root, "mats": mats, "born": now, "dur": duration, "base": bases,
+		"pos": pos, "vel": vel, "t": now})
 
 
 func _age_smokes(now: float) -> void:
@@ -820,6 +838,21 @@ func _age_smokes(now: float) -> void:
 		var grow := 1.0 + clampf(age / dur, 0.0, 1.0) * 0.25
 		var root := s["root"] as Node3D
 		root.scale = Vector3(grow, grow, grow)
+		# Follow the canister: integrate its fall under the shared Grenade model and rest it on the
+		# ground, so the cloud trails the grenade wherever it flew before settling (C3). Skips work
+		# once the canister is at rest (vel zero on the ground).
+		var vel: Vector3 = s["vel"]
+		if vel != Vector3.ZERO:
+			var dt: float = maxf(0.0, now - float(s["t"]))
+			var step := Grenade.integrate(s["pos"], vel, dt)
+			var np: Vector3 = step["pos"]
+			var nv: Vector3 = step["vel"]
+			if np.y <= 0.0:
+				np.y = 0.0
+				nv = Vector3.ZERO
+			s["pos"] = np; s["vel"] = nv
+			root.position = np
+		s["t"] = now
 		live.append(s)
 	_smokes = live
 
@@ -914,6 +947,12 @@ func _resolve_support_pos(id: int, local_id: int, local_pos: Vector3, remotes: D
 	return Vector3.INF
 
 func _draw_support_slot(s: Dictionary, a: Vector3, b: Vector3, kind: int, now: float) -> void:
+	# Revive draws no support FX — the downed teammate's red indicator marker already shows it (owner
+	# asked to drop the extra revive beam/ball/cross). Heal/ammo/repair still draw their beam + aura.
+	if kind == SUPPORT_REVIVE_KIND:
+		s["beam"].visible = false
+		s["aura"].visible = false
+		return
 	var dir := b - a
 	var dist := dir.length()
 	var beam: MeshInstance3D = s["beam"]
@@ -922,9 +961,10 @@ func _draw_support_slot(s: Dictionary, a: Vector3, b: Vector3, kind: int, now: f
 	else:
 		var mid := (a + b) * 0.5
 		var up := Vector3.UP if absf(dir.dot(Vector3.UP)) < 0.99 * dist else Vector3.RIGHT
-		# Bake the length into the global basis (z-scale) so we don't depend on the renderer node
-		# being at identity — same robustness as the tracer pool. Box is unit length on local Z.
-		beam.global_transform = Transform3D(Basis.looking_at(dir / dist, up).scaled(Vector3(1.0, 1.0, dist)), mid)
+		# Bake the length into the basis (LOCAL z-scale: B * S). Basis.scaled() is S * B — a GLOBAL
+		# scale — which only stretched the beam correctly when the link happened to run along world Z;
+		# an east–west heal beam drew as a ~1 m stub bloated sideways, diagonals as skewed slabs.
+		beam.global_transform = Transform3D(Basis.looking_at(dir / dist, up) * Basis.from_scale(Vector3(1.0, 1.0, dist)), mid)
 		var col: Color = SUPPORT_COLORS.get(kind, Color.WHITE)
 		var bmat: StandardMaterial3D = s["beam_mat"]
 		# Gentle flow pulse so the link reads as "active" rather than a static line.
@@ -1141,8 +1181,8 @@ func fire_rocket(origin: Vector3, dir: Vector3, now: float) -> void:
 func cull_rockets_near(pos: Vector3, radius: float) -> void:
 	_fx.cull_rockets_near(pos, radius)
 
-func throw_grenade(origin: Vector3, vel: Vector3, kind: int, now: float) -> void:
-	_fx.throw_grenade(origin, vel, kind, now)
+func throw_grenade(origin: Vector3, vel: Vector3, kind: int, now: float, friendly: bool = false) -> void:
+	_fx.throw_grenade(origin, vel, kind, now, friendly)
 
 func live_grenade_positions() -> Array:
 	return _fx.live_grenade_positions()
@@ -1366,6 +1406,12 @@ func _sync_entity_pool(remotes: Dictionary, local_team: int, render_delta: float
 ## advances at the sim rate, so process only frames where it actually moved (distance-based cadence,
 ## not time-based) — an idle pawn keeps its leftover accumulator instead of draining it every frame.
 func _tick_footstep(id: int, es: EntityState, now: float) -> void:
+	if _seated_ids.has(id):
+		# Seat-slaved to a vehicle hull: the replicated position rides the vehicle, not legs — a
+		# moving transport otherwise trailed sprint dust + ~8 footfalls/sec per occupant.
+		_step_prev[id] = es.pos
+		_step_accum[id] = 0.0
+		return
 	var prev: Vector3 = _step_prev.get(id, es.pos)
 	var flat := Vector3(es.pos.x - prev.x, 0.0, es.pos.z - prev.z)
 	var dist := flat.length()
@@ -1384,6 +1430,13 @@ func _tick_footstep(id: int, es: EntityState, now: float) -> void:
 ## and kick a dust burst when it lands from a fall. Called every frame per remote so the vy estimate is
 ## continuous (even across pose branches). Returns true while airborne (drives the jump/fall pose).
 func _update_airborne(id: int, es: EntityState, dt: float, now: float) -> bool:
+	if _seated_ids.has(id):
+		# Riding a vehicle: vertical hull motion is not a jump/fall — a transport dropping off a
+		# ledge otherwise fired a landing dust burst + LAND footstep at every seated occupant.
+		_air_y[id] = es.pos.y
+		_air_vy[id] = 0.0
+		_air_fell[id] = false
+		return false
 	var py: float = _air_y.get(id, es.pos.y)
 	var d := clampf(dt, 0.001, 0.1)
 	var inst := (es.pos.y - py) / d
@@ -2495,6 +2548,38 @@ func _make_box_mesh(size: Vector3, color: Color) -> MeshInstance3D:
 	mat.albedo_color = color
 	mi.material_override = mat
 	return mi
+
+## Visible RED ladder (owner request): two rails + rungs spanning bottom->top, built in local space
+## (rails along local X, stacked up local Y) and rotated by `yaw` so the rungs face out from the wall.
+## The map's climb VOLUME is yaw-agnostic; this is presentation only, so a ladder reads as a ladder
+## and stands out as the way up.
+func _make_ladder(ladder: Dictionary) -> Node3D:
+	var bottom: Vector3 = ladder["bottom"]
+	var top: Vector3 = ladder["top"]
+	var height: float = maxf(0.5, top.y - bottom.y)
+	var half_w := 0.34
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = Color(0.86, 0.11, 0.11)
+	mat.emission_enabled = true
+	mat.emission = Color(0.75, 0.06, 0.06)
+	mat.emission_energy_multiplier = 0.7
+	var root := Node3D.new()
+	root.position = bottom
+	root.rotation.y = float(ladder.get("yaw", 0.0))
+	for s in [-1.0, 1.0]:
+		var rail := MeshInstance3D.new()
+		var rm := BoxMesh.new(); rm.size = Vector3(0.09, height, 0.09); rail.mesh = rm
+		rail.material_override = mat
+		rail.position = Vector3(s * half_w, height * 0.5, 0.0)
+		root.add_child(rail)
+	var rungs := maxi(2, int(height / 0.34))
+	for i in range(1, rungs):
+		var rung := MeshInstance3D.new()
+		var gm := BoxMesh.new(); gm.size = Vector3(half_w * 2.0, 0.06, 0.07); rung.mesh = gm
+		rung.material_override = mat
+		rung.position = Vector3(0.0, height * float(i) / float(rungs), 0.0)
+		root.add_child(rung)
+	return root
 
 
 # =============================================================================

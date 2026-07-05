@@ -59,6 +59,18 @@ func resolve_vehicle_fires() -> void:
 			if hit["hit"] and hit["t"] < best_t:
 				best_t = hit["t"]; best_victim = tid; best_head = hit["headshot"]
 		if best_victim == 0: continue
+		# Structure occlusion: the infantry projectile path marches the store for cover, this hitscan
+		# path never did — mounted guns shot through every wall on the map. A piece strictly nearer
+		# than the victim blocks the round (chips the wall, no penetration for mounted guns).
+		if srv._store != null and srv._store.count() > 0:
+			var blocked: Dictionary = srv._store.march(origin, dir, best_t)
+			if bool(blocked["hit"]) and float(blocked["dist"]) < best_t:
+				var hit_pt: Vector3 = origin + dir * float(blocked["dist"])
+				srv._stats.shots += 1
+				srv._stats.shots_blocked += 1
+				srv._damage_structure(int(blocked["id"]), PieceCatalog.SRC_BULLET, hit_pt, srv.BULLET_CARVE_RADIUS)
+				srv._broadcast_impact_fx(hit_pt, Protocol.IMPACT_WALL)   # cosmetic: round stopped by cover
+				continue
 		var victim: Pawn = srv._sim.world.get_pawn(best_victim)
 		if victim == null or not victim.alive: continue
 		srv._stats.shots += 1; srv._stats.hits += 1

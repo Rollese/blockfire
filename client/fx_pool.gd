@@ -170,13 +170,15 @@ func make_rocket() -> Node3D:
 ## from the look dir, matching the server). `kind` is Grenade.FRAG / Grenade.SMOKE — only the colour
 ## differs. It flies the shared ballistic arc and vanishes on ground contact or at the fuse; the
 ## server's DETONATION / SMOKE_DEPLOYED then plays the blast / cloud at the landing point.
-func throw_grenade(origin: Vector3, vel: Vector3, kind: int, now: float) -> void:
+func throw_grenade(origin: Vector3, vel: Vector3, kind: int, now: float, friendly: bool = false) -> void:
 	if not origin.is_finite() or not vel.is_finite():
 		return
 	var node := make_grenade(kind)
 	node.position = origin
 	add_child(node)
-	_pool_push(thrown, {"node": node, "vel": vel, "die": now + GRENADE_FUSE, "kind": kind, "next_trail": now}, MAX_THROWN)
+	# `friendly` (own or same-team throw) is excluded from the HUD danger warning — with FF off a
+	# friendly frag can't hurt you, so warning on it is just noise (C3b).
+	_pool_push(thrown, {"node": node, "vel": vel, "die": now + GRENADE_FUSE, "kind": kind, "next_trail": now, "friendly": friendly}, MAX_THROWN)
 
 
 func age_thrown(now: float, delta: float) -> void:
@@ -203,9 +205,12 @@ func age_thrown(now: float, delta: float) -> void:
 
 ## World positions of the live cosmetic grenades (local throws + remote GRENADE_FX). The HUD reads
 ## this to warn when one is about to go off near the player. View-only — no gameplay authority.
+## Enemy-thrown live grenades only (friendly ones are noise with FF off). Feeds the HUD danger warning.
 func live_grenade_positions() -> Array:
 	var out: Array = []
 	for g: Dictionary in thrown:
+		if bool(g.get("friendly", false)):
+			continue
 		out.append((g["node"] as Node3D).position)
 	return out
 

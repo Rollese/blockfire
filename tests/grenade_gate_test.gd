@@ -70,6 +70,33 @@ func test_impact_detonates_on_wall_contact() -> void:
 	assert_eq(srv._grenades.size(), 0, "impact grenade consumed from the pool")
 	srv.free()
 
+func test_smoke_pops_in_air_then_follows_canister_until_lifetime_ends() -> void:
+	# C3: a smoke thrown hard is still airborne when its fuse pops. It must begin billowing in the air
+	# and keep emitting while the canister falls (the cloud follows it), and the grenade item must stay
+	# in the pool until the whole smoke lifetime elapses.
+	var srv := _make_server()
+	srv._grenades.append({
+		"owner": 1, "team": 0, "type": Grenade.SMOKE,
+		"pos": Vector3(0.0, 12.0, 0.0), "vel": Vector3(0.0, 2.0, 6.0),
+		"detonate_tick": srv._sim.tick + 3,
+	})
+	srv._sim.tick += 4          # fuse elapsed (the harness doesn't advance tick inside _step_grenades)
+	srv._step_grenades()        # pops the smoke this step
+	assert_eq(srv._stats.smokes, 1, "smoke began billowing at the fuse")
+	assert_eq(srv._grenades.size(), 1, "canister stays live while the cloud emits (not dropped at pop)")
+	assert_eq(srv._smoke_zones.size(), 1, "one smoke zone registered")
+	var y_early: float = srv._smoke_zones[0]["pos"].y
+	for _i in 30:
+		srv._step_grenades()
+	assert_true(srv._smoke_zones[0]["pos"].y < y_early, "smoke zone follows the falling canister")
+	# Once the lifetime elapses the canister is dropped from the pool and the zone expires.
+	srv._sim.tick += srv.SMOKE_DURATION_TICKS + 1
+	srv._step_grenades()
+	assert_eq(srv._grenades.size(), 0, "canister dropped once the smoke finished")
+	srv._expire_smoke_zones()
+	assert_eq(srv._smoke_zones.size(), 0, "expired smoke zone cleaned up")
+	srv.free()
+
 func test_frag_ignores_wall_and_waits_for_fuse() -> void:
 	var srv := _make_server()
 	_place_wall(srv)

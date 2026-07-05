@@ -35,7 +35,12 @@ var _eye_init := false
 # per-tick corrections (sub-mm quantization) are ignored so the render interpolation stays intact.
 var _pos_err := Vector3.ZERO
 var _reconciled := false
-const RECON_DEADZONE := 0.04   # corrections under this (m) are noise — left to normal interpolation
+const RECON_DEADZONE := 0.12   # corrections under this (m) are noise — left to smooth 30->60 interpolation
+                               # instead of the _pos_err ease. Was 0.04, right at the per-connect
+                               # prediction-lead jitter magnitude (~4-6 cm), so constant tiny corrections
+                               # took the active-ease path and never settled -> perceived micro-snapping.
+                               # predicted.pos is still set to authority either way; this only changes the
+                               # visual easing of sub-12 cm corrections. Genuine desyncs (>RECON_SNAP) snap.
 const RECON_SNAP := 2.5        # corrections over this (m) snap (respawn/teleport), not smoothed
 const RECON_SMOOTH := 13.0     # per-second decay of _pos_err (~a correction fades over ~150 ms)
 # DBNO downed screen
@@ -112,6 +117,8 @@ var _meleepose_test := false       # --remote-melee-test: pin a melee-lunge-pose
 var _vaultpose_test := false       # --remote-vault-test: pin a mantle-posed dummy beside an upright one
 var _glbshoot_test := false        # --glbshoot-test: GLB hold vs holding-both-shoot clip A/B
 var _ads_t := 0.0                   # 0..1 eased aim-down-sights blend (client-only visual zoom/pose)
+var _supp_fx := 0.0                 # A6: peak-held suppression FX strength (snaps up, decays slowly so a spike is visible)
+const SUPP_FX_DECAY := 1.4          # per-second decay of the suppression veil after a spike (~0.7 s to clear)
 const ADS_RATE := 16.0              # ADS ease speed (per second); ~1/e in ~60 ms
 var _prev_grounded := true          # for the local landing viewmodel dip (airborne->grounded edge)
 var _prev_vy := 0.0                 # local vertical velocity from the previous frame (fall impact speed)
@@ -166,6 +173,19 @@ var _bandage_count: int = 0        # latest bandage charges from SELF_STATE (res
 var _life_down_count: int = 0      # times downed this life (client mirror; drives the halving bleedout timer)
 var _repair_heat: float = 0.0      # latest Engineer repair-tool heat fraction from SELF_STATE (HUD gauge)
 var _repair_cooldown: float = 0.0  # latest repair overheat-lockout remaining fraction from SELF_STATE
+var _self_stamina: float = 100.0   # latest authoritative stamina from SELF_STATE (sprint reconcile baseline)
+var _self_vel_y: float = 0.0       # latest authoritative vertical velocity from SELF_STATE (jump reconcile baseline)
+var _self_grounded: bool = true    # latest authoritative grounded flag from SELF_STATE (jump reconcile baseline)
+var _self_vaulting: bool = false   # latest authoritative vault flag from SELF_STATE (vault-arc reconcile)
+var _self_vault_tick: int = 0      # latest authoritative vault progress from SELF_STATE
+var _self_regen_cooldown: float = 0.0   # latest authoritative stamina regen-cooldown (C6 sprint/jump-stamina reconcile)
+var _conn_lost: bool = false       # in-game disconnect: freeze the loop under the overlay
+var _conn_lost_overlay: CanvasLayer = null
+var _reject_reason: String = ""    # last REJECT text — shown on the menu when the disconnect lands
+var _my_class: int = 0             # own class from WELCOME (medic revive-rate for the HUD bar)
+var _throw_charge: float = 0.0     # C3: current grenade hold-charge 0..1 (grows while "throw" is held)
+var _throw_charging: bool = false  # whether we're mid-charge on a throwable
+const THROW_CHARGE_SECS := 1.1     # hold time to reach full throw strength
 var _repair_heat_test := false     # --repair-heat-test: drive a demo heat/cooldown cycle for a QA screenshot
 var _revive_hold: float = 0.0      # seconds the interact key has been held on a revive target
 
@@ -243,9 +263,11 @@ func _on_main_menu_connect(ip: String, port: int, player_name: String) -> void:
 	_server_ip = ip
 	_port = port
 	_player_name = player_name
+	# HIDE the menu, don't free it: an unreachable host surfaces as a peer_disconnected event a few
+	# seconds from now, and the menu (with its error line) is the only way back — freeing it here
+	# used to leave every failed connect on a permanent black screen. Freed on successful WELCOME.
 	if _main_menu != null:
-		_main_menu.queue_free()
-		_main_menu = null
+		_main_menu.visible = false
 	_start_connection()
 
 func _start_connection() -> void:
@@ -255,19 +277,92 @@ func _start_connection() -> void:
 	add_child(_net)
 	_net.peer_connected.connect(_on_connected)
 	_net.packet_received.connect(_on_packet)
+	_net.peer_disconnected.connect(_on_disconnected)
 	_peer = _net.start_client(_server_ip, _port)
 	if _peer == null:
 		push_error("[client] failed to create ENet host")
 		if _main_menu != null:
+			_main_menu.visible = true
 			_main_menu.set_connect_error("Failed to create network client.")
+		_teardown_net()
 		return
 	print("[client] connecting to %s:%d ..." % [_server_ip, _port])
+
+## Drop the ENet host so a fresh _start_connection can run (retry from the main menu).
+func _teardown_net() -> void:
+	_peer = null
+	if _net != null:
+		_net.close()
+		_net.queue_free()
+		_net = null
+
+## ENet disconnect: covers connect timeouts (unreachable host), server shutdown, kicks, and the
+## M8-P3 map-rotation disconnect_all. Before WELCOME -> back to the main menu with an error line;
+## in-game -> freeze the world under a clear "connection lost" overlay (auto-reconnect is a
+## documented M7 follow-up; the old behavior was a silent freeze that kept sending inputs forever).
+func _on_disconnected(_peer_obj: ENetPacketPeer) -> void:
+	if my_id == 0:
+		print("[client] connection failed/refused (%s:%d)" % [_server_ip, _port])
+		_teardown_net()
+		if _main_menu != null:
+			_main_menu.visible = true
+			var why := "Could not connect to %s:%d." % [_server_ip, _port]
+			if _reject_reason != "":
+				why = "Rejected by server: %s" % _reject_reason
+				_reject_reason = ""
+			_main_menu.set_connect_error(why)
+		else:
+			# --connect / headless CLI path: no menu to fall back to.
+			push_error("[client] could not connect to %s:%d — exiting" % [_server_ip, _port])
+			get_tree().quit(1)
+		return
+	print("[client] disconnected from server")
+	_conn_lost = true
+	_teardown_net()
+	if _input_ctrl != null:
+		_input_ctrl.release_mouse()
+	_show_conn_lost_overlay()
+
+func _show_conn_lost_overlay() -> void:
+	if _conn_lost_overlay != null:
+		return
+	_conn_lost_overlay = CanvasLayer.new()
+	_conn_lost_overlay.layer = 100
+	var dim := ColorRect.new()
+	dim.color = Color(0.0, 0.0, 0.0, 0.65)
+	dim.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_conn_lost_overlay.add_child(dim)
+	var box := VBoxContainer.new()
+	box.set_anchors_preset(Control.PRESET_CENTER)
+	box.alignment = BoxContainer.ALIGNMENT_CENTER
+	_conn_lost_overlay.add_child(box)
+	var title := Label.new()
+	title.text = "CONNECTION LOST"
+	title.add_theme_font_size_override("font_size", 42)
+	title.add_theme_color_override("font_color", Color(1.0, 0.45, 0.35))
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	box.add_child(title)
+	var sub := Label.new()
+	sub.text = "The server closed the connection (shutdown or match rotation).\nRestart the client to reconnect."
+	sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	sub.add_theme_color_override("font_color", Color(0.9, 0.9, 0.9))
+	box.add_child(sub)
+	var quit := Button.new()
+	quit.text = "Quit"
+	quit.custom_minimum_size = Vector2(160, 40)
+	quit.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	quit.pressed.connect(func(): get_tree().quit())
+	box.add_child(quit)
+	add_child(_conn_lost_overlay)
 
 # ---- physics tick -----------------------------------------------------------
 func _physics_process(delta: float) -> void:
 	if _net != null:
 		_net.poll()
 	_elapsed += delta
+
+	if _conn_lost:
+		return   # connection lost: world frozen under the overlay, nothing to predict or send
 
 	if my_id == 0:
 		return   # not yet welcomed
@@ -300,11 +395,13 @@ func _physics_process(delta: float) -> void:
 			cmd["move_y"] = 0.0
 			cmd["buttons"] = 0
 		elif _in_vehicle() >= 0:
-			# Slaved to the vehicle server-side: predicting free movement only rubber-bands the eye.
-			# Zero movement + movement buttons (keep look + fire) and snap the predicted pawn onto the
-			# authoritative vehicle-seat position so the POV rides along instead of drifting/bouncing.
-			cmd["move_x"] = 0.0
-			cmd["move_y"] = 0.0
+			# Slaved to the vehicle server-side: predicting free movement only rubber-bands the eye, so
+			# snap the predicted pawn onto the authoritative seat position (the POV rides along instead
+			# of drifting/bouncing). KEEP move_x/move_y: the server steers the vehicle from the DRIVER's
+			# last_input axes (server_main._build_vehicle_inputs) — zeroing them here meant the driver
+			# could never turn. Non-driver seats ignore the axes and the seated pawn never free-moves
+			# (pawn.gd skips movement while in_vehicle), so forwarding them is safe. Mask the movement
+			# buttons (jump/crouch/sprint do nothing seated); keep fire so passengers can shoot out.
 			cmd["buttons"] = int(cmd["buttons"]) & InputCommand.BTN_FIRE
 			_pred.predicted.pos = ss.pos
 			_pred.predicted.velocity = Vector3.ZERO
@@ -491,6 +588,8 @@ func _fly_photo_camera(dt: float) -> void:
 func _process(_dt: float) -> void:
 	_poll_screenshot_key()   # F12/F9 screenshot — works even before the scene is built
 	_poll_debug_overlay_key()   # F3 toggles the green perf/debug overlay
+	if _conn_lost:
+		return   # world + HUD frozen under the connection-lost overlay; no actions, no sends
 	# --shot-after=N: automated visual QA — save one screenshot N secs after launch, then quit.
 	if _shot_after >= 0.0 and not _shot_done and _scene_built and _elapsed >= _shot_after:
 		_shot_done = true
@@ -576,6 +675,9 @@ func _process(_dt: float) -> void:
 	_renderer.set_ads(_ads_t)   # viewmodel sight pose + bob damping (before update -> _pose_viewmodel reads it)
 	# Hide the gun while scoped (you look through the scope, not at the centred gun).
 	_renderer.set_viewmodel_scope_hidden((_scope_test or _is_scoped(weapon0)) and _ads_t > 0.6)
+	# Hide the gun while downed (DBNO): no weapon in hand on the ground (C5).
+	var _self_ss_vm: EntityState = _wv.self_state()
+	_renderer.set_viewmodel_downed_hidden(_self_ss_vm != null and _self_ss_vm.is_downed)
 	var cam_fov: float = lerpf(_settings.fov, _ads_fov(weapon0), _ads_t)   # FOV zoom toward the per-weapon ADS FOV
 	var _t0 := Time.get_ticks_usec()
 	_renderer.update(_wv, _pred, _elapsed, cam_fov, _input_ctrl.yaw, _input_ctrl.pitch, eye, _dt)
@@ -605,6 +707,8 @@ func _process(_dt: float) -> void:
 		"vehicles_near": _vehicles_near(),
 		"repair_heat": _repair_heat,
 		"repair_cooldown": _repair_cooldown,
+		"throw_charge": _throw_charge if _throw_charging else 0.0,   # C3 grenade charge bar (0 when idle)
+		"stamina_frac": _pred.predicted.stamina / Pawn.STAMINA_MAX,   # bottom-centre stamina bar (shown when spent)
 	}
 	if _repair_heat_test:   # visual QA: cycle heat 0->overheat->cooldown so the gauge is on-screen
 		var phase: float = fmod(_elapsed, 6.0)
@@ -641,7 +745,13 @@ func _process(_dt: float) -> void:
 			_giveup_hold = 0.0
 			_giveup_sent = false
 			_life_down_count += 1   # mirror the server's per-life down count so the timer halves too
-		if Input.is_action_pressed("jump"):
+		# No give-up accrual while a menu is open: rebinding a key to Space in Settings > Controls
+		# while downed used to hold-to-give-up the player from inside the menu.
+		var giveup_menu_open: bool = (_settings_menu != null and _settings_menu.visible) \
+			or (_hud_view != null and _hud_view.is_squad_menu_open())
+		if giveup_menu_open:
+			_giveup_hold = 0.0
+		elif Input.is_action_pressed("jump"):
 			_giveup_hold += _dt
 			if _giveup_hold >= GIVEUP_HOLD and not _giveup_sent and _peer != null:
 				_net.send_to(_peer, NetHost.CHANNEL_CONTROL, Protocol.encode_give_up(), ENetPacketPeer.FLAG_RELIABLE)
@@ -681,7 +791,11 @@ func _process(_dt: float) -> void:
 		# Hide the hip crosshair once aiming down sights — the sights (or scope reticle) take over.
 		_hud_view.update_crosshair(cspread, (not ch_alive and not _crosshair_test) or _ads_t > 0.5)
 		# Sniper scope overlay: only for a scoped weapon (DMR), scaled by the ADS blend. --scope-test forces it.
-		_hud_view.set_scope(_ads_t if (_scope_test or _is_scoped(weapon0)) else 0.0)
+		var scoped0: bool = _scope_test or _is_scoped(weapon0)
+		_hud_view.set_scope(_ads_t if scoped0 else 0.0)
+		# C2 red-dot ADS reticle: give iron-sighted weapons a usable aim point while aiming (scoped
+		# weapons use the scope overlay instead). ch_alive gates it to a live, deployed pawn.
+		_hud_view.set_reddot(ch_alive and _ads_t > 0.5 and not scoped0)
 		# M5.5-P3 flashbang white-out from the SELF_STATE blind byte (cleared on death/deploy).
 		# --flash-test forces a strong-but-translucent veil so the world shows through (visual QA);
 		# it still routes through blind_intensity so the real render chain is exercised.
@@ -691,7 +805,15 @@ func _process(_dt: float) -> void:
 		# M5.5-P2 suppression screen FX from the SELF_STATE suppression byte (same gating as blind:
 		# only while alive + not downed). --suppress-test forces a strong veil for visual QA.
 		var supp := (0.8 if _suppress_qa_on else 0.0) if _suppress_test else (_suppression if blinded else 0.0)
-		_hud_view.set_suppression(HudModel.suppression_intensity(supp))
+		# Peak-hold the veil: snap up to a new suppression peak instantly, then decay slowly. The server
+		# bleeds suppression off ~0.04/tick, so a near-miss spike would otherwise flash for one frame and
+		# vanish — this keeps it on screen long enough to actually register (A6). Cleared on death/downed.
+		var supp_target := HudModel.suppression_intensity(supp)
+		if blinded or _suppress_test:
+			_supp_fx = maxf(supp_target, _supp_fx - SUPP_FX_DECAY * _dt)
+		else:
+			_supp_fx = 0.0
+		_hud_view.set_suppression(_supp_fx)
 
 	# ---- C3: revive intent (no self-recovery — a teammate must revive you, BattleBit-style) ----
 	var sss: EntityState = _wv.self_state()
@@ -717,7 +839,9 @@ func _process(_dt: float) -> void:
 				ENetPacketPeer.FLAG_RELIABLE)
 		if ip != null and String(ip.get("action", "")) == "revive" and interact_held and _peer != null:
 			_revive_hold += _dt
-			var revive_time: float = float(Revive.REVIVE_TICKS) / 30.0
+			# Match the SERVER's completion time: a medic revives in half the ticks — the bar used to
+			# always show the 3 s non-medic fill, so a medic's revive completed at ~50% on-screen.
+			var revive_time: float = float(Revive.revive_ticks(_my_class == Loadout.MEDIC)) / 30.0
 			_net.send_to(_peer, NetHost.CHANNEL_CONTROL,
 				Protocol.encode_revive_action(int(ip["target"]), true), ENetPacketPeer.FLAG_RELIABLE)
 			if _hud_view != null:
@@ -752,7 +876,7 @@ func _process(_dt: float) -> void:
 
 		# Quick melee (C): send the swing + play the viewmodel swing. Server resolves the hit.
 		if Input.is_action_just_pressed("melee") and not combat_locked:
-			_net.send_to(_peer, NetHost.CHANNEL_CONTROL, Protocol.encode_melee(), ENetPacketPeer.FLAG_RELIABLE)
+			_net.send_to(_peer, NetHost.CHANNEL_CONTROL, Protocol.encode_melee(_wv.view_tick(_elapsed)), ENetPacketPeer.FLAG_RELIABLE)
 			if _renderer != null:
 				_renderer.play_viewmodel_swing(_elapsed)
 			if _audio != null:
@@ -816,32 +940,46 @@ func _process(_dt: float) -> void:
 		else:
 			_build_wheel = 0   # preview + hint are cleared by the inactive-state tail block in _process
 
-		# Throw: send grenade or RPG based on active throwable kind
-		if Input.is_action_just_pressed("throw") and not combat_locked:
-			var throwables_model: Dictionary = _model.get("throwables", {})
-			var tlist: Array = throwables_model.get("list", [])
-			var active_idx: int = int(throwables_model.get("active", 0))
-			if active_idx < tlist.size():
-				var slot: Dictionary = tlist[active_idx]
-				var kind: int = int(slot.get("kind", -1))
-				# Aim direction: same camera-forward the server rebuilds for bullets
-				var aim_dir: Vector3 = -Vector3(sin(_input_ctrl.yaw), 0.0,
-					cos(_input_ctrl.yaw)).normalized()
-				# Tilt by pitch so thrown arc matches the look direction
+		# Throw: hold to charge (longer hold = farther), release to lob. RPG fires immediately on press.
+		var throwables_model: Dictionary = _model.get("throwables", {})
+		var tlist: Array = throwables_model.get("list", [])
+		var active_idx: int = int(throwables_model.get("active", 0))
+		var active_kind: int = int((tlist[active_idx] as Dictionary).get("kind", -1)) if active_idx < tlist.size() else -1
+		var active_count: int = int((tlist[active_idx] as Dictionary).get("count", 0)) if active_idx < tlist.size() else 0
+		# Require count > 0: an empty grenade slot must not charge, send a (server-rejected) throw, or
+		# play the local throw cosmetic — otherwise every keypress lobs a phantom grenade that never
+		# detonates (round-5 playtest).
+		var throwable_is_nade: bool = (active_kind == Grenade.FRAG or active_kind == Grenade.SMOKE) and active_count > 0
+		if throwable_is_nade and not combat_locked and Input.is_action_pressed("throw"):
+			# Grow the charge while the key is held (clamped to full).
+			_throw_charging = true
+			_throw_charge = minf(_throw_charge + _dt / THROW_CHARGE_SECS, 1.0)
+		else:
+			# Not actively charging this frame. Throw only on a CLEAN release (was charging, still a
+			# grenade, not combat-locked) — a mid-charge lock (downed / menu / vehicle) or throwable
+			# switch cancels without throwing. Always reset the charge afterward.
+			if _throw_charging and throwable_is_nade and not combat_locked \
+					and Input.is_action_just_released("throw"):
+				var aim_dir: Vector3 = -Vector3(sin(_input_ctrl.yaw), 0.0, cos(_input_ctrl.yaw)).normalized()
 				var pitch: float = _input_ctrl.pitch
 				aim_dir = Vector3(aim_dir.x * cos(pitch), sin(pitch), aim_dir.z * cos(pitch)).normalized()
-				if kind == Grenade.FRAG or kind == Grenade.SMOKE:
-					_net.send_to(_peer, NetHost.CHANNEL_CONTROL,
-						Protocol.encode_grenade_throw(aim_dir, kind), ENetPacketPeer.FLAG_RELIABLE)
-					if _renderer != null:
-						# Instant thrower feedback: a cosmetic grenade arcs along the shared Grenade
-						# model from the eye (matching the server) and vanishes on landing / at the fuse.
-						_renderer.throw_grenade(_pred.predicted.eye_position(),
-							Grenade.launch_velocity(aim_dir), kind, _elapsed)
-				elif kind == 100:  # RPG
-					_net.send_to(_peer, NetHost.CHANNEL_CONTROL,
-						Protocol.encode_gadget_action(Protocol.GA_RPG_FIRE,
-							_pred.predicted.pos, aim_dir, 0), ENetPacketPeer.FLAG_RELIABLE)
+				var charge: float = _throw_charge
+				_net.send_to(_peer, NetHost.CHANNEL_CONTROL,
+					Protocol.encode_grenade_throw(aim_dir, active_kind, charge), ENetPacketPeer.FLAG_RELIABLE)
+				if _renderer != null:
+					# Own grenade -> friendly=true so it never triggers our own danger warning.
+					_renderer.throw_grenade(_pred.predicted.eye_position(),
+						Grenade.launch_velocity(aim_dir, charge), active_kind, _elapsed, true)
+			_throw_charging = false
+			_throw_charge = 0.0
+		# RPG throwable fires immediately on press (not a charged lob).
+		if Input.is_action_just_pressed("throw") and active_kind == 100 and not combat_locked:
+			var rpg_dir: Vector3 = -Vector3(sin(_input_ctrl.yaw), 0.0, cos(_input_ctrl.yaw)).normalized()
+			var rpg_pitch: float = _input_ctrl.pitch
+			rpg_dir = Vector3(rpg_dir.x * cos(rpg_pitch), sin(rpg_pitch), rpg_dir.z * cos(rpg_pitch)).normalized()
+			_net.send_to(_peer, NetHost.CHANNEL_CONTROL,
+				Protocol.encode_gadget_action(Protocol.GA_RPG_FIRE,
+					_pred.predicted.pos, rpg_dir, 0), ENetPacketPeer.FLAG_RELIABLE)
 
 		# Left-click also fires the RPG when it's the equipped weapon. The RPG isn't a hit-scan
 		# click weapon, so without this the primary-fire button feels dead for an RPG loadout.
@@ -922,7 +1060,8 @@ func _on_packet(_from: ENetPacketPeer, _channel: int, bytes: PackedByteArray) ->
 		Protocol.Msg.WELCOME:
 			_handle_welcome(bytes)
 		Protocol.Msg.REJECT:
-			print("[client] REJECTED: %s" % Protocol.decode_reject(bytes))
+			_reject_reason = Protocol.decode_reject(bytes)
+			print("[client] REJECTED: %s" % _reject_reason)
 		Protocol.Msg.SNAPSHOT:
 			_handle_snapshot(bytes)
 		Protocol.Msg.SELF_STATE:
@@ -991,8 +1130,12 @@ func _on_packet(_from: ENetPacketPeer, _channel: int, bytes: PackedByteArray) ->
 		Protocol.Msg.GRENADE_FX:
 			var gfx: Dictionary = Protocol.decode_grenade_fx(bytes)
 			if _renderer != null:
-				# Remote pawn's thrown grenade arcs the shared Grenade model (same as the local thrower).
-				_renderer.throw_grenade(gfx["origin"], Grenade.launch_velocity(gfx["dir"]), int(gfx["kind"]), _elapsed)
+				# Remote pawn's thrown grenade arcs the shared Grenade model (same as the local thrower),
+				# at the charged speed. Same-team throws are friendly -> excluded from the danger warning.
+				var g_friendly: bool = int(gfx.get("team", -1)) == _local_team()
+				_renderer.throw_grenade(gfx["origin"],
+					Grenade.launch_velocity(gfx["dir"], float(gfx.get("charge", 1.0))),
+					int(gfx["kind"]), _elapsed, g_friendly)
 		Protocol.Msg.GADGET_LIST:
 			if bytes != _gadget_bytes:
 				_gadget_bytes = bytes   # skip the rebuild on an unchanged 1 Hz heartbeat
@@ -1047,11 +1190,12 @@ func _on_packet(_from: ENetPacketPeer, _channel: int, bytes: PackedByteArray) ->
 			var sm: Dictionary = Protocol.decode_smoke_deployed(bytes)
 			if _renderer != null:
 				# Lifetime from the server's absolute expiry tick vs our latest server tick (30 Hz);
-				# clamp to a sane window, fall back to the 5 s server smoke duration if unknown.
+				# clamp to a sane window, fall back to the server smoke duration if unknown.
 				var dur := float(int(sm["expire_tick"]) - _last_server_tick) / 30.0
-				if dur <= 0.5 or dur > 12.0:
-					dur = 5.0
-				_renderer.spawn_smoke(sm["pos"], float(int(sm["radius"])), dur, _elapsed)
+				if dur <= 0.5 or dur > 20.0:
+					dur = 13.0
+				# Pass the pop velocity so the cloud follows the canister's fall (C3), not a static puff.
+				_renderer.spawn_smoke(sm["pos"], float(int(sm["radius"])), dur, _elapsed, sm.get("vel", Vector3.ZERO))
 
 # ---- WELCOME ----------------------------------------------------------------
 func _handle_welcome(bytes: PackedByteArray) -> void:
@@ -1059,6 +1203,11 @@ func _handle_welcome(bytes: PackedByteArray) -> void:
 	my_id = int(w["id"])
 	var tick_rate: int = int(w["tick_rate"])
 	var cls: int = int(w["class"])
+	_my_class = cls   # own class (e.g. medic revives at double rate — the HUD revive bar matches)
+	# Connected for real — the (hidden) pre-game menu has served its purpose.
+	if _main_menu != null:
+		_main_menu.queue_free()
+		_main_menu = null
 
 	_wv.set_local_id(my_id)
 	_wpred.set_weapon(Loadout.weapon_for(cls))
@@ -1075,6 +1224,11 @@ func _handle_welcome(bytes: PackedByteArray) -> void:
 				_map_path = server_path
 				_map = sm
 				_conquest = ConquestState.new(_map)
+				# The predictor was armed with the DEFAULT map's geometry in _ready — refresh it or
+				# prediction climbs ladders/clamps edges/finds platform floors from the wrong map
+				# for the whole session (rubber-band at every ladder/floor/boundary).
+				_pred.world_half = _map.world_half
+				_pred.set_geometry(_map.ladders, _map.platforms)
 				print("[client] adopting server map: %s" % server_map)
 			else:
 				push_warning("[client] server map '%s' not found locally; keeping %s" % [server_map, _map_path])
@@ -1102,15 +1256,27 @@ func _handle_snapshot(bytes: PackedByteArray) -> void:
 		_life_down_count = 0  # fresh life next spawn: re-arm the full 60 s bleedout window (revives keep it)
 		if _hud_view != null:
 			_hud_view.set_squad_menu_open(false)   # don't leave the squad overlay up over the deploy screen
+	var just_respawned: bool = alive and not _was_alive
 	_was_alive = alive
+	if just_respawned and _peer != null:
+		# Respawn resets the server's fire mode to the weapon default even when the weapon is unchanged
+		# (so the SELF_STATE weapon-change branch won't re-send). Re-assert the remembered mode here so
+		# a selection survives death (C1/E1).
+		_wpred.set_weapon(_wpred.weapon)   # restore remembered mode for the current weapon locally
+		_net.send_to(_peer, NetHost.CHANNEL_CONTROL,
+			Protocol.encode_set_fire_mode(_wpred.fire_mode), ENetPacketPeer.FLAG_RELIABLE)
 	if alive:
 		# Mirror downed state BEFORE reconcile so the replayed inputs crawl (1 m/s) on the very tick
 		# the down/revive lands — otherwise that transition tick replays full-speed and rubber-bands.
 		_pred.predicted.is_downed = ss.is_downed
+		# Likewise climbing (replicated): a predicted engage/leave on a different tick than the server
+		# would otherwise stick, routing every replayed input through _step_climb (vertical-only) and
+		# yanking the pawn each snapshot until the position happened to exit the ladder radius.
+		_pred.predicted.climbing = ss.climbing
 		# Reconcile movement prediction from authoritative position + pitch. Smooth only a genuine
 		# correction (deadzone..snap): ease it into the camera via _pos_err instead of snapping.
 		var pre_pos: Vector3 = _pred.predicted.pos
-		_pred.reconcile_full(ss.pos, ss.yaw, ss.pitch, int(hdr["last_input_tick"]))
+		_pred.reconcile_full(ss.pos, ss.yaw, ss.pitch, int(hdr["last_input_tick"]), _self_stamina, _self_vel_y, _self_grounded, _self_vaulting, _self_vault_tick, _self_regen_cooldown)
 		var cl: float = (pre_pos - _pred.predicted.pos).length()
 		if cl > RECON_DEADZONE and cl <= RECON_SNAP:
 			_pos_err += pre_pos - _pred.predicted.pos
@@ -1157,6 +1323,11 @@ func _handle_self_state(bytes: PackedByteArray) -> void:
 	# Switch weapon if server assigned a different one (e.g. class change)
 	if int(d["weapon"]) != _wpred.weapon:
 		_wpred.set_weapon(int(d["weapon"]))
+		# The server resets fire mode to the weapon default on a swap; re-assert this weapon's
+		# remembered mode so its gating matches the client's persisted selection (C1/E1).
+		if _peer != null:
+			_net.send_to(_peer, NetHost.CHANNEL_CONTROL,
+				Protocol.encode_set_fire_mode(_wpred.fire_mode), ENetPacketPeer.FLAG_RELIABLE)
 	# Reconcile ammo from authority — no client rule logic, just snap
 	_wpred.reconcile(int(d["mag"]), bool(d["reloading"]), int(d["reload_remaining"]), _client_tick)
 	# Store throwable list for HUD ctx (C3: SELF_STATE now carries per-kind counts)
@@ -1167,6 +1338,12 @@ func _handle_self_state(bytes: PackedByteArray) -> void:
 	_bandage_count = int(d.get("bandage_count", 0))        # bandage charges (reserved: standing-bleed cure)
 	_repair_heat = float(d.get("repair_heat", 0.0))        # Engineer repair-tool heat (HUD gauge)
 	_repair_cooldown = float(d.get("repair_cooldown", 0.0))# repair overheat-lockout remaining fraction
+	_self_stamina = float(d.get("stamina", Pawn.STAMINA_MAX))  # authoritative stamina for sprint reconcile
+	_self_vel_y = float(d.get("vel_y", 0.0))                   # authoritative vertical velocity for jump reconcile
+	_self_grounded = bool(d.get("grounded", true))             # authoritative grounded flag for jump reconcile
+	_self_vaulting = bool(d.get("vaulting", false))            # authoritative vault progress for arc reconcile
+	_self_vault_tick = int(d.get("vault_tick", 0))
+	_self_regen_cooldown = float(d.get("regen_cooldown", 0.0)) # authoritative stamina regen-cooldown (C6 reconcile)
 
 # ---- MATCH_STATE ------------------------------------------------------------
 func _handle_match_state(bytes: PackedByteArray) -> void:
@@ -1277,6 +1454,8 @@ func _on_deploy_requested(spawn_ref: int) -> void:
 	_send_deploy_request(spawn_ref)
 
 func _send_deploy_request(spawn_ref: int) -> void:
+	if _peer == null or _net == null:
+		return   # disconnected — the deploy menu may still be on screen under the overlay
 	if _respawn_cooldown_left() > 0.0:
 		return   # respawn cooldown not elapsed — server would reject anyway
 	_net.send_to(_peer, NetHost.CHANNEL_CONTROL,
@@ -1359,6 +1538,13 @@ func _rebuild_struct_store(bytes: PackedByteArray) -> void:
 	if _pred != null:
 		_pred.structures = _struct_store
 	for rec: Dictionary in Protocol.decode_structure_baseline(bytes)["records"]:
+		# Under-construction sites are INTANGIBLE on the server (movement collides only against its
+		# _store; sites live in _build.sites) — placing their ghost records here made the client
+		# predict a solid piece the server walks through: hard rubber-band (and phantom client-side
+		# vaults for half-height ghosts) at every build/FOB site. Completion re-emits OP_PLACE with
+		# under_construction=0, which lands below as the real collidable piece.
+		if int(rec.get("under_construction", 0)) == 1:
+			continue
 		var placed := _struct_store.place(int(rec["id"]), int(rec["type"]), rec["cell"],
 			int(rec["yaw"]), int(rec["owner"]), int(rec["building_id"]))
 		if not placed.is_empty():
@@ -1372,6 +1558,8 @@ func _apply_struct_delta_to_store(bytes: PackedByteArray) -> void:
 	match int(d["op"]):
 		Protocol.OP_PLACE:
 			var rec: Dictionary = d["rec"]
+			if int(rec.get("under_construction", 0)) == 1:
+				return   # intangible ghost site — see _rebuild_struct_store
 			var placed := _struct_store.place(int(rec["id"]), int(rec["type"]), rec["cell"],
 				int(rec["yaw"]), int(rec["owner"]), int(rec["building_id"]))
 			if not placed.is_empty():

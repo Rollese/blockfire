@@ -241,6 +241,20 @@ func test_smoke_deployed_roundtrip() -> void:
 	assert_eq(d["pos"], Vector3(10, 0, -20))
 	assert_eq(d["radius"], 6)
 	assert_eq(d["expire_tick"], 1234)
+	assert_eq(d["vel"], Vector3.ZERO, "no velocity given -> stationary cloud")
+
+func test_smoke_deployed_carries_pop_velocity() -> void:
+	# C3: the cloud follows the canister, so the pop velocity rides SMOKE_DEPLOYED for the client to
+	# integrate the same fall arc.
+	var d := Protocol.decode_smoke_deployed(Protocol.encode_smoke_deployed(Vector3(0, 8, 0), 6.0, 500, Vector3(3.0, -2.0, 7.5)))
+	assert_almost_eq(float(d["vel"].x), 3.0, 0.01)
+	assert_almost_eq(float(d["vel"].y), -2.0, 0.01)
+	assert_almost_eq(float(d["vel"].z), 7.5, 0.01)
+
+func test_smoke_deployed_velocity_defaults_zero_for_old_senders() -> void:
+	var b := Protocol.encode_smoke_deployed(Vector3(0, 0, 0), 6.0, 500, Vector3(9, 9, 9))
+	b.resize(b.size() - 12)   # lop off the three trailing velocity floats (old/short packet)
+	assert_eq(Protocol.decode_smoke_deployed(b)["vel"], Vector3.ZERO, "absent velocity -> stationary")
 
 func test_revive_action_roundtrip() -> void:
 	var bytes := Protocol.encode_revive_action(4242, true)
@@ -324,6 +338,88 @@ func test_self_state_carries_repair_heat() -> void:
 	var d := Protocol.decode_self_state(b)
 	assert_true(absf(float(d["repair_heat"]) - 0.6) <= 1.0 / 255.0, "repair_heat round-trips ~0.6")
 	assert_eq(float(d["repair_cooldown"]), 1.0, "full cooldown round-trips exactly")
+
+func test_self_state_carries_vault_progress() -> void:
+	var b := Protocol.encode_self_state(17, false, 0, Weapon.AR, [], false, 0.0, 0, 0, false, 0.0, 0.0, 100.0, 0.0, false, true, 5)
+	var d := Protocol.decode_self_state(b)
+	assert_true(bool(d["vaulting"]), "vaulting flag round-trips")
+	assert_eq(int(d["vault_tick"]), 5, "vault progress round-trips")
+
+func test_self_state_vault_defaults_when_absent() -> void:
+	# Old/short packets (no vault bytes) must decode as not-vaulting so reconcile never freezes an arc.
+	var b := Protocol.encode_self_state(17, false, 0, Weapon.AR, [], false, 0.0, 0, 0, false, 0.0, 0.0, 100.0, 0.0, true, true, 5)
+	b.resize(b.size() - 3)   # drop the two vault bytes + the trailing regen-cooldown byte
+	var d := Protocol.decode_self_state(b)
+	assert_false(bool(d["vaulting"]), "absent vault bytes -> not vaulting")
+	assert_eq(int(d["vault_tick"]), 0)
+
+func test_self_state_carries_regen_cooldown() -> void:
+	# C6 fix: the stamina regen-cooldown rides SELF_STATE so the client reconciles it and stamina
+	# stops drifting at the sprint-empty / jump-cost boundaries.
+	var b := Protocol.encode_self_state(17, false, 0, Weapon.AR, [], false, 0.0, 0, 0, false, 0.0, 0.0, 100.0, 0.0, true, false, 0, Pawn.STAMINA_REGEN_DELAY * 0.5)
+	var d := Protocol.decode_self_state(b)
+	assert_almost_eq(float(d["regen_cooldown"]), Pawn.STAMINA_REGEN_DELAY * 0.5, Pawn.STAMINA_REGEN_DELAY / 255.0 + 0.001, "regen cooldown round-trips")
+
+func test_self_state_regen_defaults_when_absent() -> void:
+	var b := Protocol.encode_self_state(17, false, 0, Weapon.AR, [], false, 0.0, 0, 0, false, 0.0, 0.0, 100.0, 0.0, true, false, 0, 0.5)
+	b.resize(b.size() - 1)   # drop the trailing regen byte
+	var d := Protocol.decode_self_state(b)
+	assert_eq(float(d["regen_cooldown"]), 0.0, "absent regen byte -> 0 (immediate regen, harmless)")
+
+func test_grenade_throw_carries_charge() -> void:
+	var d := Protocol.decode_grenade_throw(Protocol.encode_grenade_throw(Vector3(1, 0, 0), Grenade.FRAG, 0.5))
+	assert_almost_eq(float(d["charge"]), 0.5, 1.0 / 255.0, "hold-charge round-trips")
+
+func test_grenade_throw_charge_defaults_full_for_old_clients() -> void:
+	# A throw packet without the charge byte decodes as full strength (back-compat).
+	var b := Protocol.encode_grenade_throw(Vector3(1, 0, 0), Grenade.FRAG)
+	b.resize(b.size() - 1)   # drop the charge byte
+	assert_almost_eq(float(Protocol.decode_grenade_throw(b)["charge"]), 1.0, 0.001, "absent charge -> full")
+
+func test_grenade_fx_carries_team_and_charge() -> void:
+	var d := Protocol.decode_grenade_fx(Protocol.encode_grenade_fx(Vector3(1, 2, 3), Vector3(1, 0, 0), Grenade.FRAG, 1, 0.25))
+	assert_eq(int(d["team"]), 1, "thrower team round-trips (enemy-only danger filter)")
+	assert_almost_eq(float(d["charge"]), 0.25, 1.0 / 255.0, "fx charge round-trips (matched arc)")
+
+func test_melee_carries_view_tick() -> void:
+	var d := Protocol.decode_melee(Protocol.encode_melee(4242))
+	assert_eq(int(d["view_server_tick"]), 4242, "melee view tick round-trips for lag-comp rewind")
+
+func test_melee_view_tick_defaults_zero() -> void:
+	# A bare/old melee packet (no payload) decodes as present-time (0), not a crash.
+	var d := Protocol.decode_melee(PackedByteArray([Protocol.Msg.MELEE]))
+	assert_eq(int(d["view_server_tick"]), 0, "absent view tick -> present-time")
+
+func test_self_state_carries_stamina() -> void:
+	# Authoritative stamina (0..100, one byte) feeds the client sprint-prediction reconcile.
+	var b := Protocol.encode_self_state(17, false, 0, Weapon.AR, [], false, 0.0, 0, 0, false, 0.0, 0.0, 42.0)
+	var d := Protocol.decode_self_state(b)
+	assert_almost_eq(float(d["stamina"]), 42.0, 0.5, "stamina round-trips")
+
+func test_self_state_stamina_defaults_full_for_old_senders() -> void:
+	# A packet from a sender that predates the stamina byte must decode as full stamina so the client
+	# never wrongly stalls sprint prediction on an absent field.
+	var b := Protocol.encode_self_state(17, false, 0, Weapon.AR)   # no trailing stamina byte written...
+	# (encode always writes it now; simulate an old/short packet by truncating the final byte)
+	b.resize(b.size() - 1)
+	var d := Protocol.decode_self_state(b)
+	assert_almost_eq(float(d["stamina"]), Pawn.STAMINA_MAX, 0.001, "absent stamina -> full")
+
+func test_self_state_carries_vertical_state() -> void:
+	# Authoritative vertical velocity + grounded feed the client jump-prediction reconcile. Without
+	# them the replay after a snapshot starts from a stale velocity.y and the jump arc rubber-bands.
+	var b := Protocol.encode_self_state(17, false, 0, Weapon.AR, [], false, 0.0, 0, 0, false, 0.0, 0.0, 100.0, 6.5, false)
+	var d := Protocol.decode_self_state(b)
+	assert_almost_eq(float(d["vel_y"]), 6.5, 0.01, "vertical velocity round-trips")
+	assert_false(bool(d["grounded"]), "airborne grounded flag round-trips")
+
+func test_self_state_vertical_defaults_grounded_for_old_senders() -> void:
+	# A packet predating the vertical-state fields must decode as grounded / zero vertical velocity so
+	# the client jump reconcile treats an absent field as "standing on the ground".
+	var b := Protocol.encode_self_state(17, false, 0, Weapon.AR)   # pre-jump-fix sender: no vel_y/grounded
+	var d := Protocol.decode_self_state(b)
+	assert_almost_eq(float(d["vel_y"]), 0.0, 0.001, "absent vel_y -> 0")
+	assert_true(bool(d["grounded"]), "absent grounded -> true")
 
 func test_version_bumped_for_deploy_ref_rebase() -> void:
 	# The deploy-ref spaces were re-based 2026-07-02 (SQUADMATE/VEHICLE/FOB bases moved) — a
@@ -437,7 +533,7 @@ func test_swap_weapon_roundtrip() -> void:
 func test_melee_message_encodes() -> void:
 	var b := Protocol.encode_melee()
 	assert_eq(b[0], Protocol.Msg.MELEE)
-	assert_eq(b.size(), 1, "MELEE is a zero-payload trigger")
+	assert_eq(b.size(), 5, "MELEE now carries a u32 view tick for lag-comp rewind")
 
 func test_record_carries_under_construction_and_progress() -> void:
 	var rec := {"id": 7, "type": 1, "cell": Vector3i(2, 0, 3), "yaw": 1, "chunks": -1,
@@ -501,10 +597,12 @@ func test_codec_dedup_golden_bytes() -> void:
 		"1cd204bdffc5226e0a24eb541f09000000", "shot_fx bytes stable (dir NOT normalized here)")
 	assert_eq(Protocol.encode_rocket_fx(pos, dir).hex_encode(),
 		"1ed204bdffc5226e0a24eb541f", "rocket_fx bytes stable")
+	# grenade_fx now trails team(00) + charge(ff = full) for the enemy-only danger filter + matched arc.
 	assert_eq(Protocol.encode_grenade_fx(pos, dir, 1).hex_encode(),
-		"23d204bdffc5226e0a24eb541f01", "grenade_fx bytes stable")
+		"23d204bdffc5226e0a24eb541f0100ff", "grenade_fx bytes stable (+team,+charge)")
+	# grenade_throw now trails charge(ff = full) for hold-to-charge throw strength.
 	assert_eq(Protocol.encode_grenade_throw(dir, 1).hex_encode(),
-		"0c6e0a23eb551f01", "grenade_throw bytes stable (dir normalized here)")
+		"0c6e0a23eb551f01ff", "grenade_throw bytes stable (+charge, dir normalized here)")
 	assert_eq(Protocol.encode_detonation(pos, 1).hex_encode(),
 		"0dd204bdffc52201", "detonation bytes stable")
 	assert_eq(Protocol.encode_impact_fx(pos, 2).hex_encode(),

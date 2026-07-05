@@ -25,6 +25,26 @@ func test_grenade_danger_none_when_no_grenades() -> void:
 	var out := m.build({"self_pos": Vector3.ZERO, "self_yaw": 0.0, "tick": 0})
 	assert_true((out["grenade_danger"] as Dictionary).is_empty(), "no grenades -> no danger indicator")
 
+func test_throw_charge_meter_visible_only_while_charging() -> void:
+	var m := HudModel.new()
+	var idle := m.build({"self_pos": Vector3.ZERO, "self_yaw": 0.0, "tick": 0})
+	assert_false(bool((idle["throw_charge"] as Dictionary).get("visible", true)), "no charge -> meter hidden")
+	var mid := m.build({"self_pos": Vector3.ZERO, "self_yaw": 0.0, "tick": 0, "throw_charge": 0.6})
+	var tc: Dictionary = mid["throw_charge"]
+	assert_true(bool(tc["visible"]), "charging -> meter shown")
+	assert_almost_eq(float(tc["charge"]), 0.6, 0.001, "meter reflects the hold strength")
+
+func test_stamina_bar_hidden_at_full_shown_when_spent() -> void:
+	var m := HudModel.new()
+	var full := m.build({"self_pos": Vector3.ZERO, "self_yaw": 0.0, "tick": 0})   # no stamina_frac -> defaults full
+	assert_false(bool((full["stamina"] as Dictionary).get("visible", true)), "full stamina -> bar hidden")
+	var full2 := m.build({"self_pos": Vector3.ZERO, "self_yaw": 0.0, "tick": 0, "stamina_frac": 1.0})
+	assert_false(bool((full2["stamina"] as Dictionary)["visible"]), "exactly full -> bar hidden")
+	var spent := m.build({"self_pos": Vector3.ZERO, "self_yaw": 0.0, "tick": 0, "stamina_frac": 0.4})
+	var st: Dictionary = spent["stamina"]
+	assert_true(bool(st["visible"]), "spent stamina -> bar shown")
+	assert_almost_eq(float(st["frac"]), 0.4, 0.001, "bar reflects the stamina fraction")
+
 func test_grenade_danger_ignores_far_grenade() -> void:
 	var m := HudModel.new()
 	var out := m.build({"self_pos": Vector3.ZERO, "self_eye": Vector3.ZERO, "self_yaw": 0.0,
@@ -242,14 +262,16 @@ func test_blind_intensity_saturates_then_fades() -> void:
 
 
 func test_suppression_intensity_threshold_and_ramp() -> void:
-	# Below the 0.25 threshold the screen FX is fully off (matches the audio onset);
-	# above it, a smoothstep ramp to full at s=1.0; clamped to [0,1].
+	# A6: veil off below the onset, pow(0.7) ramp to full at SUPPRESS_FX_FULL; clamped.
 	assert_almost_eq(HudModel.suppression_intensity(0.0), 0.0, 0.001)    # idle -> nothing
-	assert_almost_eq(HudModel.suppression_intensity(0.24), 0.0, 0.001)   # just below threshold -> off
-	assert_almost_eq(HudModel.suppression_intensity(1.0), 1.0, 0.001)    # fully suppressed -> full
-	assert_almost_eq(HudModel.suppression_intensity(2.0), 1.0, 0.001)    # clamped above 1
-	var lo := HudModel.suppression_intensity(0.4)
-	var hi := HudModel.suppression_intensity(0.8)
+	assert_almost_eq(HudModel.suppression_intensity(0.09), 0.0, 0.001)   # below the onset -> off
+	# A single dead-on near-miss (~0.15) must now be clearly visible (not buried near zero as smoothstep did).
+	assert_true(HudModel.suppression_intensity(0.15) > 0.2, "one near-miss reads on screen")
+	assert_true(HudModel.suppression_intensity(0.24) > 0.0, "realistic near-miss suppression shows a veil")
+	assert_almost_eq(HudModel.suppression_intensity(0.35), 1.0, 0.001)   # full at the sustained-fire level
+	assert_almost_eq(HudModel.suppression_intensity(1.0), 1.0, 0.001)    # clamped at full above that
+	var lo := HudModel.suppression_intensity(0.15)
+	var hi := HudModel.suppression_intensity(0.3)
 	assert_true(lo > 0.0 and lo < 1.0, "above threshold ramps in (0,1)")
 	assert_true(hi > lo, "monotonic increasing with suppression")
 

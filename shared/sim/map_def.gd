@@ -62,7 +62,8 @@ static func from_dict(data: Dictionary) -> Dictionary:
 	for l in data.get("ladders", []):
 		if not (l is Dictionary) or not l.has("bottom") or not l.has("top"):
 			return {"ok": false, "map": null, "error": "each ladder needs bottom + top"}
-		m.ladders.append({"bottom": _vec3(l["bottom"]), "top": _vec3(l["top"]), "radius": float(l.get("radius", 0.6))})
+		m.ladders.append({"bottom": _vec3(l["bottom"]), "top": _vec3(l["top"]), "radius": float(l.get("radius", 0.6)),
+			"yaw": float(l.get("yaw", 0.0))})   # render facing (rungs face this way); climb volume is yaw-agnostic
 	for pf in data.get("platforms", []):
 		if not (pf is Dictionary) or not pf.has("min") or not pf.has("max"):
 			return {"ok": false, "map": null, "error": "each platform needs min + max"}
