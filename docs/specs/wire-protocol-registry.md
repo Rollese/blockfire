@@ -36,7 +36,7 @@ doesn't have to reverse-engineer an 850-line file. **Update this table in the sa
 | 19 | VEHICLE_DESTROYED | s→c* | a vehicle was destroyed (vid) | M5 |
 | 20 | DEPLOY_REQUEST | c→s | deploy at spawn_ref (u16; see `DeploySpawn` ref spaces) | M7 |
 | 21 | DAMAGE_EVENT | s→c | damage taken: bearing + amount | M7 |
-| 22 | SELF_STATE | s→c(owner) | authoritative ammo/reload/suppression/blind/bandage/repair | M7 |
+| 22 | SELF_STATE | s→c(owner) | authoritative ammo/reload/suppression/blind/bandage/repair + trailing-optional reconcile bytes `stamina, vel_y, grounded, vaulting, vault_tick, regen_cooldown` (append-only, `get_available_bytes`-guarded; regen_cooldown added 2026-07-05 for the C6 stamina reconcile) | M7 |
 | 23 | HITMARKER | s→shooter | your shot hit (headshot/lethal flags) | M7 |
 | 24 | GIVE_UP | c→s | while downed, skip bleed-out and die | M7 |
 | 25 | ROSTER | s→c* | name/team/squad/K/D/score rows (1 Hz) | M7 |
