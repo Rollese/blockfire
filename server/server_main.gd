@@ -43,7 +43,7 @@ const MAP_PATH := "res://maps/conquest_proving_grounds.json"   # default; overri
 const MATCH_STATE_INTERVAL := 15   # ticks between match-state broadcasts (2 Hz)
 const KILL_SCORE := 100             # score points awarded to killer per kill
 const ROSTER_STRIDE_TICKS := 30    # broadcast roster every N ticks (~1 Hz @30Hz)
-const MATCH_END_DRAIN_TICKS := 60  # keep running ~2s after a win, then exit
+const MATCH_END_DRAIN_TICKS := 300  # keep running ~10s after a win so clients can show the victory/defeat screen, then exit/rotate
 const MAX_STRUCTURE_DELTAS_PER_TICK := 64   # graceful degradation: cap delta SENDS/tick
 # Per-client per-tick cap on structure-baseline pieces. A fresh join / big move on a dense map (town =
 # 8324 pieces) otherwise floods one tick with the whole map's baselines (reliable) — measured p99 spike
