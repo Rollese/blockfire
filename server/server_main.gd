@@ -450,6 +450,8 @@ func _step_movement() -> void:
 		if inp == null:
 			inp = c["last_input"]
 			if inp != null: _tele.starvation += 1
+		# Tick-lead: depth right after this tick's drain — what the owner client's clock loop tracks.
+		c["input_buf_depth"] = c["input_buf"].size()
 		if inp != null:
 			inputs[id] = inp
 			var prev_inp = c["last_input"]
@@ -848,7 +850,7 @@ func _send_snapshots() -> void:
 		# SELF_STATE packets (lossy links) leave the client predicting phantom ammo it doesn't have.
 		var rgauge := _support.repair_gauge_for(id)
 		_net.send_to(c["peer"], NetHost.CHANNEL_CONTROL,
-			Protocol.encode_self_state(int(c["ammo"]), bool(c["reloading"]), reload_remaining, int(c["weapon"]), _throwables_for(c), _support.being_revived.has(id), self_pawn.suppression, clampi(self_pawn.blind_until_tick - _sim.tick, 0, 255), self_pawn.bandage_count, self_pawn.bleed_halted, rgauge.x, rgauge.y, self_pawn.stamina, self_pawn.velocity.y, self_pawn.grounded, self_pawn.vaulting, self_pawn.vault_tick, self_pawn._regen_cooldown, self_pawn._sprint_locked),
+			Protocol.encode_self_state(int(c["ammo"]), bool(c["reloading"]), reload_remaining, int(c["weapon"]), _throwables_for(c), _support.being_revived.has(id), self_pawn.suppression, clampi(self_pawn.blind_until_tick - _sim.tick, 0, 255), self_pawn.bandage_count, self_pawn.bleed_halted, rgauge.x, rgauge.y, self_pawn.stamina, self_pawn.velocity.y, self_pawn.grounded, self_pawn.vaulting, self_pawn.vault_tick, self_pawn._regen_cooldown, self_pawn._sprint_locked, int(c["input_buf_depth"])),
 			ENetPacketPeer.FLAG_RELIABLE)
 		c["history"][seq] = current
 		c["history_v"][seq] = current_v
@@ -940,6 +942,7 @@ func _handle_hello(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
 	_peer_to_id[peer] = id
 	_clients[id] = {
 		"peer": peer, "input_buf": InputBuffer.new(), "last_input": null, "last_input_tick": 0,
+		"input_buf_depth": 0,   # post-drain depth, sampled in _step_movement (tick-lead SELF_STATE byte)
 		"last_acked_seq": 0, "next_seq": 1, "history": {}, "history_v": {},
 		"team": team, "squad": squad, "class": cls, "weapon": wid, "weapon_def": weapon_def,
 		"rockets": start_rockets, "last_rocket_tick": -100000,
