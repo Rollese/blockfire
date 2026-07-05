@@ -46,6 +46,31 @@ Also this session (separate, landed first): **vehicles deferred** to a post-core
   applied to the *camera* pitch only — cosmetic, does not touch the authoritative aim, so no
   prediction risk (same philosophy as the viewmodel kick). Feel values owner-tunable.
 
+## Round 7 — close-out pass (same session) → M7 gate PASS
+
+Owner ran the M7 close-out checklist (full match). All A–D items OK/fixed. Three follow-ups fixed:
+
+- **D1 — capture banner** (`hud_view`): was small + coloured + crammed next to the capture bar, and
+  a first restyle rendered off-centre on 1080p (a `Label.position` set overrode the horizontal
+  offsets; static pixel offsets don't hold across 4K/1080p). Final: a full-width `VBoxContainer` at a
+  fractional height with centre-aligned, width-filling white labels — **no pixel offsets, centred at
+  any resolution** (Xvfb-verified centred at 1920×1080). BattleBit-style large white fade.
+- **D2 — explosion "two echoes, second cut off"**: the placeholder `explosion.wav` was a 3.0 s sample
+  with a loud reverb/echo tail (voice-stealing clipped the tail). Trimmed to a punchy **1.4 s with a
+  0.35 s cosine fade-out**. Owner-confirmed fixed.
+- **B3 — match end showed CONNECTION LOST, not a result**: the server broadcast `match_over`+`winner`
+  (MATCH_STATE) but the client had no handler and the server exited ~2 s later. Added a
+  **VICTORY/DEFEAT/MATCH OVER** end screen (`_show_match_end_overlay`, viewer-relative, final tickets,
+  cleared on rotation) and extended `MATCH_END_DRAIN_TICKS` 60→300 (~10 s) so it shows before
+  exit/rotate. Owner-confirmed: "Victory screen showed correctly."
+
+**C2 answered (not a bug to fix now):** ammo is effectively unlimited because a reserve-mag system
+isn't implemented (reload always refills; grenades regen on a timer). Logged as a **post-M7 gameplay
+task** (BattleBit finite reserve + resupply), not an M7-gate item.
+
+**→ M7-P1 GATE PASS 2026-07-05.** Full end-to-end Conquest match on the rendered client, all
+close-out items confirmed by the owner. **M7 marked done** in `docs/TASKS.md` + the milestone doc.
+
 ## Decisions / deferrals
 
 - **C3a killfeed — leave OFF** (owner-confirmed). It was deliberately disabled ("BattleBit has no

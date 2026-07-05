@@ -1,6 +1,6 @@
 # M7 — Rendered Client, Art Pass + UX Polish
 
-**Status:** **in-progress** (brainstormed + speced 2026-06-16; on branch `m7-rendered-client`) · **Blocked by:** M5 land gate (done ✅) · *(pulled before M6 on 2026-06-16: this is the first human-playable rendered client; M6 voice + M10 air both need it)*
+**Status:** **DONE ✅** — **gate PASS 2026-07-05** (owner end-to-end human playtest, `conquest_town`, laptop 1080p → game2 server + 24 bots; full Conquest match start→win with victory/defeat end screen; all close-out items confirmed — see `docs/sessions/2026-07-05-m7-playtest-round6.md`). *(pulled before M6 on 2026-06-16: this is the first human-playable rendered client; M6 voice + M10 air both need it.)* **Deferred out of M7 to their own tracks:** reserve-ammo economy, killfeed (off by design), map design + bot pathfinding, destruction fidelity, scoreboard stats, and the B4/tick-lead netcode (`docs/specs/netcode-tick-lead.md`, feel-critical — do with the fleet gate).
 
 **Objective:** Turn the headless/bot-only game into the **first human-playable rendered client** — a real first-person client that predicts/renders from the shared deterministic sim — then re-skin it with the low-poly blocky kit and finish player-facing UX.
 
