@@ -12,6 +12,7 @@ const SPRINT_DRAIN := 15.0
 const STAMINA_REGEN := 12.0
 const STAMINA_REGEN_DELAY := 1.0
 const STAMINA_MAX := 100.0
+const SPRINT_RESUME := 20.0   # once stamina bottoms out, can't sprint again until it regens past this (BattleBit hysteresis)
 const WORLD_HALF := 1000.0
 const MAX_PITCH := 1.4835  # ~85 degrees
 const PRONE_TRANSITION_TICKS := 10  # fire blocked for this many ticks after entering prone (drop-shoot fix)
@@ -30,6 +31,7 @@ var alive: bool = true
 var team: int = 0
 var squad: int = 0
 var _regen_cooldown: float = 0.0
+var _sprint_locked: bool = false   # true after stamina hit 0 while sprinting; cleared once stamina >= SPRINT_RESUME
 var is_downed: bool = false
 var down_count: int = 0            # times downed THIS life (reset on spawn); drives the halving window
 var bleed_health: int = 0          # 0 at down, drains to bleed_floor (= -Revive.bleedout_window)
@@ -87,7 +89,7 @@ func step(dt: float, cmd: Dictionary, world_half: float = WORLD_HALF) -> void:
 		move = move.normalized()
 	var has_move := move.length() > 0.01
 
-	var sprinting := bool(buttons & InputCommand.BTN_SPRINT) and stance == Stance.STAND and stamina > 0.0 and has_move
+	var sprinting := bool(buttons & InputCommand.BTN_SPRINT) and stance == Stance.STAND and stamina > 0.0 and has_move and not _sprint_locked
 	var speed := Stance.speed(stance) * (SPRINT_MULT if sprinting else 1.0) * Armor.speed_mult(armor_class)
 	velocity.x = move.x * speed
 	velocity.z = move.z * speed
@@ -116,6 +118,15 @@ func step(dt: float, cmd: Dictionary, world_half: float = WORLD_HALF) -> void:
 		if _regen_cooldown <= 0.0:
 			stamina += STAMINA_REGEN * dt
 	stamina = clampf(stamina, 0.0, STAMINA_MAX)
+	# BattleBit sprint-lockout hysteresis: once stamina bottoms out you cannot sprint again until it
+	# regens past SPRINT_RESUME. This removes the pathological 1-tick empty-sprint burst that ran at
+	# ~1 Hz — and with it the wire-rounding desync (server stamina 0.4 rounded to 0, so the client
+	# could never reproduce the burst tick and rubber-banded backward once per second). Replicated +
+	# reconciled like _regen_cooldown so the client predicts the identical rule across a reconcile.
+	if stamina <= 0.0:
+		_sprint_locked = true
+	elif stamina >= SPRINT_RESUME:
+		_sprint_locked = false
 
 	pos.x = clampf(pos.x, -world_half, world_half)
 	pos.z = clampf(pos.z, -world_half, world_half)

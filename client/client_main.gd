@@ -43,6 +43,13 @@ const RECON_DEADZONE := 0.12   # corrections under this (m) are noise — left t
                                # visual easing of sub-12 cm corrections. Genuine desyncs (>RECON_SNAP) snap.
 const RECON_SNAP := 2.5        # corrections over this (m) snap (respawn/teleport), not smoothed
 const RECON_SMOOTH := 13.0     # per-second decay of _pos_err (~a correction fades over ~150 ms)
+# C1a: visual camera-recoil kick — a per-shot upward view punch that recovers. Client-only cosmetic
+# (does NOT touch the authoritative aim pitch, so no prediction/desync), on top of the viewmodel kick
+# and the crosshair bloom. Feel values — owner-tunable via playtest.
+const RECOIL_KICK_PER_SHOT := 0.010   # rad added to the camera pitch per shot (~0.57°)
+const RECOIL_KICK_MAX := 0.055        # rad ceiling so sustained auto-fire climbs but caps (~3.1°)
+const RECOIL_KICK_RECOVER := 11.0     # per-second decay of the kick (~settles in ~150 ms)
+var _recoil_kick := 0.0               # current accumulated visual recoil pitch (radians)
 # DBNO downed screen
 var _downed_since := -1.0      # _elapsed when the current down began (-1 = not downed)
 var _giveup_hold := 0.0        # seconds the give-up key (jump) has been held while downed
@@ -179,6 +186,7 @@ var _self_grounded: bool = true    # latest authoritative grounded flag from SEL
 var _self_vaulting: bool = false   # latest authoritative vault flag from SELF_STATE (vault-arc reconcile)
 var _self_vault_tick: int = 0      # latest authoritative vault progress from SELF_STATE
 var _self_regen_cooldown: float = 0.0   # latest authoritative stamina regen-cooldown (C6 sprint/jump-stamina reconcile)
+var _self_sprint_locked: bool = false   # latest authoritative sprint-lockout flag (empty-sprint hysteresis reconcile)
 var _conn_lost: bool = false       # in-game disconnect: freeze the loop under the overlay
 var _conn_lost_overlay: CanvasLayer = null
 var _reject_reason: String = ""    # last REJECT text — shown on the menu when the disconnect lands
@@ -428,7 +436,7 @@ func _physics_process(delta: float) -> void:
 			and _pred.predicted.stance == Stance.STAND
 		# No firing while downed — the server ignores it, so suppress the local tracer/ammo
 		# prediction too (otherwise a downed player still sees their own tracers).
-		var firing: bool = bool(buttons & InputCommand.BTN_FIRE) and not _pred.predicted.is_downed
+		var firing: bool = bool(buttons & InputCommand.BTN_FIRE) and not _pred.predicted.is_downed and not _pred.predicted.climbing
 
 		# Predict weapon state — drop_shoot=false here; server gates authoritatively,
 		# and SELF_STATE reconciles the client's mag each tick so divergence is transient.
@@ -438,7 +446,8 @@ func _physics_process(delta: float) -> void:
 			_renderer.play_viewmodel_recoil(_elapsed)   # kick the viewmodel on each shot
 			if _wpred.weapon != Weapon.RPG:
 				_renderer.eject_casing(_elapsed)   # brass flies from the port (no casing for the launcher)
-			_ch_fire_bloom = minf(_ch_fire_bloom + 3.0, 14.0)   # bloom the crosshair on each shot
+			_ch_fire_bloom = minf(_ch_fire_bloom + 6.0, 26.0)   # bloom the crosshair on each shot (visible hip spread)
+			_recoil_kick = minf(_recoil_kick + RECOIL_KICK_PER_SHOT, RECOIL_KICK_MAX)   # visual muzzle climb
 			if _audio != null:
 				_audio.play_at(_fire_event_for(_wpred.weapon), _pred.predicted.eye_position())
 
@@ -618,7 +627,7 @@ func _process(_dt: float) -> void:
 	# sprinting, not in a vehicle, menu closed. Eased so the zoom/pose glide rather than snap.
 	var weapon0: int = _wpred.weapon if _wpred != null else Weapon.AR
 	var ads_want: bool = (deployed0 and not menu_open0 and _in_vehicle() < 0 \
-		and not Input.is_action_pressed("sprint") \
+		and not Input.is_action_pressed("sprint") and not _pred.predicted.climbing \
 		and (_ads_test or _scope_test or Input.is_action_pressed("aim")))
 	_ads_t = lerpf(_ads_t, 1.0 if ads_want else 0.0, clampf(_dt * ADS_RATE, 0.0, 1.0))
 	# Local landing dip: on the predicted pawn's airborne->grounded edge after a real fall, kick the
@@ -635,6 +644,7 @@ func _process(_dt: float) -> void:
 	else:
 		_input_ctrl.drain_look()
 	_pos_err = _pos_err.lerp(Vector3.ZERO, clampf(_dt * RECON_SMOOTH, 0.0, 1.0))
+	_recoil_kick = lerpf(_recoil_kick, 0.0, clampf(_dt * RECOIL_KICK_RECOVER, 0.0, 1.0))   # C1a: recover the visual recoil
 	var eye: Vector3 = _prev_eye.lerp(_curr_eye, Engine.get_physics_interpolation_fraction()) + _pos_err
 
 	if _audio != null:
@@ -680,7 +690,10 @@ func _process(_dt: float) -> void:
 	_renderer.set_viewmodel_downed_hidden(_self_ss_vm != null and _self_ss_vm.is_downed)
 	var cam_fov: float = lerpf(_settings.fov, _ads_fov(weapon0), _ads_t)   # FOV zoom toward the per-weapon ADS FOV
 	var _t0 := Time.get_ticks_usec()
-	_renderer.update(_wv, _pred, _elapsed, cam_fov, _input_ctrl.yaw, _input_ctrl.pitch, eye, _dt)
+	# Camera pitch includes the transient visual recoil kick (view climbs up per shot, then recovers);
+	# the authoritative aim sent to the server stays _input_ctrl.pitch, so recoil is cosmetic (C1a).
+	var cam_pitch: float = clampf(_input_ctrl.pitch + _recoil_kick, -Pawn.MAX_PITCH, Pawn.MAX_PITCH)
+	_renderer.update(_wv, _pred, _elapsed, cam_fov, _input_ctrl.yaw, cam_pitch, eye, _dt)
 	if _photo_mode:
 		_fly_photo_camera(_dt)   # override the pawn-eye camera with the free-fly position
 	var _t1 := Time.get_ticks_usec()
@@ -862,7 +875,9 @@ func _process(_dt: float) -> void:
 		# one-shots below are locked, so a place-click / habitual keypress can't also fire, throw,
 		# melee, detonate, or change fire mode.
 		var building: bool = _build_ctrl != null and _build_ctrl.active
-		var combat_locked: bool = building or menu_open0
+		# Climbing a ladder incapacitates combat (server ignores fire/throw/melee/gadget/swap while
+		# climbing) — lock the one-shots too so the local player sees no phantom action. A1 playtest.
+		var combat_locked: bool = building or menu_open0 or _pred.predicted.climbing
 
 		# Throwable cycle
 		if Input.is_action_just_pressed("throwable_cycle") and not combat_locked:
@@ -1276,7 +1291,7 @@ func _handle_snapshot(bytes: PackedByteArray) -> void:
 		# Reconcile movement prediction from authoritative position + pitch. Smooth only a genuine
 		# correction (deadzone..snap): ease it into the camera via _pos_err instead of snapping.
 		var pre_pos: Vector3 = _pred.predicted.pos
-		_pred.reconcile_full(ss.pos, ss.yaw, ss.pitch, int(hdr["last_input_tick"]), _self_stamina, _self_vel_y, _self_grounded, _self_vaulting, _self_vault_tick, _self_regen_cooldown)
+		_pred.reconcile_full(ss.pos, ss.yaw, ss.pitch, int(hdr["last_input_tick"]), _self_stamina, _self_vel_y, _self_grounded, _self_vaulting, _self_vault_tick, _self_regen_cooldown, _self_sprint_locked)
 		var cl: float = (pre_pos - _pred.predicted.pos).length()
 		if cl > RECON_DEADZONE and cl <= RECON_SNAP:
 			_pos_err += pre_pos - _pred.predicted.pos
@@ -1344,6 +1359,7 @@ func _handle_self_state(bytes: PackedByteArray) -> void:
 	_self_vaulting = bool(d.get("vaulting", false))            # authoritative vault progress for arc reconcile
 	_self_vault_tick = int(d.get("vault_tick", 0))
 	_self_regen_cooldown = float(d.get("regen_cooldown", 0.0)) # authoritative stamina regen-cooldown (C6 reconcile)
+	_self_sprint_locked = bool(d.get("sprint_locked", false))  # authoritative sprint-lockout flag (hysteresis reconcile)
 
 # ---- MATCH_STATE ------------------------------------------------------------
 func _handle_match_state(bytes: PackedByteArray) -> void:
@@ -1537,6 +1553,8 @@ func _rebuild_struct_store(bytes: PackedByteArray) -> void:
 		_struct_store = StructureStore.new(_piece_cat)
 	if _pred != null:
 		_pred.structures = _struct_store
+	if _renderer != null:
+		_renderer.set_grenade_collision(_struct_store)   # thrown-grenade cosmetics bounce off walls (C4)
 	for rec: Dictionary in Protocol.decode_structure_baseline(bytes)["records"]:
 		# Under-construction sites are INTANGIBLE on the server (movement collides only against its
 		# _store; sites live in _build.sites) — placing their ghost records here made the client

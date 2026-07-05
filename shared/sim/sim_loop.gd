@@ -45,7 +45,19 @@ func _step_climb(p: Pawn, cmd: Dictionary) -> void:
 		p.climbing = false
 		return
 	var move_y: float = cmd.get("move_y", 0.0)
-	p.pos = Ladder.climb_step(ladder, p.pos, move_y, DT)
+	var move_x: float = cmd.get("move_x", 0.0)
+	# Vertical climb pins (x,z) to the ladder line; move_y drives the y.
+	var climbed := Ladder.climb_step(ladder, p.pos, move_y, DT)
+	# Strafe off (BattleBit ladder dismount): lateral input (world-X; the town ladders are yaw 0)
+	# slides the pawn off the line at walk speed. Once it clears the capture volume the climb is
+	# released and normal movement (gravity/step) carries the pawn away.
+	if absf(move_x) > 0.1:
+		var speed: float = Stance.speed(p.stance) * Armor.speed_mult(p.armor_class)
+		climbed.x = p.pos.x + move_x * speed * DT
+	p.pos = climbed
+	if absf(move_x) > 0.1 and Ladder.capture(ladders, p.pos).is_empty():
+		p.climbing = false   # strafed out of the volume -> dismount into normal movement
+		return
 	var top: Vector3 = ladder["top"]
 	var bottom: Vector3 = ladder["bottom"]
 	if p.pos.y >= top.y - Ladder.ANCHOR_EPS:

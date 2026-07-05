@@ -348,7 +348,7 @@ func test_self_state_carries_vault_progress() -> void:
 func test_self_state_vault_defaults_when_absent() -> void:
 	# Old/short packets (no vault bytes) must decode as not-vaulting so reconcile never freezes an arc.
 	var b := Protocol.encode_self_state(17, false, 0, Weapon.AR, [], false, 0.0, 0, 0, false, 0.0, 0.0, 100.0, 0.0, true, true, 5)
-	b.resize(b.size() - 3)   # drop the two vault bytes + the trailing regen-cooldown byte
+	b.resize(b.size() - 4)   # drop the two vault bytes + trailing regen-cooldown + sprint-locked bytes
 	var d := Protocol.decode_self_state(b)
 	assert_false(bool(d["vaulting"]), "absent vault bytes -> not vaulting")
 	assert_eq(int(d["vault_tick"]), 0)
@@ -362,9 +362,22 @@ func test_self_state_carries_regen_cooldown() -> void:
 
 func test_self_state_regen_defaults_when_absent() -> void:
 	var b := Protocol.encode_self_state(17, false, 0, Weapon.AR, [], false, 0.0, 0, 0, false, 0.0, 0.0, 100.0, 0.0, true, false, 0, 0.5)
-	b.resize(b.size() - 1)   # drop the trailing regen byte
+	b.resize(b.size() - 2)   # drop the trailing sprint-locked + regen bytes
 	var d := Protocol.decode_self_state(b)
 	assert_eq(float(d["regen_cooldown"]), 0.0, "absent regen byte -> 0 (immediate regen, harmless)")
+
+func test_self_state_carries_sprint_locked() -> void:
+	# Empty-sprint hysteresis: the sprint-lockout flag rides SELF_STATE so the client reconciles it and
+	# doesn't mis-predict sprint vs walk through the stamina recovery window.
+	var b := Protocol.encode_self_state(17, false, 0, Weapon.AR, [], false, 0.0, 0, 0, false, 0.0, 0.0, 100.0, 0.0, true, false, 0, 0.0, true)
+	var d := Protocol.decode_self_state(b)
+	assert_true(bool(d["sprint_locked"]), "sprint-locked flag round-trips")
+
+func test_self_state_sprint_locked_defaults_when_absent() -> void:
+	var b := Protocol.encode_self_state(17, false, 0, Weapon.AR, [], false, 0.0, 0, 0, false, 0.0, 0.0, 100.0, 0.0, true, false, 0, 0.0, true)
+	b.resize(b.size() - 1)   # drop the trailing sprint-locked byte
+	var d := Protocol.decode_self_state(b)
+	assert_false(bool(d["sprint_locked"]), "absent sprint-locked byte -> not locked (never wrongly stalls sprint)")
 
 func test_grenade_throw_carries_charge() -> void:
 	var d := Protocol.decode_grenade_throw(Protocol.encode_grenade_throw(Vector3(1, 0, 0), Grenade.FRAG, 0.5))

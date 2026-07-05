@@ -43,6 +43,46 @@ func test_sprint_drains_stamina_and_is_faster() -> void:
 	assert_almost_eq(p.pos.x, Stance.speed(Stance.STAND) * Pawn.SPRINT_MULT, 0.01)
 	assert_true(p.stamina < Pawn.STAMINA_MAX, "sprint drained stamina")
 
+func test_sprint_locked_flag_blocks_sprint() -> void:
+	# A pawn with the lockout set walks even with stamina remaining (BattleBit empty-sprint hysteresis).
+	var p := Pawn.new(1)
+	p.stamina = 10.0
+	p._sprint_locked = true
+	p.step(1.0, _cmd(1.0, 0.0, 0.0, 0.0, InputCommand.BTN_SPRINT))
+	assert_almost_eq(p.pos.x, Stance.speed(Stance.STAND), 0.01, "locked pawn walks even with stamina left")
+
+func test_empty_sprint_no_1hz_burst_until_recovered() -> void:
+	# Regression for the ~1 Hz empty-sprint rubberband: holding sprint after stamina bottoms out must
+	# NOT produce a single-tick sprint burst each regen cycle — the pawn stays locked to walk speed
+	# until stamina climbs back past SPRINT_RESUME, then resumes sprinting.
+	var p := Pawn.new(1)
+	var dt := 1.0 / 30.0
+	var walk := Stance.speed(Stance.STAND)
+	var emptied := false
+	for _i in 600:
+		p.step(dt, _cmd(1.0, 0.0, 0.0, 0.0, InputCommand.BTN_SPRINT))
+		if p.stamina <= 0.0:
+			emptied = true
+			break
+	assert_true(emptied, "stamina emptied while sprinting")
+	assert_true(p._sprint_locked, "locked once stamina bottomed out")
+	var burst_ticks := 0
+	var unlocked_at := -1
+	var unlock_stamina := -1.0
+	for i in 300:
+		var before := p.pos.x
+		var was_locked := p._sprint_locked
+		p.step(dt, _cmd(1.0, 0.0, 0.0, 0.0, InputCommand.BTN_SPRINT))
+		if was_locked and (p.pos.x - before) > walk * dt + 1e-4:
+			burst_ticks += 1                 # a faster-than-walk step while locked == the old burst
+		if not p._sprint_locked:
+			unlocked_at = i
+			unlock_stamina = p.stamina
+			break                            # the whole locked recovery window is now covered
+	assert_eq(burst_ticks, 0, "no sprint burst while locked (was the 1 Hz rubberband)")
+	assert_true(unlocked_at >= 0, "eventually unlocked once stamina recovered")
+	assert_true(unlock_stamina >= Pawn.SPRINT_RESUME - 0.5, "unlock happens around the resume threshold (was %f)" % unlock_stamina)
+
 func test_pitch_clamped() -> void:
 	var p := Pawn.new(1)
 	p.step(0.1, _cmd(0, 0, 0, 10.0))  # absurd pitch

@@ -7,6 +7,10 @@ extends Node3D
 ## `impact` signal stay on the renderer (back-ref `r`).
 
 var r   # WorldRenderer back-ref (owner/parent)
+var struct_store = null   # client StructureStore mirror; lets thrown-grenade cosmetics bounce off walls
+# Grenade wall-bounce — MUST match server_main (_integrate_grenade) so the cosmetic tracks the real one.
+const GRENADE_RESTITUTION := 0.45   # velocity retained after a wall bounce
+const GRENADE_BOUNCE_SKIN := 0.15   # m; rest the grenade this far off the struck face so it can't re-embed
 
 
 func _init(renderer) -> void:
@@ -190,6 +194,19 @@ func age_thrown(now: float, delta: float) -> void:
 		var s := Grenade.integrate(node.position, g["vel"], delta)
 		var npos: Vector3 = s["pos"]
 		g["vel"] = s["vel"]
+		# Bounce off structures so the cosmetic mirrors the server's authoritative wall bounce (else the
+		# thrown grenade visually tunnels through a wall while the real one bounces + detonates ~90° away).
+		# Same march-and-reflect as server_main._integrate_grenade, against the client's synced store.
+		if struct_store != null:
+			var seg := npos - node.position
+			var seg_len := seg.length()
+			if seg_len > 1e-5:
+				var hit: Dictionary = struct_store.march_normal(node.position, seg / seg_len, seg_len)
+				if bool(hit.get("hit", false)):
+					var n: Vector3 = hit["normal"]
+					npos = (hit["point"] as Vector3) + n * GRENADE_BOUNCE_SKIN
+					var v: Vector3 = g["vel"]
+					g["vel"] = (v - 2.0 * v.dot(n) * n) * GRENADE_RESTITUTION
 		# a smoke canister leaks a faint trail so the throw reads in the air
 		if int(g["kind"]) == Grenade.SMOKE and now >= float(g["next_trail"]):
 			spawn_puff(node.position, 0.3, 0.45, now, Color(0.78, 0.80, 0.80, 0.4))
