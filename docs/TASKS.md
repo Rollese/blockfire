@@ -6,6 +6,8 @@ Canonical source of truth for what's being worked on. Claim a task (set owner + 
 
 ## Milestone index
 
+> **🚧 VEHICLES DEFERRED — owner-directed 2026-07-05.** All **remaining and future vehicle work** is deferred to a **dedicated post-core milestone**. The core priority is, in order, **infantry combat → proper real maps → destruction** — get those complete and playtested first; vehicles are added later. The M5 **land-vehicle sim substrate already on master stays** (it's harmless, prediction-ready, and gate-proven) but receives **no further investment**. Everything vehicle-facing is folded into this deferral and must **not** be picked up until the infantry/maps/destruction core is signed off: **manual turret aim/fire**, **client vehicle riding/exit/enter polish**, **vehicle combat/bot AI**, and **[M10](milestones/M10-air-vehicles.md) air vehicles**. When the core is done, spin these into one consolidated **"Vehicles" milestone** (fold M10 into it) rather than reopening them piecemeal. **Vehicle *spawns* were also removed from every shipping map 2026-07-05** (`vehicle_spawns: []` in all `maps/*.json`; generators `tools/map_gen.py` + `tools/map_gen_suburb.py` keep the coords preserved-but-not-emitted for trivial restore) so **no vehicles appear in-match** until the milestone reopens — guarded by `map_def_test.gd::test_shipping_maps_have_no_vehicle_spawns`.
+
 | # | Milestone | Status | Gate (must pass to close) |
 |---|---|---|---|
 | M0 | [Foundations & decisions](milestones/M0-foundations.md) | **done ✅** | Empty client connects to empty server via custom message layer; bot driver connects 1 bot. |

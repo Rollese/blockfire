@@ -2,6 +2,8 @@
 
 **Status:** **Land Vehicles + Substrate CLOSED ✅ 2026-06-16** · **Air vehicles deferred → [M10](M10-air-vehicles.md) (last)** · *(M4.5 precedes M5 so RPG and Engineer repair kit exist before vehicles ship)*
 
+> **🚧 Vehicles deferred (owner-directed 2026-07-05):** this landed sim substrate **stays on master** but gets **no further investment**. The priority is now **infantry combat → real maps → destruction**; all remaining/future vehicle work (manual turret, client riding polish, vehicle AI, M10 air) is folded into a dedicated post-core "Vehicles" milestone. **Vehicle *spawns* have also been removed from the shipping maps** so no vehicles appear in-match until that milestone is reopened. See the banner atop `docs/TASKS.md` and AGENTS.md §12.
+
 **Objective:** Networked **land** vehicles + the shared vehicle substrate. **Air vehicles (was P2) are deferred to [M10](M10-air-vehicles.md)** — the final content pass, after the rendered client (M7) exists, because heli/jet flight feel + balance can't be tuned blind off telemetry (owner-directed 2026-06-16; see AGENTS.md §10). **No boats** (per project scope).
 
 ## Scope

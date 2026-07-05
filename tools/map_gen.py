@@ -166,12 +166,17 @@ bases = [
     {"team": 0, "pos": [0, 0, -150], "radius": 22},
     {"team": 1, "pos": [0, 0, 150], "radius": 22},
 ]
-vehicle_spawns = [
+# Vehicles are DEFERRED to a post-core milestone (owner-directed 2026-07-05 — infantry/maps/
+# destruction first; see docs/TASKS.md banner + AGENTS.md §12). No vehicle spawns are emitted so
+# no vehicles appear in-match. The coordinates are preserved below for trivial restore when the
+# dedicated Vehicles milestone is reopened.
+_vehicle_spawns_deferred = [
     {"team": 0, "type": "transport", "pos": [-14, 0, -150], "heading": 0.0},
     {"team": 0, "type": "transport", "pos": [14, 0, -150], "heading": 0.0},
     {"team": 1, "type": "transport", "pos": [-14, 0, 150], "heading": 3.14159},
     {"team": 1, "type": "transport", "pos": [14, 0, 150], "heading": 3.14159},
 ]
+vehicle_spawns = []
 
 out = {
     "name": "Town",

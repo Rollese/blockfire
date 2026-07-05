@@ -72,14 +72,25 @@ func test_town_map_loads_with_full_layout() -> void:
 	assert_true(m.roads.size() >= 4, "has a road network")
 	assert_true(m.buildings.size() >= 20, "has a town's worth of buildings")
 
+# Vehicles are DEFERRED (owner-directed 2026-07-05 — see docs/TASKS.md banner + AGENTS.md §12), so
+# the shipping maps ship with NO vehicle spawns. This test verifies the PARSER from an inline JSON
+# string (decoupled from map content) so coverage survives until the Vehicles milestone reopens.
 func test_parses_vehicle_spawns() -> void:
-	var m := MapDef.load_file("res://maps/conquest_proving_grounds.json")
-	assert_true(m != null)
+	var r := MapDef.from_json_string('{"name":"v","points":[{"id":"A","pos":[0,0,0],"radius":5}],"bases":[{"team":0,"pos":[-10,0,0],"radius":5},{"team":1,"pos":[10,0,0],"radius":5}],"vehicle_spawns":[{"team":0,"type":"transport","pos":[-14,0,-150],"heading":0.0},{"team":1,"type":"transport","pos":[14,0,150],"heading":3.14159}]}')
+	assert_true(r["ok"], r["error"])
+	var m: MapDef = r["map"]
 	assert_true(m.vehicle_spawns.size() >= 2)   # at least one per team
 	var s: Dictionary = m.vehicle_spawns[0]
 	assert_true(s.has("team"))
 	assert_true(s.has("pos"))
 	assert_true(s.has("type"))
+
+# Guards the deferral: the shipping maps must contain NO vehicle spawns until vehicles are reopened.
+func test_shipping_maps_have_no_vehicle_spawns() -> void:
+	for name in ["conquest_town", "conquest_suburb", "conquest_proving_grounds", "conquest_arena_buildings"]:
+		var m := MapDef.load_file("res://maps/%s.json" % name)
+		assert_true(m != null, name)
+		assert_eq(m.vehicle_spawns.size(), 0, "%s ships with no vehicle spawns (vehicles deferred)" % name)
 
 func test_parses_scenery() -> void:
 	var r := MapDef.from_json_string('{"name":"s","points":[{"id":"A","pos":[0,0,0],"radius":5}],"bases":[{"team":0,"pos":[-10,0,0],"radius":5},{"team":1,"pos":[10,0,0],"radius":5}],"scenery":[{"id":"tree_type0_01","pos":[1,0,2],"yaw":0.5,"scale":1.2}]}')

@@ -146,12 +146,15 @@ bases = [
     {"team": 0, "pos": [0, 0, -110], "radius": 22},
     {"team": 1, "pos": [0, 0, 110], "radius": 22},
 ]
-vehicle_spawns = [
+# Vehicles DEFERRED (owner-directed 2026-07-05 — infantry/maps/destruction first; see
+# docs/TASKS.md banner + AGENTS.md §12). No vehicle spawns emitted; coords preserved for restore.
+_vehicle_spawns_deferred = [
     {"team": 0, "type": "transport", "pos": [-14, 0, -110], "heading": 0.0},
     {"team": 0, "type": "transport", "pos": [14, 0, -110], "heading": 0.0},
     {"team": 1, "type": "transport", "pos": [-14, 0, 110], "heading": 3.14159},
     {"team": 1, "type": "transport", "pos": [14, 0, 110], "heading": 3.14159},
 ]
+vehicle_spawns = []
 
 out = {
     "name": "Suburb",
