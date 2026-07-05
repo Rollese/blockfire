@@ -32,45 +32,9 @@ func update_drill_phase(bot: Dictionary, next_phase: int) -> void:
 		else:
 			bot["drill_phase_ticks"] = ticks
 
-## True if THIS bot is the nearest alive teammate (in its view) to the downed mate `rid` — so only
-## one reviver commits while the rest keep fighting. Ties broken by id for a stable single winner.
-func is_closest_reviver(bot: Dictionary, me: EntityState, rid: int) -> bool:
-	var view: Dictionary = bot["view"]
-	if not view.has(rid):
-		return false
-	var dpos: Vector3 = (view[rid] as EntityState).pos
-	var my_d: float = me.pos.distance_to(dpos)
-	if my_d <= Revive.REVIVE_RANGE:
-		return true   # already in revive range -> always commit, never strand a downed mate
-	var my_id: int = int(bot["id"])
-	for id in view:
-		if int(id) == my_id or int(id) == rid:
-			continue
-		var e: EntityState = view[id]
-		if not e.alive or e.is_downed or e.team != me.team:
-			continue
-		var d: float = e.pos.distance_to(dpos)
-		if d < my_d - 0.01 or (absf(d - my_d) <= 0.01 and int(id) < my_id):
-			return false   # a closer (or tie-broken) teammate will take this revive
-	return true
-
-func nearest_downed_teammate(bot: Dictionary, me: EntityState) -> int:
-	if me == null:
-		return 0
-	var best := 0
-	var best_d := INF
-	var view: Dictionary = bot["view"]
-	for id in view:
-		var e: EntityState = view[id]
-		if not e.is_downed:
-			continue
-		if e.team != me.team:
-			continue
-		var d: float = me.pos.distance_to(e.pos)
-		if d < best_d and d < 20.0:
-			best_d = d
-			best = id
-	return best
+## (is_closest_reviver / nearest_downed_teammate removed 2026-07-04: dead duplicates of the LIVE
+## revive selection in AiSupport.pick_revive_target since M7.5-P3 — they had already drifted, e.g.
+## the medic range asymmetry was absent here.)
 
 func maybe_build(bot: Dictionary, me: EntityState) -> void:
 	if int(bot["builds_made"]) >= d.MAX_BOT_BUILDS:

@@ -42,6 +42,10 @@ const GRENADE_LANDING_EST := 8.0   # m ahead of the throw origin — flat landin
 const BAG_NEEDY_RANGE := 12.0      # m: allies this close and hurt count toward a bag deploy
 const BAG_NEEDY_HP := 60           # hp below this (0.6 frac) marks an ally as needy
 const GIVEUP_NO_HELP_RADIUS := 20.0   # m: a downed bot with no alive friendly this close gives up (no reviver coming)
+const RECONNECT_DELAY_FRAMES := 90    # ~3s before re-dialling after a server disconnect (rotation boundary)
+const BOARD_RETRY_TICKS := 30         # min ticks between VA_ENTER attempts while the seat isn't confirmed
+const BOARD_MAX_TRIES := 3            # rejected boards of one hull before we blacklist it and fight on foot
+const BOARD_BLACKLIST_TICKS := 600    # ~20s a refused hull stays ignored
 
 ## True if an alive, non-downed friendly is within GIVEUP_NO_HELP_RADIUS of a downed bot — i.e. a
 ## revive is plausible, so it should wait rather than give up. `view` = pawn_id -> EntityState.
@@ -127,16 +131,56 @@ func _spawn_bot(index: int) -> void:
 	net.peer_connected.connect(func(peer: ENetPacketPeer) -> void:
 		bot["peer"] = peer
 		net.send_to(peer, NetHost.CHANNEL_CONTROL, Protocol.encode_hello("bot-%d" % index), ENetPacketPeer.FLAG_RELIABLE))
-	net.peer_disconnected.connect(func(_p: ENetPacketPeer) -> void: bot["connected"] = false)
+	# Server-initiated disconnect (map rotation's disconnect_all, restart, kick): schedule a
+	# reconnect instead of idling forever — the whole fleet used to go permanently inert at the
+	# first rotation boundary. Staggered by index so 100+ bots don't reconnect on the same frame.
+	net.peer_disconnected.connect(func(_p: ENetPacketPeer) -> void:
+		bot["connected"] = false
+		bot["peer"] = null
+		bot["reconnect_in"] = RECONNECT_DELAY_FRAMES + int(bot["index"]) * 3)
 	net.packet_received.connect(func(_p: ENetPacketPeer, _ch: int, bytes: PackedByteArray) -> void: _on_packet(bot, bytes))
 	net.start_client(_server_ip, _port)
 	_bots.append(bot)
+
+## Fresh dial + clean per-connection state after a server disconnect. The bot keeps its identity
+## (index/AI instance) but every server-derived mirror is stale — the next match may be a different
+## map with new entity ids, so drop them all and let WELCOME/baselines rebuild.
+func _reconnect(bot: Dictionary) -> void:
+	var net: NetHost = bot["net"]
+	net.close()
+	bot["id"] = 0
+	bot["peer"] = null
+	bot["view"] = {}
+	bot["vview"] = {}
+	bot["vveh_track"] = {}
+	bot["structs"] = {}
+	bot["gadgets"] = []
+	bot["grenade_events"] = []
+	bot["self_state"] = {}
+	bot["last_seq"] = 0
+	bot["server_tick"] = 0
+	bot["in_vehicle"] = 0
+	bot["reviving_id"] = 0
+	bot["repairing"] = false
+	bot["give_target"] = 0
+	bot["builds_made"] = 0
+	bot["reload_until"] = 0
+	bot["burst_start"] = -1
+	(bot["ai"] as AiDriver).reset()
+	net.start_client(_server_ip, _port)
+	print("[bots] bot %d reconnecting..." % int(bot["index"]))
 
 func _physics_process(delta: float) -> void:
 	var frame_us := 0.0
 	for bot in _bots:
 		(bot["net"] as NetHost).poll()
-		if not bot["connected"]: continue
+		if not bot["connected"]:
+			var wait: int = int(bot.get("reconnect_in", 0))
+			if wait > 0:
+				bot["reconnect_in"] = wait - 1
+				if wait == 1:
+					_reconnect(bot)
+			continue
 		bot["tick"] += 1
 		var t0 := Time.get_ticks_usec()
 		_drive(bot, delta)
@@ -171,6 +215,8 @@ func _drive(bot: Dictionary, delta: float) -> void:
 		bot["cur_swap_slot"] = 0   # server resets active_slot to 0 on (re)spawn; mirror it
 		bot["give_target"] = 0   # server clears the give latch on death; mirror it
 		bot["reviving_id"] = 0   # M7.5-P3: server drops the revive on reviver death; mirror it
+		bot["reload_until"] = 0  # a stale mid-burst clock made the first engagement of the new life
+		bot["burst_start"] = -1  # open with a ~2.8s reload of an already-full magazine
 		(bot["ai"] as AiDriver).reset()   # re-arm reaction gate, drop stale tracks/behaviour latch
 		_send(bot, 0.0, 0.0, bot["yaw"], 0.0, 0)
 		return
@@ -188,41 +234,69 @@ func _drive(bot: Dictionary, delta: float) -> void:
 	var role: int = BotRolesRef.of(int(bot["index"]))
 	var is_crew := role == BotRolesRef.CREW
 	if is_crew:
-		if int(bot["in_vehicle"]) != 0:
-			var v: VehicleState = bot["vview"].get(bot["in_vehicle"])
-			if v == null:   # vehicle destroyed / out of view -> consider self ejected
-				if bool(bot["repairing"]):
-					(bot["net"] as NetHost).send_to(bot["peer"], NetHost.CHANNEL_INPUT,
-						Protocol.encode_gadget_action(Protocol.GA_REPAIR_STOP, Vector3.ZERO, Vector3.ZERO, 0), 0)
-					bot["repairing"] = false
-				bot["in_vehicle"] = 0
-			else:
-				# Crew engineer keeps the ridden transport patched once it has taken fire.
-				if int(v.hp) < VEHICLE_FULL_HP and not bool(bot["repairing"]):
-					(bot["net"] as NetHost).send_to(bot["peer"], NetHost.CHANNEL_INPUT,
-						Protocol.encode_gadget_action(Protocol.GA_REPAIR_START, Vector3.ZERO, Vector3.ZERO, 0), 0)
-					bot["repairing"] = true
-				elif int(v.hp) >= VEHICLE_FULL_HP and bool(bot["repairing"]):
-					(bot["net"] as NetHost).send_to(bot["peer"], NetHost.CHANNEL_INPUT,
-						Protocol.encode_gadget_action(Protocol.GA_REPAIR_STOP, Vector3.ZERO, Vector3.ZERO, 0), 0)
-					bot["repairing"] = false
-				# Drive the transport toward the nearest visible enemy (into the firefight),
-				# falling back to the enemy spawn until contact. Staying mobile in combat is fine —
-				# no loiter hold, so the vehicle keeps pressing into the action where blast fire is.
-				var push := _hunt_pos(me, int(bot["id"]), view)
-				var cmd := AiVehicleCrew.drive_toward(v.heading, me.pos, push)
-				_send(bot, float(cmd["move_x"]), float(cmd["move_y"]), float(cmd["yaw"]), 0.0, 0)
-				return
+		# AUTHORITATIVE seating: derive from the replicated seat arrays every tick instead of
+		# latching on the VA_ENTER *send*. The server rejects boards of wrecks / raced seats /
+		# out-of-range requests — a bot that latched a phantom seat spent the rest of its life
+		# sending steer/throttle as pawn movement without ever firing.
+		var seated_vid := 0
+		for svid in bot["vview"]:
+			var sv: VehicleState = bot["vview"][svid]
+			if int(bot["id"]) in sv.seats:
+				seated_vid = int(svid)
+				break
+		if seated_vid != 0 and int(bot["in_vehicle"]) == 0:
+			bot["boarded_origin"] = (bot["vview"][seated_vid] as VehicleState).pos
+		elif seated_vid == 0 and int(bot["in_vehicle"]) != 0 and bool(bot["repairing"]):
+			# Ejected/destroyed since last tick: drop the repair latch with the seat.
+			(bot["net"] as NetHost).send_to(bot["peer"], NetHost.CHANNEL_INPUT,
+				Protocol.encode_gadget_action(Protocol.GA_REPAIR_STOP, Vector3.ZERO, Vector3.ZERO, 0), 0)
+			bot["repairing"] = false
+		bot["in_vehicle"] = seated_vid
+		if seated_vid != 0:
+			var v: VehicleState = bot["vview"][seated_vid]
+			# Crew engineer keeps the ridden transport patched once it has taken fire.
+			if int(v.hp) < VEHICLE_FULL_HP and not bool(bot["repairing"]):
+				(bot["net"] as NetHost).send_to(bot["peer"], NetHost.CHANNEL_INPUT,
+					Protocol.encode_gadget_action(Protocol.GA_REPAIR_START, Vector3.ZERO, Vector3.ZERO, 0), 0)
+				bot["repairing"] = true
+			elif int(v.hp) >= VEHICLE_FULL_HP and bool(bot["repairing"]):
+				(bot["net"] as NetHost).send_to(bot["peer"], NetHost.CHANNEL_INPUT,
+					Protocol.encode_gadget_action(Protocol.GA_REPAIR_STOP, Vector3.ZERO, Vector3.ZERO, 0), 0)
+				bot["repairing"] = false
+			# Drive the transport toward the nearest visible enemy (into the firefight),
+			# falling back to the enemy spawn until contact. Staying mobile in combat is fine —
+			# no loiter hold, so the vehicle keeps pressing into the action where blast fire is.
+			var push := _hunt_pos(me, int(bot["id"]), view)
+			var cmd := AiVehicleCrew.drive_toward(v.heading, me.pos, push)
+			_send(bot, float(cmd["move_x"]), float(cmd["move_y"]), float(cmd["yaw"]), 0.0, 0)
+			return
 		else:
-			var vid := AiVehicleCrew.nearest_free_vehicle(bot["vview"], me.pos)
+			var vid := AiVehicleCrew.nearest_free_vehicle(bot["vview"], me.pos, view, int(me.team))
+			# Give up on a hull that keeps refusing us (e.g. an empty enemy vehicle — team isn't
+			# replicated, so the picker can't rule it out): after a few rejected boards, ignore
+			# that vid for a while and fight on foot instead of parking beside it.
+			if vid != 0 and int((bot.get("board_blacklist", {}) as Dictionary).get(vid, -1)) > int(bot["server_tick"]):
+				vid = 0
 			if vid != 0:
 				var v: VehicleState = bot["vview"][vid]
-				var d := me.pos.distance_to(v.pos)
-				if d <= 3.0:
-					(bot["net"] as NetHost).send_to(bot["peer"], NetHost.CHANNEL_INPUT,
-						Protocol.encode_vehicle_action(Protocol.VA_ENTER, vid, 0), 0)
-					bot["in_vehicle"] = vid
-					bot["boarded_origin"] = v.pos
+				var dv := me.pos.distance_to(v.pos)
+				if dv <= 3.0:
+					# Request the seat (retry-gated); seating is confirmed by the replicated
+					# seats next snapshot — never assumed from the send.
+					if int(bot["server_tick"]) - int(bot.get("last_board_tick", -100000)) >= BOARD_RETRY_TICKS:
+						(bot["net"] as NetHost).send_to(bot["peer"], NetHost.CHANNEL_INPUT,
+							Protocol.encode_vehicle_action(Protocol.VA_ENTER, vid, 0), 0)
+						bot["last_board_tick"] = int(bot["server_tick"])
+						var tries: int = int(bot.get("board_tries", 0)) + 1
+						if int(bot.get("board_try_vid", 0)) != vid:
+							tries = 1   # new target hull — fresh attempt counter
+						bot["board_try_vid"] = vid
+						bot["board_tries"] = tries
+						if tries >= BOARD_MAX_TRIES:
+							var bl: Dictionary = bot.get("board_blacklist", {})
+							bl[vid] = int(bot["server_tick"]) + BOARD_BLACKLIST_TICKS
+							bot["board_blacklist"] = bl
+							bot["board_tries"] = 0
 					_send(bot, 0.0, 0.0, bot["yaw"], 0.0, 0)
 					return
 				else:
@@ -432,6 +506,17 @@ func _on_packet(bot: Dictionary, bytes: PackedByteArray) -> void:
 			bot["class"] = int(w["class"])
 			(bot["ai"] as AiDriver).bot_class = int(w["class"])   # MEDIC widens revive reach (M7.5-P3)
 			bot["connected"] = true
+			# Map-rotation reconnect: the server may now be running a DIFFERENT map — adopt it like
+			# the rendered client does, or objectives/ladders/vehicle spawns point at the old world.
+			var srv_map := String(w.get("map", ""))
+			if srv_map != "" and srv_map != _map_path.get_file().get_basename():
+				var new_path := "res://maps/%s.json" % srv_map
+				var nm := MapDef.load_file(new_path)
+				if nm != null:
+					_map_path = new_path
+					_map = nm
+					_match_points = []   # stale point owners; refreshed by the next MATCH_STATE
+					print("[bots] adopting server map: %s" % srv_map)
 			print("[bots] bot %d connected (id %d class %d) — %d/%d" % [bot["index"], bot["id"], bot["class"], _connected_count(), _bot_count])
 		Protocol.Msg.SNAPSHOT:
 			var hdr := Snapshot.decode_apply(bytes, bot["view"], bot["vview"])
@@ -463,11 +548,16 @@ func _on_packet(bot: Dictionary, bytes: PackedByteArray) -> void:
 			# objectives constantly, and fleeing those would scatter every push).
 			var g := Protocol.decode_grenade_fx(bytes)
 			if int(g["kind"]) == Grenade.FRAG:
-				var events: Array = bot["grenade_events"]
-				events.append({"pos": (g["origin"] as Vector3) + (g["dir"] as Vector3).normalized() * GRENADE_LANDING_EST,
-					"tick": int(bot["server_tick"])})
-				if events.size() > MAX_GRENADE_EVENTS:
-					events.pop_front()
+				# Friendly frags are FF-off (harmless) — fleeing them scattered whole squads
+				# (avoid_danger outweighs everything) and aborted in-progress revives for nothing.
+				# The FX packet carries the thrower's team; only ENEMY frags become danger zones.
+				var self_es: EntityState = (bot.get("view", {}) as Dictionary).get(int(bot.get("id", 0)))
+				if self_es == null or int(g.get("team", -1)) != int(self_es.team):
+					var events: Array = bot["grenade_events"]
+					events.append({"pos": (g["origin"] as Vector3) + (g["dir"] as Vector3).normalized() * GRENADE_LANDING_EST,
+						"tick": int(bot["server_tick"])})
+					if events.size() > MAX_GRENADE_EVENTS:
+						events.pop_front()
 		_:
 			pass
 

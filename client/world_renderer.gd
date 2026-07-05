@@ -961,9 +961,10 @@ func _draw_support_slot(s: Dictionary, a: Vector3, b: Vector3, kind: int, now: f
 	else:
 		var mid := (a + b) * 0.5
 		var up := Vector3.UP if absf(dir.dot(Vector3.UP)) < 0.99 * dist else Vector3.RIGHT
-		# Bake the length into the global basis (z-scale) so we don't depend on the renderer node
-		# being at identity — same robustness as the tracer pool. Box is unit length on local Z.
-		beam.global_transform = Transform3D(Basis.looking_at(dir / dist, up).scaled(Vector3(1.0, 1.0, dist)), mid)
+		# Bake the length into the basis (LOCAL z-scale: B * S). Basis.scaled() is S * B — a GLOBAL
+		# scale — which only stretched the beam correctly when the link happened to run along world Z;
+		# an east–west heal beam drew as a ~1 m stub bloated sideways, diagonals as skewed slabs.
+		beam.global_transform = Transform3D(Basis.looking_at(dir / dist, up) * Basis.from_scale(Vector3(1.0, 1.0, dist)), mid)
 		var col: Color = SUPPORT_COLORS.get(kind, Color.WHITE)
 		var bmat: StandardMaterial3D = s["beam_mat"]
 		# Gentle flow pulse so the link reads as "active" rather than a static line.
@@ -1405,6 +1406,12 @@ func _sync_entity_pool(remotes: Dictionary, local_team: int, render_delta: float
 ## advances at the sim rate, so process only frames where it actually moved (distance-based cadence,
 ## not time-based) — an idle pawn keeps its leftover accumulator instead of draining it every frame.
 func _tick_footstep(id: int, es: EntityState, now: float) -> void:
+	if _seated_ids.has(id):
+		# Seat-slaved to a vehicle hull: the replicated position rides the vehicle, not legs — a
+		# moving transport otherwise trailed sprint dust + ~8 footfalls/sec per occupant.
+		_step_prev[id] = es.pos
+		_step_accum[id] = 0.0
+		return
 	var prev: Vector3 = _step_prev.get(id, es.pos)
 	var flat := Vector3(es.pos.x - prev.x, 0.0, es.pos.z - prev.z)
 	var dist := flat.length()
@@ -1423,6 +1430,13 @@ func _tick_footstep(id: int, es: EntityState, now: float) -> void:
 ## and kick a dust burst when it lands from a fall. Called every frame per remote so the vy estimate is
 ## continuous (even across pose branches). Returns true while airborne (drives the jump/fall pose).
 func _update_airborne(id: int, es: EntityState, dt: float, now: float) -> bool:
+	if _seated_ids.has(id):
+		# Riding a vehicle: vertical hull motion is not a jump/fall — a transport dropping off a
+		# ledge otherwise fired a landing dust burst + LAND footstep at every seated occupant.
+		_air_y[id] = es.pos.y
+		_air_vy[id] = 0.0
+		_air_fell[id] = false
+		return false
 	var py: float = _air_y.get(id, es.pos.y)
 	var d := clampf(dt, 0.001, 0.1)
 	var inst := (es.pos.y - py) / d

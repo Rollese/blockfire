@@ -41,12 +41,18 @@ static func decay_pressure(prev: float, impulse: float) -> float:
 	var p: float = maxf(impulse, prev * PRESSURE_DECAY)
 	return p if p >= 0.01 else 0.0
 
+const BAG_GIVEUP_TICKS := 90       # ~3s standing ON a bag with the need unmet -> it can't help us
+const BAG_BLACKLIST_TICKS := 900   # ~30s a useless bag stays ignored before we may try it again
+
 var reaction_delay_ticks: int = REACTION_DELAY_TICKS   # per-profile gate delay, set by AiDriver
                                                         # from data/ai_tuning.json (M7.5-P3 §E)
 var _first_seen: Dictionary = {}   # enemy_id -> tick first continuously seen
 var _memory: Dictionary = {}        # enemy_id -> {pos, tick} last-known
 var _last_hp: float = 100.0
 var _pressure: float = 0.0          # decaying incoming_fire envelope (see decay_pressure)
+var _bag_camp_key := ""             # pos key of the supply bag we're currently standing on
+var _bag_camp_since := -1           # tick we arrived at it with the need still unmet
+var _bag_blacklist: Dictionary = {} # pos key -> ignore-until tick (bags that dispensed nothing)
 
 ## Clear per-life state (see AiDriver.reset): re-arm the reaction gate, drop last-known
 ## memory, and start the pressure baseline from full health for the next spawn.
@@ -55,6 +61,12 @@ func reset() -> void:
 	_memory = {}
 	_last_hp = 100.0
 	_pressure = 0.0
+	_bag_camp_key = ""
+	_bag_camp_since = -1
+	_bag_blacklist = {}
+
+static func _bag_key(pos: Vector3) -> String:
+	return "%d:%d" % [roundi(pos.x), roundi(pos.z)]
 ## Build the WorldModel from the snapshot view. `my_id` is this bot's pawn id.
 ## M7.5-P3 trailing inputs (all default-empty so pre-P3 callsites are untouched):
 ## `net_self` = decoded SELF_STATE dict (mag/weapon/bandages…), `gadgets` = the bot's
@@ -112,9 +124,10 @@ func build(my_id: int, view: Dictionary, _vview: Dictionary, structs: Dictionary
 	for sid in structs:
 		var cell: Vector3i = structs[sid]["cell"]
 		w.cover.append(BuildGrid.world_of(cell))
-	for i in match_points.size():
-		var mp: Dictionary = match_points[i]
-		w.objectives.append({"pos": mp.get("pos", Vector3.ZERO), "owner": int(mp.get("owner", -1))})
+	# NOTE: w.objectives is deliberately NOT filled from match_points — MATCH_STATE records carry
+	# only {owner, attacker, cap}, no position, so the old fill stamped every objective at the
+	# origin (garbage for any consumer). Objective POSITIONS come from the driver's MapDef
+	# (`_objective_pos`); wire owner+pos together here when a consumer actually needs them.
 	# M7.5-P3 Task 6: support & survivability fields from the bot's mirrors.
 	var my_team: int = int(me.team) if me != null else -1
 	# Pass visible friendlies + my id so only the closest bot commits to each revive (no squad pile-on).
@@ -136,11 +149,32 @@ func build(my_id: int, view: Dictionary, _vview: Dictionary, structs: Dictionary
 	for g in gadgets:
 		match int(g.get("kind", -1)):
 			GadgetList.BAG:
-				bags.append({"kind": w.supply_kind, "pos": g["pos"], "team": my_team})
+				# Skip bags that already proved useless (see the no-progress tracker below) —
+				# without this, "re-scores and moves on" re-picked the SAME nearest bag forever.
+				if int(_bag_blacklist.get(_bag_key(g["pos"]), -1)) <= now:
+					bags.append({"kind": w.supply_kind, "pos": g["pos"], "team": my_team})
 			GadgetList.MINE:
 				mines.append({"pos": g["pos"], "team": -1})
 	if w.supply_kind != "":
 		w.supply_bag = AiSupport.pick_supply_bag(bags, w.me_pos, my_team, w.supply_kind)
+	# No-progress tracker: the GADGET_LIST wire has no team and no heal-vs-ammo kind, so a picked
+	# bag can be an enemy bag or the wrong kind — the bot would stand on it forever with seek_supply
+	# outranking everything. If we've stood ON the chosen bag for BAG_GIVEUP_TICKS and the need is
+	# still unmet (supply_kind unchanged), blacklist that bag and re-pick elsewhere.
+	if not w.supply_bag.is_empty() and w.me_pos.distance_to(w.supply_bag["pos"]) <= AiSupport.BAG_ARRIVE_RANGE + 0.5:
+		var ck := _bag_key(w.supply_bag["pos"])
+		if ck != _bag_camp_key:
+			_bag_camp_key = ck
+			_bag_camp_since = now
+		elif now - _bag_camp_since >= BAG_GIVEUP_TICKS:
+			_bag_blacklist[ck] = now + BAG_BLACKLIST_TICKS
+			w.supply_bag = AiSupport.pick_supply_bag(bags.filter(
+				func(b): return _bag_key(b["pos"]) != ck), w.me_pos, my_team, w.supply_kind)
+			_bag_camp_key = ""
+			_bag_camp_since = -1
+	else:
+		_bag_camp_key = ""
+		_bag_camp_since = -1
 	w.danger_zones = AiSupport.danger_zones(grenade_events, mines, my_team, now)
 	return w
 ## Reaction gate for a currently-visible enemy id at time `now`. Uses the per-profile

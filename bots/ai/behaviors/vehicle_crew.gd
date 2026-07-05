@@ -66,13 +66,18 @@ static func nearest_enemy_vehicle(vview: Dictionary, view: Dictionary, my_pos: V
 			bestd = d; best = vid
 	return best
 
-## Nearest own-vehicle (vehicles are team-locked so any replicated one is enterable) with a free
-## seat, within reason. Returns vid or 0. seats[*]==0 means empty.
-static func nearest_free_vehicle(vview: Dictionary, my_pos: Vector3) -> int:
+## Nearest boardable vehicle with a free seat. Returns vid or 0. seats[*]==0 means empty.
+## Filters wrecks — destroyed hulls stay replicated with hp 0 and all seats zeroed, so they looked
+## maximally "free" and crew bots walked to them, sent doomed VA_ENTERs, and wedged in phantom-
+## driver mode — and enemy-CREWED vehicles (VehicleState carries no team; enemy-ness is inferred
+## from seated occupants via `view`, same as vehicle_is_enemy — the server rejects those boards).
+static func nearest_free_vehicle(vview: Dictionary, my_pos: Vector3, view: Dictionary = {}, my_team: int = -1) -> int:
 	var best := 0
 	var bestd := INF
 	for vid in vview:
 		var v: VehicleState = vview[vid]
+		if int(v.hp) <= 0: continue
+		if my_team >= 0 and vehicle_is_enemy(v, view, my_team): continue
 		var free := false
 		for occ in v.seats:
 			if int(occ) == 0: free = true; break
