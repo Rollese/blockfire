@@ -1,0 +1,8 @@
+gate: ticklead
+date: 2026-07-05T21:36:26+02:00
+host: game2
+git: 12a615b
+verdict: PASS
+summary: winner=1 elapsed=72s peak_tick=30.48ms budget=33.3ms agg=20.2Mbit/s players=128 kills=15 cap_events=1 ai_us_mean=57983.9us map=conquest_town
+srvlog: srvlog-ticklead-20260705-213626.log
+srvlog_sha256: 9907f5cf78c07939cdbe4049d82038bf74a1d2d40ba17d0d857f0e7ca76ad1c9

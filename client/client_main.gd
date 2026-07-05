@@ -64,6 +64,7 @@ var _conquest: ConquestState
 var _wv: WorldView
 var _pred: Prediction
 var _wpred: WeaponPredictor
+var _tick_lead := TickLead.new()   # input-clock pacing from the SELF_STATE buffer-depth byte (tick-lead netcode)
 var _input_ctrl: InputController
 var _build_ctrl: BuildController       # M12: build-tool state (build mode / selected piece / ghost yaw)
 var _build_wheel := 0                  # pending wheel-cycle steps from _input (consumed each tick)
@@ -409,6 +410,13 @@ func _show_match_end_overlay(winner: int) -> void:
 	add_child(_match_end_overlay)
 
 # ---- physics tick -----------------------------------------------------------
+## True while a menu owns the cursor and input production is paused (the alive-with-menu branch
+## below). Shared with the tick-lead feed in _handle_self_state: while paused, no frames are sent,
+## so the reported buffer depth is meaningless and must not integrate into the clock loop.
+func _input_paused_by_menu() -> bool:
+	return (_settings_menu != null and _settings_menu.visible) \
+		or (_hud_view != null and _hud_view.is_squad_menu_open())
+
 func _physics_process(delta: float) -> void:
 	if _net != null:
 		_net.poll()
@@ -426,8 +434,7 @@ func _physics_process(delta: float) -> void:
 	# Alive but with the settings menu open: free the cursor and pause input so the player can
 	# click the menu without walking/looking. (Without this, the per-tick capture_mouse() below
 	# re-grabs the cursor every frame and the centered menu is unclickable.)
-	var menu_open: bool = (_settings_menu != null and _settings_menu.visible) \
-		or (_hud_view != null and _hud_view.is_squad_menu_open())
+	var menu_open: bool = _input_paused_by_menu()
 
 	if deployed and menu_open:
 		if _scene_built:
@@ -436,94 +443,18 @@ func _physics_process(delta: float) -> void:
 			if _deploy_menu != null:
 				_deploy_menu.visible = false
 	elif deployed:
-		# Mirror authoritative downed state into the predictor so it crawls (1 m/s) like the server
-		# instead of predicting full-speed movement the server rejects (the down-state rubber-band).
-		_pred.predicted.is_downed = ss.is_downed
-		# Gather local input and run prediction
+		# Gather local input ONCE per physics frame — gather() flips the prone toggle through
+		# is_action_just_pressed, so calling it per produced frame would double-flip prone on a
+		# catch-up frame — then produce 0/1/2 input ticks from it per the tick-lead loop
+		# (docs/specs/netcode-tick-lead.md): 0 = hold (server input buffer too full — let it
+		# drain), 1 = normal, 2 = catch up (buffer too shallow). At most one whole-frame adjust
+		# per physics frame; the 30->60 reconcile interpolation absorbs it below perception. On
+		# a held frame the gathered cmd is simply discarded — look stays live (applied at render
+		# rate) and the prone toggle lives in the controller, so nothing is lost but the intent
+		# frame itself, which is the point (let the server drain the surplus).
 		var cmd: Dictionary = _input_ctrl.gather(_settings)
-		if _photo_mode:
-			# Freeze the pawn while free-flying — WASD drives the camera, not the soldier. Keep
-			# yaw/pitch so look still works; zero movement + buttons so nothing is sent as intent.
-			cmd["move_x"] = 0.0
-			cmd["move_y"] = 0.0
-			cmd["buttons"] = 0
-		elif _in_vehicle() >= 0:
-			# Slaved to the vehicle server-side: predicting free movement only rubber-bands the eye, so
-			# snap the predicted pawn onto the authoritative seat position (the POV rides along instead
-			# of drifting/bouncing). KEEP move_x/move_y: the server steers the vehicle from the DRIVER's
-			# last_input axes (server_main._build_vehicle_inputs) — zeroing them here meant the driver
-			# could never turn. Non-driver seats ignore the axes and the seated pawn never free-moves
-			# (pawn.gd skips movement while in_vehicle), so forwarding them is safe. Mask the movement
-			# buttons (jump/crouch/sprint do nothing seated); keep fire so passengers can shoot out.
-			cmd["buttons"] = int(cmd["buttons"]) & InputCommand.BTN_FIRE
-			_pred.predicted.pos = ss.pos
-			_pred.predicted.velocity = Vector3.ZERO
-		# M12 build tool: while build mode is active, the player never shoots/reloads — fire becomes
-		# place/shovel and reload becomes rotate. Mask those bits and set BTN_SHOVEL when holding the
-		# build tool on an under-construction site (the server advances it). Place/rotate/cycle are
-		# handled at render rate in _process; here we only shape the authoritative input bits.
-		if _build_ctrl != null and _build_ctrl.active:
-			if ss == null or not ss.alive or ss.is_downed or _in_vehicle() >= 0:
-				_build_ctrl.set_active(false)   # build mode never survives death/downed/entering a vehicle
-			else:
-				var bb := int(cmd["buttons"]) & ~(InputCommand.BTN_FIRE | InputCommand.BTN_RELOAD)
-				var beye := _pred.predicted.eye_position()
-				var bfwd := Combat._forward(wrapf(float(cmd["yaw"]) + PI, -PI, PI), float(cmd["pitch"]))
-				var bcell := _build_ctrl.aimed_cell(beye, bfwd)
-				if _build_ctrl.action_at(bcell, _wv.structures(), beye) == BuildController.SHOVEL \
-						and (Input.is_action_pressed("fire") or _build_test):
-					bb |= InputCommand.BTN_SHOVEL   # _build_test forces the shovel so the QA shot shows it rise
-				cmd["buttons"] = bb
-		_pred.record_cmd(_client_tick, cmd)
-
-		var buttons: int = int(cmd["buttons"])
-		var sprinting: bool = bool(buttons & InputCommand.BTN_SPRINT) \
-			and _pred.predicted.stance == Stance.STAND
-		# No firing while downed — the server ignores it, so suppress the local tracer/ammo
-		# prediction too (otherwise a downed player still sees their own tracers).
-		var firing: bool = bool(buttons & InputCommand.BTN_FIRE) and not _pred.predicted.is_downed and not _pred.predicted.climbing
-
-		# Predict weapon state — drop_shoot=false here; server gates authoritatively,
-		# and SELF_STATE reconciles the client's mag each tick so divergence is transient.
-		# A true return means a shot fired this tick -> draw a tracer for immediate feedback.
-		if _wpred.step(_client_tick, firing, sprinting, false) and _renderer != null:
-			_renderer.fire_tracer(_elapsed)
-			_renderer.play_viewmodel_recoil(_elapsed)   # kick the viewmodel on each shot
-			if _wpred.weapon != Weapon.RPG:
-				_renderer.eject_casing(_elapsed)   # brass flies from the port (no casing for the launcher)
-			_ch_fire_bloom = minf(_ch_fire_bloom + 6.0, 26.0)   # bloom the crosshair on each shot (visible hip spread)
-			_recoil_kick = minf(_recoil_kick + RECOIL_KICK_PER_SHOT, RECOIL_KICK_MAX)   # visual muzzle climb
-			if _audio != null:
-				_audio.play_at(_fire_event_for(_wpred.weapon), _pred.predicted.eye_position())
-
-		if buttons & InputCommand.BTN_RELOAD:
-			var _was_reloading: bool = _wpred.reloading
-			_wpred.begin_reload(_client_tick)
-			if not _was_reloading and _wpred.reloading:
-				# Reload-start transition: play the reload viewmodel anim over the real reload time + sfx.
-				if _renderer != null:
-					_renderer.play_viewmodel_reload(_elapsed, _wpred.reload_remaining(_client_tick) * SimLoop.DT)
-				if _audio != null:
-					_audio.play_2d("reload")   # only on the actual reload-start transition
-
-		# Send input to server. The server rebuilds the shot ray from Combat._forward(yaw,pitch),
-		# which points opposite the Godot camera, so send yaw+PI to make the authoritative aim
-		# match where the crosshair points. Movement is world-space (move_x/y) so it's unaffected.
-		var aim_yaw: float = wrapf(float(cmd["yaw"]) + PI, -PI, PI)
-		# Append this tick's frame to the redundancy ring and send the last N. ack_seq is
-		# per-packet (latest snapshot); each frame keeps its own view tick for lag comp.
-		_input_history.append({
-			"client_tick": _client_tick, "move_x": float(cmd["move_x"]), "move_y": float(cmd["move_y"]),
-			"yaw": aim_yaw, "pitch": float(cmd["pitch"]), "buttons": buttons,
-			"view_server_tick": _wv.view_tick(_elapsed),   # rendered-time tick (now-DELAY) for lag-comp rewind
-		})
-		while _input_history.size() > INPUT_REDUNDANCY:
-			_input_history.pop_front()
-		_net.send_to(_peer, NetHost.CHANNEL_INPUT,
-			InputCommand.encode_bundle(_last_snapshot_seq, _input_history),
-			0)  # unreliable-sequenced
-
-		_client_tick += 1
+		for _rep in _tick_lead.frame_repeats():
+			_produce_input_frame(ss, cmd.duplicate())
 
 		if _scene_built:
 			_input_ctrl.capture_mouse()
@@ -558,6 +489,99 @@ func _physics_process(delta: float) -> void:
 		else:
 			_prev_eye = _curr_eye
 		_curr_eye = eye_now
+
+## One full input tick for the local pawn from an already-gathered cmd: predict (movement +
+## weapon), send the redundancy bundle, advance _client_tick. Split from _physics_process so the
+## tick-lead loop can run it 0/1/2 times per physics frame (hold / normal / catch-up) — see
+## docs/specs/netcode-tick-lead.md. Callers pass a fresh duplicate of the gathered cmd: the
+## masking below mutates it, and the pending reconcile entries must not share one dict.
+func _produce_input_frame(ss: EntityState, cmd: Dictionary) -> void:
+	# Mirror authoritative downed state into the predictor so it crawls (1 m/s) like the server
+	# instead of predicting full-speed movement the server rejects (the down-state rubber-band).
+	_pred.predicted.is_downed = ss.is_downed
+	if _photo_mode:
+		# Freeze the pawn while free-flying — WASD drives the camera, not the soldier. Keep
+		# yaw/pitch so look still works; zero movement + buttons so nothing is sent as intent.
+		cmd["move_x"] = 0.0
+		cmd["move_y"] = 0.0
+		cmd["buttons"] = 0
+	elif _in_vehicle() >= 0:
+		# Slaved to the vehicle server-side: predicting free movement only rubber-bands the eye, so
+		# snap the predicted pawn onto the authoritative seat position (the POV rides along instead
+		# of drifting/bouncing). KEEP move_x/move_y: the server steers the vehicle from the DRIVER's
+		# last_input axes (server_main._build_vehicle_inputs) — zeroing them here meant the driver
+		# could never turn. Non-driver seats ignore the axes and the seated pawn never free-moves
+		# (pawn.gd skips movement while in_vehicle), so forwarding them is safe. Mask the movement
+		# buttons (jump/crouch/sprint do nothing seated); keep fire so passengers can shoot out.
+		cmd["buttons"] = int(cmd["buttons"]) & InputCommand.BTN_FIRE
+		_pred.predicted.pos = ss.pos
+		_pred.predicted.velocity = Vector3.ZERO
+	# M12 build tool: while build mode is active, the player never shoots/reloads — fire becomes
+	# place/shovel and reload becomes rotate. Mask those bits and set BTN_SHOVEL when holding the
+	# build tool on an under-construction site (the server advances it). Place/rotate/cycle are
+	# handled at render rate in _process; here we only shape the authoritative input bits.
+	if _build_ctrl != null and _build_ctrl.active:
+		if ss == null or not ss.alive or ss.is_downed or _in_vehicle() >= 0:
+			_build_ctrl.set_active(false)   # build mode never survives death/downed/entering a vehicle
+		else:
+			var bb := int(cmd["buttons"]) & ~(InputCommand.BTN_FIRE | InputCommand.BTN_RELOAD)
+			var beye := _pred.predicted.eye_position()
+			var bfwd := Combat._forward(wrapf(float(cmd["yaw"]) + PI, -PI, PI), float(cmd["pitch"]))
+			var bcell := _build_ctrl.aimed_cell(beye, bfwd)
+			if _build_ctrl.action_at(bcell, _wv.structures(), beye) == BuildController.SHOVEL \
+					and (Input.is_action_pressed("fire") or _build_test):
+				bb |= InputCommand.BTN_SHOVEL   # _build_test forces the shovel so the QA shot shows it rise
+			cmd["buttons"] = bb
+	_pred.record_cmd(_client_tick, cmd)
+
+	var buttons: int = int(cmd["buttons"])
+	var sprinting: bool = bool(buttons & InputCommand.BTN_SPRINT) \
+		and _pred.predicted.stance == Stance.STAND
+	# No firing while downed — the server ignores it, so suppress the local tracer/ammo
+	# prediction too (otherwise a downed player still sees their own tracers).
+	var firing: bool = bool(buttons & InputCommand.BTN_FIRE) and not _pred.predicted.is_downed and not _pred.predicted.climbing
+
+	# Predict weapon state — drop_shoot=false here; server gates authoritatively,
+	# and SELF_STATE reconciles the client's mag each tick so divergence is transient.
+	# A true return means a shot fired this tick -> draw a tracer for immediate feedback.
+	if _wpred.step(_client_tick, firing, sprinting, false) and _renderer != null:
+		_renderer.fire_tracer(_elapsed)
+		_renderer.play_viewmodel_recoil(_elapsed)   # kick the viewmodel on each shot
+		if _wpred.weapon != Weapon.RPG:
+			_renderer.eject_casing(_elapsed)   # brass flies from the port (no casing for the launcher)
+		_ch_fire_bloom = minf(_ch_fire_bloom + 6.0, 26.0)   # bloom the crosshair on each shot (visible hip spread)
+		_recoil_kick = minf(_recoil_kick + RECOIL_KICK_PER_SHOT, RECOIL_KICK_MAX)   # visual muzzle climb
+		if _audio != null:
+			_audio.play_at(_fire_event_for(_wpred.weapon), _pred.predicted.eye_position())
+
+	if buttons & InputCommand.BTN_RELOAD:
+		var _was_reloading: bool = _wpred.reloading
+		_wpred.begin_reload(_client_tick)
+		if not _was_reloading and _wpred.reloading:
+			# Reload-start transition: play the reload viewmodel anim over the real reload time + sfx.
+			if _renderer != null:
+				_renderer.play_viewmodel_reload(_elapsed, _wpred.reload_remaining(_client_tick) * SimLoop.DT)
+			if _audio != null:
+				_audio.play_2d("reload")   # only on the actual reload-start transition
+
+	# Send input to server. The server rebuilds the shot ray from Combat._forward(yaw,pitch),
+	# which points opposite the Godot camera, so send yaw+PI to make the authoritative aim
+	# match where the crosshair points. Movement is world-space (move_x/y) so it's unaffected.
+	var aim_yaw: float = wrapf(float(cmd["yaw"]) + PI, -PI, PI)
+	# Append this tick's frame to the redundancy ring and send the last N. ack_seq is
+	# per-packet (latest snapshot); each frame keeps its own view tick for lag comp.
+	_input_history.append({
+		"client_tick": _client_tick, "move_x": float(cmd["move_x"]), "move_y": float(cmd["move_y"]),
+		"yaw": aim_yaw, "pitch": float(cmd["pitch"]), "buttons": buttons,
+		"view_server_tick": _wv.view_tick(_elapsed),   # rendered-time tick (now-DELAY) for lag-comp rewind
+	})
+	while _input_history.size() > INPUT_REDUNDANCY:
+		_input_history.pop_front()
+	_net.send_to(_peer, NetHost.CHANNEL_INPUT,
+		InputCommand.encode_bundle(_last_snapshot_seq, _input_history),
+		0)  # unreliable-sequenced
+
+	_client_tick += 1
 
 # ---- screenshot capture -----------------------------------------------------
 # F12 (or F9) saves a PNG of exactly what's on screen (incl. HUD) to ~/bf-shots/ so issues can be
@@ -1098,13 +1122,14 @@ func _process(_dt: float) -> void:
 	if _dbg_accum >= 1.0:
 		_dbg_accum = 0.0
 		var dss: EntityState = _wv.self_state()
-		print("[client-dbg] deployed=%s mouse_mode=%d menu_vis=%s refs=%d motion=%d w=%s fire=%s" % [
+		print("[client-dbg] deployed=%s mouse_mode=%d menu_vis=%s refs=%d motion=%d w=%s fire=%s lead_d=%d holds=%d extras=%d" % [
 			str(dss != null and dss.alive), int(Input.mouse_mode),
 			str(_deploy_menu.visible if _deploy_menu != null else false),
 			(_deploy_menu.refs.size() if _deploy_menu != null else 0),
 			_input_ctrl.motion_events,
 			str(Input.is_action_pressed("move_fwd")),
-			str(Input.is_action_pressed("fire"))])
+			str(Input.is_action_pressed("fire")),
+			_tick_lead.last_depth, _tick_lead.holds, _tick_lead.extras])
 
 # ---- connect callback -------------------------------------------------------
 func _on_connected(peer: ENetPacketPeer) -> void:
@@ -1318,6 +1343,8 @@ func _handle_snapshot(bytes: PackedByteArray) -> void:
 			_hud_view.set_squad_menu_open(false)   # don't leave the squad overlay up over the deploy screen
 	var just_respawned: bool = alive and not _was_alive
 	_was_alive = alive
+	if just_respawned:
+		_tick_lead.reset()   # the input buffer refills from scratch on deploy; stale phase would mis-adjust
 	if just_respawned and _peer != null:
 		# Respawn resets the server's fire mode to the weapon default even when the weapon is unchanged
 		# (so the SELF_STATE weapon-change branch won't re-send). Re-assert the remembered mode here so
@@ -1405,6 +1432,14 @@ func _handle_self_state(bytes: PackedByteArray) -> void:
 	_self_vault_tick = int(d.get("vault_tick", 0))
 	_self_regen_cooldown = float(d.get("regen_cooldown", 0.0)) # authoritative stamina regen-cooldown (C6 reconcile)
 	_self_sprint_locked = bool(d.get("sprint_locked", false))  # authoritative sprint-lockout flag (hysteresis reconcile)
+	# Tick-lead: feed the post-drain buffer depth to the input-clock loop. Only while input is
+	# actually being produced (deployed, menu closed, on foot) — a dead or menu-paused client
+	# sends no frames, so its depth reads 0 and would wrongly integrate catch-up phase (windup);
+	# seated pawns are server-slaved. -1 = absent byte (old/short packet): stay idle.
+	var ibd := int(d.get("input_buf_depth", -1))
+	var lss: EntityState = _wv.self_state()
+	if ibd >= 0 and lss != null and lss.alive and not _input_paused_by_menu() and _in_vehicle() < 0:
+		_tick_lead.on_depth(ibd)
 
 # ---- MATCH_STATE ------------------------------------------------------------
 func _handle_match_state(bytes: PackedByteArray) -> void:

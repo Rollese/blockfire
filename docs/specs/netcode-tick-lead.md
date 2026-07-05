@@ -1,6 +1,12 @@
 # Spec: Explicit tick-lead management (movement-feel netcode fix)
 
-**Status:** proposed (2026-07-05). Follows the M7 playtest rounds 4–5 diagnosis
+**Status:** implemented (2026-07-05) — deterministic tests (`tests/tick_lead_test.gd`: control law +
+closed-loop jitter/drift sim, edge events 248→96), live loopback (lead_d converges to 2, then zero
+adjusts) and 128-bot fleet gate (PASS, `docs/gate-evidence/20260705-213626-ticklead.txt`) all done.
+**Closing feel gate: owner playtest pending** (jump-apex micro-jitter + per-reconnect variability
+gone; `[client-dbg]` now prints `lead_d/holds/extras` as the meter). Deadzone narrowing (0.12→?)
+remains a separate follow-up step per §Interaction. Originally proposed 2026-07-05 after the M7
+playtest rounds 4–5 diagnosis
 (`docs/sessions/2026-07-05-m7-playtest-round4-5.md` → "Key diagnosis — movement snap").
 Prediction-bearing → this spec precedes the code (AGENTS.md §4). Feel-gated → the closing
 gate is an **owner playtest**, proven first deterministically on game2 (AGENTS.md §10).
