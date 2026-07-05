@@ -54,7 +54,8 @@ func record_cmd(client_tick: int, cmd: Dictionary) -> void:
 
 func reconcile_full(auth_pos: Vector3, auth_yaw: float, auth_pitch: float, last_input_tick: int,
 		auth_stamina: float = Pawn.STAMINA_MAX, auth_vel_y: float = 0.0, auth_grounded: bool = true,
-		auth_vaulting: bool = false, auth_vault_tick: int = 0, auth_regen_cooldown: float = 0.0) -> void:
+		auth_vaulting: bool = false, auth_vault_tick: int = 0, auth_regen_cooldown: float = 0.0,
+		auth_sprint_locked: bool = false) -> void:
 	var kept: Array = []
 	for inp in pending:
 		if inp["tick"] > last_input_tick:
@@ -72,6 +73,10 @@ func reconcile_full(auth_pos: Vector3, auth_yaw: float, auth_pitch: float, last_
 	# jump apex snapped and sprint flickered ~1 Hz once stamina bottomed out. Replaying the pending
 	# inputs re-derives the cooldown from here identically to the server.
 	predicted._regen_cooldown = auth_regen_cooldown
+	# ...and the sprint-lockout flag (empty-sprint hysteresis). During stamina recovery neither the
+	# stamina==0 nor the >=SPRINT_RESUME branch fires, so the flag never recomputes on replay — a stale
+	# predicted lock would mis-predict sprint vs walk for the whole recovery window. Pin it to authority.
+	predicted._sprint_locked = auth_sprint_locked
 	# Likewise reset the vertical velocity + grounded flag to authority before replay. Without this the
 	# jump replay integrated gravity from a stale velocity.y and the predicted arc snapped back mid-jump.
 	predicted.velocity.y = auth_vel_y

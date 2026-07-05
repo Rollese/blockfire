@@ -65,6 +65,7 @@ var _flashes: Array = []          # [{node: MeshInstance3D, mat: StandardMateria
 var _flash_idx: int = 0
 
 var _fx := FxPoolRef.new(self)    # rockets/thrown/puffs/blasts/debris — see client/fx_pool.gd
+var _ladder_nodes: Dictionary = {}   # building_id -> [Node3D]; freed when the building collapses (H1)
 var _casings: Array = []          # [{node, vel, spin, die}] — ejected brass shell casings (local gun)
 var _casing_i := 0                # rotates per-shot variation without per-frame RNG
 var _casing_mat: StandardMaterial3D = null
@@ -406,7 +407,13 @@ func setup(map: MapDef, camera: Camera3D) -> void:
 	# Roof-access ladders — the map's climb VOLUMES rendered as visible red ladders (the only way
 	# onto the tall buildings' walkable roof decks; see WorldRenderer._make_ladder + tools/map_gen.py).
 	for ld: Dictionary in map.ladders:
-		add_child(_make_ladder(ld))
+		var lnode := _make_ladder(ld)
+		add_child(lnode)
+		var lbid := int(ld.get("building_id", 0))   # so the building's collapse frees this ladder (H1)
+		if lbid != 0:
+			if not _ladder_nodes.has(lbid):
+				_ladder_nodes[lbid] = []
+			(_ladder_nodes[lbid] as Array).append(lnode)
 
 	# Tracer pool — thin emissive beams along the aim, hidden until fired.
 	for _i in TRACER_POOL:
@@ -1188,6 +1195,10 @@ func cull_rockets_near(pos: Vector3, radius: float) -> void:
 
 func throw_grenade(origin: Vector3, vel: Vector3, kind: int, now: float, friendly: bool = false) -> void:
 	_fx.throw_grenade(origin, vel, kind, now, friendly)
+
+## Give the thrown-grenade cosmetic pool the client's collision store so it bounces off walls (C4).
+func set_grenade_collision(store) -> void:
+	_fx.struct_store = store
 
 func live_grenade_positions() -> Array:
 	return _fx.live_grenade_positions()
@@ -2037,6 +2048,7 @@ func _sync_structure_pool(world_view: WorldView, now: float) -> void:
 	# Must run every frame (the queue is normally empty; a collapse also bumps the version below).
 	for bid_v: Variant in world_view.take_collapsed():
 		_spawn_rubble_for(int(bid_v))
+		_free_ladders_for(int(bid_v))   # H1: remove the collapsed building's roof ladder render nodes
 
 	# Structures are static once placed — only walk the (large) pool when the store actually changed
 	# (build/destroy/damage/collapse). The steady state is a no-op, which is what makes a 77-building
@@ -2558,6 +2570,16 @@ func _make_box_mesh(size: Vector3, color: Color) -> MeshInstance3D:
 ## (rails along local X, stacked up local Y) and rotated by `yaw` so the rungs face out from the wall.
 ## The map's climb VOLUME is yaw-agnostic; this is presentation only, so a ladder reads as a ladder
 ## and stands out as the way up.
+## H1: free the roof-ladder render nodes belonging to a collapsed building (their climb volume is
+## already gone server-side), so a ladder never floats in the air where its building used to be.
+func _free_ladders_for(building_id: int) -> void:
+	if building_id == 0 or not _ladder_nodes.has(building_id):
+		return
+	for lnode: Node3D in _ladder_nodes[building_id]:
+		if is_instance_valid(lnode):
+			lnode.queue_free()
+	_ladder_nodes.erase(building_id)
+
 func _make_ladder(ladder: Dictionary) -> Node3D:
 	var bottom: Vector3 = ladder["bottom"]
 	var top: Vector3 = ladder["top"]

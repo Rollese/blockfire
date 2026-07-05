@@ -62,8 +62,13 @@ static func from_dict(data: Dictionary) -> Dictionary:
 	for l in data.get("ladders", []):
 		if not (l is Dictionary) or not l.has("bottom") or not l.has("top"):
 			return {"ok": false, "map": null, "error": "each ladder needs bottom + top"}
+		# `building` = index of the building this ladder is attached to (from map_gen); building_id defaults
+		# to index+1 (the server's stamping order on a clean map) and is re-stamped authoritatively server-
+		# side. 0 = unattached. Drives ladder removal when the building collapses (H1).
+		var _b_idx := int(l.get("building", -1))
 		m.ladders.append({"bottom": _vec3(l["bottom"]), "top": _vec3(l["top"]), "radius": float(l.get("radius", 0.6)),
-			"yaw": float(l.get("yaw", 0.0))})   # render facing (rungs face this way); climb volume is yaw-agnostic
+			"yaw": float(l.get("yaw", 0.0)),   # render facing (rungs face this way); climb volume is yaw-agnostic
+			"building_index": _b_idx, "building_id": (_b_idx + 1) if _b_idx >= 0 else 0})
 	for pf in data.get("platforms", []):
 		if not (pf is Dictionary) or not pf.has("min") or not pf.has("max"):
 			return {"ok": false, "map": null, "error": "each platform needs min + max"}

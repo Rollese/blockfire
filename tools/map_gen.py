@@ -134,7 +134,7 @@ def roof_deck(name):
     return _ROOF[name]
 
 ladders = []
-for b in buildings:
+for bi, b in enumerate(buildings):
     info = roof_deck(b["prefab"])
     if info is None:
         continue
@@ -152,7 +152,10 @@ for b in buildings:
     # clears the wall slab; a climber on the street engages it from outside (radius 0.6).
     wz = (cz + dz + 0.5) * CELL - 0.75
     ry = roof_cy * CELL
-    ladders.append({"bottom": [wx, 0.0, wz], "top": [wx, ry, wz], "radius": 0.6, "yaw": 0.0})
+    # `building` = this ladder's index into the buildings list, so a building's collapse can remove
+    # its ladder (climb volume server-side + red render node client-side). See server _build_map /
+    # _resolve_cascades and world_renderer collapse drain.
+    ladders.append({"bottom": [wx, 0.0, wz], "top": [wx, ry, wz], "radius": 0.6, "yaw": 0.0, "building": bi})
 
 # ---------------------------------------------------------------- points + bases
 points = [

@@ -47,6 +47,29 @@ func test_every_ladder_top_lands_on_a_walkable_deck() -> void:
 		assert_almost_eq(floor_y, top.y, 0.05,
 			"ladder top (%.0f,%.0f,%.0f) lands on a deck; floor_height_at=%.2f" % [top.x, top.y, top.z, floor_y])
 
+func test_every_ladder_is_linked_to_its_building() -> void:
+	# H1: each ladder carries the id of the building it sits on, so a collapse can remove it. On a
+	# clean map the server stamps building_id in generation order == building_index + 1.
+	var m := MapDef.load_file("res://maps/conquest_town.json")
+	for ld in m.ladders:
+		var bidx := int(ld.get("building_index", -1))
+		var bid := int(ld.get("building_id", 0))
+		assert_true(bidx >= 0 and bidx < m.buildings.size(), "ladder building_index %d in [0,%d)" % [bidx, m.buildings.size()])
+		assert_eq(bid, bidx + 1, "building_id = building_index + 1 (server stamping order)")
+
+func test_collapse_removes_only_that_buildings_ladders() -> void:
+	# H1: mirrors the server _resolve_cascades filter — collapsing one building drops exactly its
+	# ladder(s) and leaves every other building's ladders intact (no ghost ladder in the air).
+	var m := MapDef.load_file("res://maps/conquest_town.json")
+	var target := int(m.ladders[0]["building_id"])
+	var kept: Array = []
+	for ld in m.ladders:
+		if int(ld.get("building_id", 0)) != target:
+			kept.append(ld)
+	assert_true(kept.size() < m.ladders.size(), "at least one ladder removed for the collapsed building")
+	for ld in kept:
+		assert_true(int(ld["building_id"]) != target, "no surviving ladder belongs to the collapsed building")
+
 func test_climb_from_base_reaches_the_deck() -> void:
 	# End-to-end via the pure Ladder helpers: engage at the base, climb to the top anchor.
 	var m := MapDef.load_file("res://maps/conquest_town.json")

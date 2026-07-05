@@ -279,7 +279,7 @@ func _render_throw_charge(tc: Dictionary) -> void:
 	if vis:
 		_throw_bar_fill.offset_right = _THROW_BAR_W * clampf(float(tc.get("charge", 0.0)), 0.0, 1.0)
 
-const _STAM_BAR_W := 120.0   # px
+const _STAM_BAR_W := 260.0   # px
 ## Slim white stamina bar, bottom centre. Appears only when stamina is spent (below full) so the
 ## player can see why jump/sprint gate out (there is otherwise no stamina UI).
 func _build_stamina_bar() -> void:
@@ -288,7 +288,7 @@ func _build_stamina_bar() -> void:
 	_stam_bar_bg.anchor_left = 0.5; _stam_bar_bg.anchor_right = 0.5
 	_stam_bar_bg.anchor_top = 1.0; _stam_bar_bg.anchor_bottom = 1.0
 	_stam_bar_bg.offset_left = -_STAM_BAR_W * 0.5; _stam_bar_bg.offset_right = _STAM_BAR_W * 0.5
-	_stam_bar_bg.offset_top = -30.0; _stam_bar_bg.offset_bottom = -26.0   # 4 px tall, ~26 px off the bottom edge
+	_stam_bar_bg.offset_top = -34.0; _stam_bar_bg.offset_bottom = -26.0   # 8 px tall, ~26 px off the bottom edge
 	_stam_bar_bg.mouse_filter = MOUSE_FILTER_IGNORE
 	_stam_bar_bg.visible = false
 	add_child(_stam_bar_bg)

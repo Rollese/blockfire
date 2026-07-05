@@ -88,7 +88,7 @@ func resolve_fires() -> void:
 		var inp = c["last_input"]
 		if inp == null: continue
 		var shooter: Pawn = srv._sim.world.get_pawn(id)
-		if shooter == null or not shooter.alive or shooter.is_downed: continue   # downed = incapacitated, can't fire
+		if shooter == null or not shooter.alive or shooter.is_downed or shooter.climbing: continue   # downed/climbing = can't fire (also drops ADS accuracy, read below)
 		if c["weapon"] == Weapon.RPG:
 			c["shot_index"] = 0
 			# RPG fires via GADGET_ACTION(GA_RPG_FIRE), not the hit-scan path. RELOAD refills the rocket pool.

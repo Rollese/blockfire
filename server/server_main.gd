@@ -235,12 +235,19 @@ func _start_match() -> bool:
 		_store.place(sid, ti, pb["cell"], 0, 0)   # owner 0 = world-placed
 	# M11: stamp destructible building prefabs, each instance a unique building_id (>=1).
 	var _next_building_id := 1
+	var _b_gen_idx := -1
 	for b in _map.buildings:
+		_b_gen_idx += 1   # generation index (matches the map_gen ladder "building" field); ++ even on skip
 		var pres := BuildingCatalog.load_file("res://buildings/%s.json" % b["prefab"], _catalog)
 		if not pres["ok"]:
 			push_error("[map] building '%s': %s" % [b["prefab"], pres["error"]]); continue
 		var bid := _next_building_id
 		_next_building_id += 1
+		# H1: stamp this building's authoritative id onto its roof ladder(s) (matched by generation
+		# index) so a full collapse can drop the climb volume. Robust to prefab-load skips above.
+		for ld in _sim.ladders:
+			if int(ld.get("building_index", -1)) == _b_gen_idx:
+				ld["building_id"] = bid
 		var origin: Vector3i = b["origin_cell"]
 		var inst_yaw: int = int(b["yaw"])
 		if inst_yaw < 0 or inst_yaw >= BuildGrid.YAW_STEPS:
@@ -651,6 +658,7 @@ func _apply_pawn_damage(vid: int, victim: Pawn, dmg: int, headshot: bool, source
 			dmg = int(round(float(dmg) * Armor.body_mult(victim.armor_class)))
 	else:
 		dmg = int(round(float(dmg) * Armor.body_mult(victim.armor_class)))
+	var pre_hp := maxi(int(victim.health), 0)   # health before this hit — caps the recap ledger credit
 	victim.health -= dmg
 	victim.combat_until_tick = _sim.tick + COMBAT_FLAG_TICKS   # taking fire flags "in combat" (blocks squad-spawn on this pawn)
 	if _clients.has(vid):
@@ -659,8 +667,11 @@ func _apply_pawn_damage(vid: int, victim: Pawn, dmg: int, headshot: bool, source
 		_net.send_to(_clients[vid]["peer"], NetHost.CHANNEL_CONTROL,
 			Protocol.encode_damage_event(bearing, dmg), 0)
 		if killer_id != 0:
+			# Credit only the damage actually dealt (min of raw dmg and the victim's pre-hit health).
+			# Instant-kill sentinels (back-stab 100000 / vehicle-crush 99999) would otherwise clamp to
+			# u16-max (65535) on the DEATH_INFO wire and show a nonsense "65535 damage" on the recap.
 			var led: Dictionary = _clients[vid]["dmg_ledger"]
-			led[killer_id] = int(led.get(killer_id, 0)) + dmg
+			led[killer_id] = int(led.get(killer_id, 0)) + mini(dmg, pre_hp)
 	if victim.health > 0:
 		return
 	victim.health = 0
@@ -837,7 +848,7 @@ func _send_snapshots() -> void:
 		# SELF_STATE packets (lossy links) leave the client predicting phantom ammo it doesn't have.
 		var rgauge := _support.repair_gauge_for(id)
 		_net.send_to(c["peer"], NetHost.CHANNEL_CONTROL,
-			Protocol.encode_self_state(int(c["ammo"]), bool(c["reloading"]), reload_remaining, int(c["weapon"]), _throwables_for(c), _support.being_revived.has(id), self_pawn.suppression, clampi(self_pawn.blind_until_tick - _sim.tick, 0, 255), self_pawn.bandage_count, self_pawn.bleed_halted, rgauge.x, rgauge.y, self_pawn.stamina, self_pawn.velocity.y, self_pawn.grounded, self_pawn.vaulting, self_pawn.vault_tick, self_pawn._regen_cooldown),
+			Protocol.encode_self_state(int(c["ammo"]), bool(c["reloading"]), reload_remaining, int(c["weapon"]), _throwables_for(c), _support.being_revived.has(id), self_pawn.suppression, clampi(self_pawn.blind_until_tick - _sim.tick, 0, 255), self_pawn.bandage_count, self_pawn.bleed_halted, rgauge.x, rgauge.y, self_pawn.stamina, self_pawn.velocity.y, self_pawn.grounded, self_pawn.vaulting, self_pawn.vault_tick, self_pawn._regen_cooldown, self_pawn._sprint_locked),
 			ENetPacketPeer.FLAG_RELIABLE)
 		c["history"][seq] = current
 		c["history_v"][seq] = current_v
@@ -1142,7 +1153,7 @@ func _handle_grenade_throw(peer: ENetPacketPeer, bytes: PackedByteArray) -> void
 	if id == 0 or not _clients.has(id): return
 	var c = _clients[id]
 	var p: Pawn = _sim.world.get_pawn(id)
-	if p == null or not p.alive or p.is_downed: return   # downed = incapacitated (same gate as fire/melee/gadgets)
+	if p == null or not p.alive or p.is_downed or p.climbing: return   # downed/climbing = incapacitated (same gate as fire/melee/gadgets)
 	if _sim.tick - int(c["last_grenade_tick"]) < GRENADE_COOLDOWN_TICKS: return
 	var d := Protocol.decode_grenade_throw(bytes)
 	var dir: Vector3 = d["dir"]
@@ -1179,7 +1190,7 @@ func _resolve_melee(id: int, view_tick: int = 0) -> void:
 	if _sim.tick < int(c.get("melee_ready_tick", 0)): return
 	c["melee_ready_tick"] = _sim.tick + MELEE_COOLDOWN_TICKS
 	var atk: Pawn = _sim.world.get_pawn(id)
-	if atk == null or not atk.alive or atk.is_downed: return
+	if atk == null or not atk.alive or atk.is_downed or atk.climbing: return   # no melee while climbing
 	# Lag-comp: rewind target positions to the attacker's rendered view tick (like fire.gd), so a swing
 	# at a moving target lands where the player saw them instead of missing present-time. The attacker
 	# stays present (well-predicted local pawn). view_tick 0 => present-time (old client / sledge march).
@@ -1223,7 +1234,7 @@ func _handle_gadget_action(peer: ENetPacketPeer, bytes: PackedByteArray) -> void
 	var id = _peer_to_id.get(peer, 0)
 	if id == 0 or not _clients.has(id): return
 	var p: Pawn = _sim.world.get_pawn(id)
-	if p == null or not p.alive or p.is_downed: return
+	if p == null or not p.alive or p.is_downed or p.climbing: return   # no gadget/RPG/C4 while climbing
 	var d := Protocol.decode_gadget_action(bytes)
 	match int(d["action"]):
 		Protocol.GA_RPG_FIRE: _fire_rocket(id, p, d["dir"])
@@ -1825,6 +1836,12 @@ func _resolve_cascades() -> void:
 				_dmg_touched.erase(oid)
 				_store.remove(oid)
 			_stats.collapsed += 1
+			# H1: the building is gone — remove its roof ladder(s) so nobody climbs a ghost into thin air.
+			var kept_ladders: Array = []
+			for ld in _sim.ladders:
+				if int(ld.get("building_id", 0)) != bid:
+					kept_ladders.append(ld)
+			_sim.ladders = kept_ladders
 			var bytes := Protocol.encode_collapse(bid)
 			for cid in _clients:
 				_net.send_to(_clients[cid]["peer"], NetHost.CHANNEL_CONTROL, bytes, ENetPacketPeer.FLAG_RELIABLE)
