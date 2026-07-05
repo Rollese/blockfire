@@ -735,7 +735,7 @@ static func decode_damage_event(bytes: PackedByteArray) -> Dictionary:
 	return {"bearing": Quantize.dec_angle(r.get_u16()), "amount": r.get_u8()}
 
 
-static func encode_self_state(mag: int, reloading: bool, reload_remaining: int, weapon: int, throwables: Array = [], being_revived: bool = false, suppression: float = 0.0, blind_ticks: int = 0, bandage_count: int = 0, bleed_halted: bool = false, repair_heat: float = 0.0, repair_cooldown: float = 0.0, stamina: float = 100.0, vel_y: float = 0.0, grounded: bool = true) -> PackedByteArray:
+static func encode_self_state(mag: int, reloading: bool, reload_remaining: int, weapon: int, throwables: Array = [], being_revived: bool = false, suppression: float = 0.0, blind_ticks: int = 0, bandage_count: int = 0, bleed_halted: bool = false, repair_heat: float = 0.0, repair_cooldown: float = 0.0, stamina: float = 100.0, vel_y: float = 0.0, grounded: bool = true, vaulting: bool = false, vault_tick: int = 0) -> PackedByteArray:
 	var buf := StreamPeerBuffer.new()
 	buf.put_u8(Msg.SELF_STATE)
 	buf.put_u8(clampi(mag, 0, 255))
@@ -773,6 +773,12 @@ static func encode_self_state(mag: int, reloading: bool, reload_remaining: int, 
 	# stale velocity.y through reconcile and the jump arc rubber-bands ("pulled back" mid-jump).
 	buf.put_float(vel_y)
 	buf.put_u8(1 if grounded else 0)
+	# Authoritative vault progress for the client VAULT-prediction reconcile. Owner-only, appended
+	# last so older decoders ignore it. Without it a reconcile mid-vault kept the stale local arc
+	# (which overrides the authoritative position) and every replayed input advanced the 8-tick arc
+	# again — the predicted vault finished (1+pending)x too fast and stuttered every auto-vault.
+	buf.put_u8(1 if vaulting else 0)
+	buf.put_u8(clampi(vault_tick, 0, 255))
 	return buf.data_array
 
 static func decode_self_state(bytes: PackedByteArray) -> Dictionary:
@@ -816,7 +822,13 @@ static func decode_self_state(bytes: PackedByteArray) -> Dictionary:
 		vel_y = r.get_float()
 	if r.get_available_bytes() > 0:
 		grounded = r.get_u8() == 1
-	return {"mag": mag, "reloading": reloading, "reload_remaining": reload_remaining, "weapon": weapon, "throwables": throwables, "being_revived": being_revived, "suppression": suppression, "blind_ticks": blind_ticks, "bandage_count": bandage_count, "bleed_halted": bleed_halted, "repair_heat": repair_heat, "repair_cooldown": repair_cooldown, "stamina": stamina, "vel_y": vel_y, "grounded": grounded}
+	var vaulting := false   # not vaulting by default so an old/short packet never freezes the pawn mid-arc
+	var vault_tick := 0
+	if r.get_available_bytes() > 0:
+		vaulting = r.get_u8() == 1
+	if r.get_available_bytes() > 0:
+		vault_tick = r.get_u8()
+	return {"mag": mag, "reloading": reloading, "reload_remaining": reload_remaining, "weapon": weapon, "throwables": throwables, "being_revived": being_revived, "suppression": suppression, "blind_ticks": blind_ticks, "bandage_count": bandage_count, "bleed_halted": bleed_halted, "repair_heat": repair_heat, "repair_cooldown": repair_cooldown, "stamina": stamina, "vel_y": vel_y, "grounded": grounded, "vaulting": vaulting, "vault_tick": vault_tick}
 
 
 static func encode_roster(rows: Array) -> PackedByteArray:

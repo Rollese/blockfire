@@ -837,7 +837,7 @@ func _send_snapshots() -> void:
 		# SELF_STATE packets (lossy links) leave the client predicting phantom ammo it doesn't have.
 		var rgauge := _support.repair_gauge_for(id)
 		_net.send_to(c["peer"], NetHost.CHANNEL_CONTROL,
-			Protocol.encode_self_state(int(c["ammo"]), bool(c["reloading"]), reload_remaining, int(c["weapon"]), _throwables_for(c), _support.being_revived.has(id), self_pawn.suppression, clampi(self_pawn.blind_until_tick - _sim.tick, 0, 255), self_pawn.bandage_count, self_pawn.bleed_halted, rgauge.x, rgauge.y, self_pawn.stamina, self_pawn.velocity.y, self_pawn.grounded),
+			Protocol.encode_self_state(int(c["ammo"]), bool(c["reloading"]), reload_remaining, int(c["weapon"]), _throwables_for(c), _support.being_revived.has(id), self_pawn.suppression, clampi(self_pawn.blind_until_tick - _sim.tick, 0, 255), self_pawn.bandage_count, self_pawn.bleed_halted, rgauge.x, rgauge.y, self_pawn.stamina, self_pawn.velocity.y, self_pawn.grounded, self_pawn.vaulting, self_pawn.vault_tick),
 			ENetPacketPeer.FLAG_RELIABLE)
 		c["history"][seq] = current
 		c["history_v"][seq] = current_v

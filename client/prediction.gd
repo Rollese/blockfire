@@ -52,7 +52,8 @@ func record_cmd(client_tick: int, cmd: Dictionary) -> void:
 	pending.append({"tick": client_tick, "cmd": cmd})
 
 func reconcile_full(auth_pos: Vector3, auth_yaw: float, auth_pitch: float, last_input_tick: int,
-		auth_stamina: float = Pawn.STAMINA_MAX, auth_vel_y: float = 0.0, auth_grounded: bool = true) -> void:
+		auth_stamina: float = Pawn.STAMINA_MAX, auth_vel_y: float = 0.0, auth_grounded: bool = true,
+		auth_vaulting: bool = false, auth_vault_tick: int = 0) -> void:
 	var kept: Array = []
 	for inp in pending:
 		if inp["tick"] > last_input_tick:
@@ -69,6 +70,17 @@ func reconcile_full(auth_pos: Vector3, auth_yaw: float, auth_pitch: float, last_
 	# jump replay integrated gravity from a stale velocity.y and the predicted arc snapped back mid-jump.
 	predicted.velocity.y = auth_vel_y
 	predicted.grounded = auth_grounded
+	# Vault state, same bug class: while vaulting, SimLoop drives pos from the stored arc — a stale
+	# local arc would override the authoritative position, and each replayed input advanced vault_tick
+	# again on top of the per-tick advance (the arc finished (1+pending)x too fast and stuttered).
+	# Both sides start the vault from the same input + geometry, so the predicted vault_from/vault_to
+	# match the server's — only the PROGRESS needs re-syncing. If the server vaults and we never
+	# predicted one (missed trigger), there is no local arc to resume: stay non-vaulting and let the
+	# per-snapshot authoritative positions carry the camera over (self-heals at arc end).
+	if auth_vaulting and predicted.vaulting:
+		predicted.vault_tick = auth_vault_tick
+	else:
+		predicted.vaulting = false
 	for inp in pending:
 		if inp.has("cmd"):
 			_advance(inp["cmd"])

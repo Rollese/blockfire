@@ -171,6 +171,12 @@ var _repair_cooldown: float = 0.0  # latest repair overheat-lockout remaining fr
 var _self_stamina: float = 100.0   # latest authoritative stamina from SELF_STATE (sprint reconcile baseline)
 var _self_vel_y: float = 0.0       # latest authoritative vertical velocity from SELF_STATE (jump reconcile baseline)
 var _self_grounded: bool = true    # latest authoritative grounded flag from SELF_STATE (jump reconcile baseline)
+var _self_vaulting: bool = false   # latest authoritative vault flag from SELF_STATE (vault-arc reconcile)
+var _self_vault_tick: int = 0      # latest authoritative vault progress from SELF_STATE
+var _conn_lost: bool = false       # in-game disconnect: freeze the loop under the overlay
+var _conn_lost_overlay: CanvasLayer = null
+var _reject_reason: String = ""    # last REJECT text — shown on the menu when the disconnect lands
+var _my_class: int = 0             # own class from WELCOME (medic revive-rate for the HUD bar)
 var _throw_charge: float = 0.0     # C3: current grenade hold-charge 0..1 (grows while "throw" is held)
 var _throw_charging: bool = false  # whether we're mid-charge on a throwable
 const THROW_CHARGE_SECS := 1.1     # hold time to reach full throw strength
@@ -251,9 +257,11 @@ func _on_main_menu_connect(ip: String, port: int, player_name: String) -> void:
 	_server_ip = ip
 	_port = port
 	_player_name = player_name
+	# HIDE the menu, don't free it: an unreachable host surfaces as a peer_disconnected event a few
+	# seconds from now, and the menu (with its error line) is the only way back — freeing it here
+	# used to leave every failed connect on a permanent black screen. Freed on successful WELCOME.
 	if _main_menu != null:
-		_main_menu.queue_free()
-		_main_menu = null
+		_main_menu.visible = false
 	_start_connection()
 
 func _start_connection() -> void:
@@ -263,19 +271,92 @@ func _start_connection() -> void:
 	add_child(_net)
 	_net.peer_connected.connect(_on_connected)
 	_net.packet_received.connect(_on_packet)
+	_net.peer_disconnected.connect(_on_disconnected)
 	_peer = _net.start_client(_server_ip, _port)
 	if _peer == null:
 		push_error("[client] failed to create ENet host")
 		if _main_menu != null:
+			_main_menu.visible = true
 			_main_menu.set_connect_error("Failed to create network client.")
+		_teardown_net()
 		return
 	print("[client] connecting to %s:%d ..." % [_server_ip, _port])
+
+## Drop the ENet host so a fresh _start_connection can run (retry from the main menu).
+func _teardown_net() -> void:
+	_peer = null
+	if _net != null:
+		_net.close()
+		_net.queue_free()
+		_net = null
+
+## ENet disconnect: covers connect timeouts (unreachable host), server shutdown, kicks, and the
+## M8-P3 map-rotation disconnect_all. Before WELCOME -> back to the main menu with an error line;
+## in-game -> freeze the world under a clear "connection lost" overlay (auto-reconnect is a
+## documented M7 follow-up; the old behavior was a silent freeze that kept sending inputs forever).
+func _on_disconnected(_peer_obj: ENetPacketPeer) -> void:
+	if my_id == 0:
+		print("[client] connection failed/refused (%s:%d)" % [_server_ip, _port])
+		_teardown_net()
+		if _main_menu != null:
+			_main_menu.visible = true
+			var why := "Could not connect to %s:%d." % [_server_ip, _port]
+			if _reject_reason != "":
+				why = "Rejected by server: %s" % _reject_reason
+				_reject_reason = ""
+			_main_menu.set_connect_error(why)
+		else:
+			# --connect / headless CLI path: no menu to fall back to.
+			push_error("[client] could not connect to %s:%d — exiting" % [_server_ip, _port])
+			get_tree().quit(1)
+		return
+	print("[client] disconnected from server")
+	_conn_lost = true
+	_teardown_net()
+	if _input_ctrl != null:
+		_input_ctrl.release_mouse()
+	_show_conn_lost_overlay()
+
+func _show_conn_lost_overlay() -> void:
+	if _conn_lost_overlay != null:
+		return
+	_conn_lost_overlay = CanvasLayer.new()
+	_conn_lost_overlay.layer = 100
+	var dim := ColorRect.new()
+	dim.color = Color(0.0, 0.0, 0.0, 0.65)
+	dim.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_conn_lost_overlay.add_child(dim)
+	var box := VBoxContainer.new()
+	box.set_anchors_preset(Control.PRESET_CENTER)
+	box.alignment = BoxContainer.ALIGNMENT_CENTER
+	_conn_lost_overlay.add_child(box)
+	var title := Label.new()
+	title.text = "CONNECTION LOST"
+	title.add_theme_font_size_override("font_size", 42)
+	title.add_theme_color_override("font_color", Color(1.0, 0.45, 0.35))
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	box.add_child(title)
+	var sub := Label.new()
+	sub.text = "The server closed the connection (shutdown or match rotation).\nRestart the client to reconnect."
+	sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	sub.add_theme_color_override("font_color", Color(0.9, 0.9, 0.9))
+	box.add_child(sub)
+	var quit := Button.new()
+	quit.text = "Quit"
+	quit.custom_minimum_size = Vector2(160, 40)
+	quit.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	quit.pressed.connect(func(): get_tree().quit())
+	box.add_child(quit)
+	add_child(_conn_lost_overlay)
 
 # ---- physics tick -----------------------------------------------------------
 func _physics_process(delta: float) -> void:
 	if _net != null:
 		_net.poll()
 	_elapsed += delta
+
+	if _conn_lost:
+		return   # connection lost: world frozen under the overlay, nothing to predict or send
 
 	if my_id == 0:
 		return   # not yet welcomed
@@ -499,6 +580,8 @@ func _fly_photo_camera(dt: float) -> void:
 func _process(_dt: float) -> void:
 	_poll_screenshot_key()   # F12/F9 screenshot — works even before the scene is built
 	_poll_debug_overlay_key()   # F3 toggles the green perf/debug overlay
+	if _conn_lost:
+		return   # world + HUD frozen under the connection-lost overlay; no actions, no sends
 	# --shot-after=N: automated visual QA — save one screenshot N secs after launch, then quit.
 	if _shot_after >= 0.0 and not _shot_done and _scene_built and _elapsed >= _shot_after:
 		_shot_done = true
@@ -653,7 +736,13 @@ func _process(_dt: float) -> void:
 			_giveup_hold = 0.0
 			_giveup_sent = false
 			_life_down_count += 1   # mirror the server's per-life down count so the timer halves too
-		if Input.is_action_pressed("jump"):
+		# No give-up accrual while a menu is open: rebinding a key to Space in Settings > Controls
+		# while downed used to hold-to-give-up the player from inside the menu.
+		var giveup_menu_open: bool = (_settings_menu != null and _settings_menu.visible) \
+			or (_hud_view != null and _hud_view.is_squad_menu_open())
+		if giveup_menu_open:
+			_giveup_hold = 0.0
+		elif Input.is_action_pressed("jump"):
 			_giveup_hold += _dt
 			if _giveup_hold >= GIVEUP_HOLD and not _giveup_sent and _peer != null:
 				_net.send_to(_peer, NetHost.CHANNEL_CONTROL, Protocol.encode_give_up(), ENetPacketPeer.FLAG_RELIABLE)
@@ -741,7 +830,9 @@ func _process(_dt: float) -> void:
 				ENetPacketPeer.FLAG_RELIABLE)
 		if ip != null and String(ip.get("action", "")) == "revive" and interact_held and _peer != null:
 			_revive_hold += _dt
-			var revive_time: float = float(Revive.REVIVE_TICKS) / 30.0
+			# Match the SERVER's completion time: a medic revives in half the ticks — the bar used to
+			# always show the 3 s non-medic fill, so a medic's revive completed at ~50% on-screen.
+			var revive_time: float = float(Revive.revive_ticks(_my_class == Loadout.MEDIC)) / 30.0
 			_net.send_to(_peer, NetHost.CHANNEL_CONTROL,
 				Protocol.encode_revive_action(int(ip["target"]), true), ENetPacketPeer.FLAG_RELIABLE)
 			if _hud_view != null:
@@ -956,7 +1047,8 @@ func _on_packet(_from: ENetPacketPeer, _channel: int, bytes: PackedByteArray) ->
 		Protocol.Msg.WELCOME:
 			_handle_welcome(bytes)
 		Protocol.Msg.REJECT:
-			print("[client] REJECTED: %s" % Protocol.decode_reject(bytes))
+			_reject_reason = Protocol.decode_reject(bytes)
+			print("[client] REJECTED: %s" % _reject_reason)
 		Protocol.Msg.SNAPSHOT:
 			_handle_snapshot(bytes)
 		Protocol.Msg.SELF_STATE:
@@ -1098,6 +1190,11 @@ func _handle_welcome(bytes: PackedByteArray) -> void:
 	my_id = int(w["id"])
 	var tick_rate: int = int(w["tick_rate"])
 	var cls: int = int(w["class"])
+	_my_class = cls   # own class (e.g. medic revives at double rate — the HUD revive bar matches)
+	# Connected for real — the (hidden) pre-game menu has served its purpose.
+	if _main_menu != null:
+		_main_menu.queue_free()
+		_main_menu = null
 
 	_wv.set_local_id(my_id)
 	_wpred.set_weapon(Loadout.weapon_for(cls))
@@ -1114,6 +1211,11 @@ func _handle_welcome(bytes: PackedByteArray) -> void:
 				_map_path = server_path
 				_map = sm
 				_conquest = ConquestState.new(_map)
+				# The predictor was armed with the DEFAULT map's geometry in _ready — refresh it or
+				# prediction climbs ladders/clamps edges/finds platform floors from the wrong map
+				# for the whole session (rubber-band at every ladder/floor/boundary).
+				_pred.world_half = _map.world_half
+				_pred.set_geometry(_map.ladders, _map.platforms)
 				print("[client] adopting server map: %s" % server_map)
 			else:
 				push_warning("[client] server map '%s' not found locally; keeping %s" % [server_map, _map_path])
@@ -1154,10 +1256,14 @@ func _handle_snapshot(bytes: PackedByteArray) -> void:
 		# Mirror downed state BEFORE reconcile so the replayed inputs crawl (1 m/s) on the very tick
 		# the down/revive lands — otherwise that transition tick replays full-speed and rubber-bands.
 		_pred.predicted.is_downed = ss.is_downed
+		# Likewise climbing (replicated): a predicted engage/leave on a different tick than the server
+		# would otherwise stick, routing every replayed input through _step_climb (vertical-only) and
+		# yanking the pawn each snapshot until the position happened to exit the ladder radius.
+		_pred.predicted.climbing = ss.climbing
 		# Reconcile movement prediction from authoritative position + pitch. Smooth only a genuine
 		# correction (deadzone..snap): ease it into the camera via _pos_err instead of snapping.
 		var pre_pos: Vector3 = _pred.predicted.pos
-		_pred.reconcile_full(ss.pos, ss.yaw, ss.pitch, int(hdr["last_input_tick"]), _self_stamina, _self_vel_y, _self_grounded)
+		_pred.reconcile_full(ss.pos, ss.yaw, ss.pitch, int(hdr["last_input_tick"]), _self_stamina, _self_vel_y, _self_grounded, _self_vaulting, _self_vault_tick)
 		var cl: float = (pre_pos - _pred.predicted.pos).length()
 		if cl > RECON_DEADZONE and cl <= RECON_SNAP:
 			_pos_err += pre_pos - _pred.predicted.pos
@@ -1222,6 +1328,8 @@ func _handle_self_state(bytes: PackedByteArray) -> void:
 	_self_stamina = float(d.get("stamina", Pawn.STAMINA_MAX))  # authoritative stamina for sprint reconcile
 	_self_vel_y = float(d.get("vel_y", 0.0))                   # authoritative vertical velocity for jump reconcile
 	_self_grounded = bool(d.get("grounded", true))             # authoritative grounded flag for jump reconcile
+	_self_vaulting = bool(d.get("vaulting", false))            # authoritative vault progress for arc reconcile
+	_self_vault_tick = int(d.get("vault_tick", 0))
 
 # ---- MATCH_STATE ------------------------------------------------------------
 func _handle_match_state(bytes: PackedByteArray) -> void:
@@ -1332,6 +1440,8 @@ func _on_deploy_requested(spawn_ref: int) -> void:
 	_send_deploy_request(spawn_ref)
 
 func _send_deploy_request(spawn_ref: int) -> void:
+	if _peer == null or _net == null:
+		return   # disconnected — the deploy menu may still be on screen under the overlay
 	if _respawn_cooldown_left() > 0.0:
 		return   # respawn cooldown not elapsed — server would reject anyway
 	_net.send_to(_peer, NetHost.CHANNEL_CONTROL,
@@ -1414,6 +1524,13 @@ func _rebuild_struct_store(bytes: PackedByteArray) -> void:
 	if _pred != null:
 		_pred.structures = _struct_store
 	for rec: Dictionary in Protocol.decode_structure_baseline(bytes)["records"]:
+		# Under-construction sites are INTANGIBLE on the server (movement collides only against its
+		# _store; sites live in _build.sites) — placing their ghost records here made the client
+		# predict a solid piece the server walks through: hard rubber-band (and phantom client-side
+		# vaults for half-height ghosts) at every build/FOB site. Completion re-emits OP_PLACE with
+		# under_construction=0, which lands below as the real collidable piece.
+		if int(rec.get("under_construction", 0)) == 1:
+			continue
 		var placed := _struct_store.place(int(rec["id"]), int(rec["type"]), rec["cell"],
 			int(rec["yaw"]), int(rec["owner"]), int(rec["building_id"]))
 		if not placed.is_empty():
@@ -1427,6 +1544,8 @@ func _apply_struct_delta_to_store(bytes: PackedByteArray) -> void:
 	match int(d["op"]):
 		Protocol.OP_PLACE:
 			var rec: Dictionary = d["rec"]
+			if int(rec.get("under_construction", 0)) == 1:
+				return   # intangible ghost site — see _rebuild_struct_store
 			var placed := _struct_store.place(int(rec["id"]), int(rec["type"]), rec["cell"],
 				int(rec["yaw"]), int(rec["owner"]), int(rec["building_id"]))
 			if not placed.is_empty():

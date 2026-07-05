@@ -75,3 +75,37 @@ func test_reconcile_restores_vertical_velocity_so_jump_arc_doesnt_snap() -> void
 	var expected_vy: float = auth_vy - Pawn.GRAVITY * SimLoop.DT * 3.0
 	assert_almost_eq(pred.predicted.velocity.y, expected_vy, 0.01,
 		"vertical velocity reconciles to authority + replay gravity")
+
+func test_reconcile_resyncs_vault_progress_instead_of_stale_arc() -> void:
+	# Global-review C1 (same bug class as stamina/velocity.y): reconcile never touched the vault
+	# fields. While vaulting, SimLoop drives pos FROM the stored arc — so the stale local arc
+	# overrode the authoritative position and every replayed input advanced vault_tick again on top
+	# of the per-tick advance: the predicted 8-tick vault finished (1+pending)x too fast, stuttering
+	# every auto-vault. Authority now replicates (vaulting, vault_tick); reconcile re-syncs progress.
+	var pred := Prediction.new()
+	pred.world_half = 1000.0
+	var fwd := {"move_x": 0.0, "move_y": 1.0, "yaw": 0.0, "pitch": 0.0, "buttons": 0}
+	# Predicted pawn is mid-vault, further along than the server (arc from z=0 to z=2.5).
+	Vault.begin_at(pred.predicted, Vector3.ZERO, Vector3(0, 0, 2.5))
+	pred.predicted.vault_tick = 6
+	for t in range(1, 4):
+		pred.pending.append({"tick": t, "cmd": fwd})   # 3 unacked inputs to replay
+	# Authority acked tick 0 with the vault only 2 ticks in.
+	pred.reconcile_full(Vault.arc_pos(Vector3.ZERO, Vector3(0, 0, 2.5), 2.0 / 8.0), 0.0, 0.0, 0,
+		Pawn.STAMINA_MAX, 0.0, true, true, 2)
+	# 2 (authority) + 3 replayed ticks = 5: same progress the server will have at our current tick.
+	assert_true(pred.predicted.vaulting, "still mid-vault after reconcile")
+	assert_eq(pred.predicted.vault_tick, 5, "vault progress = authority + replay, not stale local arc")
+	var expect := Vault.arc_pos(Vector3.ZERO, Vector3(0, 0, 2.5), 5.0 / 8.0)
+	assert_almost_eq(pred.predicted.pos.z, expect.z, 0.01, "position follows the re-synced arc")
+
+func test_reconcile_cancels_vault_the_server_never_ran() -> void:
+	# If authority says NOT vaulting, a predicted arc must not keep overriding the authoritative
+	# position (it teleports the camera along a vault the server refused).
+	var pred := Prediction.new()
+	pred.world_half = 1000.0
+	Vault.begin_at(pred.predicted, Vector3.ZERO, Vector3(0, 0, 2.5))
+	pred.predicted.vault_tick = 3
+	pred.reconcile_full(Vector3(0, 0, 0.4), 0.0, 0.0, 5, Pawn.STAMINA_MAX, 0.0, true, false, 0)
+	assert_false(pred.predicted.vaulting, "refused/finished server vault cancels the local arc")
+	assert_almost_eq(pred.predicted.pos.z, 0.4, 0.001, "authoritative position wins")

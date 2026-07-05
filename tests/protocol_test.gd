@@ -339,6 +339,20 @@ func test_self_state_carries_repair_heat() -> void:
 	assert_true(absf(float(d["repair_heat"]) - 0.6) <= 1.0 / 255.0, "repair_heat round-trips ~0.6")
 	assert_eq(float(d["repair_cooldown"]), 1.0, "full cooldown round-trips exactly")
 
+func test_self_state_carries_vault_progress() -> void:
+	var b := Protocol.encode_self_state(17, false, 0, Weapon.AR, [], false, 0.0, 0, 0, false, 0.0, 0.0, 100.0, 0.0, false, true, 5)
+	var d := Protocol.decode_self_state(b)
+	assert_true(bool(d["vaulting"]), "vaulting flag round-trips")
+	assert_eq(int(d["vault_tick"]), 5, "vault progress round-trips")
+
+func test_self_state_vault_defaults_when_absent() -> void:
+	# Old/short packets (no vault bytes) must decode as not-vaulting so reconcile never freezes an arc.
+	var b := Protocol.encode_self_state(17, false, 0, Weapon.AR, [], false, 0.0, 0, 0, false, 0.0, 0.0, 100.0, 0.0, true, true, 5)
+	b.resize(b.size() - 2)   # drop the two vault bytes
+	var d := Protocol.decode_self_state(b)
+	assert_false(bool(d["vaulting"]), "absent vault bytes -> not vaulting")
+	assert_eq(int(d["vault_tick"]), 0)
+
 func test_grenade_throw_carries_charge() -> void:
 	var d := Protocol.decode_grenade_throw(Protocol.encode_grenade_throw(Vector3(1, 0, 0), Grenade.FRAG, 0.5))
 	assert_almost_eq(float(d["charge"]), 0.5, 1.0 / 255.0, "hold-charge round-trips")
