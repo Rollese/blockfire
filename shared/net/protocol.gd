@@ -16,7 +16,7 @@ extends Object
 ## tail). History: VERSION sat at 1 through M1–M12 while the wire changed dozens of times,
 ## so the check protected nothing; real from 2 onward.
 
-const VERSION := 3   # 3: SELF_STATE gains a trailing sprint-locked byte (empty-sprint hysteresis, 2026-07-05)
+const VERSION := 4   # 4: SELF_STATE gains a trailing input-buf-depth byte (tick-lead netcode, 2026-07-05)
 
 enum Msg {
 	HELLO = 1,    ## client -> server: protocol version + display name
@@ -735,7 +735,7 @@ static func decode_damage_event(bytes: PackedByteArray) -> Dictionary:
 	return {"bearing": Quantize.dec_angle(r.get_u16()), "amount": r.get_u8()}
 
 
-static func encode_self_state(mag: int, reloading: bool, reload_remaining: int, weapon: int, throwables: Array = [], being_revived: bool = false, suppression: float = 0.0, blind_ticks: int = 0, bandage_count: int = 0, bleed_halted: bool = false, repair_heat: float = 0.0, repair_cooldown: float = 0.0, stamina: float = 100.0, vel_y: float = 0.0, grounded: bool = true, vaulting: bool = false, vault_tick: int = 0, regen_cooldown: float = 0.0, sprint_locked: bool = false) -> PackedByteArray:
+static func encode_self_state(mag: int, reloading: bool, reload_remaining: int, weapon: int, throwables: Array = [], being_revived: bool = false, suppression: float = 0.0, blind_ticks: int = 0, bandage_count: int = 0, bleed_halted: bool = false, repair_heat: float = 0.0, repair_cooldown: float = 0.0, stamina: float = 100.0, vel_y: float = 0.0, grounded: bool = true, vaulting: bool = false, vault_tick: int = 0, regen_cooldown: float = 0.0, sprint_locked: bool = false, input_buf_depth: int = 0) -> PackedByteArray:
 	var buf := StreamPeerBuffer.new()
 	buf.put_u8(Msg.SELF_STATE)
 	buf.put_u8(clampi(mag, 0, 255))
@@ -790,6 +790,11 @@ static func encode_self_state(mag: int, reloading: bool, reload_remaining: int, 
 	# lock state (neither stamina==0 nor >=SPRINT_RESUME during recovery, so the flag never recomputes)
 	# and the client mis-predicts sprint vs walk through the whole recovery window.
 	buf.put_u8(1 if sprint_locked else 0)
+	# Tick-lead netcode (docs/specs/netcode-tick-lead.md): the per-client InputBuffer depth sampled
+	# right after this tick's drain. The owner client nudges its input-production clock to hold this
+	# at TickLead.TARGET, so starvation/coalescing (the wandering reconcile-replay length -> the ~1 Hz
+	# movement micro-snap) become rare. Owner-only, appended last so older decoders ignore it.
+	buf.put_u8(clampi(input_buf_depth, 0, 255))
 	return buf.data_array
 
 static func decode_self_state(bytes: PackedByteArray) -> Dictionary:
@@ -845,7 +850,10 @@ static func decode_self_state(bytes: PackedByteArray) -> Dictionary:
 	var sprint_locked := false   # not locked by default so an old/short packet never wrongly stalls sprint
 	if r.get_available_bytes() > 0:
 		sprint_locked = r.get_u8() == 1
-	return {"mag": mag, "reloading": reloading, "reload_remaining": reload_remaining, "weapon": weapon, "throwables": throwables, "being_revived": being_revived, "suppression": suppression, "blind_ticks": blind_ticks, "bandage_count": bandage_count, "bleed_halted": bleed_halted, "repair_heat": repair_heat, "repair_cooldown": repair_cooldown, "stamina": stamina, "vel_y": vel_y, "grounded": grounded, "vaulting": vaulting, "vault_tick": vault_tick, "regen_cooldown": regen_cooldown, "sprint_locked": sprint_locked}
+	var input_buf_depth := -1   # -1 sentinel: absent -> tick-lead loop stays idle (never mis-corrects)
+	if r.get_available_bytes() > 0:
+		input_buf_depth = r.get_u8()
+	return {"mag": mag, "reloading": reloading, "reload_remaining": reload_remaining, "weapon": weapon, "throwables": throwables, "being_revived": being_revived, "suppression": suppression, "blind_ticks": blind_ticks, "bandage_count": bandage_count, "bleed_halted": bleed_halted, "repair_heat": repair_heat, "repair_cooldown": repair_cooldown, "stamina": stamina, "vel_y": vel_y, "grounded": grounded, "vaulting": vaulting, "vault_tick": vault_tick, "regen_cooldown": regen_cooldown, "sprint_locked": sprint_locked, "input_buf_depth": input_buf_depth}
 
 
 static func encode_roster(rows: Array) -> PackedByteArray:
