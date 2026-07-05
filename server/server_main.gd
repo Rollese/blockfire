@@ -131,6 +131,9 @@ var _buildings_to_cascade := {}    # building_id -> true; resolved at end of tic
 var _collapsed_bids: Array = []    # building_ids fully collapsed this match — replayed to late joiners
                                    # (A3 playtest bug: a reconnecting client rebuilt every map ladder
                                    # from the static MapDef and showed ghost ladders on dead buildings)
+var _collapse_test_bid := 0        # QA (--collapse-test=<bid>): force-collapse that building ~5s in.
+                                   # Whole-building collapse is rare in bot-only runs, so this is the
+                                   # on-demand exerciser for the collapse/ladder/rubble/join-replay path.
 var _grenades: Array = []     # [{owner, team, type, pos, vel, detonate_tick}] — server-side, not replicated
 var _rockets: Array = []      # [{owner, team, pos, vel}] — server-side, not replicated
 var _mines: Array = []        # [{owner, team, pos, facing, armed_after_tick}]
@@ -166,6 +169,7 @@ func configure(args: Dictionary) -> void:
 	if not _maps.is_empty():
 		_map_path = "res://maps/%s.json" % String(_maps[0])
 	_human_rpg = args.has("human-rpg")
+	_collapse_test_bid = int(args["collapse-test"]) if args.has("collapse-test") else 0
 	if eff["degrade_high_ms"] > 0.0:
 		_degrade_high_ms = eff["degrade_high_ms"]
 	if eff["degrade_low_ms"] > 0.0:
@@ -309,6 +313,7 @@ func _reset_match_state() -> void:
 	_pending_removes.clear()
 	_dmg_touched.clear()
 	_buildings_to_cascade.clear()
+	_collapsed_bids.clear()   # map rotation rebuilds every building — don't replay stale collapses
 	_grenades.clear()
 	_rockets.clear()
 	_mines.clear()
@@ -334,6 +339,12 @@ func _physics_process(delta: float) -> void:
 	var t0 := Time.get_ticks_usec()
 	_net.poll()
 	var t_poll := Time.get_ticks_usec()
+	# QA: --collapse-test=<bid> exercises the full collapse path (piece drop, ladder removal,
+	# COLLAPSE broadcast + late-join replay) on demand, ~5s in so early clients see it live.
+	if _collapse_test_bid > 0 and _sim.tick == 150:
+		print("[server] QA collapse-test: collapsing building %d" % _collapse_test_bid)
+		_collapse_building(_collapse_test_bid)
+		_collapse_test_bid = 0
 	_step_movement()
 	for id in _sim.world.pawns:
 		var p: Pawn = _sim.world.pawns[id]
@@ -1831,6 +1842,28 @@ func _damage_structure(id: int, source: int, impact: Vector3, radius: float) -> 
 	else:
 		_dmg_touched[id] = true
 
+## Fully collapse one building: drop every remaining piece (and any C4 stuck to them), remove its
+## roof ladders (H1), broadcast COLLAPSE, and record the id so late joiners get the collapse
+## replayed at welcome (A3 ghost-ladder fix). Called by the cascade resolver and --collapse-test.
+func _collapse_building(bid: int) -> void:
+	for oid in _store.ids_of_building(bid):
+		var crec := _store.get_record(oid)
+		if not crec.is_empty():
+			_remove_c4_on_cell(crec["cell"])
+		_dmg_touched.erase(oid)
+		_store.remove(oid)
+	_stats.collapsed += 1
+	# H1: the building is gone — remove its roof ladder(s) so nobody climbs a ghost into thin air.
+	var kept_ladders: Array = []
+	for ld in _sim.ladders:
+		if int(ld.get("building_id", 0)) != bid:
+			kept_ladders.append(ld)
+	_sim.ladders = kept_ladders
+	var bytes := Protocol.encode_collapse(bid)
+	for cid in _clients:
+		_net.send_to(_clients[cid]["peer"], NetHost.CHANNEL_CONTROL, bytes, ENetPacketPeer.FLAG_RELIABLE)
+	_collapsed_bids.append(bid)   # so a late joiner's welcome replays this collapse (ghost ladders)
+
 ## After this tick's structural removals, orphan-check each touched building. Large orphan sets
 ## collapse the whole building (one COLLAPSE broadcast); small sets queue per-piece removes.
 func _resolve_cascades() -> void:
@@ -1841,23 +1874,7 @@ func _resolve_cascades() -> void:
 		if orphans.is_empty():
 			continue
 		if Support.should_collapse(orphans.size()):
-			for oid in _store.ids_of_building(bid):
-				var crec := _store.get_record(oid)
-				if not crec.is_empty():
-					_remove_c4_on_cell(crec["cell"])
-				_dmg_touched.erase(oid)
-				_store.remove(oid)
-			_stats.collapsed += 1
-			# H1: the building is gone — remove its roof ladder(s) so nobody climbs a ghost into thin air.
-			var kept_ladders: Array = []
-			for ld in _sim.ladders:
-				if int(ld.get("building_id", 0)) != bid:
-					kept_ladders.append(ld)
-			_sim.ladders = kept_ladders
-			var bytes := Protocol.encode_collapse(bid)
-			for cid in _clients:
-				_net.send_to(_clients[cid]["peer"], NetHost.CHANNEL_CONTROL, bytes, ENetPacketPeer.FLAG_RELIABLE)
-			_collapsed_bids.append(bid)   # so a late joiner's welcome replays this collapse (ghost ladders)
+			_collapse_building(bid)
 		else:
 			for oid in orphans:
 				var orec := _store.get_record(oid)
