@@ -13,7 +13,7 @@ const PLACEHOLDER_SERVERS: Array = [
 		"name": "LAN — game2",
 		"ip": "192.168.1.166",
 		"port": 27015,
-		"map": "conquest_proving_grounds",
+		"map": "conquest_town",
 		"players": "—/128",
 		"ping": "—",
 	},
