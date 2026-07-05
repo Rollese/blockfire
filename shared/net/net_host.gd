@@ -37,9 +37,10 @@ func start_client(ip: String, port: int) -> ENetPacketPeer:
 
 ## Drain all pending ENet events. Call once per tick, before stepping the sim.
 func poll() -> void:
-	if _host == null:
-		return
-	while true:
+	# The EVENT_DISCONNECT branch below emits peer_disconnected, whose handler may synchronously
+	# tear this host down (client_main._on_disconnected -> close() nulls _host). Re-check _host every
+	# iteration — a one-time entry guard can't catch a teardown that happens mid-drain.
+	while _host != null:
 		var result := _host.service(0)
 		var type: int = result[0]
 		if type == ENetConnection.EVENT_NONE:
