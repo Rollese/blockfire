@@ -2549,6 +2549,38 @@ func _make_box_mesh(size: Vector3, color: Color) -> MeshInstance3D:
 	mi.material_override = mat
 	return mi
 
+## Visible RED ladder (owner request): two rails + rungs spanning bottom->top, built in local space
+## (rails along local X, stacked up local Y) and rotated by `yaw` so the rungs face out from the wall.
+## The map's climb VOLUME is yaw-agnostic; this is presentation only, so a ladder reads as a ladder
+## and stands out as the way up.
+func _make_ladder(ladder: Dictionary) -> Node3D:
+	var bottom: Vector3 = ladder["bottom"]
+	var top: Vector3 = ladder["top"]
+	var height: float = maxf(0.5, top.y - bottom.y)
+	var half_w := 0.34
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = Color(0.86, 0.11, 0.11)
+	mat.emission_enabled = true
+	mat.emission = Color(0.75, 0.06, 0.06)
+	mat.emission_energy_multiplier = 0.7
+	var root := Node3D.new()
+	root.position = bottom
+	root.rotation.y = float(ladder.get("yaw", 0.0))
+	for s in [-1.0, 1.0]:
+		var rail := MeshInstance3D.new()
+		var rm := BoxMesh.new(); rm.size = Vector3(0.09, height, 0.09); rail.mesh = rm
+		rail.material_override = mat
+		rail.position = Vector3(s * half_w, height * 0.5, 0.0)
+		root.add_child(rail)
+	var rungs := maxi(2, int(height / 0.34))
+	for i in range(1, rungs):
+		var rung := MeshInstance3D.new()
+		var gm := BoxMesh.new(); gm.size = Vector3(half_w * 2.0, 0.06, 0.07); rung.mesh = gm
+		rung.material_override = mat
+		rung.position = Vector3(0.0, height * float(i) / float(rungs), 0.0)
+		root.add_child(rung)
+	return root
+
 
 # =============================================================================
 #  Vehicle pool (VehicleKit transport — no team field on the wire, so neutral tint)
