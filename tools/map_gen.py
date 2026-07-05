@@ -110,6 +110,50 @@ fill_row(RES, -150, 150, z_corner=108)   # B6: north outskirts (clear of team-1 
 # Source prefab: `tools/twostory_gen.py` -> `buildings/twostory_house.json`.
 place("twostory_house", 10, -22)
 
+# ---------------------------------------------------------------- roof-access ladders
+# Every multi-storey building here has a walkable `bfloor` roof deck but (except the
+# two-story house) NO interior stairs, so those roofs are unreachable. Give the tall
+# landmarks (roof >= 8 m) a red roof ladder so players can take the high ground and test
+# fall damage. The ladder is a vertical climb VOLUME (Ladder.capture) whose top must land
+# ON the deck; we place it at the street-facing (min-z) perimeter deck cell nearest the
+# x-centre — interior access (enter via a door, climb to the roof), which guarantees the
+# top is supported by the deck (an exterior vertical ladder would drop the player off the
+# lip). All buildings are yaw=0, so placement is axis-aligned. Source of the render mesh:
+# WorldRenderer._make_ladder (client-side, driven by these same entries).
+LADDER_MIN_ROOF_M = 8.0
+
+_ROOF = {}
+def roof_deck(name):
+    """(roof_cell_y, [(dx,dz)…]) of the TOP bfloor deck of a prefab, or None if single-storey."""
+    if name not in _ROOF:
+        data = json.load(open(os.path.join(ROOT, "buildings", name + ".json")))
+        floors = [p["offset"] for p in data["pieces"] if p["type"] == "bfloor"]
+        ymax = max((f[1] for f in floors), default=0)
+        deck = [(f[0], f[2]) for f in floors if f[1] == ymax] if ymax > 0 else []
+        _ROOF[name] = (ymax, deck) if deck else None
+    return _ROOF[name]
+
+ladders = []
+for b in buildings:
+    info = roof_deck(b["prefab"])
+    if info is None:
+        continue
+    roof_cy, deck = info
+    if roof_cy * CELL < LADDER_MIN_ROOF_M:
+        continue
+    cx, _cy, cz = b["origin_cell"]
+    minz = min(dz for _dx, dz in deck)              # street-facing (min-z) edge row
+    xc = sum(dx for dx, _dz in deck) / len(deck)    # deck x-centre
+    dx, dz = min([(x, z) for x, z in deck if z == minz], key=lambda c: abs(c[0] - xc))
+    wx = (cx + dx + 0.5) * CELL
+    # Push the ladder to the OUTER (−z, street) face of its deck cell so it reads as an exterior
+    # roof ladder standing clear of the wall — while staying INSIDE the cell (offset < CELL/2) so
+    # its top still lands on the deck (floor_height_at maps the same cell). 0.75 m out from centre
+    # clears the wall slab; a climber on the street engages it from outside (radius 0.6).
+    wz = (cz + dz + 0.5) * CELL - 0.75
+    ry = roof_cy * CELL
+    ladders.append({"bottom": [wx, 0.0, wz], "top": [wx, ry, wz], "radius": 0.6, "yaw": 0.0})
+
 # ---------------------------------------------------------------- points + bases
 points = [
     {"id": "A", "pos": [-90, 0, -70], "radius": 20, "start_owner": -1},  # SW industrial
@@ -134,6 +178,7 @@ out = {
     "world_half": 170.0,
     "roads": roads,
     "buildings": buildings,
+    "ladders": ladders,
     "points": points,
     "bases": bases,
     "vehicle_spawns": vehicle_spawns,
@@ -169,5 +214,5 @@ for p in problems:
 
 path = os.path.join(ROOT, "maps", "conquest_town.json")
 json.dump(out, open(path, "w"), indent=2)
-print("wrote %s: %d buildings, %d roads, %d points, %d bases, %d problems"
-      % (path, len(buildings), len(roads), len(points), len(bases), len(problems)))
+print("wrote %s: %d buildings, %d ladders, %d roads, %d points, %d bases, %d problems"
+      % (path, len(buildings), len(ladders), len(roads), len(points), len(bases), len(problems)))

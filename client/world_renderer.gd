@@ -403,6 +403,11 @@ func setup(map: MapDef, camera: Camera3D) -> void:
 		base_beacon.position = Vector3(b_pos.x, 20.0, b_pos.z)
 		add_child(base_beacon)
 
+	# Roof-access ladders — the map's climb VOLUMES rendered as visible red ladders (the only way
+	# onto the tall buildings' walkable roof decks; see WorldRenderer._make_ladder + tools/map_gen.py).
+	for ld: Dictionary in map.ladders:
+		add_child(_make_ladder(ld))
+
 	# Tracer pool — thin emissive beams along the aim, hidden until fired.
 	for _i in TRACER_POOL:
 		var tn := MeshInstance3D.new()

@@ -31,7 +31,7 @@ func _ready() -> void:
 	_cam.fov = 55.0
 	_vp.add_child(_cam)
 
-	for view in ["top", "iso"]:
+	for view in ["top", "iso", "closeup"]:
 		_aim(half, view)
 		for _i in 5:
 			await RenderingServer.frame_post_draw
@@ -88,6 +88,9 @@ func _build_map(name: String) -> float:
 			if pid != "bwall_corner":
 				node.rotation = Vector3(0.0, BuildGrid.yaw_radians(ystep), 0.0)
 			_vp.add_child(node)
+	# Roof-access ladders (red) — mirrors WorldRenderer._make_ladder so placement can be verified.
+	for ld in data.get("ladders", []):
+		_ladder(ld)
 	# point + base markers (tall beacons so they read from top-down)
 	for p in data.get("points", []):
 		var pp = p["pos"]
@@ -111,10 +114,42 @@ func _beacon(pos: Vector3, col: Color, w: float) -> void:
 func _footprint(name: String) -> Vector2i:
 	return Vector2i(1, 1)
 
+## Red ladder: two rails + rungs from bottom->top (matches WorldRenderer._make_ladder).
+var _closeup_target := Vector3.ZERO   # world pos of a ladder, for the close-up camera
+func _ladder(ld: Dictionary) -> void:
+	var bottom := Vector3(float(ld["bottom"][0]), float(ld["bottom"][1]), float(ld["bottom"][2]))
+	var top := Vector3(float(ld["top"][0]), float(ld["top"][1]), float(ld["top"][2]))
+	var height := maxf(0.5, top.y - bottom.y)
+	var half_w := 0.34
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = Color(0.86, 0.11, 0.11)
+	mat.emission_enabled = true; mat.emission = Color(0.75, 0.06, 0.06); mat.emission_energy_multiplier = 0.7
+	var root := Node3D.new(); root.position = bottom
+	for s in [-1.0, 1.0]:
+		var rail := MeshInstance3D.new()
+		var rm := BoxMesh.new(); rm.size = Vector3(0.09, height, 0.09); rail.mesh = rm
+		rail.material_override = mat; rail.position = Vector3(s * half_w, height * 0.5, 0.0)
+		root.add_child(rail)
+	var rungs := maxi(2, int(height / 0.34))
+	for i in range(1, rungs):
+		var rung := MeshInstance3D.new()
+		var gm := BoxMesh.new(); gm.size = Vector3(half_w * 2.0, 0.06, 0.07); rung.mesh = gm
+		rung.material_override = mat; rung.position = Vector3(0.0, height * float(i) / float(rungs), 0.0)
+		root.add_child(rung)
+	_vp.add_child(root)
+	# Remember an 8 m roof ladder near the map centre as the close-up subject (windowed walls read
+	# the ladder better than the full-glass office towers). Store the ladder LINE foot for the camera.
+	if _closeup_target == Vector3.ZERO and absf(bottom.x) < 100.0 and absf(top.y - 8.0) < 0.1:
+		_closeup_target = Vector3(bottom.x, top.y, bottom.z)
+
 func _aim(half: float, view: String) -> void:
 	var center := Vector3(0, 0, 0)
 	match view:
 		"top":
 			_cam.look_at_from_position(Vector3(0.1, half * 1.55, 0), center, Vector3(0, 0, -1))
+		"closeup":
+			# Street-side three-quarter view of one building's −z face, where the red roof ladder sits.
+			var t := _closeup_target
+			_cam.look_at_from_position(t + Vector3(7.0, -1.5, -13.0), t + Vector3(0, -3.0, 0), Vector3.UP)
 		_:
 			_cam.look_at_from_position(Vector3(half * 1.05, half * 0.95, half * 1.15), center, Vector3.UP)
