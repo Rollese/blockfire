@@ -268,8 +268,9 @@ const VEHICLE_SMOOTH_RATE := 16.0                # higher = snappier; ~1/e catch
 var _wreck_mat: StandardMaterial3D = null        # shared burnt-out material for destroyed vehicles
 const _WRECK_DEMO_VID := -424242                 # synthetic vid for the --vehicle-test wreck
 const _DMG_DEMO_VID := -424243                   # synthetic vid for the --vehicle-test damaged transport
-# M11: building_id(int) -> last-posed piece position; rubble spawns here on COLLAPSE.
+# M11: building_id(int) -> footprint ground centre; rubble spawns here on COLLAPSE.
 var _building_centroid: Dictionary = {}
+var _map: MapDef = null   # retained from setup() so a late joiner can anchor rejoin rubble on the static footprint (A3b)
 
 # viewmodel box (optional placeholder)
 var _viewmodel: Node3D = null
@@ -291,6 +292,7 @@ var vm_reload_test := false       # --reload-test: hold the viewmodel mid-reload
 ## Build static world geometry once. Call before any update().
 func setup(map: MapDef, camera: Camera3D) -> void:
 	_camera = camera
+	_map = map
 	# Interpret settings.fov as HORIZONTAL fov (BattleBit-style). Godot defaults to KEEP_HEIGHT
 	# (vertical), which turns fov=90 into ~121° horizontal on 16:9 — the "fisheye" warp at edges.
 	_camera.keep_aspect = Camera3D.KEEP_WIDTH
@@ -2085,7 +2087,8 @@ func _rebuild_structure_batches(structs: Dictionary) -> void:
 			under[id_v] = structs[id_v]
 	_sync_buildsite_ghosts(under)
 
-	# Group piece ids by visual key; track a per-building centroid for collapse rubble.
+	# Group piece ids by visual key; accumulate a per-building ground anchor for collapse rubble.
+	var bacc: Dictionary = {}   # bid -> {sx, sz, n, miny}
 	for id_v: Variant in structs:
 		var rec: Dictionary = structs[id_v]
 		if int(rec.get("under_construction", 0)) == 1:
@@ -2097,7 +2100,17 @@ func _rebuild_structure_batches(structs: Dictionary) -> void:
 		_struct_key_of[int(id_v)] = key
 		var bid: int = int(rec.get("building_id", 0))
 		if bid != 0:
-			_building_centroid[bid] = _structure_xform(rec).origin   # placeholder marker position
+			var o: Vector3 = _structure_xform(rec).origin
+			var a: Dictionary = bacc.get(bid, {"sx": 0.0, "sz": 0.0, "n": 0, "miny": o.y})
+			a["sx"] = float(a["sx"]) + o.x
+			a["sz"] = float(a["sz"]) + o.z
+			a["n"] = int(a["n"]) + 1
+			a["miny"] = minf(float(a["miny"]), o.y)   # lowest course -> rubble lands on the ground, not a floating upper floor (A3a)
+			bacc[bid] = a
+	for bid_v: Variant in bacc:
+		var a: Dictionary = bacc[bid_v]
+		var n := float(a["n"])
+		_building_centroid[int(bid_v)] = Vector3(float(a["sx"]) / n, float(a["miny"]), float(a["sz"]) / n)
 
 	for key: String in _struct_groups:
 		_build_group_mmis(key, structs)
@@ -2438,11 +2451,36 @@ func _make_structure_node(rec: Dictionary) -> Node3D:
 ## M11: replace a collapsed building with a rubble mound at its last-known centroid + a collapse
 ## cinematic (rolling dust, flung debris, screen shake) so a building coming down reads as an event.
 func _spawn_rubble_for(building_id: int) -> void:
-	if not _building_centroid.has(building_id):
-		return   # unknown / double-collapse — don't dump rubble at world origin
-	var center: Vector3 = _building_centroid[building_id]
+	var center: Vector3
+	if _building_centroid.has(building_id):
+		center = _building_centroid[building_id]
+		_building_centroid.erase(building_id)
+	else:
+		# Late joiner: the building's pieces were removed server-side before we connected, so we never
+		# built a centroid. Anchor on the static footprint so a reconnect still shows rubble (A3b).
+		center = _footprint_anchor(building_id)
+		if not center.is_finite():
+			return   # unknown building / no map — don't dump rubble at world origin
 	_play_collapse_fx(center, _now)
-	_building_centroid.erase(building_id)
+
+## Ground anchor for a building we hold no live geometry for (rejoin rubble). Prefer the building's own
+## roof-ladder ring — its XZ centroid tracks the footprint and the nodes are still present here (freed
+## right after us) — and fall back to the static MapDef footprint cell for ladderless buildings.
+func _footprint_anchor(building_id: int) -> Vector3:
+	if _ladder_nodes.has(building_id) and not (_ladder_nodes[building_id] as Array).is_empty():
+		var nodes: Array = _ladder_nodes[building_id]
+		var sum := Vector3.ZERO
+		for ln: Node3D in nodes:
+			sum += ln.position
+		var c: Vector3 = sum / float(nodes.size())
+		return Vector3(c.x, STRUCT_LIFT, c.z)
+	if _map != null:
+		var idx := building_id - 1   # building_id = building index + 1 (MapDef convention)
+		if idx >= 0 and idx < _map.buildings.size():
+			var cell: Vector3i = (_map.buildings[idx] as Dictionary).get("origin_cell", Vector3i.ZERO)
+			var half := BuildGrid.CELL_SIZE * 0.5
+			return Vector3(float(cell.x) * BuildGrid.CELL_SIZE + half, STRUCT_LIFT, float(cell.z) * BuildGrid.CELL_SIZE + half)
+	return Vector3.INF
 
 
 # =============================================================================

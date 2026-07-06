@@ -132,6 +132,8 @@ var _collapsed_bids: Array = []    # building_ids fully collapsed this match —
                                    # (A3 playtest bug: a reconnecting client rebuilt every map ladder
                                    # from the static MapDef and showed ghost ladders on dead buildings)
 var _collapse_test_bid := 0        # QA (--collapse-test=<bid>): force-collapse that building ~5s in.
+var _fast_nades := false           # QA (--fast-nades): drop the grenade throw cooldown to ~1 tick so a playtester can level a building fast (destruction/ladder testing).
+var _fast_rpg := false             # QA (--fast-rpg): RPG fires with no cooldown and never depletes rockets (pairs with --human-rpg for fast destruction testing).
                                    # Whole-building collapse is rare in bot-only runs, so this is the
                                    # on-demand exerciser for the collapse/ladder/rubble/join-replay path.
 var _grenades: Array = []     # [{owner, team, type, pos, vel, detonate_tick}] — server-side, not replicated
@@ -170,6 +172,8 @@ func configure(args: Dictionary) -> void:
 		_map_path = "res://maps/%s.json" % String(_maps[0])
 	_human_rpg = args.has("human-rpg")
 	_collapse_test_bid = int(args["collapse-test"]) if args.has("collapse-test") else 0
+	_fast_nades = args.has("fast-nades")
+	_fast_rpg = args.has("fast-rpg")
 	if eff["degrade_high_ms"] > 0.0:
 		_degrade_high_ms = eff["degrade_high_ms"]
 	if eff["degrade_low_ms"] > 0.0:
@@ -1011,8 +1015,11 @@ func _vehicle_candidates(team: int) -> Array:
 	return out
 
 ## M12-P3: one entry per built FOB owned by a squad on `team` (enabled = currently spawnable).
+func _grenade_cooldown_ticks() -> int:
+	return 1 if _fast_nades else GRENADE_COOLDOWN_TICKS   # --fast-nades: near-instant re-throw for destruction testing
+
 func _throwables_for(c: Dictionary) -> Array:
-	var ready := 1 if _sim.tick - int(c["last_grenade_tick"]) >= GRENADE_COOLDOWN_TICKS else 0
+	var ready := 1 if _sim.tick - int(c["last_grenade_tick"]) >= _grenade_cooldown_ticks() else 0
 	var list: Array = [{"kind": Grenade.FRAG, "count": ready}, {"kind": Grenade.SMOKE, "count": ready}]
 	if int(c["weapon"]) == Weapon.RPG:
 		list.append({"kind": 100, "count": int(c["rockets"])})   # kind 100 = RPG (UI-only tag; M5.5 formalizes)
@@ -1177,7 +1184,7 @@ func _handle_grenade_throw(peer: ENetPacketPeer, bytes: PackedByteArray) -> void
 	var c = _clients[id]
 	var p: Pawn = _sim.world.get_pawn(id)
 	if p == null or not p.alive or p.is_downed or p.climbing: return   # downed/climbing = incapacitated (same gate as fire/melee/gadgets)
-	if _sim.tick - int(c["last_grenade_tick"]) < GRENADE_COOLDOWN_TICKS: return
+	if _sim.tick - int(c["last_grenade_tick"]) < _grenade_cooldown_ticks(): return
 	var d := Protocol.decode_grenade_throw(bytes)
 	var dir: Vector3 = d["dir"]
 	if dir.length() < 0.001: return
@@ -1340,10 +1347,11 @@ func _fire_rocket(id: int, p: Pawn, dir: Vector3) -> void:
 	if int(c["weapon"]) != Weapon.RPG: return
 	if int(c["rockets"]) <= 0: return
 	var rdef: Dictionary = _gadgets.def_of_kind(Gadget.KIND_RPG)
-	if _sim.tick - int(c["last_rocket_tick"]) < int(rdef["cooldown_ticks"]): return
+	if not _fast_rpg and _sim.tick - int(c["last_rocket_tick"]) < int(rdef["cooldown_ticks"]): return
 	if dir.length() < 0.001: return
 	c["last_rocket_tick"] = _sim.tick
-	c["rockets"] = int(c["rockets"]) - 1
+	if not _fast_rpg:
+		c["rockets"] = int(c["rockets"]) - 1
 	_rockets.append({"owner": id, "team": p.team, "pos": p.eye_position(), "vel": dir.normalized() * float(rdef["rocket_speed"])})
 	# Cosmetic: tell other humans a rocket launched so they render it flying. The shooter renders
 	# its own immediately (client-side, no RTT wait) — mirrors the gunfire tracer split.
