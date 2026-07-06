@@ -84,11 +84,11 @@ roads = [
     {"min": [-6, 0, -160], "max": [6, 0, 160]},      # Main Avenue (N-S spine)
     {"min": [-81, 0, -112], "max": [-69, 0, 112]},   # West side street
     {"min": [69, 0, -112], "max": [81, 0, 112]},     # East side street
-    {"min": [-100, 0, -106], "max": [100, 0, -94]},  # Cross St -100 (core-only: was +/-152, ran into hills)
-    {"min": [-100, 0, -56], "max": [100, 0, -44]},   # Cross St -50
-    {"min": [-100, 0, -6], "max": [100, 0, 6]},      # Center St 0
-    {"min": [-100, 0, 44], "max": [100, 0, 56]},     # Cross St +50
-    {"min": [-100, 0, 94], "max": [100, 0, 106]},    # Cross St +100
+    {"min": [-120, 0, -106], "max": [120, 0, -94]},  # Cross St -100 (reach a bit into the countryside)
+    {"min": [-120, 0, -56], "max": [120, 0, -44]},   # Cross St -50
+    {"min": [-120, 0, -6], "max": [120, 0, 6]},      # Center St 0
+    {"min": [-120, 0, 44], "max": [120, 0, 56]},     # Cross St +50
+    {"min": [-120, 0, 94], "max": [120, 0, 106]},    # Cross St +100
 ]
 
 # ---------------------------------------------------------------- districts
@@ -407,59 +407,83 @@ def add_terrain_to_proving_grounds():
 
 
 def gen_town_heightmap(world_half=170.0, spacing=2.0):
-    """GENTLE rolling hills for the infantry town. Unlike proving_grounds (4 spread-out buildings,
-    dramatic relief), conquest_town packs buildings ~7 m apart, and EACH gets a HARD flat pad at
-    load (Terrain.flatten_pad — no blend). If the natural grade under a footprint is steep, the pad
-    edge becomes a cliff and rings spawns/rows with an unwalkable wall (the M15 fleet-freeze bug).
-    So the CORE (where buildings stand) keeps a low grade (~11 deg): long wavelengths + modest
-    amplitude. The cleared PERIMETER (edge rows were thinned — nobody visited them) gets taller
-    ROLLING HILLS as a scenic, walkable backdrop. Base spawns are flattened to their local grade."""
-    import numpy as np
+    """ROLLING infantry town with graded roads. conquest_town packs buildings ~7 m apart, and EACH
+    gets a HARD flat pad at load (Terrain.flatten_pad — no blend). If the natural grade under a
+    footprint is steep, the pad edge becomes a cliff and rings spawns/rows with an unwalkable wall
+    (the M15 fleet-freeze bug), so the built-up terrain keeps a LOW grade (long wavelengths + modest
+    amplitude). The map has real elevation EVERYWHERE (town included): a long smooth primary swell +
+    gentle grassy rolls between the buildings, with taller SMOOTH hills easing in at the perimeter as
+    a scenic backdrop. The roads then follow only the LONG smooth trend (a consistent gradient, no
+    up-down-'wavy' oscillation); the short grassy rolls they cross are shed onto gentle grass banks
+    beside the road. Base spawns are flattened to their local grade."""
+    import numpy as np, math
     n = int(round(2 * world_half / spacing)) + 1            # 171 for the defaults
     axis = -world_half + np.arange(n) * spacing
     X, Z = np.meshgrid(axis, axis)
     hm = np.zeros((n, n), dtype=np.float64)
-    # A SINGLE gentle long-wavelength swell across the core (grade ~4 deg). The old stacked medium/short
-    # octaves made the built-up core read as BUMPY, so leveled roads rode up-and-down over it and their
-    # edges waved against the lower grass. One smooth swell -> roads (and the whole village) sit on a
-    # near-flat grade; the dramatic relief lives in the perimeter countryside hills below.
-    hm += 5.0 * np.sin(X / 88.0) * np.cos(Z / 98.0)
-    # Perimeter hills: ramp in taller relief only OUTSIDE the built-up core (|x|>115 or |z|>120), where
-    # edge buildings were removed. `edge` is 0 in the core and eases to 1 toward the map rim, so the
-    # extra amplitude never touches a building pad. Wavelengths stay long -> the hills read big but the
-    # slope stays walkable (~14 deg peak on the rim).
-    ex = np.clip((np.abs(X) - 115.0) / 40.0, 0.0, 1.0)
-    ez = np.clip((np.abs(Z) - 120.0) / 40.0, 0.0, 1.0)
+    # PRIMARY swell — the "longer smooth gradients". Very long wavelength -> real elevation across the
+    # whole map (town included) at a gentle, consistent grade (~6 deg) that roads can follow cleanly.
+    hm += 6.0 * np.sin(X / 210.0 + 0.6) * np.cos(Z / 235.0 - 0.4)
+    # SECONDARY rolls — the "regular grassy hills between the buildings". Modest amplitude, ~65 m rolls,
+    # so the town reads as rolling countryside, not a plate. Roads smooth THESE out (below) -> the rolls
+    # live in the grass between/around the roads, not in the road surface.
+    hm += 2.5 * np.sin(X / 66.0 - 1.2) * np.cos(Z / 74.0 + 0.9)
+    # PERIMETER hills: taller but still SMOOTH (long-wavelength) relief easing in outside the built-up
+    # core (|x|>112 or |z|>116), a scenic walkable backdrop. `edge` is 0 in the core -> the extra
+    # amplitude never touches a building pad.
+    ex = np.clip((np.abs(X) - 112.0) / 42.0, 0.0, 1.0)
+    ez = np.clip((np.abs(Z) - 116.0) / 42.0, 0.0, 1.0)
     edge = np.maximum(ex, ez)
     edge = edge * edge * (3.0 - 2.0 * edge)                 # smoothstep for a seamless core->rim blend
-    hm += edge * 14.0 * np.sin(X / 90.0 + 0.4) * np.cos(Z / 100.0 + 1.9)
-    hm += edge * 6.0 * np.cos(X / 55.0 + 2.6) * np.sin(Z / 60.0 + 0.8)
-    # ------------------------------------------------------------------ FLAT PLAY PLATEAU (road fix)
-    # FRESH-EYES FIX (2026-07-06): earlier passes painted roads on a gently-swelling core and 1D-smoothed
-    # each road's centreline. Measured, that is FAR too weak to cancel real relief — cross-streets ran to
-    # x=+/-152 into 14-20 m perimeter hills, and the base-to-base avenue spanned a 12 m base height gap, so
-    # every road inherited 9-21 m of rise and read as "wavy". BattleBit towns sit on FLAT ground with the
-    # hills AROUND them. So carve the whole built-up PLAY REGION — the core box (buildings + road grid +
-    # points), the base-to-base avenue corridor, and both base deploy pads — to ONE constant height H0,
-    # blended smoothly out to the natural rolling countryside. Every road/street/pad is then dead flat by
-    # construction: no wavy roads, no grade-induced walking bob, no 8-bit terracing (a flat region spans a
-    # single quantized level). The dramatic hills the owner likes survive STRICTLY OUTSIDE this region —
-    # the east/west countryside strips, the four corners, and the north/south perimeter beyond the plateau.
-    H0 = 0.0
-    BLEND = 20.0                       # m of smoothstep ease from the flat plateau out to natural terrain
-    zero = np.zeros_like(X)
-    def _box_dist(x0, z0, x1, z1):     # 0 inside the AABB, else nearest-edge (Euclidean) distance to it
-        return np.hypot(np.maximum.reduce([x0 - X, X - x1, zero]),
-                        np.maximum.reduce([z0 - Z, Z - z1, zero]))
-    def _circ_dist(cx, cz, r):
-        return np.maximum(np.hypot(X - cx, Z - cz) - r, 0.0)
-    d = _box_dist(-105.0, -116.0, 105.0, 116.0)               # built-up core (buildings + grid + points)
-    d = np.minimum(d, _box_dist(-12.0, -160.0, 12.0, 160.0))  # avenue corridor linking the two bases
-    d = np.minimum(d, _circ_dist(0.0, -150.0, 26.0))          # team-0 base deploy pad
-    d = np.minimum(d, _circ_dist(0.0,  150.0, 26.0))          # team-1 base deploy pad
-    t = np.clip(d / BLEND, 0.0, 1.0)
-    w = 1.0 - t * t * (3.0 - 2.0 * t)                          # smoothstep: 1 inside region -> 0 past BLEND
-    hm = hm * (1.0 - w) + H0 * w
+    hm += edge * 11.0 * np.sin(X / 125.0 + 0.4) * np.cos(Z / 140.0 + 1.9)
+    # Flatten each team base spawn (z = +/-150) to its LOCAL grade with a smoothstep blend (flat within
+    # R0, ramping to natural over BLEND) so deploy areas are level without a hard pad-edge step.
+    R0, BLEND = 24.0, 30.0
+    for bx, bz in [(0.0, -150.0), (0.0, 150.0)]:
+        cxi = min(max(int(round((bx + world_half) / spacing)), 0), n - 1)
+        czi = min(max(int(round((bz + world_half) / spacing)), 0), n - 1)
+        ch = hm[czi][cxi]
+        dd = np.hypot(X - bx, Z - bz)
+        tb = np.clip((dd - R0) / BLEND, 0.0, 1.0)
+        wb = 1.0 - (tb * tb * (3.0 - 2.0 * tb))
+        hm = hm * (1.0 - wb) + ch * wb
+    # ------------------------------------------------------------------ ROAD REGRADE (consistent gradient)
+    # A road is PAINTED onto the terrain surface, so it inherits whatever the terrain does. The owner's
+    # complaint was never elevation — it was the road GRADIENT being inconsistent ("up-and-down wavy").
+    # Fix: give each road a CONSISTENT longitudinal gradient by replacing its centreline profile with a
+    # WIDE-Gaussian smoothing (sigma ~ 26 m) of the terrain along it. That erases the ~65 m grassy rolls
+    # and any perimeter wiggle from the road while KEEPING the long primary swell -> the road still rises
+    # and falls with the land, but always at a smooth, consistent grade (no oscillation). Assign that one
+    # height across the whole road WIDTH (flat cross-section, no side-tilt) + a short perpendicular ramp
+    # that sheds the height difference onto gentle GRASS BANKS beside the road. Roads are axis-aligned
+    # (long axis = the wider dimension); intersections: a later road overwrites the crossing cells (tiny
+    # mismatch on the gentle grade). Buildings never overlap roads (validated), so no pad/road conflict.
+    def _ix(w):
+        return min(max(int(round((w + world_half) / spacing)), 0), n - 1)
+    def _smooth_profile(a, sigma):
+        r = int(math.ceil(sigma * 3.0))
+        ker = np.exp(-0.5 * (np.arange(-r, r + 1) / sigma) ** 2)
+        ker /= ker.sum()
+        return np.convolve(np.pad(a, r, mode="edge"), ker, mode="valid")
+    SIGMA = 13.0   # cells (~26 m) — wide enough to shed the 65 m rolls, narrow enough to keep the swell
+    SHOULDER = 7   # cells of perpendicular road->grass ramp (the grass BANK that absorbs the rolls)
+    PAD = 2        # cells of FLAT bed beyond the road edge so the 2 m painted sidewalk sits on level ground
+    for rd in roads:
+        xi0, xi1, zi0, zi1 = _ix(rd["min"][0]), _ix(rd["max"][0]), _ix(rd["min"][2]), _ix(rd["max"][2])
+        if (xi1 - xi0) >= (zi1 - zi0):                          # E-W road -> level across Z
+            prof = _smooth_profile(hm[(zi0 + zi1) // 2, :].copy(), SIGMA)
+            lo, hi = zi0 - PAD, zi1 + PAD                       # flat bed = road + sidewalk
+            for zi in range(max(lo - SHOULDER, 0), min(hi + SHOULDER + 1, n)):
+                d = (lo - zi) if zi < lo else ((zi - hi) if zi > hi else 0)
+                w = max(1.0 - d / (SHOULDER + 1.0), 0.0)
+                hm[zi, xi0:xi1 + 1] = w * prof[xi0:xi1 + 1] + (1.0 - w) * hm[zi, xi0:xi1 + 1]
+        else:                                                   # N-S road -> level across X
+            prof = _smooth_profile(hm[:, (xi0 + xi1) // 2].copy(), SIGMA)
+            lo, hi = xi0 - PAD, xi1 + PAD
+            for xi in range(max(lo - SHOULDER, 0), min(hi + SHOULDER + 1, n)):
+                d = (lo - xi) if xi < lo else ((xi - hi) if xi > hi else 0)
+                w = max(1.0 - d / (SHOULDER + 1.0), 0.0)
+                hm[zi0:zi1 + 1, xi] = w * prof[zi0:zi1 + 1] + (1.0 - w) * hm[zi0:zi1 + 1, xi]
     # TIGHT dynamic 8-bit range (just cover the actual relief + a small margin) so the quantization step
     # is as fine as possible — a wide fixed range wasted levels and micro-stairstepped flat roads.
     import math

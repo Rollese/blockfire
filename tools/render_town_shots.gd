@@ -25,17 +25,21 @@ func _initialize() -> void:
 	r.set_terrain(grid)
 	r.setup(map, cam)
 
-	# Shot list: name -> [eye pos, look-at target]. Heights are eye-level (~1.7 m) added to the flat
-	# plateau (H0=0) so the shots frame the ROAD SURFACE the way a standing player sees it.
+	# Eye-level shots are seated ON the terrain (height_at + 1.7 m) so they frame the ROAD SURFACE the
+	# way a standing player sees it — the map now has real rolling elevation, so a fixed Y would clip.
+	var eye := func(x, z): return Vector3(x, Terrain.height_at(grid, x, z) + 1.7, z)
+	var aim := func(x, z): return Vector3(x, Terrain.height_at(grid, x, z) + 1.5, z)
 	var shots := [
 		# Standing on the Main Avenue looking N up the spine (the road the owner walks).
-		["ave_north", Vector3(0, 1.7, 40), Vector3(0, 1.4, -120)],
-		# Standing at the central square looking W down Center-0 cross street toward the hills.
-		["cross_west", Vector3(-20, 1.7, 0), Vector3(-120, 3.0, 0)],
-		# Low grazing shot along Cross +100 — the worst offender before the fix (was 19 m rise).
-		["cross100", Vector3(60, 1.7, 100), Vector3(-100, 2.0, 100)],
-		# High overview from the SE corner: whole town flat, hills ringing the perimeter.
-		["overview", Vector3(140, 90, 150), Vector3(0, 0, 0)],
+		["ave_north", eye.call(0, 40), aim.call(0, -120)],
+		# Standing at the central square looking W down Center-0 cross street toward the countryside.
+		["cross_west", eye.call(-20, 0), aim.call(-118, 0)],
+		# Eye-level along Cross +100 — the worst offender before (was 19 m rise / wavy grade).
+		["cross100", eye.call(60, 100), aim.call(-118, 100)],
+		# Standing on the SW cross street looking across the rolling town toward the far side.
+		["cross_roll", eye.call(-90, -50), aim.call(90, -50)],
+		# High overview from the SE: rolling town + graded roads, hills ringing the perimeter.
+		["overview", Vector3(150, 95, 160), Vector3(0, 3, 0)],
 	]
 	await process_frame
 	await process_frame
