@@ -37,6 +37,15 @@ default humans never roll Engineer (the RPG-primary loadout has no click-fire gu
 every manual-deploy (human) player to spawn **Engineer + RPG** so you can blow up buildings/structures
 (LMB fires the rocket). Bots are unaffected. Engineers also carry C4 or a claymore by id parity.
 
+**Fast destruction testing (no cooldowns):** two **server** flags let a playtester level a building in
+seconds instead of waiting out cooldowns —
+- **`--fast-nades`** — drops the grenade throw cooldown from 10 s to ~1 tick, so spamming **G** rains
+  frags. Frags damage building structure; a wall comes down in a handful of throws.
+- **`--fast-rpg`** — the RPG fires with no cooldown and never depletes its rockets (pair with
+  `--human-rpg` so the human actually carries one). Hold LMB to demolish.
+
+Both are QA-only convenience flags (bots unaffected); leave them off for balance/gate runs.
+
 **Checkpoint-3 feel-pass tips (added 2026-06-17):**
 - Use the small **`--map=conquest_dev_arena`** (one objective, 60 m) for a tight infantry test instead
   of the sprawling default `conquest_proving_grounds` — pass `--map=conquest_dev_arena` to the **server,
