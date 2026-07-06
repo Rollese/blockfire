@@ -47,6 +47,40 @@ const BOARD_RETRY_TICKS := 30         # min ticks between VA_ENTER attempts whil
 const BOARD_MAX_TRIES := 3            # rejected boards of one hull before we blacklist it and fight on foot
 const BOARD_BLACKLIST_TICKS := 600    # ~20s a refused hull stays ignored
 
+## M15: bot-only slope-avoidance (NOT pathfinding, NOT sim-authoritative — the server still
+## authoritatively clips a bot's movement via Terrain.resolve_movement exactly like a human; see
+## shared/sim/sim_loop.gd). A too-steep hill otherwise sticks a bot's AI in place forever since it
+## keeps commanding the same blocked heading. These two pure helpers detect that and pick a lateral
+## heading to escape along; wiring lives in _update_slope_avoid below.
+const SLOPE_STUCK_RATIO := 0.25   # advanced < 25% of commanded travel while trying -> stuck
+const SLOPE_WINDOW_TICKS := 15    # ticks of commanded-vs-actual history before judging "stuck"
+const SLOPE_OVERRIDE_TICKS := 18  # ticks a latched sidestep heading holds before re-evaluating
+const SLOPE_NOMINAL_SPEED := 5.0  # m/s estimate used only to scale the commanded-distance heuristic
+
+## True when the bot commanded `commanded` metres of horizontal travel but only achieved `actual`.
+static func is_slope_stuck(commanded: float, actual: float) -> bool:
+	return commanded > 0.5 and actual < commanded * SLOPE_STUCK_RATIO
+
+## Pick a sidestep heading when blocked: sample slope slightly ahead along two candidate headings —
+## left-and-back / right-and-back diagonals off `heading` — and steer toward the shallower one.
+## Two cheap extra samples, no search. Blending a small retreat component (rather than probing
+## purely perpendicular) matters on a straight cliff face: that terrain is uniform along the
+## sideways axis, so a pure-lateral probe ties forever at the same unwalkable slope and never
+## finds the escape a step further back would reveal. Returns a unit XZ dir.
+static func slope_sidestep(grid: TerrainGrid, pos: Vector3, heading: Vector3) -> Vector3:
+	var h := Vector3(heading.x, 0.0, heading.z).normalized()
+	if h == Vector3.ZERO:
+		return heading
+	var perp := Vector3(-h.z, 0.0, h.x)   # left perpendicular (XZ)
+	var probe := (grid.spacing * 1.5) if grid != null else 3.0
+	var left_dir := (perp - h).normalized()
+	var right_dir := (-perp - h).normalized()
+	var left := pos + left_dir * probe
+	var right := pos + right_dir * probe
+	var sl := Terrain.slope_at(grid, left.x, left.z)
+	var sr := Terrain.slope_at(grid, right.x, right.z)
+	return left_dir if sl <= sr else right_dir
+
 ## True if an alive, non-downed friendly is within GIVEUP_NO_HELP_RADIUS of a downed bot — i.e. a
 ## revive is plausible, so it should wait rather than give up. `view` = pawn_id -> EntityState.
 static func _reviver_near(view: Dictionary, self_id: int, my_team: int, my_pos: Vector3) -> bool:
@@ -61,6 +95,7 @@ static func _reviver_near(view: Dictionary, self_id: int, my_team: int, my_pos: 
 	return false
 
 var _map: MapDef
+var _terrain: TerrainGrid   # M15: built once from _map at load (and on map-rotation adopt); null on a flat map
 var _map_path: String = MAP_PATH   # --map=<name> overrides (must match server + client)
 var _match_points: Array = []   # array of {owner, attacker, cap}, index == map point index
 var _synced_logged := false   # logs once when any bot first sees a structure (gate signal)
@@ -98,6 +133,10 @@ func _ready() -> void:
 	_map = MapDef.load_file(_map_path)
 	if _map == null:
 		push_error("[bots] failed to load map %s" % _map_path)
+	# M15: view-only heightmap grid for the bot-only slope-avoidance heuristic (_update_slope_avoid).
+	# Same helper + inputs the server uses (Terrain.load_for_map); a null map or a flat map (no
+	# "terrain" block) yields a null grid and slope-avoidance simply never triggers.
+	_terrain = Terrain.load_for_map(_map, "res://maps", Callable())
 	print("[bots] spawning %d bot(s) -> %s:%d" % [_bot_count, _server_ip, _port])
 	print("[bots] ai seed=%d" % _global_seed)
 	# Deterministic bot headings for reproducible gate runs (seed wired from --seed).
@@ -126,6 +165,9 @@ func _spawn_bot(index: int) -> void:
 		# last_bag_tick = needs-driven bag-deploy cooldown.
 		"self_state": {}, "gadgets": [], "grenade_events": [],
 		"reviving_id": 0, "last_bag_tick": -100000,
+		# M15: slope-avoidance window/override state — see _update_slope_avoid.
+		"slope_window_tick": -1, "slope_window_pos": Vector3.ZERO, "slope_commanded": 0.0,
+		"slope_override_until": -1, "slope_override_dir": Vector2.ZERO,
 		"ai": AiDriver.new(_global_seed, index, _ai_profile),
 	}
 	net.peer_connected.connect(func(peer: ENetPacketPeer) -> void:
@@ -166,6 +208,9 @@ func _reconnect(bot: Dictionary) -> void:
 	bot["builds_made"] = 0
 	bot["reload_until"] = 0
 	bot["burst_start"] = -1
+	# M15: stale window/override — the next spawn's position has nothing to do with the last one.
+	bot["slope_window_tick"] = -1
+	bot["slope_override_until"] = -1
 	(bot["ai"] as AiDriver).reset()
 	net.start_client(_server_ip, _port)
 	print("[bots] bot %d reconnecting..." % int(bot["index"]))
@@ -217,6 +262,8 @@ func _drive(bot: Dictionary, delta: float) -> void:
 		bot["reviving_id"] = 0   # M7.5-P3: server drops the revive on reviver death; mirror it
 		bot["reload_until"] = 0  # a stale mid-burst clock made the first engagement of the new life
 		bot["burst_start"] = -1  # open with a ~2.8s reload of an already-full magazine
+		bot["slope_window_tick"] = -1   # M15: the next spawn point has nothing to do with the last one
+		bot["slope_override_until"] = -1
 		(bot["ai"] as AiDriver).reset()   # re-arm reaction gate, drop stale tracks/behaviour latch
 		_send(bot, 0.0, 0.0, bot["yaw"], 0.0, 0)
 		return
@@ -427,6 +474,16 @@ func _drive(bot: Dictionary, delta: float) -> void:
 		else:
 			_ex.maybe_smoke(bot, me, obj)
 
+	# M15: bot-only slope-avoidance (view-only, best-effort — the server remains authoritative and
+	# still clips this bot's movement via Terrain.resolve_movement exactly like a human; see
+	# shared/sim/sim_loop.gd). Skipped for the CLIMB driller: its waypoints are deliberate ladder
+	# geometry, not open terrain, and overriding them would break the deterministic gate drill.
+	if _terrain != null and not is_driller:
+		var slope_dir := _update_slope_avoid(bot, me, delta, move_x, move_y)
+		if slope_dir != Vector2.ZERO:
+			move_x = slope_dir.x
+			move_y = slope_dir.y
+
 	# Build cover only while stationary (holding a point or firing) — so the bot drops a wall
 	# toward the contested objective without walking into its own piece, and the cover lands in
 	# the combat zone where shots cross it. (Marching bots move, so this won't fire mid-route.)
@@ -494,6 +551,36 @@ func _hunt_pos(me: EntityState, self_id: int, view: Dictionary) -> Vector3:
 		return AiVehicleCrew.enemy_spawn_pos(_map.vehicle_spawns, int(me.team), me.pos)
 	return me.pos
 
+## M15: per-tick slope-avoidance bookkeeping for one bot. Tracks commanded-vs-actual horizontal
+## displacement over a SLOPE_WINDOW_TICKS window; when it looks clipped by a too-steep hill
+## (is_slope_stuck), latches a sidestep heading (slope_sidestep) for SLOPE_OVERRIDE_TICKS. Returns
+## Vector2.ZERO when no override is active (caller keeps its own move_x/move_y this tick); otherwise
+## the {move_x, move_y} pair to send instead. View-only: never touches server/sim authority — a
+## miss or an over-correction here does nothing worse than a normal human bump against the same hill.
+func _update_slope_avoid(bot: Dictionary, me: EntityState, delta: float, move_x: float, move_y: float) -> Vector2:
+	var tick := int(bot["tick"])
+	if int(bot["slope_window_tick"]) < 0:
+		bot["slope_window_tick"] = tick
+		bot["slope_window_pos"] = me.pos
+		bot["slope_commanded"] = 0.0
+	bot["slope_commanded"] = float(bot["slope_commanded"]) + Vector2(move_x, move_y).length() * delta * SLOPE_NOMINAL_SPEED
+	if tick - int(bot["slope_window_tick"]) >= SLOPE_WINDOW_TICKS:
+		var wp: Vector3 = bot["slope_window_pos"]
+		var actual := Vector2(me.pos.x - wp.x, me.pos.z - wp.z).length()
+		var commanded: float = bot["slope_commanded"]
+		if is_slope_stuck(commanded, actual):
+			var heading := Vector3(move_x, 0.0, move_y)
+			if heading.length() > 0.01:
+				var sd := slope_sidestep(_terrain, me.pos, heading)
+				bot["slope_override_dir"] = Vector2(sd.x, sd.z)
+				bot["slope_override_until"] = tick + SLOPE_OVERRIDE_TICKS
+		bot["slope_window_tick"] = tick
+		bot["slope_window_pos"] = me.pos
+		bot["slope_commanded"] = 0.0
+	if tick <= int(bot["slope_override_until"]):
+		return bot["slope_override_dir"] as Vector2
+	return Vector2.ZERO
+
 func _send(bot: Dictionary, mx: float, my: float, yaw: float, pitch: float, buttons: int) -> void:
 	var bytes := InputCommand.encode(bot["tick"], bot["last_seq"], mx, my, yaw, pitch, buttons, bot["server_tick"])
 	(bot["net"] as NetHost).send_to(bot["peer"], NetHost.CHANNEL_INPUT, bytes, 0)
@@ -515,6 +602,7 @@ func _on_packet(bot: Dictionary, bytes: PackedByteArray) -> void:
 				if nm != null:
 					_map_path = new_path
 					_map = nm
+					_terrain = Terrain.load_for_map(_map, "res://maps", Callable())   # M15: rebuild for the new map
 					_match_points = []   # stale point owners; refreshed by the next MATCH_STATE
 					print("[bots] adopting server map: %s" % srv_map)
 			print("[bots] bot %d connected (id %d class %d) — %d/%d" % [bot["index"], bot["id"], bot["class"], _connected_count(), _bot_count])
