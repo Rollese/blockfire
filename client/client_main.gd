@@ -949,6 +949,12 @@ func _process(_dt: float) -> void:
 
 	# ---- C3: one-shot actions (throw / throwable_cycle / gadget / squad_menu) ----
 	var alive_and_deployed: bool = sss != null and sss.alive and not sss.is_downed
+	if not alive_and_deployed:
+		# Downed / dead / deploying: cancel any in-progress grenade charge. The whole throw block below
+		# is gated on alive_and_deployed, so a player downed mid-charge would otherwise never hit the
+		# reset at its tail and the throw/charge indicator would freeze on the HUD (playtest bug).
+		_throw_charging = false
+		_throw_charge = 0.0
 	if alive_and_deployed and _peer != null:
 		# Build tool out = no combat: while build mode is active (or a menu is open) the combat
 		# one-shots below are locked, so a place-click / habitual keypress can't also fire, throw,
