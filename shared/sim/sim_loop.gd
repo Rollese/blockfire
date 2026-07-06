@@ -11,6 +11,7 @@ const MIN_MOVE_LEN := 0.001   # m; below this a pawn is treated as stationary (n
 var tick: int = 0
 var world := World.new()
 var structures: StructureStore = null     # optional StructureStore; resolves movement collision + vault blockers
+var terrain: TerrainGrid = null   # optional heightmap; folded into floor + horizontal resolution
 var ladders: Array = []   # [{bottom:Vector3, top:Vector3, radius:float}]
 var platforms: Array = [] # [{min:Vector3, max:Vector3}] walkable surfaces
 
@@ -23,6 +24,7 @@ func step(inputs: Dictionary, world_half: float = Pawn.WORLD_HALF) -> void:
 		var prev_stance: int = p.stance
 		var prev_grounded: bool = p.grounded
 		var cmd: Dictionary = inputs.get(id, {})
+		p.terrain = terrain
 		p.step(DT, cmd, world_half)
 		if p.in_vehicle != 0:
 			pass   # seat-slaved by step_vehicles — no ground collision/platform/ladder/vault while seated
@@ -72,7 +74,7 @@ func _step_climb(p: Pawn, cmd: Dictionary) -> void:
 		p.climbing = false
 
 func _step_normal(p: Pawn, prev: Vector3, cmd: Dictionary, prev_grounded: bool) -> void:
-	var intended := p.pos
+	var intended := Terrain.resolve_movement(terrain, prev, p.pos)
 	if structures != null:
 		var resolved: Vector3 = structures.resolve_movement(prev, intended)
 		if resolved != intended:
@@ -105,6 +107,8 @@ func _step_normal(p: Pawn, prev: Vector3, cmd: Dictionary, prev_grounded: bool) 
 			p.pos = resolved
 		else:
 			p.pos = resolved
+	else:
+		p.pos = intended
 	_apply_platform_floor(p)
 	# Ladder engage (after movement, so a pawn that walked into the volume this tick climbs next tick).
 	# Downed pawns crawl — they don't grab ladders (3 m/s climb would triple their crawl speed).
@@ -146,6 +150,7 @@ func _vault_landing(from: Vector3, dir: Vector3) -> Dictionary:
 
 func _apply_platform_floor(p: Pawn) -> void:
 	var floor_y := Ladder.platform_floor(platforms, p.pos.x, p.pos.z, p.pos.y)
+	floor_y = maxf(floor_y, Terrain.height_at(terrain, p.pos.x, p.pos.z))
 	if structures != null:
 		floor_y = maxf(floor_y, structures.floor_height_at(p.pos.x, p.pos.z, p.pos.y))
 	if p.pos.y < floor_y:

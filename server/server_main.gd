@@ -99,6 +99,7 @@ var _conquest: ConquestState
 var _squads := SquadManager.new()
 var _catalog: PieceCatalog
 var _store: StructureStore
+var _terrain: TerrainGrid = null
 var _gadgets: Gadget
 var _attachments: Attachment
 var _vehicles_cat: VehicleCatalog
@@ -228,6 +229,11 @@ func _start_match() -> bool:
 	_map = MapDef.load_file(_map_path)
 	if _map == null:
 		push_error("[server] failed to load map %s" % _map_path); return false
+	# M15: build the heightmap grid (flat maps -> null) and flatten building pads BEFORE stamping,
+	# so buildings stamp at their flattened origin_cell.y. Single-cell footprint (Callable()) is
+	# correct for the flat-plateau demo map; true-extent footprint is a later refinement.
+	_terrain = Terrain.load_for_map(_map, "res://maps", Callable())
+	_sim.terrain = _terrain
 	_conquest = ConquestState.new(_map)
 	if _start_tickets > 0:
 		_conquest.tickets = [float(_start_tickets), float(_start_tickets)]
