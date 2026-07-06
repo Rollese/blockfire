@@ -789,6 +789,7 @@ func _process(_dt: float) -> void:
 		"grenades": _grenade_danger_sources(),
 		"in_vehicle": _in_vehicle(),
 		"objectives": _objectives(),
+		"self_team": _self_team(),   # for friend/foe (relative) colouring of compass + objective markers
 		"match_state": _match_state,
 		"point_positions": _point_positions(),
 		"point_radii": _point_radii(),   # per-point TRUE capture radius (matches the ground ring + server)
@@ -1663,12 +1664,14 @@ func _objectives() -> Array:
 	var out: Array = []
 	var pts: Array = _match_state.get("points", [])
 	for i in _map.points.size():
-		var owner: int = int(pts[i]["owner"]) if i < pts.size() else -1
+		var pt: Dictionary = pts[i] if i < pts.size() else {}
+		var owner: int = int(pt.get("owner", -1))
 		# Raise the marker anchor onto the terrain (+~2 m) so the on-screen chip sits over the real
-		# point on the hills, and carry the letter id (A/B/C…) for the BattleBit-style HUD marker.
+		# point on the hills, and carry the letter id (A/B/C…) + live capture state for the HUD marker.
 		var p: Vector3 = _map.points[i]["pos"]
 		var anchor := Vector3(p.x, Terrain.height_at(_terrain_grid, p.x, p.z) + 2.0, p.z)
-		out.append({"pos": _map.points[i]["pos"], "owner": owner, "label": String(_map.points[i]["id"]), "anchor": anchor})
+		out.append({"pos": p, "owner": owner, "label": String(_map.points[i]["id"]), "anchor": anchor,
+			"attacker": int(pt.get("attacker", -1)), "cap": float(pt.get("cap", 0.0))})
 	return out
 
 ## This client's team (from the roster), or -1 if unknown — used to colour objective markers

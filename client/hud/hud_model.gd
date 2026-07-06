@@ -178,8 +178,9 @@ func _compass(ctx: Dictionary) -> Dictionary:
 	for o in ctx.get("objectives", []):
 		var d: Vector3 = o["pos"] - sp
 		var world_bearing := atan2(d.x, d.z)
-		markers.append({"rel_bearing": wrapf(view - world_bearing, -PI, PI), "owner": int(o["owner"])})
-	return {"heading": view, "markers": markers}
+		markers.append({"rel_bearing": wrapf(view - world_bearing, -PI, PI), "owner": int(o["owner"]),
+			"label": String(o.get("label", ""))})
+	return {"heading": view, "markers": markers, "my_team": int(ctx.get("self_team", -1))}
 
 func _tickets(ctx: Dictionary) -> Array:
 	var ms: Dictionary = ctx.get("match_state", {})

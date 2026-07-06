@@ -4,6 +4,7 @@ extends Control
 ## All Control tree setup happens in _ready() / setup(); render(model) updates it each frame.
 ## AGENTS.md §7: no health, no minimap, no numeric damage.
 
+const ObjectiveMarker := preload("res://client/hud/objective_marker.gd")   # capture-point world marker
 const COMPASS_STRIP_WIDTH := 400.0
 const COMPASS_HEIGHT := 24.0
 const COMPASS_MARKER_POOL := 12   # reused objective-marker labels (never realloc per frame)
@@ -186,15 +187,12 @@ func _build_tree() -> void:
 
 
 # ---- objective (capture-point) world markers --------------------------------
-# BattleBit/BF read: each capture point shows a diamond chip anchored over the point in the world,
-# coloured by ownership (us=blue, enemy=red, neutral=grey), the point LETTER inside it, and the
-# metre distance below. Off-screen/behind points clamp to the screen edge that points at them.
-# Presentation only: fed camera + objective list each frame by client_main (no authority/protocol).
+# BattleBit read: each capture point shows a chip anchored over the point in the world — a SQUARE when
+# friendly / DIAMOND when enemy or neutral, coloured us=blue / enemy=red / neutral=grey, the point
+# LETTER + metre distance, and a capture-progress border. Points BEHIND the camera are hidden; a point
+# in front but off-screen rides the nearest edge and fades in as you turn toward it. See ObjectiveMarker.
 var _obj_root: Control
-var _obj_pool: Array = []          # [{root, dia_bg, dia, letter, dist}] pooled, reused each frame
-const OBJ_FRIEND := Color(0.28, 0.62, 1.0)
-const OBJ_ENEMY := Color(1.0, 0.36, 0.28)
-const OBJ_NEUTRAL := Color(0.82, 0.82, 0.82)
+var _obj_pool: Array[ObjectiveMarker] = []   # pooled markers, reused each frame
 
 func _build_objective_markers() -> void:
 	_obj_root = Control.new()
@@ -202,77 +200,46 @@ func _build_objective_markers() -> void:
 	_obj_root.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(_obj_root)
 
-func _make_obj_marker() -> Dictionary:
-	var root := Control.new()
-	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	root.size = Vector2(48, 62)
-	# dark backing diamond (a touch larger) so the chip reads against bright sky/terrain
-	var dia_bg := ColorRect.new()
-	dia_bg.size = Vector2(30, 30); dia_bg.position = Vector2(9, 2)
-	dia_bg.pivot_offset = Vector2(15, 15); dia_bg.rotation = PI / 4.0
-	dia_bg.color = Color(0, 0, 0, 0.55); dia_bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	root.add_child(dia_bg)
-	var dia := ColorRect.new()
-	dia.size = Vector2(24, 24); dia.position = Vector2(12, 5)
-	dia.pivot_offset = Vector2(12, 12); dia.rotation = PI / 4.0
-	dia.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	root.add_child(dia)
-	var letter := Label.new()
-	letter.size = Vector2(48, 34); letter.position = Vector2(0, 0)
-	letter.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	letter.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	letter.add_theme_color_override("font_color", Color(1, 1, 1))
-	letter.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.9))
-	letter.add_theme_constant_override("outline_size", 4)
-	letter.add_theme_font_size_override("font_size", 17)
-	letter.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	root.add_child(letter)
-	var dist := Label.new()
-	dist.size = Vector2(48, 16); dist.position = Vector2(0, 36)
-	dist.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	dist.add_theme_color_override("font_color", Color(1, 1, 1, 0.92))
-	dist.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.9))
-	dist.add_theme_constant_override("outline_size", 3)
-	dist.add_theme_font_size_override("font_size", 12)
-	dist.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	root.add_child(dist)
-	_obj_root.add_child(root)
-	return {"root": root, "dia_bg": dia_bg, "dia": dia, "letter": letter, "dist": dist}
-
-## Reposition/colour the capture-point diamonds. `objectives` = [{anchor:Vector3, owner:int, label}].
+## objectives = [{anchor:Vector3, pos:Vector3, owner, attacker, cap, label}]. my_team colours friend/foe.
 func update_objective_markers(cam: Camera3D, objectives: Array, my_team: int, self_pos: Vector3, show: bool) -> void:
 	if _obj_root == null:
 		return
 	if not show or cam == null:
 		for mk in _obj_pool:
-			(mk["root"] as Control).visible = false
+			mk.visible = false
 		return
 	var vp := get_viewport_rect().size
-	var margin := 46.0
+	var margin := 42.0
 	for i in objectives.size():
 		while i >= _obj_pool.size():
-			_obj_pool.append(_make_obj_marker())
+			var m := ObjectiveMarker.new()
+			_obj_root.add_child(m)
+			_obj_pool.append(m)
 		var o: Dictionary = objectives[i]
-		var mk: Dictionary = _obj_pool[i]
+		var mk: ObjectiveMarker = _obj_pool[i]
 		var anchor: Vector3 = o.get("anchor", o["pos"])
-		var sp := cam.unproject_position(anchor)
+		# A point BEHIND you must not show (no wrap-around to the front).
 		if cam.is_position_behind(anchor):
-			sp = vp * 0.5 - (sp - vp * 0.5)   # mirror so a point behind you rides the correct edge
-		sp.x = clampf(sp.x, margin, vp.x - margin)
-		sp.y = clampf(sp.y, margin, vp.y - margin)
-		var owner := int(o["owner"])
-		var col := OBJ_NEUTRAL
-		if owner >= 0:
-			col = OBJ_FRIEND if owner == my_team else OBJ_ENEMY
-		(mk["dia"] as ColorRect).color = col
-		(mk["letter"] as Label).text = String(o.get("label", "?"))
+			mk.visible = false
+			continue
+		var sp := cam.unproject_position(anchor)
+		var alpha := 1.0
+		var onscreen := sp.x >= 0.0 and sp.x <= vp.x and sp.y >= 0.0 and sp.y <= vp.y
+		if not onscreen:
+			# In front but off-screen: clamp to the nearest edge and fade in as it nears the view.
+			var off_x := maxf(maxf(0.0, sp.x - vp.x), maxf(0.0, -sp.x))
+			var off_y := maxf(maxf(0.0, sp.y - vp.y), maxf(0.0, -sp.y))
+			var off := sqrt(off_x * off_x + off_y * off_y)
+			alpha = clampf(1.0 - off / 240.0, 0.22, 1.0)
+			sp.x = clampf(sp.x, margin, vp.x - margin)
+			sp.y = clampf(sp.y, margin, vp.y - margin)
 		var dm := int(round(Vector2(anchor.x - self_pos.x, anchor.z - self_pos.z).length()))
-		(mk["dist"] as Label).text = "%dm" % dm
-		var root: Control = mk["root"]
-		root.position = sp - root.size * 0.5
-		root.visible = true
+		mk.configure(int(o["owner"]), my_team, int(o.get("attacker", -1)), float(o.get("cap", 0.0)),
+			String(o.get("label", "?")), dm, alpha)
+		mk.position = sp - Vector2(mk.size.x * 0.5, ObjectiveMarker.ICON_CY)
+		mk.visible = true
 	for j in range(objectives.size(), _obj_pool.size()):
-		(_obj_pool[j]["root"] as Control).visible = false
+		_obj_pool[j].visible = false
 
 const CH_TICK_LEN := 7.0       # px length of each reticle tick
 const CH_TICK_THICK := 2.0     # px thickness
@@ -503,8 +470,10 @@ func _build_compass() -> void:
 	_compass_container = strip
 	for i in COMPASS_MARKER_POOL:
 		var dot := Label.new()
-		dot.text = "▼"
-		dot.add_theme_font_size_override("font_size", 12)
+		dot.text = "A"   # replaced per-frame with the point letter (relative-coloured)
+		dot.add_theme_font_size_override("font_size", 15)
+		dot.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.9))
+		dot.add_theme_constant_override("outline_size", 4)
 		dot.mouse_filter = MOUSE_FILTER_IGNORE
 		dot.visible = false
 		strip.add_child(dot)
@@ -1503,6 +1472,7 @@ func _render_compass(compass: Dictionary) -> void:
 	# Update objective markers by REUSING the pooled labels — no per-frame alloc/free.
 	# (The old recreate-every-frame path cost ~10 ms/frame and capped the client at ~40 fps.)
 	var markers: Array = compass.get("markers", [])
+	var my_team := int(compass.get("my_team", -1))
 	var strip_half := COMPASS_STRIP_WIDTH * 0.5
 	for i in _compass_markers.size():
 		var dot: Label = _compass_markers[i]
@@ -1514,7 +1484,10 @@ func _render_compass(compass: Dictionary) -> void:
 		var owner: int = int(m.get("owner", -1))
 		var x := (rel / PI) * strip_half + strip_half - 6.0   # centre of strip at rel=0
 		dot.position = Vector2(clampf(x, 2.0, COMPASS_STRIP_WIDTH - 14.0), COMPASS_HEIGHT - 2.0)
-		dot.modulate = _owner_color(owner)
+		# The point LETTER (A/B/C…) coloured RELATIVE to us — mine=blue, enemy=red, neutral=grey — so
+		# a friendly point never reads as the enemy's absolute team colour (playtest bug).
+		dot.text = String(m.get("label", "?"))
+		dot.modulate = _rel_color(owner, my_team)
 		dot.visible = true
 
 
