@@ -20,6 +20,7 @@ var _occupancy: Dictionary = {}     # Vector3i cell -> id
 var _by_owner: Dictionary = {}      # owner -> Array[int] ids, oldest first
 var _by_region: Dictionary = {}     # Vector2i region -> Dictionary[id->true]
 var _by_building: Dictionary = {}   # building_id -> {id: true}
+var terrain: TerrainGrid = null     # M15: heightmap occlusion sampled per DDA step in march()
 
 func _init(catalog: PieceCatalog) -> void:
 	_catalog = catalog
@@ -239,6 +240,12 @@ func march(origin: Vector3, dir: Vector3, max_dist: float) -> Dictionary:
 			var hit_t := _ray_piece(origin, d, _by_id[id])
 			if hit_t >= 0.0 and hit_t <= max_dist:
 				return {"hit": true, "dist": hit_t, "id": id}
+		# M15 terrain occlusion: if the ray has dropped to/below the terrain surface at this column,
+		# the world (hill) blocks it — like striking a piece (id 0 = terrain, not a piece).
+		if terrain != null and t > 0.0:
+			var pt := origin + d * t
+			if pt.y <= Terrain.height_at(terrain, pt.x, pt.z):
+				return {"hit": true, "dist": t, "id": 0}
 		# advance to the nearest boundary crossing
 		var axis := 0
 		if t_max.y < t_max.x: axis = 1
@@ -255,6 +262,10 @@ func march_normal(origin: Vector3, dir: Vector3, max_dist: float) -> Dictionary:
 	var m := march(origin, dir, max_dist)
 	if not bool(m["hit"]):
 		return {"hit": false}
+	if int(m.get("id", 0)) == 0:
+		var d0 := dir.normalized()
+		return {"hit": true, "dist": float(m["dist"]), "id": 0,
+			"point": origin + d0 * float(m["dist"]), "normal": Vector3(0, 1, 0)}
 	var d := dir.normalized()
 	var pt: Vector3 = origin + d * float(m["dist"])
 	var rec: Dictionary = _by_id[int(m["id"])]

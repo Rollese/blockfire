@@ -38,7 +38,10 @@ static func climb_step(ladder: Dictionary, pos: Vector3, move_y: float, dt: floa
 
 ## Highest platform top at or below `y` whose footprint contains (x,z); 0.0 (ground) if none.
 static func platform_floor(platforms: Array, x: float, z: float, y: float) -> float:
-	var best := 0.0
+	# -INF (not 0.0) so "no platform here" never injects a spurious y=0 floor that would clamp a pawn
+	# UP out of a sub-zero valley (M15). Callers maxf() this with the terrain height, which is the real
+	# ground baseline (0.0 on flat maps, so flat behaviour is unchanged).
+	var best := -INF
 	for p in platforms:
 		var mn: Vector3 = p["min"]
 		var mx: Vector3 = p["max"]

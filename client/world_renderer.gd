@@ -22,6 +22,7 @@ const STRUCT_TYPE_GRID := [8, 8, 8, 8, 8, 8, 8, 8, 4, 1, 8, 8, 8, 8, 8, 8, 1, 1,
 
 # -- structure feedback timing ------------------------------------------------
 const STRUCT_LIFT := 0.06          # m: lift buildings onto a thin foundation (no grass z-fight)
+const TERRAIN_CHUNK := 64          # M15: grid cells per terrain mesh chunk (free frustum culling, no LOD)
 
 # -- viewmodel placeholder dimensions -----------------------------------------
 const VM_OFFSET := Vector3(0.15, -0.12, -0.28)   # right / down / forward in camera space (pulled back from -0.40 — was too far forward)
@@ -291,6 +292,53 @@ var vm_reload_test := false       # --reload-test: hold the viewmodel mid-reload
 #  Public interface
 # =============================================================================
 
+# M15: terrain grid the client derives from the same heightmap the server used. null = flat map,
+# so the ground falls back to the original single-plane path (backward compatible with pre-M15 maps).
+var _terrain: TerrainGrid = null
+
+## Set the terrain grid (null = flat). Call BEFORE setup() builds the ground; setup() reads _terrain
+## to choose the flat single-plane path vs the chunked heightmap mesh.
+func set_terrain(g) -> void:
+	_terrain = g
+
+## Build the heightmap ground as a grid of MeshInstance3D chunks (TERRAIN_CHUNK cells each) sharing the
+## two-tone ground material. Chunking exists only for frustum culling — no custom LOD, no collision.
+func _build_terrain_chunks(mat: Material) -> void:
+	var g := _terrain
+	var cx := 0
+	while cx < g.cols - 1:
+		var cz := 0
+		while cz < g.rows - 1:
+			var x_end := mini(cx + TERRAIN_CHUNK, g.cols - 1)
+			var z_end := mini(cz + TERRAIN_CHUNK, g.rows - 1)
+			var mi := MeshInstance3D.new()
+			mi.mesh = _chunk_mesh(g, cx, cz, x_end, z_end)
+			mi.material_override = mat
+			add_child(mi)
+			cz += TERRAIN_CHUNK
+		cx += TERRAIN_CHUNK
+
+## One chunk mesh: two triangles per grid quad over [x0,x1)×[z0,z1], world-space vertices at sample heights.
+func _chunk_mesh(g: TerrainGrid, x0: int, z0: int, x1: int, z1: int) -> ArrayMesh:
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	for zi in range(z0, z1):
+		for xi in range(x0, x1):
+			var p00 := _terr_vtx(g, xi,   zi)
+			var p10 := _terr_vtx(g, xi + 1, zi)
+			var p01 := _terr_vtx(g, xi,   zi + 1)
+			var p11 := _terr_vtx(g, xi + 1, zi + 1)
+			st.add_vertex(p00); st.add_vertex(p01); st.add_vertex(p11)
+			st.add_vertex(p00); st.add_vertex(p11); st.add_vertex(p10)
+	st.generate_normals()
+	return st.commit()
+
+## World-space vertex for grid sample (xi,zi): planar X/Z from origin+spacing, Y from the height sample.
+func _terr_vtx(g: TerrainGrid, xi: int, zi: int) -> Vector3:
+	var wx := g.origin_x + float(xi) * g.spacing
+	var wz := g.origin_z + float(zi) * g.spacing
+	return Vector3(wx, g.sample(xi, zi), wz)
+
 ## Build static world geometry once. Call before any update().
 func setup(map: MapDef, camera: Camera3D) -> void:
 	_camera = camera
@@ -301,11 +349,7 @@ func setup(map: MapDef, camera: Camera3D) -> void:
 	_camera.keep_aspect = Camera3D.KEEP_WIDTH
 
 	# Ground plane
-	var ground := MeshInstance3D.new()
-	var plane := PlaneMesh.new()
 	var side := map.world_half * 2.0
-	plane.size = Vector2(side, side)
-	ground.mesh = plane
 	# Procedural two-tone green so the open terrain reads as ground with low-frequency patches,
 	# not one flat infinite plane. Noise is generated in-engine (no asset file); roads/buildings
 	# sit on top so only the open areas show it. Kept subtle — depth cue, not a loud pattern.
@@ -327,8 +371,18 @@ func setup(map: MapDef, camera: Camera3D) -> void:
 	gmat.albedo_texture = gtex
 	var gtile := side / 70.0   # ~70 m per texture repeat — organic, not obviously tiled
 	gmat.uv1_scale = Vector3(gtile, gtile, 1.0)
-	ground.material_override = gmat
-	add_child(ground)
+	if _terrain == null:
+		# Flat map: keep the original single-plane two-tone ground (unchanged, purely visual).
+		var ground := MeshInstance3D.new()
+		var plane := PlaneMesh.new()
+		plane.size = Vector2(side, side)
+		ground.mesh = plane
+		ground.material_override = gmat
+		add_child(ground)
+	else:
+		# M15: heightmap map — replace the flat plane with a chunked terrain mesh (same two-tone
+		# material). Chunks give free frustum culling; no collision (sim is kinematic via Terrain queries).
+		_build_terrain_chunks(gmat)
 
 	# Roads — flat dark-grey asphalt strips laid just above the ground (cosmetic, no collision).
 	# A faint yellow centre-line is drawn down the long axis so the road network reads as a network.

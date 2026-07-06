@@ -29,8 +29,10 @@ func test_climb_step_clamps_to_anchor_range() -> void:
 	var bot := Ladder.climb_step(LADDER, Vector3(5, 0.01, 5), -1.0, 1.0)
 	assert_almost_eq(bot.y, 0.0)   # clamped to bottom.y
 
-func test_platform_floor_inside_footprint_else_zero() -> void:
+func test_platform_floor_inside_footprint_else_none() -> void:
 	var plats := [{"min": Vector3(0, 0, 0), "max": Vector3(10, 4, 10)}]
 	assert_almost_eq(Ladder.platform_floor(plats, 5.0, 5.0, 4.0), 4.0)   # standing on top
 	assert_almost_eq(Ladder.platform_floor(plats, 5.0, 5.0, 5.0), 4.0)   # above the top -> floor is the top
-	assert_almost_eq(Ladder.platform_floor(plats, 50.0, 50.0, 5.0), 0.0) # outside footprint -> ground
+	# outside any footprint -> -INF ("no platform"), NOT 0.0: the M15 caller maxf()s this with the
+	# terrain height (the real ground baseline, 0.0 on flat maps) so a sub-zero valley isn't clamped up.
+	assert_eq(Ladder.platform_floor(plats, 50.0, 50.0, 5.0), -INF)

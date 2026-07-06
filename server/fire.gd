@@ -62,7 +62,7 @@ func resolve_vehicle_fires() -> void:
 		# Structure occlusion: the infantry projectile path marches the store for cover, this hitscan
 		# path never did — mounted guns shot through every wall on the map. A piece strictly nearer
 		# than the victim blocks the round (chips the wall, no penetration for mounted guns).
-		if srv._store != null and srv._store.count() > 0:
+		if srv._store != null and (srv._store.count() > 0 or srv._store.terrain != null):
 			var blocked: Dictionary = srv._store.march(origin, dir, best_t)
 			if bool(blocked["hit"]) and float(blocked["dist"]) < best_t:
 				var hit_pt: Vector3 = origin + dir * float(blocked["dist"])
@@ -263,7 +263,7 @@ func step_projectiles() -> void:
 		var body_dmg := int(pr["damage_body"])
 
 		# Cover / penetration: a structure strictly nearer than the enemy along THIS segment.
-		if srv._store.count() > 0 and seg_len > 0.0001:
+		if (srv._store.count() > 0 or srv._store.terrain != null) and seg_len > 0.0001:
 			var march_max: float = best_t if best_victim != 0 else seg_len
 			var blocked: Dictionary = srv._store.march(old_pos, seg_dir, march_max)
 			if blocked["hit"] and float(blocked["dist"]) < best_t:

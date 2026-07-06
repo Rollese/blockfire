@@ -2,37 +2,237 @@
   "name": "proving_grounds",
   "world_half": 1000.0,
   "points": [
-    {"id": "A", "pos": [-600, 0, -400], "radius": 30.0, "start_owner": -1},
-    {"id": "B", "pos": [-300, 0,  300], "radius": 30.0, "start_owner": -1},
-    {"id": "C", "pos": [   0, 0,    0], "radius": 30.0, "start_owner": -1},
-    {"id": "D", "pos": [ 300, 0, -300], "radius": 30.0, "start_owner": -1},
-    {"id": "E", "pos": [ 600, 0,  400], "radius": 30.0, "start_owner": -1}
+    {
+      "id": "A",
+      "pos": [
+        -600,
+        0,
+        -400
+      ],
+      "radius": 30.0,
+      "start_owner": -1
+    },
+    {
+      "id": "B",
+      "pos": [
+        -300,
+        0,
+        300
+      ],
+      "radius": 30.0,
+      "start_owner": -1
+    },
+    {
+      "id": "C",
+      "pos": [
+        0,
+        0,
+        0
+      ],
+      "radius": 30.0,
+      "start_owner": -1
+    },
+    {
+      "id": "D",
+      "pos": [
+        300,
+        0,
+        -300
+      ],
+      "radius": 30.0,
+      "start_owner": -1
+    },
+    {
+      "id": "E",
+      "pos": [
+        600,
+        0,
+        400
+      ],
+      "radius": 30.0,
+      "start_owner": -1
+    }
   ],
   "bases": [
-    {"team": 0, "pos": [-900, 0, 0], "radius": 40.0},
-    {"team": 1, "pos": [ 900, 0, 0], "radius": 40.0}
+    {
+      "team": 0,
+      "pos": [
+        -900,
+        0,
+        0
+      ],
+      "radius": 40.0
+    },
+    {
+      "team": 1,
+      "pos": [
+        900,
+        0,
+        0
+      ],
+      "radius": 40.0
+    }
   ],
   "ladders": [
-    {"bottom": [25, 0, 1], "top": [25, 4, 1], "radius": 1.2},
-    {"bottom": [960, 0, 0], "top": [960, 4, 0], "radius": 1.5},
-    {"bottom": [-960, 0, 0], "top": [-960, 4, 0], "radius": 1.5}
+    {
+      "bottom": [
+        25,
+        0,
+        1
+      ],
+      "top": [
+        25,
+        4,
+        1
+      ],
+      "radius": 1.2
+    },
+    {
+      "bottom": [
+        960,
+        0,
+        0
+      ],
+      "top": [
+        960,
+        4,
+        0
+      ],
+      "radius": 1.5
+    },
+    {
+      "bottom": [
+        -960,
+        0,
+        0
+      ],
+      "top": [
+        -960,
+        4,
+        0
+      ],
+      "radius": 1.5
+    }
   ],
   "platforms": [
-    {"min": [18, 4, -2], "max": [26, 4.2, 4]},
-    {"min": [956, 4, -4], "max": [964, 4.2, 4]},
-    {"min": [-964, 4, -4], "max": [-956, 4.2, 4]}
+    {
+      "min": [
+        18,
+        4,
+        -2
+      ],
+      "max": [
+        26,
+        4.2,
+        4
+      ]
+    },
+    {
+      "min": [
+        956,
+        4,
+        -4
+      ],
+      "max": [
+        964,
+        4.2,
+        4
+      ]
+    },
+    {
+      "min": [
+        -964,
+        4,
+        -4
+      ],
+      "max": [
+        -956,
+        4.2,
+        4
+      ]
+    }
   ],
   "prebuilt": [],
   "buildings": [
-    {"prefab": "bunker", "origin_cell": [-300, 0, -200], "yaw": 0},
-    {"prefab": "house",  "origin_cell": [0, 0, 0],       "yaw": 0},
-    {"prefab": "tower",  "origin_cell": [300, 0, 200],   "yaw": 0}
+    {
+      "prefab": "bunker",
+      "origin_cell": [
+        -300,
+        0,
+        -200
+      ],
+      "yaw": 0
+    },
+    {
+      "prefab": "house",
+      "origin_cell": [
+        0,
+        0,
+        0
+      ],
+      "yaw": 0
+    },
+    {
+      "prefab": "tower",
+      "origin_cell": [
+        300,
+        0,
+        200
+      ],
+      "yaw": 0
+    },
+    {
+      "prefab": "guardhouse",
+      "origin_cell": [
+        0,
+        -2,
+        -60
+      ],
+      "yaw": 0,
+      "terrain_cutout": true
+    }
   ],
   "vehicle_spawns": [],
-  "scenery_palette": {"tree": "normal", "rock": "grey"},
+  "scenery_palette": {
+    "tree": "normal",
+    "rock": "grey"
+  },
   "scenery": [
-    {"id": "tree_type0_01", "pos": [-50, 0, 80], "yaw": 0.4},
-    {"id": "tree_type2_03", "pos": [60, 0, -70], "yaw": 1.2, "palette": "dry"},
-    {"id": "rock_type1_02", "pos": [0, 0, 120], "yaw": 0.0, "scale": 1.1, "palette": "orange"}
-  ]
+    {
+      "id": "tree_type0_01",
+      "pos": [
+        -50,
+        0,
+        80
+      ],
+      "yaw": 0.4
+    },
+    {
+      "id": "tree_type2_03",
+      "pos": [
+        60,
+        0,
+        -70
+      ],
+      "yaw": 1.2,
+      "palette": "dry"
+    },
+    {
+      "id": "rock_type1_02",
+      "pos": [
+        0,
+        0,
+        120
+      ],
+      "yaw": 0.0,
+      "scale": 1.1,
+      "palette": "orange"
+    }
+  ],
+  "terrain": {
+    "heightmap": "heightmaps/proving_grounds.png",
+    "sample_spacing": 2.0,
+    "height_min": -16.0,
+    "height_scale": 64.0
+  }
 }

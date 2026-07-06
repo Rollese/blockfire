@@ -11,6 +11,7 @@ const MIN_MOVE_LEN := 0.001   # m; below this a pawn is treated as stationary (n
 var tick: int = 0
 var world := World.new()
 var structures: StructureStore = null     # optional StructureStore; resolves movement collision + vault blockers
+var terrain: TerrainGrid = null   # optional heightmap; folded into floor + horizontal resolution
 var ladders: Array = []   # [{bottom:Vector3, top:Vector3, radius:float}]
 var platforms: Array = [] # [{min:Vector3, max:Vector3}] walkable surfaces
 
@@ -23,6 +24,7 @@ func step(inputs: Dictionary, world_half: float = Pawn.WORLD_HALF) -> void:
 		var prev_stance: int = p.stance
 		var prev_grounded: bool = p.grounded
 		var cmd: Dictionary = inputs.get(id, {})
+		p.terrain = terrain
 		p.step(DT, cmd, world_half)
 		if p.in_vehicle != 0:
 			pass   # seat-slaved by step_vehicles — no ground collision/platform/ladder/vault while seated
@@ -72,7 +74,7 @@ func _step_climb(p: Pawn, cmd: Dictionary) -> void:
 		p.climbing = false
 
 func _step_normal(p: Pawn, prev: Vector3, cmd: Dictionary, prev_grounded: bool) -> void:
-	var intended := p.pos
+	var intended := Terrain.resolve_movement(terrain, prev, p.pos)
 	if structures != null:
 		var resolved: Vector3 = structures.resolve_movement(prev, intended)
 		if resolved != intended:
@@ -105,6 +107,8 @@ func _step_normal(p: Pawn, prev: Vector3, cmd: Dictionary, prev_grounded: bool) 
 			p.pos = resolved
 		else:
 			p.pos = resolved
+	else:
+		p.pos = intended
 	_apply_platform_floor(p)
 	# Ladder engage (after movement, so a pawn that walked into the volume this tick climbs next tick).
 	# Downed pawns crawl — they don't grab ladders (3 m/s climb would triple their crawl speed).
@@ -145,16 +149,20 @@ func _vault_landing(from: Vector3, dir: Vector3) -> Dictionary:
 	return {"ok": false}
 
 func _apply_platform_floor(p: Pawn) -> void:
+	# terr is the ground baseline (0.0 on flat maps). It replaces the old implicit y=0 in the grounded
+	# tests below so a sub-zero valley is walkable (M15) without changing flat-map behaviour.
+	var terr := Terrain.height_at(terrain, p.pos.x, p.pos.z)
 	var floor_y := Ladder.platform_floor(platforms, p.pos.x, p.pos.z, p.pos.y)
+	floor_y = maxf(floor_y, terr)
 	if structures != null:
 		floor_y = maxf(floor_y, structures.floor_height_at(p.pos.x, p.pos.z, p.pos.y))
 	if p.pos.y < floor_y:
 		p.pos.y = floor_y
 		p.velocity.y = 0.0
 		p.grounded = true
-	elif p.pos.y <= floor_y + Ladder.ANCHOR_EPS and floor_y > 0.0:
+	elif p.pos.y <= floor_y + Ladder.ANCHOR_EPS and floor_y > terr:
 		p.grounded = true
-	elif p.pos.y > maxf(floor_y, 0.0) + Ladder.ANCHOR_EPS:
+	elif p.pos.y > floor_y + Ladder.ANCHOR_EPS:
 		# Airborne: above the ground plane AND above any platform/structure floor. Without clearing
 		# this, a pawn that WALKED off a roof kept grounded=true for the whole fall — no false->true
 		# landing edge (zero fall damage from any height) and a free mid-air jump (BTN_JUMP gate).
@@ -183,15 +191,24 @@ func step_vehicles(vinputs: Dictionary, world_half: float = Vehicle.WORLD_HALF) 
 		if not v.alive:
 			continue
 		var prev := v.pos
+		v.terrain = terrain
 		v.step(DT, vinputs.get(vid, {}), world_half)
+		# Terrain slope-block: revert an advance that climbed a too-steep face.
+		var t_res := Terrain.resolve_movement(terrain, prev, v.pos)
+		if t_res != v.pos:
+			v.pos = prev; v.speed = 0.0; v.velocity = Vector3.ZERO
 		if structures != null:
 			var seg := v.pos - prev
 			var seg_len := seg.length()
 			if seg_len > 0.0001:
 				var m: Dictionary = structures.march(prev, seg / seg_len, seg_len)
-				if bool(m["hit"]):
+				# id 0 = a terrain hit (M15); vehicle-vs-terrain is handled by the slope-block (above) +
+				# floor clamp (below). Only a real piece (id != 0) stops the hull — else march's terrain
+				# occlusion would freeze the vehicle on its own ground column.
+				if bool(m["hit"]) and int(m["id"]) != 0:
 					v.pos = prev; v.speed = 0.0; v.velocity = Vector3.ZERO
 		var floor_y := Ladder.platform_floor(platforms, v.pos.x, v.pos.z, v.pos.y)
+		floor_y = maxf(floor_y, Terrain.height_at(terrain, v.pos.x, v.pos.z))
 		if v.pos.y < floor_y:
 			v.pos.y = floor_y; v.velocity.y = 0.0
 		for seat in v.seats.size():

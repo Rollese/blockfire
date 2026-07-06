@@ -18,6 +18,14 @@ var structures:
 	get:
 		return _loop.structures
 
+# The client-mirror heightmap grid (set in a later task); forwarded to the loop so prediction
+# clamps to terrain like the server. Null on flat maps.
+var terrain:
+	set(v):
+		_loop.terrain = v
+	get:
+		return _loop.terrain
+
 func _init() -> void:
 	predicted = Pawn.new(0)
 	predicted.auto_vault = false   # the local pawn is always a human: vault only on jump (matches the server)

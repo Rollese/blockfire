@@ -4,6 +4,8 @@ extends RefCounted
 ## a VehicleCatalog def via make(). Seats are seat-index -> occupant pawn id (0 = empty). Physics
 ## lives in step() (Task 4); geometry/enter-exit helpers here. See docs/specs/vehicles.md.
 
+const Terrain := preload("res://shared/sim/terrain.gd")
+
 const ROLE_DRIVER := 0
 const ROLE_PASSENGER := 1
 const ROLE_GUNNER := 2
@@ -27,6 +29,7 @@ var alive: bool = true
 var respawn_tick: int = 0
 var last_mounted_fire_tick: int = -100000
 var spawn_pos: Vector3 = Vector3.ZERO
+var terrain: TerrainGrid = null   # optional heightmap; null = flat (y ground plane at 0)
 
 # copied from def at make()
 var max_hp: int = 0
@@ -128,8 +131,9 @@ func step(dt: float, cmd: Dictionary, world_half: float = WORLD_HALF) -> void:
 	var fwd := Vector3(sin(heading), 0.0, cos(heading))
 	velocity = Vector3(fwd.x * speed, velocity.y - GRAVITY * dt, fwd.z * speed)
 	pos += velocity * dt
-	if pos.y <= 0.0:
-		pos.y = 0.0; velocity.y = 0.0
+	var ground := Terrain.height_at(terrain, pos.x, pos.z)
+	if pos.y <= ground:
+		pos.y = ground; velocity.y = 0.0
 	pos.x = clampf(pos.x, -world_half, world_half)
 	pos.z = clampf(pos.z, -world_half, world_half)
 

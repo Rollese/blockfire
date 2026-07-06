@@ -99,6 +99,7 @@ var _conquest: ConquestState
 var _squads := SquadManager.new()
 var _catalog: PieceCatalog
 var _store: StructureStore
+var _terrain: TerrainGrid = null
 var _gadgets: Gadget
 var _attachments: Attachment
 var _vehicles_cat: VehicleCatalog
@@ -228,6 +229,11 @@ func _start_match() -> bool:
 	_map = MapDef.load_file(_map_path)
 	if _map == null:
 		push_error("[server] failed to load map %s" % _map_path); return false
+	# M15: build the heightmap grid (flat maps -> null) and flatten building pads BEFORE stamping,
+	# so buildings stamp at their flattened origin_cell.y. Single-cell footprint (Callable()) is
+	# correct for the flat-plateau demo map; true-extent footprint is a later refinement.
+	_terrain = Terrain.load_for_map(_map, "res://maps", Callable())
+	_sim.terrain = _terrain
 	_conquest = ConquestState.new(_map)
 	if _start_tickets > 0:
 		_conquest.tickets = [float(_start_tickets), float(_start_tickets)]
@@ -235,6 +241,7 @@ func _start_match() -> bool:
 		_conquest.time_limit = _time_limit
 	_prev_owners = _owner_snapshot()
 	_store = StructureStore.new(_catalog)
+	_store.terrain = _terrain
 	_sim.structures = _store
 	_sim.ladders = _map.ladders
 	_sim.platforms = _map.platforms
@@ -1242,7 +1249,7 @@ func _resolve_melee(id: int, view_tick: int = 0) -> void:
 	# SRC_MELEE). With no structure in reach it bonks a pawn for SLEDGE_PAWN_DAMAGE (knife path below).
 	if Loadout.has_sledgehammer(int(c.get("class", -1))):
 		melee_damage = SLEDGE_PAWN_DAMAGE
-		if _store != null and _store.count() > 0:
+		if _store != null and (_store.count() > 0 or _store.terrain != null):
 			var dir := Combat._forward(atk.yaw, atk.pitch)
 			var m := _store.march(atk.eye_position(), dir, Melee.MELEE_RANGE)
 			if bool(m["hit"]):
@@ -1557,7 +1564,7 @@ func _integrate_grenade(g: Dictionary) -> void:
 	var new_pos: Vector3 = s["pos"]
 	# Bounce off structures instead of tunnelling through walls (frag + smoke). Impact grenades have
 	# their own contact detonation in _step_impact and never come through here.
-	if _store != null and _store.count() > 0:
+	if _store != null and (_store.count() > 0 or _store.terrain != null):
 		var seg: Vector3 = new_pos - (g["pos"] as Vector3)
 		var seg_len := seg.length()
 		if seg_len > 0.0001:
@@ -1584,7 +1591,7 @@ func _step_impact(g: Dictionary) -> bool:
 	var seg: Vector3 = (s["pos"] as Vector3) - (g["pos"] as Vector3)
 	var seg_len := seg.length()
 	var struck: bool = s["pos"].y <= 0.0
-	if not struck and _store != null and _store.count() > 0 and seg_len > 0.0001:
+	if not struck and _store != null and (_store.count() > 0 or _store.terrain != null) and seg_len > 0.0001:
 		if bool(_store.march(g["pos"], seg / seg_len, seg_len)["hit"]):
 			struck = true
 	if not struck:
@@ -1674,7 +1681,7 @@ func _step_rockets() -> void:
 		var seg: Vector3 = nxt - (r["pos"] as Vector3)
 		var seg_len := seg.length()
 		var struck := false
-		if _store.count() > 0 and seg_len > 0.0001:
+		if (_store.count() > 0 or _store.terrain != null) and seg_len > 0.0001:
 			var m := _store.march(r["pos"], seg / seg_len, seg_len)
 			if bool(m["hit"]):
 				struck = true
@@ -1763,7 +1770,7 @@ func _detonate_flash(g: Dictionary) -> void:
 		var d := to.length()
 		if d > FLASH_RADIUS or d < 0.001:
 			continue
-		if _store != null and _store.count() > 0 and bool(_store.march(center, to / d, d)["hit"]):
+		if _store != null and (_store.count() > 0 or _store.terrain != null) and bool(_store.march(center, to / d, d)["hit"]):
 			continue   # LOS blocked by a structure
 		p.blind_until_tick = maxi(p.blind_until_tick, _sim.tick + FLASH_BLIND_TICKS)
 		_stats.flash_blinds += 1
