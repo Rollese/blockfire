@@ -149,17 +149,20 @@ func _vault_landing(from: Vector3, dir: Vector3) -> Dictionary:
 	return {"ok": false}
 
 func _apply_platform_floor(p: Pawn) -> void:
+	# terr is the ground baseline (0.0 on flat maps). It replaces the old implicit y=0 in the grounded
+	# tests below so a sub-zero valley is walkable (M15) without changing flat-map behaviour.
+	var terr := Terrain.height_at(terrain, p.pos.x, p.pos.z)
 	var floor_y := Ladder.platform_floor(platforms, p.pos.x, p.pos.z, p.pos.y)
-	floor_y = maxf(floor_y, Terrain.height_at(terrain, p.pos.x, p.pos.z))
+	floor_y = maxf(floor_y, terr)
 	if structures != null:
 		floor_y = maxf(floor_y, structures.floor_height_at(p.pos.x, p.pos.z, p.pos.y))
 	if p.pos.y < floor_y:
 		p.pos.y = floor_y
 		p.velocity.y = 0.0
 		p.grounded = true
-	elif p.pos.y <= floor_y + Ladder.ANCHOR_EPS and floor_y > 0.0:
+	elif p.pos.y <= floor_y + Ladder.ANCHOR_EPS and floor_y > terr:
 		p.grounded = true
-	elif p.pos.y > maxf(floor_y, 0.0) + Ladder.ANCHOR_EPS:
+	elif p.pos.y > floor_y + Ladder.ANCHOR_EPS:
 		# Airborne: above the ground plane AND above any platform/structure floor. Without clearing
 		# this, a pawn that WALKED off a roof kept grounded=true for the whole fall — no false->true
 		# landing edge (zero fall damage from any height) and a free mid-air jump (BTN_JUMP gate).
@@ -199,7 +202,10 @@ func step_vehicles(vinputs: Dictionary, world_half: float = Vehicle.WORLD_HALF) 
 			var seg_len := seg.length()
 			if seg_len > 0.0001:
 				var m: Dictionary = structures.march(prev, seg / seg_len, seg_len)
-				if bool(m["hit"]):
+				# id 0 = a terrain hit (M15); vehicle-vs-terrain is handled by the slope-block (above) +
+				# floor clamp (below). Only a real piece (id != 0) stops the hull — else march's terrain
+				# occlusion would freeze the vehicle on its own ground column.
+				if bool(m["hit"]) and int(m["id"]) != 0:
 					v.pos = prev; v.speed = 0.0; v.velocity = Vector3.ZERO
 		var floor_y := Ladder.platform_floor(platforms, v.pos.x, v.pos.z, v.pos.y)
 		floor_y = maxf(floor_y, Terrain.height_at(terrain, v.pos.x, v.pos.z))
