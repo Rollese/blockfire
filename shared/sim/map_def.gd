@@ -146,6 +146,11 @@ static func from_dict(data: Dictionary) -> Dictionary:
 			"height_min": float(raw_terrain.get("height_min", 0.0)),
 			"height_scale": float(raw_terrain.get("height_scale", 0.0)),
 		}
+		# Client-only presentation key: the road/sidewalk SURFACE SPLATMAP painted into the terrain
+		# shader (world_renderer._terrain_material). The server ignores it. Passed through only when
+		# present so map.terrain.has("surface_map") stays a truthful "this map paints roads" signal.
+		if raw_terrain.has("surface_map"):
+			m.terrain["surface_map"] = String(raw_terrain["surface_map"])
 	return {"ok": true, "map": m, "error": ""}
 
 static func load_file(path: String) -> MapDef:

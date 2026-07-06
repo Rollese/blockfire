@@ -300,6 +300,8 @@ var _terrain: TerrainGrid = null
 ## to choose the flat single-plane path vs the chunked heightmap mesh.
 func set_terrain(g) -> void:
 	_terrain = g
+	if _fx != null:
+		_fx.terrain = g   # grenade/rocket/debris cosmetics rest on the terrain surface, not y=0
 
 ## Terrain surface height at world (x,z), or 0 on a flat map. Used to seat cosmetic map geometry
 ## (scenery, point/base markers) ON the hills instead of at the authored y=0 (float/bury otherwise).
@@ -318,6 +320,11 @@ func _terrain_material() -> ShaderMaterial:
 	sh.code = """
 shader_type spatial;
 render_mode diffuse_burley, specular_disabled;
+// Road/sidewalk SURFACE SPLATMAP (R=asphalt, G=sidewalk) painted onto the terrain surface in world
+// space so roads conform to the heightmap (no meshes, no z-fight). Unset -> black default -> pure grass.
+uniform sampler2D surface_map : hint_default_black, filter_linear, repeat_disable;
+uniform vec2 map_origin = vec2(0.0, 0.0);
+uniform float map_extent = 1.0;
 varying vec3 v_world;
 varying vec3 v_wn;
 void vertex() {
@@ -341,8 +348,14 @@ void fragment() {
 	vec3 col = mix(grass_d, grass_l, patch);
 	col = mix(col, dry, smoothstep(0.55, 0.92, patch) * 0.55);
 	col = mix(col * 0.82, col * 1.16, fine);              // fine light/dark speckle
-	float steep = 1.0 - smoothstep(0.62, 0.86, v_wn.y);   // steep slopes -> rocky earth
+	float steep = 1.0 - smoothstep(0.62, 0.86, v_wn.y);   // steep slopes -> rocky earth (brown, never red)
 	col = mix(col, vec3(0.29, 0.25, 0.19), steep * 0.75);
+	// Roads/sidewalks painted onto the surface (after grass so the mask wins over the terrain colour).
+	vec2 suv = (w - map_origin) / map_extent;
+	vec4 surf = texture(surface_map, suv);
+	vec3 asphalt = vec3(0.15, 0.15, 0.16) + vec3((fine - 0.5) * 0.03);
+	col = mix(col, asphalt, surf.r);
+	col = mix(col, vec3(0.55, 0.55, 0.57), surf.g);
 	ALBEDO = col;
 	ROUGHNESS = 1.0;
 }
@@ -508,6 +521,8 @@ func setup(map: MapDef, camera: Camera3D) -> void:
 	_camera = camera
 	_map = map
 	_building_footprint.clear()   # fresh map: drop any prior match's cached footprints
+	if _fx != null:
+		_fx.terrain = _terrain   # cosmetics rest on the terrain surface (set_terrain may run before _fx exists)
 	# Interpret settings.fov as HORIZONTAL fov (BattleBit-style). Godot defaults to KEEP_HEIGHT
 	# (vertical), which turns fov=90 into ~121° horizontal on 16:9 — the "fisheye" warp at edges.
 	_camera.keep_aspect = Camera3D.KEEP_WIDTH
@@ -549,13 +564,27 @@ func setup(map: MapDef, camera: Camera3D) -> void:
 		# async -> can flash grey on some drivers) the noise is computed in the fragment shader from
 		# world XZ: no asset, no async, identical on every GPU. It gives per-metre fine detail (the
 		# near-field MOTION REFERENCE the player was missing on the old flat single-colour terrain),
-		# large grass/dry-field patches, and rocky earth on the steep countryside slopes.
-		_build_terrain_chunks(_terrain_material())
+		# large grass/dry-field patches, rocky earth on steep slopes, and a road/sidewalk SURFACE
+		# SPLATMAP (see _terrain_material) so roads conform to the heightmap instead of flat planes.
+		var tmat := _terrain_material()
+		# Load the splatmap raw via Image (like the heightmap) so the import pipeline can't VRAM-compress
+		# and smear the mask channels. Absent/failed -> sampler stays at hint_default_black -> pure grass.
+		if map.terrain.has("surface_map") and String(map.terrain["surface_map"]) != "":
+			var simg := Image.new()
+			var spath := "res://maps/".path_join(String(map.terrain["surface_map"]))
+			if simg.load(spath) == OK:
+				tmat.set_shader_parameter("surface_map", ImageTexture.create_from_image(simg))
+			else:
+				push_error("[terrain] failed to load surface_map %s" % spath)
+		tmat.set_shader_parameter("map_origin", Vector2(-map.world_half, -map.world_half))
+		tmat.set_shader_parameter("map_extent", map.world_half * 2.0)
+		_build_terrain_chunks(tmat)
 		_build_grass_foliage(map)
 
-	# Roads — flat dark-grey asphalt strips laid just above the ground (cosmetic, no collision).
-	# A faint yellow centre-line is drawn down the long axis so the road network reads as a network.
-	for rd: Dictionary in map.roads:
+	# Roads — flat dark-grey asphalt strips (cosmetic, no collision). TERRAIN maps skip this: roads come
+	# from the surface splatmap (conforms to the heightmap instead of burying flat planes under a hill /
+	# hovering over a valley). Iterating an empty list on terrain maps emits no road planes or dashes.
+	for rd: Dictionary in (map.roads if _terrain == null else []):
 		var rmin: Vector3 = rd["min"] as Vector3
 		var rmax: Vector3 = rd["max"] as Vector3
 		var rw := absf(rmax.x - rmin.x)

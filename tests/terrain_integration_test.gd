@@ -61,6 +61,16 @@ func test_town_ladders_seated_on_buildings() -> void:
 		# It is a real vertical climb to a roof deck (length preserved through the terrain shift).
 		assert_true(top.y - bottom.y >= 6.0, "ladder is a full roof climb (%.1f m)" % (top.y - bottom.y))
 
+func test_town_terrain_has_surface_splatmap() -> void:
+	# Roads are painted via a SURFACE SPLATMAP (no flat road meshes). Guard that map_gen injected the
+	# terrain block WITH a surface_map key and that both the heightmap and splatmap PNGs shipped (the
+	# client shader samples the splatmap so roads conform to the hills).
+	var m := MapDef.load_file("res://maps/conquest_town.json")
+	assert_true(m.terrain.has("surface_map"), "terrain block carries a surface_map key")
+	assert_eq(String(m.terrain["surface_map"]), "heightmaps/conquest_town_surface.png", "splatmap path")
+	assert_true(FileAccess.file_exists("res://maps/heightmaps/conquest_town_surface.png"), "splatmap PNG exists")
+	assert_true(FileAccess.file_exists("res://maps/" + String(m.terrain["heightmap"])), "heightmap PNG exists")
+
 # Regression (review C1/I1): a pawn must be able to descend INTO sub-zero terrain (a valley) —
 # the platform_floor 0.0 default used to clamp it back up to y=0 and it floated over the basin.
 func test_pawn_descends_into_sub_zero_valley() -> void:

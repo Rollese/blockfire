@@ -264,6 +264,55 @@ def _write_gray_png(path, width, height, data):
         f.write(chunk(b"IEND", b""))
 
 
+def _write_rgb_png(path, width, height, rgb_bytes):
+    """Write a valid 8-bit truecolour (RGB) PNG (stdlib only: zlib + struct). `rgb_bytes` is
+    row-major, 3 bytes/pixel (R,G,B), length width*height*3. Used for the terrain SURFACE splatmap
+    (R=asphalt strength, G=sidewalk strength, B=0) the client samples in the terrain shader so roads
+    conform to the heightmap surface — no meshes, no z-fighting."""
+    import zlib, struct
+    def chunk(typ, body):
+        return (struct.pack(">I", len(body)) + typ + body
+                + struct.pack(">I", zlib.crc32(typ + body) & 0xffffffff))
+    ihdr = struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)  # bit depth 8, colour type 2 (RGB)
+    raw = bytearray()
+    stride = width * 3
+    for y in range(height):
+        raw.append(0)                                   # filter type 0 (none) per scanline
+        raw.extend(rgb_bytes[y * stride:(y + 1) * stride])
+    idat = zlib.compress(bytes(raw), 9)
+    with open(path, "wb") as f:
+        f.write(b"\x89PNG\r\n\x1a\n")
+        f.write(chunk(b"IHDR", ihdr))
+        f.write(chunk(b"IDAT", idat))
+        f.write(chunk(b"IEND", b""))
+
+
+def gen_town_surface_map(world_half=170.0, res=684):
+    """Rasterize the road network into an (res,res,3) uint8 splatmap. R=asphalt strength (255 inside
+    each road AABB), G=sidewalk strength (255 in a ~2.5 m border ring just OUTSIDE each road AABB,
+    minus any road), B=0 (grass default). World (x,z) in [-world_half, world_half] maps to pixel
+    (col=x, row=z); row 0 == world z=-world_half (matches the heightmap contract and the shader's
+    suv = (world.xz - map_origin) / map_extent sampling). Reads the module-level `roads` list.
+    Deterministic: pure geometry, no RNG."""
+    import numpy as np
+    axis = np.linspace(-world_half, world_half, res)
+    X, Z = np.meshgrid(axis, axis)                        # X[row,col]=x (per col), Z[row,col]=z (per row)
+    SIDEWALK_M = 2.5
+    any_road = np.zeros((res, res), dtype=bool)
+    any_ring = np.zeros((res, res), dtype=bool)
+    for rd in roads:
+        x0, z0, x1, z1 = rd["min"][0], rd["min"][2], rd["max"][0], rd["max"][2]
+        inside = (X >= x0) & (X <= x1) & (Z >= z0) & (Z <= z1)
+        outer = (X >= x0 - SIDEWALK_M) & (X <= x1 + SIDEWALK_M) & (Z >= z0 - SIDEWALK_M) & (Z <= z1 + SIDEWALK_M)
+        any_road |= inside
+        any_ring |= outer
+    sidewalk = any_ring & ~any_road
+    rgb = np.zeros((res, res, 3), dtype=np.uint8)
+    rgb[..., 0] = np.where(any_road, 255, 0)              # R: asphalt
+    rgb[..., 1] = np.where(sidewalk, 255, 0)              # G: sidewalk
+    return rgb, res
+
+
 def gen_proving_grounds_heightmap(world_half=1000.0, spacing=2.0):
     """Compose the proving_grounds height field (metres) and quantize to 8-bit given
     height_min=-16, height_scale=64. Exercises: rolling hills, a valley basin at point B, a
@@ -409,6 +458,12 @@ def add_terrain_to_town():
     png_path = os.path.join(hm_dir, "conquest_town.png")
     _write_gray_png(png_path, n, n, px.tobytes())
 
+    # Road/sidewalk SURFACE splatmap: roads are painted onto the terrain surface in the client shader
+    # (world_renderer._terrain_material) so they conform to the hills — no flat road meshes to bury/hover.
+    rgb, res = gen_town_surface_map(170.0, 684)
+    surf_path = os.path.join(hm_dir, "conquest_town_surface.png")
+    _write_rgb_png(surf_path, res, res, rgb.tobytes())
+
     map_path = os.path.join(ROOT, "maps", "conquest_town.json")
     md = json.load(open(map_path))
     md["terrain"] = {
@@ -416,10 +471,11 @@ def add_terrain_to_town():
         "sample_spacing": float(2.0),
         "height_min": float(height_min),
         "height_scale": float(height_scale),
+        "surface_map": "heightmaps/conquest_town_surface.png",
     }
     json.dump(md, open(map_path, "w"), indent=2)
-    print("wrote %s (%dx%d, %d bytes) + terrain block -> %s"
-          % (png_path, n, n, os.path.getsize(png_path), map_path))
+    print("wrote %s (%dx%d) + %s (%dx%d) + terrain/surface block -> %s"
+          % (png_path, n, n, surf_path, res, res, map_path))
 
 
 def add_scenery_to_town():

@@ -8,6 +8,12 @@ extends Node3D
 
 var r   # WorldRenderer back-ref (owner/parent)
 var struct_store = null   # client StructureStore mirror; lets thrown-grenade cosmetics bounce off walls
+var terrain = null   # client TerrainGrid; grenade/rocket/smoke cosmetics rest on the TERRAIN surface,
+                     # not a hard y=0 (else on low ground they vanish instantly — matches server _integrate_grenade)
+
+## Ground height under a cosmetic (terrain surface, or 0 on a flat map).
+func _ground_y(p: Vector3) -> float:
+	return Terrain.height_at(terrain, p.x, p.z)
 # Grenade wall-bounce — MUST match server_main (_integrate_grenade) so the cosmetic tracks the real one.
 const GRENADE_RESTITUTION := 0.45   # velocity retained after a wall bounce
 const GRENADE_BOUNCE_SKIN := 0.15   # m; rest the grenade this far off the struck face so it can't re-embed
@@ -107,9 +113,10 @@ func age_rockets(now: float, delta: float) -> void:
 			if now >= float(r["next_puff"]):
 				spawn_puff(node.position, 0.4, 0.6, now)   # trail
 				r["next_puff"] = now + ROCKET_TRAIL_DT
-			if now >= float(r["die"]) or npos.y <= 0.0:
-				if npos.y < 0.0:
-					npos.y = 0.0
+			var r_gy := _ground_y(npos)
+			if now >= float(r["die"]) or npos.y <= r_gy:
+				if npos.y < r_gy:
+					npos.y = r_gy
 				spawn_puff(npos, 2.4, 0.55, now)           # impact puff
 				node.queue_free()
 				continue
@@ -211,7 +218,7 @@ func age_thrown(now: float, delta: float) -> void:
 		if int(g["kind"]) == Grenade.SMOKE and now >= float(g["next_trail"]):
 			spawn_puff(node.position, 0.3, 0.45, now, Color(0.78, 0.80, 0.80, 0.4))
 			g["next_trail"] = now + GRENADE_TRAIL_DT
-		if now >= float(g["die"]) or npos.y <= 0.0:
+		if now >= float(g["die"]) or npos.y <= _ground_y(npos):
 			node.queue_free()   # detonation/smoke event plays the end effect at the landing point
 			continue
 		node.position = npos
@@ -407,8 +414,9 @@ func age_debris(now: float, delta: float) -> void:
 		var vel: Vector3 = d["vel"]
 		vel.y -= DEBRIS_GRAVITY * dt
 		var npos := node.position + vel * dt
-		if npos.y < 0.0:
-			npos.y = 0.0; vel = Vector3.ZERO   # settle on the ground
+		var d_gy := _ground_y(npos)
+		if npos.y < d_gy:
+			npos.y = d_gy; vel = Vector3.ZERO   # settle on the ground (terrain surface)
 		node.position = npos
 		d["vel"] = vel
 		live.append(d)

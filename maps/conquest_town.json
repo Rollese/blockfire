@@ -825,7 +825,8 @@
     "heightmap": "heightmaps/conquest_town.png",
     "sample_spacing": 2.0,
     "height_min": -24.0,
-    "height_scale": 56.0
+    "height_scale": 56.0,
+    "surface_map": "heightmaps/conquest_town_surface.png"
   },
   "scenery": [
     {
