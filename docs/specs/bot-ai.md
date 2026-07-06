@@ -172,6 +172,8 @@ cone** + **settle time** (error converges onto a tracked target over `AIM_SETTLE
 story: human-shaped hit-rate and behaviour distributions keep Layer-4 from flagging bots.
 **Difficulty → ADR-0004 skill-tier mapping is deferred to M9**; M7.5 exposes the knobs only.
 
+**Known balance gap (2026-07-06 playtest) — bot RPG-at-structure aggression (deferred to a balance pass).** Engineer bots fire RPGs freely, and over a long match their splash + misses chew the map heavily: an owner playtest measured ~**815 rockets in 28 min** across ~24 bots → ~**27 %** of `conquest_town`'s pieces destroyed and **12 building collapses**, so a player joining a mature match dropped into a heavily-wrecked map. This is *not* a correctness bug (it's cumulative live combat), but the **rate is high and un-BattleBit-like**. A future balance pass should temper Engineer RPG usage vs. structures — e.g. prefer RPGs against vehicles/fortified positions, cap structure-directed rocket cadence, or gate RPG fire behind a real (non-structure) target — tuned alongside the §11 constants / difficulty profiles. Until then, `--fast-rpg` and `--fast-nades` are **humans-only** (bots keep the normal cooldowns) so QA destruction-testing doesn't compound this.
+
 ## 9. Determinism & RNG
 
 - **All** humanization/decision randomness comes from a **per-bot seeded `RandomNumberGenerator`**

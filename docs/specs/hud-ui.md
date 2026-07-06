@@ -70,6 +70,9 @@ Persisted to a local config file:
 | Prone | X | Menu / deploy-back | Esc |
 | Lean L/R | Q / E | Fire / ADS | LMB / RMB |
 
+### Connecting / loading screen (deferred — backlog)
+**Not built (backlog, raised 2026-07-06 playtest).** On join the server streams the current world to the client as a burst of structure deltas — destruction that already happened is caught up via `OP_REMOVE`/`OP_CHUNK` (see [destructible-buildings](destructible-buildings.md)). The client plays the per-piece dust/debris FX for each delta, so on a mature match a reconnecting player sees buildings visibly "settling"/popping in the first second instead of a clean, already-established scene. A **connecting/loading overlay** should cover the initial sync — from HELLO until the first full snapshot and the initial structure baseline/delta burst have drained — and reveal the world only once it's caught up. Owner-requested for a future UI/UX polish pass. (The separate COLLAPSE-cinematic-on-connect bug — every past collapse re-detonating on join — was fixed 2026-07-06: a rejoin now drops silent rubble, not a fresh explosion.)
+
 ## Test plan (deterministic, headless on game2)
 
 `hud_model` is asserted against crafted `world_view`/event inputs (no drawing involved):
