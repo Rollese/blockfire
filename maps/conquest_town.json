@@ -40,60 +40,60 @@
     },
     {
       "min": [
-        -152,
+        -100,
         0,
         -106
       ],
       "max": [
-        152,
+        100,
         0,
         -94
       ]
     },
     {
       "min": [
-        -152,
+        -100,
         0,
         -56
       ],
       "max": [
-        152,
+        100,
         0,
         -44
       ]
     },
     {
       "min": [
-        -152,
+        -100,
         0,
         -6
       ],
       "max": [
-        152,
+        100,
         0,
         6
       ]
     },
     {
       "min": [
-        -152,
+        -100,
         0,
         44
       ],
       "max": [
-        152,
+        100,
         0,
         56
       ]
     },
     {
       "min": [
-        -152,
+        -100,
         0,
         94
       ],
       "max": [
-        152,
+        100,
         0,
         106
       ]
@@ -1171,33 +1171,33 @@
       "palette": "normal"
     },
     {
-      "id": "tree_type1_02",
+      "id": "tree_type5_03",
       "pos": [
-        -151.0,
+        125.1,
         0.0,
-        -30.1
+        58.1
       ],
-      "yaw": 2.787,
-      "scale": 1.08,
+      "yaw": 1.849,
+      "scale": 0.86,
       "palette": "normal"
     },
     {
-      "id": "tree_type5_03",
+      "id": "tree_type4_01",
       "pos": [
-        -146.8,
+        122.8,
         0.0,
-        -24.1
+        51.5
       ],
-      "yaw": 2.361,
-      "scale": 0.87,
-      "palette": "dry"
+      "yaw": 4.571,
+      "scale": 1.49,
+      "palette": "normal"
     },
     {
       "id": "tree_type2_04",
       "pos": [
-        -143.8,
+        -34.6,
         0.0,
-        -28.9
+        -153.5
       ],
       "yaw": 2.44,
       "scale": 1.16,
@@ -1206,9 +1206,9 @@
     {
       "id": "tree_type0_01",
       "pos": [
-        -150.2,
+        -41.0,
         0.0,
-        -24.3
+        -148.8
       ],
       "yaw": 2.995,
       "scale": 1.46,
@@ -1217,86 +1217,130 @@
     {
       "id": "tree_type0_03",
       "pos": [
-        -149.7,
+        -40.5,
         0.0,
-        -38.4
+        -162.9
       ],
       "yaw": 3.793,
       "scale": 0.94,
       "palette": "normal"
     },
     {
+      "id": "tree_type5_03",
+      "pos": [
+        -41.4,
+        0.0,
+        -151.9
+      ],
+      "yaw": 2.624,
+      "scale": 1.44,
+      "palette": "normal"
+    },
+    {
+      "id": "tree_type7_01",
+      "pos": [
+        -44.8,
+        0.0,
+        -158.0
+      ],
+      "yaw": 0.811,
+      "scale": 1.43,
+      "palette": "normal"
+    },
+    {
       "id": "tree_type2_04",
       "pos": [
-        -115.2,
+        -43.6,
         0.0,
-        -120.8
+        -154.1
       ],
       "yaw": 5.81,
       "scale": 1.31,
       "palette": "normal"
     },
     {
-      "id": "tree_type4_01",
+      "id": "tree_type1_02",
       "pos": [
-        -107.5,
+        103.6,
         0.0,
-        -128.2
+        -101.8
       ],
-      "yaw": 0.229,
-      "scale": 1.32,
-      "palette": "normal"
-    },
-    {
-      "id": "tree_type2_01",
-      "pos": [
-        -84.2,
-        0.0,
-        160.9
-      ],
-      "yaw": 5.694,
-      "scale": 1.1,
+      "yaw": 3.749,
+      "scale": 0.99,
       "palette": "normal"
     },
     {
       "id": "tree_type5_03",
       "pos": [
-        -86.0,
+        113.0,
         0.0,
-        164.1
+        -111.8
       ],
-      "yaw": 1.801,
-      "scale": 1.41,
+      "yaw": 6.228,
+      "scale": 1.06,
       "palette": "normal"
     },
     {
-      "id": "tree_type2_04",
+      "id": "tree_type0_01",
       "pos": [
-        -85.2,
+        117.6,
         0.0,
-        156.4
+        -107.3
       ],
-      "yaw": 0.426,
-      "scale": 1.13,
+      "yaw": 5.517,
+      "scale": 1.19,
       "palette": "normal"
     },
     {
-      "id": "tree_type5_03",
+      "id": "tree_type1_02",
       "pos": [
-        -86.6,
+        107.6,
         0.0,
-        164.2
+        -99.5
       ],
-      "yaw": 3.407,
-      "scale": 1.25,
+      "yaw": 4.125,
+      "scale": 1.35,
       "palette": "normal"
     },
     {
       "id": "tree_type0_03",
       "pos": [
-        160.2,
+        103.7,
         0.0,
-        164.8
+        -100.0
+      ],
+      "yaw": 1.008,
+      "scale": 1.05,
+      "palette": "normal"
+    },
+    {
+      "id": "tree_type2_01",
+      "pos": [
+        114.1,
+        0.0,
+        12.0
+      ],
+      "yaw": 4.207,
+      "scale": 1.12,
+      "palette": "normal"
+    },
+    {
+      "id": "tree_type7_01",
+      "pos": [
+        114.3,
+        0.0,
+        16.0
+      ],
+      "yaw": 6.189,
+      "scale": 1.48,
+      "palette": "normal"
+    },
+    {
+      "id": "tree_type0_03",
+      "pos": [
+        121.3,
+        0.0,
+        13.9
       ],
       "yaw": 4.126,
       "scale": 1.35,
@@ -1305,9 +1349,9 @@
     {
       "id": "tree_type0_03",
       "pos": [
-        148.1,
+        109.1,
         0.0,
-        162.4
+        11.5
       ],
       "yaw": 3.975,
       "scale": 1.08,
@@ -1316,9 +1360,9 @@
     {
       "id": "tree_type4_01",
       "pos": [
-        159.4,
+        120.5,
         0.0,
-        156.4
+        5.6
       ],
       "yaw": 1.156,
       "scale": 1.01,
@@ -1327,75 +1371,75 @@
     {
       "id": "tree_type0_03",
       "pos": [
-        160.3,
+        159.9,
         0.0,
-        159.9
+        -21.4
       ],
-      "yaw": 1.699,
-      "scale": 1.24,
+      "yaw": 0.318,
+      "scale": 1.13,
       "palette": "normal"
     },
     {
-      "id": "tree_type2_04",
+      "id": "tree_type1_02",
       "pos": [
-        145.2,
+        161.7,
         0.0,
-        160.0
+        -20.1
       ],
-      "yaw": 2.373,
-      "scale": 1.29,
+      "yaw": 4.991,
+      "scale": 0.94,
       "palette": "normal"
     },
     {
-      "id": "tree_type3_02",
+      "id": "tree_type2_01",
       "pos": [
-        90.6,
+        -145.5,
         0.0,
-        -117.1
+        92.3
       ],
-      "yaw": 4.671,
-      "scale": 1.12,
+      "yaw": 3.925,
+      "scale": 1.33,
+      "palette": "normal"
+    },
+    {
+      "id": "tree_type0_01",
+      "pos": [
+        -141.5,
+        0.0,
+        91.4
+      ],
+      "yaw": 3.959,
+      "scale": 1.19,
       "palette": "normal"
     },
     {
       "id": "tree_type0_03",
       "pos": [
-        99.7,
+        -146.3,
         0.0,
-        -117.8
+        94.3
       ],
-      "yaw": 6.246,
-      "scale": 1.08,
+      "yaw": 0.78,
+      "scale": 1.17,
+      "palette": "normal"
+    },
+    {
+      "id": "tree_type7_01",
+      "pos": [
+        -152.1,
+        0.0,
+        96.3
+      ],
+      "yaw": 3.821,
+      "scale": 1.36,
       "palette": "normal"
     },
     {
       "id": "tree_type1_02",
       "pos": [
-        99.8,
+        94.7,
         0.0,
-        -121.3
-      ],
-      "yaw": 4.341,
-      "scale": 1.2,
-      "palette": "normal"
-    },
-    {
-      "id": "tree_type2_04",
-      "pos": [
-        -53.4,
-        0.0,
-        -130.3
-      ],
-      "yaw": 4.519,
-      "scale": 1.37,
-      "palette": "normal"
-    },
-    {
-      "id": "tree_type1_02",
-      "pos": [
-        -58.2,
-        0.0,
-        -131.9
+        -134.3
       ],
       "yaw": 1.869,
       "scale": 1.44,
@@ -1404,31 +1448,31 @@
     {
       "id": "tree_type7_01",
       "pos": [
-        -61.2,
+        94.5,
         0.0,
-        -131.7
+        -142.5
       ],
       "yaw": 3.447,
       "scale": 0.88,
       "palette": "normal"
     },
     {
-      "id": "tree_type4_01",
+      "id": "tree_type2_04",
       "pos": [
-        -56.3,
+        -24.1,
         0.0,
-        -120.7
+        114.4
       ],
-      "yaw": 1.982,
-      "scale": 1.19,
-      "palette": "normal"
+      "yaw": 1.28,
+      "scale": 1.44,
+      "palette": "dry"
     },
     {
       "id": "tree_type2_01",
       "pos": [
-        -98.9,
+        -21.7,
         0.0,
-        126.7
+        107.6
       ],
       "yaw": 2.385,
       "scale": 0.99,
@@ -1437,9 +1481,9 @@
     {
       "id": "tree_type0_01",
       "pos": [
-        -92.5,
+        -15.3,
         0.0,
-        128.4
+        109.3
       ],
       "yaw": 3.037,
       "scale": 1.44,
@@ -1448,9 +1492,9 @@
     {
       "id": "tree_type5_03",
       "pos": [
-        -106.0,
+        -28.8,
         0.0,
-        129.5
+        110.3
       ],
       "yaw": 1.429,
       "scale": 1.14,
@@ -1459,75 +1503,86 @@
     {
       "id": "tree_type0_03",
       "pos": [
-        -104.0,
+        -26.8,
         0.0,
-        131.4
+        112.2
       ],
       "yaw": 4.042,
       "scale": 1.3,
       "palette": "dry"
     },
     {
-      "id": "tree_type2_01",
+      "id": "tree_type4_01",
       "pos": [
-        -104.8,
+        -136.8,
         0.0,
-        130.7
+        -49.3
       ],
-      "yaw": 1.603,
-      "scale": 1.21,
-      "palette": "normal"
+      "yaw": 2.837,
+      "scale": 0.93,
+      "palette": "dry"
     },
     {
-      "id": "tree_type6_02",
+      "id": "tree_type2_04",
       "pos": [
-        -99.1,
+        -140.7,
         0.0,
-        127.1
+        -58.0
       ],
-      "yaw": 0.048,
-      "scale": 0.86,
+      "yaw": 5.305,
+      "scale": 0.9,
       "palette": "normal"
     },
     {
       "id": "tree_type0_01",
       "pos": [
-        116.7,
+        -130.5,
         0.0,
-        -132.3
+        -44.0
       ],
       "yaw": 4.299,
       "scale": 1.01,
       "palette": "normal"
     },
     {
-      "id": "tree_type6_02",
+      "id": "tree_type1_02",
       "pos": [
-        119.5,
+        -109.8,
         0.0,
-        -141.3
+        -143.3
       ],
-      "yaw": 3.438,
-      "scale": 1.04,
+      "yaw": 6.021,
+      "scale": 1.18,
       "palette": "normal"
     },
     {
-      "id": "tree_type0_01",
+      "id": "tree_type3_02",
       "pos": [
-        119.4,
+        -100.6,
         0.0,
-        -132.5
+        -151.8
       ],
-      "yaw": 0.6,
-      "scale": 1.48,
+      "yaw": 0.381,
+      "scale": 1.27,
+      "palette": "normal"
+    },
+    {
+      "id": "tree_type3_02",
+      "pos": [
+        49.3,
+        0.0,
+        133.4
+      ],
+      "yaw": 5.454,
+      "scale": 1.39,
       "palette": "normal"
     },
     {
       "id": "tree_type5_03",
       "pos": [
-        130.5,
+        49.3,
         0.0,
-        119.4
+        141.3
       ],
       "yaw": 0.143,
       "scale": 1.12,
@@ -1536,9 +1591,9 @@
     {
       "id": "tree_type5_03",
       "pos": [
-        127.8,
+        37.0,
         0.0,
-        128.6
+        140.5
       ],
       "yaw": 4.692,
       "scale": 1.06,
@@ -1547,42 +1602,31 @@
     {
       "id": "tree_type5_03",
       "pos": [
-        128.0,
+        98.8,
         0.0,
-        119.3
+        -162.8
       ],
-      "yaw": 2.671,
-      "scale": 1.04,
+      "yaw": 3.242,
+      "scale": 1.33,
       "palette": "normal"
     },
     {
       "id": "tree_type2_01",
       "pos": [
-        134.1,
+        95.1,
         0.0,
-        129.6
+        160.9
       ],
-      "yaw": 2.335,
-      "scale": 0.95,
-      "palette": "normal"
-    },
-    {
-      "id": "tree_type0_01",
-      "pos": [
-        137.2,
-        0.0,
-        125.9
-      ],
-      "yaw": 6.077,
-      "scale": 0.99,
+      "yaw": 6.179,
+      "scale": 1.44,
       "palette": "normal"
     },
     {
       "id": "tree_type7_01",
       "pos": [
-        155.9,
+        88.3,
         0.0,
-        125.9
+        155.6
       ],
       "yaw": 2.873,
       "scale": 1.23,
@@ -1591,9 +1635,9 @@
     {
       "id": "tree_type6_02",
       "pos": [
-        162.7,
+        98.9,
         0.0,
-        136.0
+        160.6
       ],
       "yaw": 3.147,
       "scale": 1.22,
@@ -1602,75 +1646,75 @@
     {
       "id": "tree_type0_03",
       "pos": [
-        165.6,
+        97.9,
         0.0,
-        128.1
+        157.9
       ],
       "yaw": 3.178,
       "scale": 1.31,
       "palette": "normal"
     },
     {
-      "id": "tree_type0_01",
+      "id": "tree_type1_02",
       "pos": [
-        157.4,
+        -61.8,
         0.0,
-        127.1
+        -132.8
       ],
-      "yaw": 4.6,
-      "scale": 1.18,
+      "yaw": 6.16,
+      "scale": 1.42,
       "palette": "normal"
     },
     {
       "id": "tree_type7_01",
       "pos": [
-        161.5,
+        -63.5,
         0.0,
-        130.6
+        -126.8
       ],
       "yaw": 4.231,
       "scale": 1.22,
       "palette": "normal"
     },
     {
-      "id": "tree_type1_02",
+      "id": "tree_type0_03",
       "pos": [
-        155.7,
+        -115.4,
         0.0,
-        119.1
+        -66.2
       ],
-      "yaw": 3.354,
-      "scale": 0.93,
+      "yaw": 2.24,
+      "scale": 1.18,
+      "palette": "normal"
+    },
+    {
+      "id": "tree_type2_04",
+      "pos": [
+        -120.8,
+        0.0,
+        -62.5
+      ],
+      "yaw": 2.295,
+      "scale": 1.45,
+      "palette": "normal"
+    },
+    {
+      "id": "tree_type3_02",
+      "pos": [
+        -122.1,
+        0.0,
+        -61.0
+      ],
+      "yaw": 4.741,
+      "scale": 0.97,
       "palette": "dry"
-    },
-    {
-      "id": "tree_type1_02",
-      "pos": [
-        -144.0,
-        0.0,
-        125.7
-      ],
-      "yaw": 1.818,
-      "scale": 1.35,
-      "palette": "normal"
-    },
-    {
-      "id": "tree_type7_01",
-      "pos": [
-        -138.5,
-        0.0,
-        120.6
-      ],
-      "yaw": 2.868,
-      "scale": 1.34,
-      "palette": "normal"
     },
     {
       "id": "tree_type0_01",
       "pos": [
-        -135.7,
+        -113.0,
         0.0,
-        129.8
+        -58.2
       ],
       "yaw": 1.469,
       "scale": 1.3,
@@ -1679,9 +1723,9 @@
     {
       "id": "tree_type7_01",
       "pos": [
-        -142.5,
+        -118.1,
         0.0,
-        131.6
+        -57.2
       ],
       "yaw": 3.854,
       "scale": 1.06,
@@ -1690,155 +1734,144 @@
     {
       "id": "tree_type7_01",
       "pos": [
-        -136.8,
+        -112.4,
         0.0,
-        129.4
+        -59.3
       ],
       "yaw": 3.947,
       "scale": 1.21,
       "palette": "normal"
     },
     {
+      "id": "tree_type2_01",
+      "pos": [
+        -96.6,
+        0.0,
+        158.8
+      ],
+      "yaw": 5.993,
+      "scale": 1.29,
+      "palette": "dry"
+    },
+    {
       "id": "tree_type2_04",
       "pos": [
-        -145.6,
+        -97.6,
         0.0,
-        134.3
+        156.5
       ],
-      "yaw": 0.443,
-      "scale": 1.29,
+      "yaw": 5.69,
+      "scale": 1.07,
       "palette": "normal"
     },
     {
       "id": "tree_type0_03",
       "pos": [
-        -55.4,
+        61.1,
         0.0,
-        -130.8
+        -138.2
       ],
-      "yaw": 4.787,
-      "scale": 1.31,
+      "yaw": 5.704,
+      "scale": 1.09,
       "palette": "normal"
     },
     {
-      "id": "tree_type3_02",
+      "id": "tree_type4_01",
       "pos": [
-        -56.6,
+        74.7,
         0.0,
-        -133.4
+        -143.0
       ],
-      "yaw": 3.591,
-      "scale": 1.26,
-      "palette": "normal"
-    },
-    {
-      "id": "tree_type1_02",
-      "pos": [
-        -61.7,
-        0.0,
-        -130.2
-      ],
-      "yaw": 0.443,
-      "scale": 1.0,
-      "palette": "normal"
-    },
-    {
-      "id": "tree_type5_03",
-      "pos": [
-        95.4,
-        0.0,
-        -130.5
-      ],
-      "yaw": 5.103,
-      "scale": 1.14,
+      "yaw": 2.808,
+      "scale": 0.97,
       "palette": "normal"
     },
     {
       "id": "tree_type6_02",
       "pos": [
-        97.2,
+        64.8,
         0.0,
-        -141.2
+        -134.8
       ],
       "yaw": 5.119,
       "scale": 1.0,
       "palette": "normal"
     },
     {
+      "id": "tree_type2_01",
+      "pos": [
+        -132.4,
+        0.0,
+        -38.7
+      ],
+      "yaw": 4.075,
+      "scale": 1.28,
+      "palette": "normal"
+    },
+    {
       "id": "tree_type2_04",
       "pos": [
-        85.7,
+        -120.7,
         0.0,
-        -138.3
+        -37.0
       ],
-      "yaw": 0.346,
+      "yaw": 1.374,
       "scale": 1.2,
       "palette": "normal"
     },
     {
-      "id": "tree_type4_01",
+      "id": "tree_type2_01",
       "pos": [
-        94.1,
+        -126.8,
         0.0,
-        -133.8
+        -34.9
       ],
-      "yaw": 4.957,
-      "scale": 1.27,
+      "yaw": 2.458,
+      "scale": 1.45,
       "palette": "normal"
     },
     {
-      "id": "tree_type0_01",
+      "id": "tree_type5_03",
       "pos": [
-        142.0,
+        -118.2,
         0.0,
-        158.9
+        -35.0
       ],
-      "yaw": 2.476,
-      "scale": 1.3,
+      "yaw": 2.894,
+      "scale": 1.43,
       "palette": "normal"
     },
     {
-      "id": "tree_type6_02",
+      "id": "tree_type0_03",
       "pos": [
-        149.0,
+        162.1,
         0.0,
-        158.5
+        136.2
       ],
-      "yaw": 1.713,
-      "scale": 1.03,
-      "palette": "dry"
-    },
-    {
-      "id": "tree_type0_01",
-      "pos": [
-        146.7,
-        0.0,
-        157.0
-      ],
-      "yaw": 3.389,
-      "scale": 1.03,
+      "yaw": 5.572,
+      "scale": 1.35,
       "palette": "normal"
     },
     {
-      "id": "tree_type2_04",
+      "id": "tree_type2_01",
       "pos": [
-        137.9,
+        154.1,
         0.0,
-        148.5
+        130.4
       ],
-      "yaw": 5.289,
-      "scale": 0.91,
+      "yaw": 0.19,
+      "scale": 1.09,
       "palette": "normal"
     },
     {
-      "id": "tree_type0_01",
+      "id": "tree_type2_01",
       "pos": [
-        136.2,
+        158.0,
         0.0,
-        150.4
+        129.0
       ],
-      "yaw": 3.882,
-      "scale": 1.33,
+      "yaw": 4.654,
+      "scale": 0.93,
       "palette": "normal"
     },
     {
@@ -2018,179 +2051,157 @@
       "palette": "normal"
     },
     {
-      "id": "tree_type2_04",
+      "id": "rock_type6_04",
       "pos": [
-        110.4,
+        110.9,
         0.0,
-        153.8
+        150.8
       ],
-      "yaw": 4.173,
-      "scale": 1.28,
-      "palette": "normal"
+      "yaw": 0.392,
+      "scale": 1.13,
+      "palette": "grey"
     },
     {
-      "id": "tree_type6_02",
+      "id": "rock_type2_01",
       "pos": [
-        107.7,
+        124.6,
         0.0,
-        148.4
+        -164.5
       ],
-      "yaw": 5.831,
-      "scale": 0.99,
-      "palette": "normal"
+      "yaw": 2.785,
+      "scale": 1.63,
+      "palette": "grey"
     },
     {
-      "id": "tree_type0_01",
+      "id": "rock_type1_02",
       "pos": [
-        -24.3,
+        -113.4,
         0.0,
-        119.5
+        78.2
       ],
       "yaw": 3.872,
-      "scale": 0.88,
-      "palette": "normal"
+      "scale": 0.75,
+      "palette": "grey"
     },
     {
-      "id": "tree_type2_01",
+      "id": "rock_type6_04",
       "pos": [
-        -23.5,
+        131.7,
         0.0,
-        116.6
+        80.0
       ],
-      "yaw": 1.218,
-      "scale": 1.49,
-      "palette": "normal"
+      "yaw": 0.768,
+      "scale": 1.34,
+      "palette": "grey"
     },
     {
-      "id": "tree_type0_03",
+      "id": "rock_type1_02",
       "pos": [
-        -102.0,
+        -129.9,
         0.0,
-        -124.9
+        -80.6
       ],
-      "yaw": 5.714,
-      "scale": 0.94,
-      "palette": "normal"
-    },
-    {
-      "id": "tree_type6_02",
-      "pos": [
-        -104.1,
-        0.0,
-        -126.8
-      ],
-      "yaw": 0.653,
-      "scale": 1.05,
-      "palette": "normal"
-    },
-    {
-      "id": "tree_type2_01",
-      "pos": [
-        -98.5,
-        0.0,
-        -128.6
-      ],
-      "yaw": 4.527,
-      "scale": 0.85,
-      "palette": "normal"
-    },
-    {
-      "id": "tree_type0_01",
-      "pos": [
-        -96.9,
-        0.0,
-        -137.7
-      ],
-      "yaw": 5.477,
-      "scale": 1.28,
-      "palette": "normal"
-    },
-    {
-      "id": "tree_type7_01",
-      "pos": [
-        -148.4,
-        0.0,
-        163.7
-      ],
-      "yaw": 1.474,
-      "scale": 1.49,
-      "palette": "normal"
-    },
-    {
-      "id": "tree_type0_01",
-      "pos": [
-        -147.5,
-        0.0,
-        152.6
-      ],
-      "yaw": 0.436,
-      "scale": 1.12,
-      "palette": "normal"
-    },
-    {
-      "id": "tree_type4_01",
-      "pos": [
-        -143.6,
-        0.0,
-        160.2
-      ],
-      "yaw": 6.17,
-      "scale": 0.95,
-      "palette": "dry"
-    },
-    {
-      "id": "tree_type5_03",
-      "pos": [
-        -159.0,
-        0.0,
-        151.0
-      ],
-      "yaw": 6.269,
-      "scale": 0.99,
-      "palette": "dry"
-    },
-    {
-      "id": "tree_type0_01",
-      "pos": [
-        -152.5,
-        0.0,
-        161.9
-      ],
-      "yaw": 2.923,
-      "scale": 1.12,
-      "palette": "normal"
-    },
-    {
-      "id": "tree_type0_03",
-      "pos": [
-        -154.2,
-        0.0,
-        154.7
-      ],
-      "yaw": 1.155,
-      "scale": 1.04,
-      "palette": "normal"
+      "yaw": 0.654,
+      "scale": 0.81,
+      "palette": "grey"
     },
     {
       "id": "rock_type3_03",
       "pos": [
-        -24.8,
+        77.9,
         0.0,
-        165.3
+        -131.5
       ],
-      "yaw": 1.545,
-      "scale": 0.8,
+      "yaw": 4.197,
+      "scale": 1.65,
+      "palette": "green"
+    },
+    {
+      "id": "rock_type2_01",
+      "pos": [
+        -66.4,
+        0.0,
+        -157.9
+      ],
+      "yaw": 4.527,
+      "scale": 0.7,
+      "palette": "grey"
+    },
+    {
+      "id": "rock_type1_02",
+      "pos": [
+        166.0,
+        0.0,
+        -161.7
+      ],
+      "yaw": 5.477,
+      "scale": 1.42,
       "palette": "grey"
     },
     {
       "id": "rock_type5_01",
       "pos": [
-        139.6,
+        155.8,
         0.0,
-        156.5
+        8.9
       ],
-      "yaw": 6.039,
-      "scale": 1.11,
+      "yaw": 1.474,
+      "scale": 1.78,
+      "palette": "grey"
+    },
+    {
+      "id": "rock_type4_02",
+      "pos": [
+        91.9,
+        0.0,
+        122.5
+      ],
+      "yaw": 6.17,
+      "scale": 0.86,
+      "palette": "green"
+    },
+    {
+      "id": "rock_type4_02",
+      "pos": [
+        -164.4,
+        0.0,
+        -100.6
+      ],
+      "yaw": 6.269,
+      "scale": 0.93,
+      "palette": "green"
+    },
+    {
+      "id": "rock_type4_02",
+      "pos": [
+        131.0,
+        0.0,
+        -11.5
+      ],
+      "yaw": 2.398,
+      "scale": 1.03,
+      "palette": "grey"
+    },
+    {
+      "id": "rock_type6_04",
+      "pos": [
+        -124.3,
+        0.0,
+        110.8
+      ],
+      "yaw": 6.235,
+      "scale": 0.97,
+      "palette": "grey"
+    },
+    {
+      "id": "rock_type1_02",
+      "pos": [
+        44.8,
+        0.0,
+        139.6
+      ],
+      "yaw": 3.26,
+      "scale": 1.19,
       "palette": "grey"
     },
     {
@@ -2227,146 +2238,190 @@
       "palette": "grey"
     },
     {
-      "id": "rock_type1_02",
+      "id": "rock_type2_01",
       "pos": [
-        -121.4,
+        -111.1,
         0.0,
-        -137.8
+        -97.5
       ],
-      "yaw": 3.905,
-      "scale": 1.61,
+      "yaw": 5.768,
+      "scale": 0.95,
       "palette": "grey"
     },
     {
-      "id": "rock_type5_01",
+      "id": "rock_type3_03",
       "pos": [
-        -15.7,
+        40.3,
         0.0,
-        118.6
+        109.5
       ],
-      "yaw": 5.01,
-      "scale": 1.24,
-      "palette": "grey"
-    },
-    {
-      "id": "rock_type5_01",
-      "pos": [
-        103.4,
-        0.0,
-        154.2
-      ],
-      "yaw": 3.621,
-      "scale": 0.99,
+      "yaw": 2.844,
+      "scale": 1.64,
       "palette": "green"
     },
     {
       "id": "rock_type5_01",
       "pos": [
-        44.5,
+        -60.9,
         0.0,
-        -72.9
+        163.8
       ],
-      "yaw": 1.304,
-      "scale": 1.44,
+      "yaw": 1.258,
+      "scale": 1.63,
       "palette": "grey"
     },
     {
       "id": "rock_type4_02",
       "pos": [
-        -36.6,
+        47.7,
         0.0,
-        -112.9
+        -129.2
       ],
-      "yaw": 1.64,
-      "scale": 1.15,
+      "yaw": 1.761,
+      "scale": 0.8,
+      "palette": "green"
+    },
+    {
+      "id": "rock_type1_02",
+      "pos": [
+        -29.1,
+        0.0,
+        -18.3
+      ],
+      "yaw": 1.291,
+      "scale": 1.11,
       "palette": "grey"
     },
     {
       "id": "rock_type2_01",
       "pos": [
-        116.5,
+        89.8,
         0.0,
-        138.1
+        116.5
       ],
       "yaw": 5.886,
       "scale": 1.49,
       "palette": "grey"
     },
     {
-      "id": "rock_type4_02",
+      "id": "rock_type1_02",
       "pos": [
-        -161.2,
+        104.7,
         0.0,
-        148.5
+        96.2
       ],
-      "yaw": 4.136,
-      "scale": 0.97,
+      "yaw": 4.618,
+      "scale": 1.24,
+      "palette": "green"
+    },
+    {
+      "id": "rock_type3_03",
+      "pos": [
+        133.0,
+        0.0,
+        55.6
+      ],
+      "yaw": 3.308,
+      "scale": 0.92,
       "palette": "grey"
     },
     {
-      "id": "rock_type6_04",
+      "id": "rock_type2_01",
       "pos": [
-        -57.4,
+        -141.5,
         0.0,
-        -164.7
+        -55.3
       ],
-      "yaw": 1.581,
-      "scale": 1.69,
-      "palette": "grey"
+      "yaw": 3.944,
+      "scale": 1.19,
+      "palette": "green"
     },
     {
-      "id": "rock_type4_02",
+      "id": "rock_type2_01",
       "pos": [
-        102.7,
+        16.6,
         0.0,
-        -143.8
+        92.0
       ],
-      "yaw": 1.208,
-      "scale": 1.39,
+      "yaw": 2.528,
+      "scale": 1.71,
       "palette": "grey"
     },
     {
       "id": "rock_type1_02",
       "pos": [
-        114.3,
+        138.4,
         0.0,
-        -117.3
+        87.4
       ],
-      "yaw": 4.796,
-      "scale": 0.79,
-      "palette": "grey"
-    },
-    {
-      "id": "rock_type5_01",
-      "pos": [
-        81.8,
-        0.0,
-        121.8
-      ],
-      "yaw": 2.298,
-      "scale": 1.01,
+      "yaw": 2.771,
+      "scale": 1.52,
       "palette": "green"
     },
     {
       "id": "rock_type4_02",
       "pos": [
-        -147.9,
+        -137.2,
         0.0,
-        144.0
+        128.8
       ],
-      "yaw": 0.482,
-      "scale": 1.39,
+      "yaw": 1.229,
+      "scale": 1.32,
+      "palette": "grey"
+    },
+    {
+      "id": "rock_type1_02",
+      "pos": [
+        -66.9,
+        0.0,
+        109.0
+      ],
+      "yaw": 5.867,
+      "scale": 1.78,
+      "palette": "grey"
+    },
+    {
+      "id": "rock_type5_01",
+      "pos": [
+        -140.5,
+        0.0,
+        42.6
+      ],
+      "yaw": 3.172,
+      "scale": 1.68,
       "palette": "green"
+    },
+    {
+      "id": "rock_type3_03",
+      "pos": [
+        126.6,
+        0.0,
+        114.9
+      ],
+      "yaw": 4.311,
+      "scale": 1.08,
+      "palette": "grey"
     },
     {
       "id": "rock_type6_04",
       "pos": [
-        -45.2,
+        24.3,
         0.0,
-        -126.1
+        115.0
       ],
-      "yaw": 3.689,
-      "scale": 1.54,
+      "yaw": 2.768,
+      "scale": 1.1,
+      "palette": "grey"
+    },
+    {
+      "id": "rock_type5_01",
+      "pos": [
+        43.1,
+        0.0,
+        150.5
+      ],
+      "yaw": 5.321,
+      "scale": 0.78,
       "palette": "green"
     },
     {
@@ -2390,6 +2445,17 @@
       "yaw": 5.771,
       "scale": 1.61,
       "palette": "green"
+    },
+    {
+      "id": "rock_type3_03",
+      "pos": [
+        121.6,
+        0.0,
+        99.3
+      ],
+      "yaw": 4.114,
+      "scale": 1.35,
+      "palette": "grey"
     },
     {
       "id": "rock_type5_01",
@@ -2425,22 +2491,22 @@
       "palette": "green"
     },
     {
-      "id": "rock_type2_01",
+      "id": "rock_type4_02",
       "pos": [
-        125.5,
+        125.2,
         0.0,
-        -15.1
+        43.7
       ],
-      "yaw": 5.154,
-      "scale": 1.56,
+      "yaw": 0.174,
+      "scale": 1.6,
       "palette": "green"
     },
     {
       "id": "rock_type3_03",
       "pos": [
-        -87.3,
+        138.3,
         0.0,
-        -142.5
+        108.0
       ],
       "yaw": 2.071,
       "scale": 1.59,
@@ -2502,36 +2568,47 @@
       "palette": "green"
     },
     {
-      "id": "rock_type3_03",
+      "id": "rock_type1_02",
       "pos": [
-        -158.3,
+        111.6,
         0.0,
-        -135.3
+        -5.1
       ],
-      "yaw": 1.365,
-      "scale": 1.77,
+      "yaw": 6.045,
+      "scale": 1.14,
       "palette": "grey"
     },
     {
-      "id": "rock_type1_02",
+      "id": "rock_type2_01",
       "pos": [
-        41.4,
+        165.7,
         0.0,
-        120.9
+        -133.3
       ],
-      "yaw": 0.36,
-      "scale": 1.78,
+      "yaw": 1.14,
+      "scale": 1.29,
       "palette": "green"
     },
     {
       "id": "rock_type6_04",
       "pos": [
-        -114.4,
+        -147.0,
         0.0,
-        125.0
+        158.9
       ],
-      "yaw": 3.57,
-      "scale": 1.79,
+      "yaw": 5.185,
+      "scale": 0.98,
+      "palette": "grey"
+    },
+    {
+      "id": "rock_type5_01",
+      "pos": [
+        91.3,
+        0.0,
+        162.6
+      ],
+      "yaw": 3.452,
+      "scale": 1.26,
       "palette": "green"
     },
     {
@@ -2576,204 +2653,6 @@
       ],
       "yaw": 1.724,
       "scale": 1.3,
-      "palette": "green"
-    },
-    {
-      "id": "rock_type4_02",
-      "pos": [
-        32.4,
-        0.0,
-        138.0
-      ],
-      "yaw": 3.524,
-      "scale": 0.89,
-      "palette": "grey"
-    },
-    {
-      "id": "rock_type6_04",
-      "pos": [
-        -139.6,
-        0.0,
-        79.4
-      ],
-      "yaw": 5.539,
-      "scale": 0.78,
-      "palette": "green"
-    },
-    {
-      "id": "rock_type6_04",
-      "pos": [
-        161.4,
-        0.0,
-        -51.5
-      ],
-      "yaw": 3.789,
-      "scale": 0.74,
-      "palette": "grey"
-    },
-    {
-      "id": "rock_type4_02",
-      "pos": [
-        29.6,
-        0.0,
-        128.4
-      ],
-      "yaw": 0.187,
-      "scale": 1.39,
-      "palette": "grey"
-    },
-    {
-      "id": "rock_type6_04",
-      "pos": [
-        -26.4,
-        0.0,
-        159.7
-      ],
-      "yaw": 5.753,
-      "scale": 0.97,
-      "palette": "grey"
-    },
-    {
-      "id": "rock_type3_03",
-      "pos": [
-        165.1,
-        0.0,
-        -1.5
-      ],
-      "yaw": 5.497,
-      "scale": 1.36,
-      "palette": "grey"
-    },
-    {
-      "id": "rock_type2_01",
-      "pos": [
-        134.0,
-        0.0,
-        68.2
-      ],
-      "yaw": 0.623,
-      "scale": 0.96,
-      "palette": "grey"
-    },
-    {
-      "id": "rock_type2_01",
-      "pos": [
-        -152.3,
-        0.0,
-        -138.3
-      ],
-      "yaw": 4.589,
-      "scale": 1.29,
-      "palette": "grey"
-    },
-    {
-      "id": "rock_type2_01",
-      "pos": [
-        -22.0,
-        0.0,
-        -109.4
-      ],
-      "yaw": 0.958,
-      "scale": 1.34,
-      "palette": "grey"
-    },
-    {
-      "id": "rock_type1_02",
-      "pos": [
-        -158.3,
-        0.0,
-        88.1
-      ],
-      "yaw": 5.558,
-      "scale": 0.8,
-      "palette": "grey"
-    },
-    {
-      "id": "rock_type1_02",
-      "pos": [
-        97.2,
-        0.0,
-        -120.8
-      ],
-      "yaw": 4.057,
-      "scale": 1.54,
-      "palette": "grey"
-    },
-    {
-      "id": "rock_type1_02",
-      "pos": [
-        28.6,
-        0.0,
-        -124.9
-      ],
-      "yaw": 2.958,
-      "scale": 0.95,
-      "palette": "grey"
-    },
-    {
-      "id": "rock_type3_03",
-      "pos": [
-        -115.3,
-        0.0,
-        -29.1
-      ],
-      "yaw": 1.383,
-      "scale": 1.74,
-      "palette": "green"
-    },
-    {
-      "id": "rock_type1_02",
-      "pos": [
-        -21.3,
-        0.0,
-        -72.5
-      ],
-      "yaw": 0.172,
-      "scale": 0.98,
-      "palette": "grey"
-    },
-    {
-      "id": "rock_type6_04",
-      "pos": [
-        130.8,
-        0.0,
-        -88.0
-      ],
-      "yaw": 2.887,
-      "scale": 1.45,
-      "palette": "grey"
-    },
-    {
-      "id": "rock_type4_02",
-      "pos": [
-        -143.3,
-        0.0,
-        89.5
-      ],
-      "yaw": 5.309,
-      "scale": 1.09,
-      "palette": "green"
-    },
-    {
-      "id": "rock_type1_02",
-      "pos": [
-        152.1,
-        0.0,
-        136.1
-      ],
-      "yaw": 0.11,
-      "scale": 0.71,
-      "palette": "grey"
-    },
-    {
-      "id": "rock_type2_01",
-      "pos": [
-        120.8,
-        0.0,
-        -77.1
-      ],
-      "yaw": 1.677,
-      "scale": 1.32,
       "palette": "green"
     }
   ],

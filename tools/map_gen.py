@@ -84,11 +84,11 @@ roads = [
     {"min": [-6, 0, -160], "max": [6, 0, 160]},      # Main Avenue (N-S spine)
     {"min": [-81, 0, -112], "max": [-69, 0, 112]},   # West side street
     {"min": [69, 0, -112], "max": [81, 0, 112]},     # East side street
-    {"min": [-152, 0, -106], "max": [152, 0, -94]},  # Cross St -100
-    {"min": [-152, 0, -56], "max": [152, 0, -44]},   # Cross St -50
-    {"min": [-152, 0, -6], "max": [152, 0, 6]},      # Center St 0
-    {"min": [-152, 0, 44], "max": [152, 0, 56]},     # Cross St +50
-    {"min": [-152, 0, 94], "max": [152, 0, 106]},    # Cross St +100
+    {"min": [-100, 0, -106], "max": [100, 0, -94]},  # Cross St -100 (core-only: was +/-152, ran into hills)
+    {"min": [-100, 0, -56], "max": [100, 0, -44]},   # Cross St -50
+    {"min": [-100, 0, -6], "max": [100, 0, 6]},      # Center St 0
+    {"min": [-100, 0, 44], "max": [100, 0, 56]},     # Cross St +50
+    {"min": [-100, 0, 94], "max": [100, 0, 106]},    # Cross St +100
 ]
 
 # ---------------------------------------------------------------- districts
@@ -434,49 +434,32 @@ def gen_town_heightmap(world_half=170.0, spacing=2.0):
     edge = edge * edge * (3.0 - 2.0 * edge)                 # smoothstep for a seamless core->rim blend
     hm += edge * 14.0 * np.sin(X / 90.0 + 0.4) * np.cos(Z / 100.0 + 1.9)
     hm += edge * 6.0 * np.cos(X / 55.0 + 2.6) * np.sin(Z / 60.0 + 0.8)
-    # Flatten each team base spawn (z = +/-150) to the LOCAL grade with a smoothstep blend (flat within
-    # R0, ramping to natural over BLEND) so deploy areas are level without a hard pad-edge step.
-    R0, BLEND = 24.0, 28.0
-    for bx, bz in [(0.0, -150.0), (0.0, 150.0)]:
-        cxi = min(max(int(round((bx + world_half) / spacing)), 0), n - 1)
-        czi = min(max(int(round((bz + world_half) / spacing)), 0), n - 1)
-        ch = hm[czi][cxi]
-        d = np.hypot(X - bx, Z - bz)
-        t = np.clip((d - R0) / BLEND, 0.0, 1.0)
-        w = 1.0 - (t * t * (3.0 - 2.0 * t))
-        hm = hm * (1.0 - w) + ch * w
-    # Level each ROAD to a FLAT cross-section (no side-tilt) with a smoothly-graded centreline (no
-    # bumpy oscillation): sample the terrain along the road's centreline, smooth it 1D, then assign that
-    # ONE height across the whole road WIDTH at each point along its length, with a short perpendicular
-    # ramp into the grass. Roads are axis-aligned (long axis = the wider dimension). Intersections: a
-    # later road overwrites the crossing cells (tiny mismatch, invisible on the gentle core). Buildings
-    # never overlap roads (validated), so no pad/road conflict.
-    def _ix(w):
-        return min(max(int(round((w + world_half) / spacing)), 0), n - 1)
-    def _smooth1d(a, k=24):
-        for _ in range(k):
-            a = 0.5 * a + 0.25 * (np.roll(a, 1) + np.roll(a, -1))
-        return a
-    SHOULDER = 5   # cells of perpendicular road->grass ramp beyond the flat bed (gentle, walkable)
-    PAD = 2        # cells of FLAT bed kept BEYOND the road edge to cover the painted 2 m sidewalk, so the
-                   # sidewalk sits on LEVEL ground (not the sloped shoulder) -> its edge reads straight,
-                   # not wavy. The ramp to grass starts only AFTER the sidewalk.
-    for rd in roads:
-        xi0, xi1, zi0, zi1 = _ix(rd["min"][0]), _ix(rd["max"][0]), _ix(rd["min"][2]), _ix(rd["max"][2])
-        if (xi1 - xi0) >= (zi1 - zi0):                          # E-W road -> level across Z
-            prof = _smooth1d(hm[(zi0 + zi1) // 2, :].copy())
-            lo, hi = zi0 - PAD, zi1 + PAD                       # flat bed = road + sidewalk
-            for zi in range(max(lo - SHOULDER, 0), min(hi + SHOULDER + 1, n)):
-                d = (lo - zi) if zi < lo else ((zi - hi) if zi > hi else 0)
-                w = max(1.0 - d / (SHOULDER + 1.0), 0.0)
-                hm[zi, xi0:xi1 + 1] = w * prof[xi0:xi1 + 1] + (1.0 - w) * hm[zi, xi0:xi1 + 1]
-        else:                                                   # N-S road -> level across X
-            prof = _smooth1d(hm[:, (xi0 + xi1) // 2].copy())
-            lo, hi = xi0 - PAD, xi1 + PAD
-            for xi in range(max(lo - SHOULDER, 0), min(hi + SHOULDER + 1, n)):
-                d = (lo - xi) if xi < lo else ((xi - hi) if xi > hi else 0)
-                w = max(1.0 - d / (SHOULDER + 1.0), 0.0)
-                hm[zi0:zi1 + 1, xi] = w * prof[zi0:zi1 + 1] + (1.0 - w) * hm[zi0:zi1 + 1, xi]
+    # ------------------------------------------------------------------ FLAT PLAY PLATEAU (road fix)
+    # FRESH-EYES FIX (2026-07-06): earlier passes painted roads on a gently-swelling core and 1D-smoothed
+    # each road's centreline. Measured, that is FAR too weak to cancel real relief — cross-streets ran to
+    # x=+/-152 into 14-20 m perimeter hills, and the base-to-base avenue spanned a 12 m base height gap, so
+    # every road inherited 9-21 m of rise and read as "wavy". BattleBit towns sit on FLAT ground with the
+    # hills AROUND them. So carve the whole built-up PLAY REGION — the core box (buildings + road grid +
+    # points), the base-to-base avenue corridor, and both base deploy pads — to ONE constant height H0,
+    # blended smoothly out to the natural rolling countryside. Every road/street/pad is then dead flat by
+    # construction: no wavy roads, no grade-induced walking bob, no 8-bit terracing (a flat region spans a
+    # single quantized level). The dramatic hills the owner likes survive STRICTLY OUTSIDE this region —
+    # the east/west countryside strips, the four corners, and the north/south perimeter beyond the plateau.
+    H0 = 0.0
+    BLEND = 20.0                       # m of smoothstep ease from the flat plateau out to natural terrain
+    zero = np.zeros_like(X)
+    def _box_dist(x0, z0, x1, z1):     # 0 inside the AABB, else nearest-edge (Euclidean) distance to it
+        return np.hypot(np.maximum.reduce([x0 - X, X - x1, zero]),
+                        np.maximum.reduce([z0 - Z, Z - z1, zero]))
+    def _circ_dist(cx, cz, r):
+        return np.maximum(np.hypot(X - cx, Z - cz) - r, 0.0)
+    d = _box_dist(-105.0, -116.0, 105.0, 116.0)               # built-up core (buildings + grid + points)
+    d = np.minimum(d, _box_dist(-12.0, -160.0, 12.0, 160.0))  # avenue corridor linking the two bases
+    d = np.minimum(d, _circ_dist(0.0, -150.0, 26.0))          # team-0 base deploy pad
+    d = np.minimum(d, _circ_dist(0.0,  150.0, 26.0))          # team-1 base deploy pad
+    t = np.clip(d / BLEND, 0.0, 1.0)
+    w = 1.0 - t * t * (3.0 - 2.0 * t)                          # smoothstep: 1 inside region -> 0 past BLEND
+    hm = hm * (1.0 - w) + H0 * w
     # TIGHT dynamic 8-bit range (just cover the actual relief + a small margin) so the quantization step
     # is as fine as possible — a wide fixed range wasted levels and micro-stairstepped flat roads.
     import math
