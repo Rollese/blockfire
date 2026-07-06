@@ -30,3 +30,32 @@ static func height_at(grid: TerrainGrid, x: float, z: float) -> float:
 	var h0 := lerpf(h00, h10, fx)
 	var h1 := lerpf(h01, h11, fx)
 	return lerpf(h0, h1, fz)
+
+## Local slope angle (degrees) via a central-difference gradient of height_at. Continuous
+## everywhere (not a per-cell facet). The primitive a future nav milestone consumes as its
+## walkability/steepness test.
+static func slope_at(grid: TerrainGrid, x: float, z: float) -> float:
+	if grid == null:
+		return 0.0
+	var e := grid.spacing   # cell-scale central difference
+	var dhx := (height_at(grid, x + e, z) - height_at(grid, x - e, z)) / (2.0 * e)
+	var dhz := (height_at(grid, x, z + e) - height_at(grid, x, z - e)) / (2.0 * e)
+	var grad := sqrt(dhx * dhx + dhz * dhz)
+	return rad_to_deg(atan(grad))
+
+## Horizontal blocker mirroring structure.gd::resolve_movement: if the destination column is too
+## steep, try axis-separated slides so the mover slides along the slope face instead of advancing
+## into it; if both blocked, stay. y is preserved (caller re-clamps y via _apply_platform_floor).
+## One function covers walking, jumping (horizontal advance still runs through here), and vehicles.
+static func resolve_movement(grid: TerrainGrid, from: Vector3, to: Vector3) -> Vector3:
+	if grid == null:
+		return to
+	if slope_at(grid, to.x, to.z) <= MAX_WALKABLE_SLOPE_DEG:
+		return to
+	var try_x := Vector3(to.x, to.y, from.z)
+	if slope_at(grid, try_x.x, try_x.z) <= MAX_WALKABLE_SLOPE_DEG:
+		return try_x
+	var try_z := Vector3(from.x, to.y, to.z)
+	if slope_at(grid, try_z.x, try_z.z) <= MAX_WALKABLE_SLOPE_DEG:
+		return try_z
+	return Vector3(from.x, to.y, from.z)
