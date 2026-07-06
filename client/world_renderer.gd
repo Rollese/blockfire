@@ -350,12 +350,16 @@ void fragment() {
 	col = mix(col * 0.82, col * 1.16, fine);              // fine light/dark speckle
 	float steep = 1.0 - smoothstep(0.62, 0.86, v_wn.y);   // steep slopes -> rocky earth (brown, never red)
 	col = mix(col, vec3(0.29, 0.25, 0.19), steep * 0.75);
-	// Roads/sidewalks painted onto the surface (after grass so the mask wins over the terrain colour).
+	// Roads/sidewalks painted onto the surface. smoothstep sharpens the linear-filtered mask into a
+	// crisp edge (was a ~0.5 m blur); the asphalt is a FLAT clean grey (only a faint large-scale tone,
+	// no fine speckle — the speckle read as "blurry texture" on the road).
 	vec2 suv = (w - map_origin) / map_extent;
 	vec4 surf = texture(surface_map, suv);
-	vec3 asphalt = vec3(0.15, 0.15, 0.16) + vec3((fine - 0.5) * 0.03);
-	col = mix(col, asphalt, surf.r);
-	col = mix(col, vec3(0.55, 0.55, 0.57), surf.g);
+	float road = smoothstep(0.35, 0.65, surf.r);
+	float side = smoothstep(0.35, 0.65, surf.g);
+	vec3 asphalt = mix(vec3(0.135, 0.135, 0.145), vec3(0.175, 0.175, 0.185), patch);
+	col = mix(col, asphalt, road);
+	col = mix(col, vec3(0.55, 0.55, 0.57), side);
 	ALBEDO = col;
 	ROUGHNESS = 1.0;
 }

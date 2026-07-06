@@ -94,9 +94,11 @@ static func _apply_override(root: Node3D, mat: Material) -> void:
 		for child in node.get_children():
 			stack.append(child)
 
-## Brown trunk near the base, green canopy above (local model Y — scale-independent), with a little
-## per-cell colour variation so the foliage isn't flat. Trees import with no UVs, so this replaces the
-## unusable baked texture.
+## These GLBs have NO UVs/vertex-colours (trimesh export dropped them), so the baked texture can't map
+## -> we colour procedurally from geometry. The trunk is BROWN only where the mesh is BOTH central
+## (small XZ radius from the trunk axis) AND low; everything else — canopy and low OUTWARD branches — is
+## GREEN (fixes "low green branches rendered brown" from the naive height-only gradient). A sharp-ish
+## transition + per-cell hue variation reads as distinct trunk/foliage flat-colour, not a smooth wash.
 static func _tree_material() -> ShaderMaterial:
 	if _tree_mat == null:
 		var sh := Shader.new()
@@ -108,10 +110,13 @@ varying vec3 lw;
 void vertex() { lv = VERTEX; lw = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz; }
 float h3(vec3 p) { return fract(sin(dot(floor(p), vec3(12.9, 78.2, 37.7))) * 43758.5); }
 void fragment() {
-	float t = smoothstep(1.2, 3.2, lv.y);            // 0 = trunk, 1 = canopy
-	vec3 trunk = vec3(0.28, 0.19, 0.11);
-	vec3 leaf = mix(vec3(0.12, 0.29, 0.11), vec3(0.24, 0.44, 0.18), h3(lw * 1.6));
-	ALBEDO = mix(trunk, leaf, t);
+	float radius = length(lv.xz);                      // horizontal distance from the trunk axis
+	float central = 1.0 - smoothstep(0.22, 0.62, radius);   // 1 near the axis -> 0 outward
+	float low = 1.0 - smoothstep(0.7, 2.1, lv.y);           // 1 near the base -> 0 up high
+	float trunk = smoothstep(0.45, 0.7, central * low);     // brown ONLY where central AND low (sharp)
+	vec3 trunk_col = vec3(0.30, 0.20, 0.11);
+	vec3 leaf = mix(vec3(0.13, 0.30, 0.12), vec3(0.25, 0.45, 0.19), h3(lw * 1.7));
+	ALBEDO = mix(leaf, trunk_col, trunk);
 	ROUGHNESS = 1.0;
 }
 """

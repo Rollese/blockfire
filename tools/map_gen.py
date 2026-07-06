@@ -444,7 +444,28 @@ def gen_town_heightmap(world_half=170.0, spacing=2.0):
         t = np.clip((d - R0) / BLEND, 0.0, 1.0)
         w = 1.0 - (t * t * (3.0 - 2.0 * t))
         hm = hm * (1.0 - w) + ch * w
-    height_min, height_scale = -24.0, 56.0                  # covers rim hills (~+22) down to cutouts
+    # Flatten the terrain UNDER the ROAD corridors so roads read as graded/level, not bumpy like open
+    # ground. Blend road cells toward a heavily low-passed grade (all roads share the same smoothed
+    # field, so intersections match) with a short edge ramp. On the gentle core the smoothed grade is
+    # nearly level; approach roads over the countryside keep only a gentle longitudinal slope. Buildings
+    # sit on their own runtime pads and never overlap roads, so there's no pad/road conflict.
+    sm = hm.copy()
+    for _ in range(40):
+        sm = 0.2 * (sm + np.roll(sm, 1, 0) + np.roll(sm, -1, 0) + np.roll(sm, 1, 1) + np.roll(sm, -1, 1))
+    rmask = np.zeros((n, n))
+    RBLEND = 3.5
+    for rd in roads:
+        x0, z0, x1, z1 = rd["min"][0], rd["min"][2], rd["max"][0], rd["max"][2]
+        dx = np.maximum(np.maximum(x0 - X, X - x1), 0.0)    # 0 inside the AABB, else distance outside
+        dz = np.maximum(np.maximum(z0 - Z, Z - z1), 0.0)
+        rmask = np.maximum(rmask, np.clip(1.0 - np.hypot(dx, dz) / RBLEND, 0.0, 1.0))
+    hm = hm * (1.0 - rmask) + sm * rmask
+    # TIGHT dynamic 8-bit range (just cover the actual relief + a small margin) so the quantization step
+    # is as fine as possible — a wide fixed range wasted levels and micro-stairstepped flat roads.
+    import math
+    lo, hi = float(hm.min()), float(hm.max())
+    height_min = math.floor(lo) - 2.0
+    height_scale = math.ceil(hi - lo) + 4.0
     px = np.clip(np.round((hm - height_min) / height_scale * 255.0), 0, 255).astype(np.uint8)
     return px, n, height_min, height_scale
 
@@ -460,7 +481,7 @@ def add_terrain_to_town():
 
     # Road/sidewalk SURFACE splatmap: roads are painted onto the terrain surface in the client shader
     # (world_renderer._terrain_material) so they conform to the hills — no flat road meshes to bury/hover.
-    rgb, res = gen_town_surface_map(170.0, 684)
+    rgb, res = gen_town_surface_map(170.0, 1024)   # higher res -> crisper road/sidewalk edges
     surf_path = os.path.join(hm_dir, "conquest_town_surface.png")
     _write_rgb_png(surf_path, res, res, rgb.tobytes())
 
