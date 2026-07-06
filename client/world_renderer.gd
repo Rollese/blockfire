@@ -2817,7 +2817,7 @@ func _spawn_rubble_for(building_id: int) -> void:
 		var mx: Vector3 = b["max"]
 		var center := Vector3((mn.x + mx.x) * 0.5, mn.y, (mn.z + mx.z) * 0.5)
 		_building_footprint.erase(building_id)
-		_play_collapse_fx(center, _now)
+		_play_collapse_fx(center, _now, mn, mx)
 	else:
 		# Late joiner: this building fell before we connected (COLLAPSE join-replay). Show ONLY the
 		# end-state rubble mound — NOT the explosion cinematic, or every past collapse "blows up" on the
@@ -2891,26 +2891,57 @@ func _spawn_brick_debris(pos: Vector3, now: float, count: int, box: float, sprea
 
 ## Whole-building collapse cinematic: a rolling ground dust cloud, a heavy debris burst, a screen
 ## shake if the player is close, then the persistent rubble mound. Public-ish so the QA demo reuses it.
-func _play_collapse_fx(center: Vector3, now: float) -> void:
-	# Ground-hugging dust cloud — several offset puffs read as one rolling billow over the footprint.
+func _play_collapse_fx(center: Vector3, now: float, mn: Vector3 = Vector3.INF, mx: Vector3 = Vector3.INF) -> void:
+	# Scale the whole cinematic to the building's real footprint (was fixed ~3 m regardless of size, so
+	# a 2-storey block left the same pebble puff as a shed). Defaults (no extents) keep the QA demo sane.
+	var half_x := 1.5
+	var half_z := 1.5
+	var height := 4.0
+	if mn.is_finite() and mx.is_finite():
+		half_x = maxf(1.0, (mx.x - mn.x) * 0.5)
+		half_z = maxf(1.0, (mx.z - mn.z) * 0.5)
+		height = maxf(2.0, mx.y - mn.y)
+	var span := maxf(half_x, half_z)
+	# Ground-hugging dust cloud — offset puffs ringed at the footprint edge read as one rolling billow.
 	for i in range(6):
 		var ang := TAU * float(i) / 6.0
-		var off := Vector3(cos(ang) * 1.4, 0.4 + 0.3 * float(i % 2), sin(ang) * 1.4)
-		_fx.spawn_puff(center + off, 3.4, 1.4, now, DUST_COLOR)
-	_fx.spawn_puff(center + Vector3(0, 1.2, 0), 4.2, 1.6, now, DUST_COLOR)
-	# Heavy debris burst flung up + out from the footprint.
-	_spawn_brick_debris(center + Vector3(0, 1.0, 0), now, 16, 0.26, 5.5, 7.0)
-	# The persistent rubble mound this building leaves behind.
-	_place_rubble_mound(center)
+		var off := Vector3(cos(ang) * span, 0.4 + 0.3 * float(i % 2), sin(ang) * span)
+		_fx.spawn_puff(center + off, span * 2.4, 1.4, now, DUST_COLOR)
+	_fx.spawn_puff(center + Vector3(0, 1.2, 0), span * 3.0, 1.6, now, DUST_COLOR)
+	# Heavy debris burst flung up + out; more shards for a bigger footprint (bounded).
+	var shards := 16 + clampi(int(half_x * half_z * 0.6), 0, 28)
+	_spawn_brick_debris(center + Vector3(0, height * 0.4, 0), now, shards, 0.26, span + 3.5, 7.0)
+	# The persistent rubble field this building leaves behind — tiled across the footprint.
+	_place_rubble_field(center, half_x, half_z, height)
 	# Shake the view if the player is near enough to feel the building come down.
 	_add_shake(center, now, 0.28, 0.6)
 
-## The persistent rubble mound a collapsed building leaves behind. Split out so a join-replay collapse
-## can drop the end-state mound WITHOUT the explosive cinematic (no fresh "blow up" for old collapses).
+## The persistent rubble a collapsed building leaves behind — a field of mounds tiled across the
+## footprint (center = ground centre) so a big building leaves a big, footprint-shaped pile that humps
+## higher in the middle and scales taller with building height. A single-cell building collapses to one
+## centred mound (nx=nz=1), matching the old behaviour. Deterministic (index-based scatter, no RNG).
+func _place_rubble_field(center: Vector3, half_x: float, half_z: float, height: float) -> void:
+	var step := 2.2
+	var nx := clampi(int(round(half_x * 2.0 / step)), 1, 8)   # cap 8x8 mounds — perf/cosmetic bound
+	var nz := clampi(int(round(half_z * 2.0 / step)), 1, 8)
+	var h_scale := clampf(height / 6.0, 0.7, 2.2)             # ~3 storeys reads as a tall pile
+	var idx := 0
+	for ix in range(nx):
+		for iz in range(nz):
+			var fx := ((float(ix) + 0.5) / float(nx)) * 2.0 - 1.0   # -1..1 across the footprint
+			var fz := ((float(iz) + 0.5) / float(nz)) * 2.0 - 1.0
+			var radial := 1.0 - 0.4 * minf(1.0, sqrt(fx * fx + fz * fz))
+			var jit := 0.4 * sin(float(idx) * 12.9898)
+			var m := BuildingKit.build_rubble()
+			m.position = center + Vector3(fx * half_x + jit, 0.0, fz * half_z - jit)
+			m.rotation.y = float(idx) * 0.7
+			m.scale = Vector3(1.0, clampf(radial * h_scale, 0.5, 2.4), 1.0)
+			add_child(m)
+			idx += 1
+
+## Back-compat single-mound entry (join-replay path lacks live extents) — a modest 3x3 m rubble field.
 func _place_rubble_mound(center: Vector3) -> void:
-	var rubble := BuildingKit.build_rubble()
-	rubble.position = center
-	add_child(rubble)
+	_place_rubble_field(center, 1.5, 1.5, 4.0)
 
 ## Arm a camera shake of `mag` metres for `dur` s if `world_pos` is within feel range of the camera.
 func _add_shake(world_pos: Vector3, now: float, mag: float, dur: float) -> void:
