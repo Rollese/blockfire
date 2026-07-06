@@ -1217,7 +1217,21 @@ func _draw_support_slot(s: Dictionary, a: Vector3, b: Vector3, kind: int, now: f
 	amat.emission = acol
 	aura.visible = true
 
-func set_gadgets(list: Array) -> void:
+# Supply bags (M7): view-only glyph + resupply/heal aura ring. The radius is the server's real dispense
+# range from data/gadgets.json — both the medkit and ammobag use bag_radius = 3.0 m — mirrored here so
+# the ring matches gameplay. Amber = ammo, green = medic (BattleBit-style).
+const BAG_SUPPLY_RADIUS := 3.0
+const BAG_AMMO_COLOR := Color(0.92, 0.66, 0.16)   # amber (matches the Support ammo-give beam)
+const BAG_MED_COLOR := Color(0.30, 0.80, 0.38)    # medic green
+
+var _bag_glyph_tex := {}   # is_ammo(bool) -> ImageTexture, built once and shared across all bags
+
+## Replace the rendered gadget set with `list` (each {kind, pos, face}; bags also carry `subtype`
+## = Gadget.KIND_HEAL/KIND_AMMO and `team`). `local_team` is the viewer's team so the resupply/heal
+## ground ring draws only for FRIENDLY bags (-1 = team unknown -> no ring). Cheap full rebuild — the
+## server only resends on change and gadgets are few. C4 sticks a charge with a blinking light; a mine
+## is a small directional claymore; a bag is an amber ammo box / green medic bag with a top glyph.
+func set_gadgets(list: Array, local_team: int = -1) -> void:
 	for n in _gadget_nodes:
 		(n as Node3D).queue_free()
 	_gadget_nodes.clear()
@@ -1225,13 +1239,23 @@ func set_gadgets(list: Array) -> void:
 		var pos: Vector3 = g["pos"]
 		if not pos.is_finite():
 			continue
-		var node := _make_gadget(int(g["kind"]), g.get("face", Vector3.ZERO))
+		var kind := int(g["kind"])
+		var subtype := int(g.get("subtype", -1))
+		var node := _make_gadget(kind, g.get("face", Vector3.ZERO), subtype)
 		node.position = pos
 		add_child(node)
 		_gadget_nodes.append(node)
+		# Friendly-only resupply/heal ring, on the ground at the bag's true dispense radius.
+		if kind == GadgetList.BAG and local_team >= 0 and int(g.get("team", -1)) == local_team:
+			var col: Color = BAG_AMMO_COLOR if subtype == Gadget.KIND_AMMO else BAG_MED_COLOR
+			var ring := _make_ring_marker(BAG_SUPPLY_RADIUS, 0.12, col)
+			# The bag is deployed on the ground, so pos.y is ground height; lift the ring a hair to avoid z-fighting.
+			ring.position = Vector3(pos.x, pos.y + 0.06, pos.z)
+			add_child(ring)
+			_gadget_nodes.append(ring)
 
 
-func _make_gadget(kind: int, face: Vector3) -> Node3D:
+func _make_gadget(kind: int, face: Vector3, subtype: int = -1) -> Node3D:
 	var root := Node3D.new()
 	root.name = "Gadget"
 	match kind:
@@ -1246,14 +1270,21 @@ func _make_gadget(kind: int, face: Vector3) -> Node3D:
 			if face.length() > 0.01:
 				# Orient via Basis (look_at needs the node in the tree; this runs before add_child).
 				root.transform.basis = Basis.looking_at(Vector3(face.x, 0.0, face.z), Vector3.UP)
-		GadgetList.BAG:    # supply crate
+		GadgetList.BAG:    # supply crate: amber ammo box or green medic bag, with a readable top glyph
 			root.name = "Bag"
+			var is_ammo := subtype == Gadget.KIND_AMMO
 			var crate := MeshInstance3D.new()
 			var cmesh := BoxMesh.new(); cmesh.size = Vector3(0.55, 0.4, 0.4)
 			crate.mesh = cmesh; crate.position = Vector3(0, 0.2, 0)
-			var bmat := StandardMaterial3D.new(); bmat.albedo_color = Color(0.36, 0.42, 0.22); bmat.roughness = 0.9
+			# Tint the box itself so it reads even edge-on: dark amber for ammo, medic green for heal.
+			var body_col: Color = Color(0.36, 0.27, 0.10) if is_ammo else Color(0.16, 0.44, 0.24)
+			var bmat := StandardMaterial3D.new(); bmat.albedo_color = body_col; bmat.roughness = 0.9
 			crate.material_override = bmat; crate.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 			root.add_child(crate)
+			# Camera-facing glyph floating just above the lid: ammo icon or green medic cross.
+			var glyph := _make_bag_glyph(is_ammo)
+			glyph.position = Vector3(0, 0.62, 0)
+			root.add_child(glyph)
 		_:                 # C4: a dark brick of charge with a small red indicator light
 			root.name = "C4"
 			var brick := MeshInstance3D.new()
@@ -1271,6 +1302,67 @@ func _make_gadget(kind: int, face: Vector3) -> Node3D:
 			led.material_override = lmat; led.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 			root.add_child(led)
 	return root
+
+
+## A small camera-facing glyph billboarded above a supply bag: an amber ammo icon (three rounds) or a
+## green medic cross. Drawn into a procedurally-generated transparent texture (no asset -> deterministic
+## on every GPU, no grey-flash) on an unshaded quad. Purely presentational.
+func _make_bag_glyph(is_ammo: bool) -> MeshInstance3D:
+	var mi := MeshInstance3D.new()
+	mi.name = "BagGlyph"
+	var q := QuadMesh.new(); q.size = Vector2(0.32, 0.32)
+	mi.mesh = q
+	var mat := StandardMaterial3D.new()
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mat.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
+	mat.albedo_texture = _bag_glyph_texture(is_ammo)
+	mat.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST   # crisp pixel glyph
+	mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+	mi.material_override = mat
+	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	return mi
+
+func _bag_glyph_texture(is_ammo: bool) -> ImageTexture:
+	if not _bag_glyph_tex.has(is_ammo):
+		_bag_glyph_tex[is_ammo] = ImageTexture.create_from_image(_bag_glyph_image(is_ammo))
+	return _bag_glyph_tex[is_ammo]
+
+## Build the 32×32 RGBA glyph: a soft rounded plate (green for medic, dark for ammo) with either a
+## white cross (heal) or three amber rounds (ammo) painted on top. Pure pixel-fill — no font/asset.
+func _bag_glyph_image(is_ammo: bool) -> Image:
+	var s := 32
+	var img := Image.create(s, s, false, Image.FORMAT_RGBA8)
+	img.fill(Color(0, 0, 0, 0))
+	var plate: Color = Color(0.16, 0.12, 0.07, 0.86) if is_ammo else Color(0.14, 0.52, 0.26, 0.86)
+	for y in range(s):
+		for x in range(s):
+			if x < 2 or x > 29 or y < 2 or y > 29:
+				continue
+			# clip the four corners so the plate reads as a rounded square, not a hard block
+			if (x < 6 or x > 25) and (y < 6 or y > 25):
+				var cx := 6 if x < 6 else 25
+				var cy := 6 if y < 6 else 25
+				if Vector2(x - cx, y - cy).length() > 4.0:
+					continue
+			img.set_pixel(x, y, plate)
+	if is_ammo:
+		var amber := Color(0.96, 0.72, 0.22, 1.0)
+		for cx in [9, 16, 23]:
+			for y in range(8, 25):
+				var hw := (y - 8) if y < 11 else 2   # pointed tip tapering into a round body
+				for x in range(cx - hw, cx + hw + 1):
+					if x >= 0 and x < s:
+						img.set_pixel(x, y, amber)
+	else:
+		var white := Color(0.97, 0.98, 0.97, 1.0)
+		for y in range(6, 27):
+			for x in range(13, 20):
+				img.set_pixel(x, y, white)   # vertical bar of the cross
+		for x in range(6, 27):
+			for y in range(13, 20):
+				img.set_pixel(x, y, white)   # horizontal bar of the cross
+	return img
 
 
 ## Visual QA (--revive-marker-test): lay a downed friendly soldier in front of the camera with the
@@ -1328,11 +1420,15 @@ func _ensure_gadget_demo(now: float) -> void:
 	var fwd := (-cb.basis.z).normalized()
 	var right := cb.basis.x.normalized()
 	var base := cb.origin + fwd * 4.0; base.y = 0.0
+	# team 0 with local_team 0 -> the bags read as friendly so their resupply/heal rings render.
 	set_gadgets([
-		{"kind": GadgetList.C4, "pos": base - right * 1.4, "face": Vector3.ZERO},
-		{"kind": GadgetList.MINE, "pos": base, "face": -fwd},
-		{"kind": GadgetList.BAG, "pos": base + right * 1.4, "face": Vector3.ZERO},
-	])
+		{"kind": GadgetList.C4, "pos": base - right * 2.1, "face": Vector3.ZERO},
+		{"kind": GadgetList.MINE, "pos": base - right * 0.7, "face": -fwd},
+		{"kind": GadgetList.BAG, "pos": base + right * 0.7, "face": Vector3.ZERO,
+			"subtype": Gadget.KIND_AMMO, "team": 0},
+		{"kind": GadgetList.BAG, "pos": base + right * 2.1, "face": Vector3.ZERO,
+			"subtype": Gadget.KIND_HEAL, "team": 0},
+	], 0)
 
 
 ## Visual QA (--support-test): camera-parented giver + target dummies linked by a live support beam +

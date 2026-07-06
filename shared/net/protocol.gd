@@ -569,8 +569,11 @@ static func decode_grenade_fx(bytes: PackedByteArray) -> Dictionary:
 		charge = float(r.get_u8()) / 255.0
 	return {"origin": origin, "dir": dir, "kind": kind, "team": team, "charge": charge}
 
-## Authoritative deployed-gadget list — each entry: kind byte (GadgetList.C4/MINE/BAG), pos ×10,
-## facing x/z ×10000 (zero for C4/bags). The client replaces its rendered gadget set on each receipt.
+## Authoritative deployed-gadget list — each entry: kind byte (GadgetList.C4/MINE/BAG), pos ×10, then
+## two int16 slots. For C4/MINE those slots are facing x/z ×10000 (zero for C4). For BAG (which never
+## has a facing) the same two slots instead carry view-only `subtype` (Gadget.KIND_HEAL/KIND_AMMO) and
+## owner `team` — presentation metadata only (right glyph + friendly-only ring), no size change, no
+## gameplay authority. The client replaces its rendered gadget set on each receipt.
 static func encode_gadget_list(list: Array) -> PackedByteArray:
 	var buf := StreamPeerBuffer.new()
 	buf.put_u8(Msg.GADGET_LIST)
@@ -579,12 +582,18 @@ static func encode_gadget_list(list: Array) -> PackedByteArray:
 	for i in range(n):
 		var g: Dictionary = list[i]
 		var pos: Vector3 = g["pos"]
-		var face: Vector3 = g.get("face", Vector3.ZERO)
-		buf.put_u8(clampi(int(g["kind"]), 0, 255))
+		var kind: int = clampi(int(g["kind"]), 0, 255)
+		buf.put_u8(kind)
 		put_pos10(buf, pos)
-		# face is x/z only (2 components, yaw plane) — not the shared 3-component dir codec.
-		buf.put_16(clampi(roundi(face.x * 10000.0), -32768, 32767))
-		buf.put_16(clampi(roundi(face.z * 10000.0), -32768, 32767))
+		if kind == GadgetList.BAG:
+			# Bags carry no facing — reuse the two slots for view-only subtype + team (small ints).
+			buf.put_16(clampi(int(g.get("subtype", 0)), -32768, 32767))
+			buf.put_16(clampi(int(g.get("team", 0)), -32768, 32767))
+		else:
+			# face is x/z only (2 components, yaw plane) — not the shared 3-component dir codec.
+			var face: Vector3 = g.get("face", Vector3.ZERO)
+			buf.put_16(clampi(roundi(face.x * 10000.0), -32768, 32767))
+			buf.put_16(clampi(roundi(face.z * 10000.0), -32768, 32767))
 	return buf.data_array
 
 static func decode_gadget_list(bytes: PackedByteArray) -> Array:
@@ -594,8 +603,12 @@ static func decode_gadget_list(bytes: PackedByteArray) -> Array:
 	for i in range(n):
 		var kind := r.get_u8()
 		var pos := get_pos10(r)
-		var face := Vector3(float(r.get_16()) / 10000.0, 0.0, float(r.get_16()) / 10000.0)
-		out.append({"kind": kind, "pos": pos, "face": face})
+		var s0 := r.get_16()
+		var s1 := r.get_16()
+		if kind == GadgetList.BAG:
+			out.append({"kind": kind, "pos": pos, "face": Vector3.ZERO, "subtype": s0, "team": s1})
+		else:
+			out.append({"kind": kind, "pos": pos, "face": Vector3(float(s0) / 10000.0, 0.0, float(s1) / 10000.0)})
 	return out
 
 ## Active support links (M7): each entry is giver_id u32 + target_id u32 + kind u8

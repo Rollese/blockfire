@@ -23,10 +23,13 @@ func test_mine_keeps_facing() -> void:
 	assert_almost_eq(list[0]["face"].x, 1.0, 0.001, "mine facing preserved (drives the cone direction)")
 
 func test_bag_listed_without_facing() -> void:
-	var bags := [{"pos": Vector3(8, 0, 9), "kind": 0}]
+	var bags := [{"pos": Vector3(8, 0, 9), "kind": Gadget.KIND_AMMO, "team": 1}]
 	var list := GadgetList.build({}, [], bags)
 	assert_eq(list.size(), 1)
 	assert_eq(list[0]["kind"], GadgetList.BAG, "bag tagged BAG")
+	# View-only subtype + team flow through so the client can pick the glyph + friendly-ring colour.
+	assert_eq(list[0]["subtype"], Gadget.KIND_AMMO, "bag heal/ammo subtype forwarded for the client glyph")
+	assert_eq(list[0]["team"], 1, "bag owner team forwarded for the friendly-only ring")
 
 func test_all_three_combine() -> void:
 	var list := GadgetList.build({7: [{"pos": Vector3.ZERO}]},

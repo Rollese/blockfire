@@ -1258,7 +1258,8 @@ func _on_packet(_from: ENetPacketPeer, _channel: int, bytes: PackedByteArray) ->
 			if bytes != _gadget_bytes:
 				_gadget_bytes = bytes   # skip the rebuild on an unchanged 1 Hz heartbeat
 				if _renderer != null:
-					_renderer.set_gadgets(Protocol.decode_gadget_list(bytes))
+					# Pass our team so the renderer draws each supply bag's resupply/heal ring friendly-only.
+					_renderer.set_gadgets(Protocol.decode_gadget_list(bytes), _local_team())
 		Protocol.Msg.SUPPORT_LIST:
 			if bytes != _support_bytes:
 				_support_bytes = bytes   # skip the rebuild on an unchanged 1 Hz heartbeat

@@ -102,7 +102,8 @@ func test_gadget_list_round_trip() -> void:
 	var list := [
 		{"kind": GadgetList.C4, "pos": Vector3(12.3, 1.5, -4.6), "face": Vector3.ZERO},
 		{"kind": GadgetList.MINE, "pos": Vector3(-7.1, 0.0, 8.2), "face": Vector3(0.0, 0.0, 1.0)},
-		{"kind": GadgetList.BAG, "pos": Vector3(3.0, 0.0, 3.0), "face": Vector3.ZERO},
+		{"kind": GadgetList.BAG, "pos": Vector3(3.0, 0.0, 3.0), "face": Vector3.ZERO,
+			"subtype": Gadget.KIND_AMMO, "team": 1},
 	]
 	var b := Protocol.encode_gadget_list(list)
 	assert_eq(Protocol.msg_type(b), Protocol.Msg.GADGET_LIST)
@@ -113,6 +114,9 @@ func test_gadget_list_round_trip() -> void:
 	assert_eq(d[1]["kind"], GadgetList.MINE)
 	assert_almost_eq(d[1]["face"].z, 1.0, 0.001, "mine facing z preserved")
 	assert_eq(d[2]["kind"], GadgetList.BAG)
+	# Bags reuse the two facing slots for view-only subtype (heal/ammo) + owner team.
+	assert_eq(d[2]["subtype"], Gadget.KIND_AMMO, "bag subtype (ammo/heal) survives for the client glyph")
+	assert_eq(d[2]["team"], 1, "bag owner team survives for the friendly-only ring")
 
 func test_empty_gadget_list_round_trip() -> void:
 	var b := Protocol.encode_gadget_list([])

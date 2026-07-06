@@ -11,8 +11,11 @@ const BAG := 2
 
 const MAX := 96   # cap so the GADGET_LIST packet stays bounded at scale (u8 count + 11 B/gadget)
 
-## c4: owner_id -> Array of {pos}; mines: Array of {pos, facing}; bags: Array of {pos}.
-## Returns Array of {kind:int, pos:Vector3, face:Vector3} (face is ZERO for C4/bags).
+## c4: owner_id -> Array of {pos}; mines: Array of {pos, facing}; bags: Array of {pos, kind, team}.
+## Returns Array of {kind:int, pos:Vector3, face:Vector3} (face is ZERO for C4/bags). Bag entries also
+## carry view-only `subtype` (Gadget.KIND_HEAL / KIND_AMMO) + `team` so human clients can pick the right
+## glyph (medic cross vs ammo icon) and draw the resupply/heal ring only for friendlies — presentation
+## metadata the server already holds per bag; it does not affect gameplay authority.
 static func build(c4: Dictionary, mines: Array, bags: Array) -> Array:
 	var out: Array = []
 	for owner in c4:
@@ -27,5 +30,6 @@ static func build(c4: Dictionary, mines: Array, bags: Array) -> Array:
 	for b: Dictionary in bags:
 		if out.size() >= MAX:
 			return out
-		out.append({"kind": BAG, "pos": b["pos"], "face": Vector3.ZERO})
+		out.append({"kind": BAG, "pos": b["pos"], "face": Vector3.ZERO,
+			"subtype": int(b.get("kind", 0)), "team": int(b.get("team", 0))})
 	return out
