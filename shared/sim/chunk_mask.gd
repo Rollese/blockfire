@@ -51,6 +51,28 @@ static func bit_at(cell: Vector3i, yaw: int, grid: int, height: float, point: Ve
 static func is_alive_at(mask: int, cell: Vector3i, yaw: int, grid: int, height: float, point: Vector3) -> bool:
 	return (mask & (1 << bit_at(cell, yaw, grid, height, point))) != 0
 
+## True if EVERY chunk overlapping the pawn's cross-section is cleared — a walk-through gap. The
+## cross-section is a box of half-width `half_w` (along U, the face width) centred on world point `p`,
+## rising `body_h` from `p`'s height. Bounded scan of just that rectangle of chunks (at most a few of
+## the grid*grid), evaluated only when a pawn is already pressed against an occupied wall cell, so it
+## adds no systematic tick cost. M11 Gate-B walk-through.
+static func region_clear(mask: int, cell: Vector3i, yaw: int, grid: int, height: float, p: Vector3, half_w: float, body_h: float) -> bool:
+	var origin := BuildGrid.cell_min(cell)
+	var u := _u_axis(yaw)
+	var ustep := BuildGrid.CELL_SIZE / float(grid)
+	var vstep := height / float(grid)
+	var rel := p - origin
+	var uc := rel.dot(u)                       # pawn centre along the face width (m from the U-min edge)
+	var cmin := clampi(int((uc - half_w) / ustep), 0, grid - 1)
+	var cmax := clampi(int((uc + half_w) / ustep), 0, grid - 1)
+	var rmin := clampi(int(rel.y / vstep), 0, grid - 1)
+	var rmax := clampi(int((rel.y + body_h) / vstep), 0, grid - 1)
+	for row in range(rmin, rmax + 1):
+		for col in range(cmin, cmax + 1):
+			if (mask & (1 << (row * grid + col))) != 0:
+				return false   # a chunk still solid somewhere in the pawn's path -> not walk-through
+	return true
+
 ## Clear every intact chunk whose centre is within `radius` (world) of `impact`. New mask.
 static func clear_in_radius(mask: int, cell: Vector3i, yaw: int, grid: int, height: float, impact: Vector3, radius: float) -> int:
 	var m := mask

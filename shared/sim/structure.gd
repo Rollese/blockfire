@@ -337,14 +337,27 @@ func resolve_movement(from: Vector3, to: Vector3) -> Vector3:
 	return Vector3(from.x, to.y, from.z)
 
 const FEET_EPS := 0.1   # m; lift the collision sample off the floor plane into the wall's cell band
+const WALK_GAP_HALF_WIDTH := 0.35   # m; pawn half-width that must be clear to squeeze through a breach
+const WALK_GAP_HEIGHT := 1.5        # m; feet-up clearance needed to step through (a low breach, not a high hole)
 
 func _blocks_ground(p: Vector3) -> bool:
-	var cell := BuildGrid.cell_of(Vector3(p.x, p.y + FEET_EPS, p.z))
+	var sample := Vector3(p.x, p.y + FEET_EPS, p.z)
+	var cell := BuildGrid.cell_of(sample)
 	if not _occupancy.has(cell):
 		return false
 	# Walk-through pieces: doors (aperture), floors (you stand on them), stairs (you walk up them).
-	var t := int(_by_id[_occupancy[cell]]["type"])
-	return not (_catalog.passable_of(t) or _catalog.is_flat_surface(t) or _catalog.is_ramp(t))
+	var rec: Dictionary = _by_id[_occupancy[cell]]
+	var t := int(rec["type"])
+	if _catalog.passable_of(t) or _catalog.is_flat_surface(t) or _catalog.is_ramp(t):
+		return false
+	# M11 Gate-B WALK-THROUGH: a chunked wall stops blocking once the pawn's body column has been carved
+	# open at floor level (a breach you can step through) — a high shot-through hole still blocks the feet.
+	# Bounded chunk scan, only reached when a pawn is already inside an occupied wall cell (rare).
+	var grid := _catalog.chunk_grid_of(t)
+	if grid >= 2 and ChunkMask.region_clear(int(rec["chunks"]), rec["cell"], int(rec["yaw"]),
+			grid, _face_height(t), sample, WALK_GAP_HALF_WIDTH, WALK_GAP_HEIGHT):
+		return false
+	return true
 
 ## True when a pawn can stand at world point `p` (feet cell not blocked at ground level). Used by the
 ## vault landing scan to reject a landing spot that is inside the low blocker's own cell or a wall.
