@@ -95,4 +95,36 @@ The M7 rendered client now exists, so the deferred cosmetic layer was started. *
 - **Camera shake.** Transient deterministic positional jitter (no RNG), reapplied on top of `_apply_camera` each frame so it never accumulates; decays over its life. Reusable by future nearby-blast events.
 - **QA flags** `--destroy-test` / `--collapse-test`; visual-validated via self-screenshot on `.128` (dust dome + flung brick/concrete debris confirmed). 843 unit tests green (4 new `WorldView` event-queue tests).
 
-**Still deferred (P4 / later):** **hole-aware per-chunk geometry** (incompatible with the 8k-piece MultiMesh batching — a piece still blocks + renders whole until fully removed; this is the spec's "hole-aware march" descope); GPU-particle debris + far-LOD (current debris is pooled MeshInstances, fine at typical event rates); 3 cosmetic BuildingKit geometry tweaks (lintel 1 cm clip, railing height, stair height) to eyeball in-engine; rubble + debris nodes untracked (bounded, freed on renderer teardown). **Gate B = owner playtest of the feel.**
+**Still deferred (P4 / later):** GPU-particle debris + far-LOD (current debris is pooled MeshInstances, fine at typical event rates); 3 cosmetic BuildingKit geometry tweaks (lintel 1 cm clip, railing height, stair height) to eyeball in-engine; a dedicated collapse SINK animation (deferred — the footprint-scaled dust billow now masks the instant-vanish, as BattleBit's does); rubble + debris nodes untracked (bounded, freed on renderer teardown). **Gate B = owner playtest of the feel.**
+
+## Phase 4 — Gate-B feel pass (hole-aware destruction) — 2026-07-06/07, branch `m11-gate-b-feel`
+
+The M15 village map + M7 client made the feel tunable, so the deferred hole-aware work was built. Owner
+directed (2026-07-06) **Full BattleBit walk-through holes** (not the canned-mesh quick option) and **Gate B
+after the quick wins land**. Established the current feel first with a new harness (`tools/render_destruct_shots.gd`
+— stamps a REAL conquest_town building client-side + drives carve/remove/collapse, opengl3 under Xvfb),
+which proved: carving a wall was imperceptible (bucket re-tint only), removal was all-or-nothing full-cell
+(no sub-cell hole — the MultiMesh batch draws N copies of ONE mesh), and collapse left a fixed ~3 m pebble
+pile regardless of building size.
+
+**Landed (merged to master + pushed):**
+- **Q-A footprint-scaled collapse** (`b0da858`): `_play_collapse_fx` scales the dust billow to the footprint
+  AABB and `_place_rubble_field` tiles deterministic rubble mounds across it (8×8 cap, centre-humped, taller
+  by building height). A single-cell building still leaves one mound. Client-only.
+- **H1 hole-aware geometry** (`c71ccc8`): a partially-carved chunked piece (0 < alive < full, grid ≥ 2) is
+  PROMOTED out of the batched whole-mesh into a per-chunk hole grid — only its ALIVE 0.25 m chunks render
+  (`WorldRenderer.chunk_hole_xforms`, mirroring ChunkMask's bit layout), leaving a real see-through gap
+  exactly where chunks cleared. All promoted pieces of a type batch into ONE unit-cube MultiMesh; pristine
+  pieces never promote → **no steady-state cost**. Client-only over already-replicated OP_CHUNK. Visual-validated
+  (window hole + wide breach both see-through).
+- **H2 hole-aware march** (`7909d91`): `StructureStore.march`, on a piece hit, does one `ChunkMask.is_alive_at`
+  bit-test at the contact point — a cleared chunk is a hole the shot/rocket/LOS passes through; `march_normal`
+  (grenade bounce) inherits it. One cheap test per piece hit, not a per-tick scan. **128-bot gate PASS on
+  conquest_town** (`winner=1 peak tick 23.22 ms<33.3 destroyed=18 rstruct=44 collapsed=2, 0 errors`).
+- **H3 walk-through** (`2fcf627`): `_blocks_ground` returns not-solid for a chunked wall once `ChunkMask.region_clear`
+  finds the pawn's body column carved open at floor level (bounded cross-section scan, reached only when a pawn
+  is inside an occupied cell). A high/small shot-through hole still blocks the feet — shoot-through before
+  walk-through, as in BattleBit. Pawn-only. Gate re-run for H3.
+
+Suite 1353/0 (+18 across the phase). **Remaining: Gate B = owner playtest** of holes/shoot-through/walk-through/
+collapse on the rendered client; then the deferred cosmetic tweaks above.
