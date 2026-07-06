@@ -246,6 +246,10 @@ var _entity_ap: Dictionary = {}       # id(int) -> AnimationPlayer (only when us
 var _struct_groups: Dictionary = {}
 # id(int) -> "type:bucket" key; a change means rebuild (kit geometry/tint is baked at build)
 var _struct_key_of: Dictionary = {}
+# M11 Gate-B hole-aware geometry: shared unit-cube mesh + per-type material for PROMOTED (partially
+# carved) pieces rendered as a per-chunk hole grid. Cached so a carve delta doesn't re-alloc.
+var _promoted_cube: BoxMesh = null
+var _promoted_mats: Dictionary = {}
 # last WorldView.structs_version() we synced; the per-frame pool walk is skipped while unchanged
 # (structures are static, so re-acquiring/re-posing ~thousands of pieces every frame was the
 # dominant client cost on dense maps — 35 ms/frame on conquest_town's 77 buildings).
@@ -2457,7 +2461,7 @@ func _rebuild_structure_batches(structs: Dictionary) -> void:
 			_union_building_footprint(bid, _structure_xform(rec).origin)
 
 	for key: String in _struct_groups:
-		_build_group_mmis(key, structs)
+		_build_key_mmis(key, structs)
 
 
 ## (Re)build the MultiMeshInstances of one visual-key group from its current member ids.
@@ -2497,6 +2501,129 @@ func _build_group_mmis(key: String, structs: Dictionary) -> void:
 		(g["mmis"] as Array).append(mmi)
 
 
+## Dispatch a visual-key group to its builder: "P:<type>" keys are partially-carved pieces rendered
+## as a per-chunk hole grid; everything else is the batched whole-mesh path.
+func _build_key_mmis(key: String, structs: Dictionary) -> void:
+	if key.begins_with("P:"):
+		_build_promoted_mmis(key, structs)
+	else:
+		_build_group_mmis(key, structs)
+
+
+## M11 Gate-B — HOLE-AWARE GEOMETRY. A partially-carved chunked piece (0 < alive < full) can't show a
+## sub-cell hole inside the batched whole-mesh (a MultiMesh draws N copies of ONE mesh). So we PROMOTE
+## it: drop the whole kit mesh and instead draw only its ALIVE 0.25 m chunks as a grid of little boxes,
+## leaving a real see-through gap where chunks were cleared. All promoted pieces of one type still batch
+## into a SINGLE MultiMesh of a unit cube (per-instance scale) so the cost is O(alive chunks in damaged
+## pieces) and paid only on the event-driven structure-version change — pristine pieces never promote.
+func _is_promotable(rec: Dictionary) -> bool:
+	if int(rec.get("under_construction", 0)) == 1:
+		return false
+	var grid := _grid_of(int(rec.get("type", 0)))
+	if grid < 2:
+		return false   # 1x1 pieces (columns/railings/props) are alive-or-gone; no sub-cell hole
+	var full := ChunkMask.full_mask(grid)
+	var mask := int(rec.get("chunks", -1)) & full
+	return mask != full and mask != 0   # partially carved
+
+
+func _build_promoted_mmis(key: String, structs: Dictionary) -> void:
+	var g: Dictionary = _struct_groups[key]
+	for n: Node3D in g["mmis"]:
+		n.queue_free()
+	g["mmis"] = []
+	var ids: Dictionary = g["ids"]
+	if ids.is_empty():
+		_struct_groups.erase(key)
+		return
+	var type_idx := int(key.substr(2))   # "P:<type>"
+	var grid := _grid_of(type_idx)
+	var height := _promoted_height(type_idx)
+	var thickness := _promoted_thickness(type_idx)
+	var xforms: Array = []
+	for id_v: Variant in ids:
+		var rec: Dictionary = structs[id_v]
+		var piece_xform := _structure_xform(rec)
+		for local: Transform3D in WorldRenderer.chunk_hole_xforms(int(rec.get("chunks", -1)), grid, height, thickness):
+			xforms.append(piece_xform * local)
+	if xforms.is_empty():
+		return
+	var mm := MultiMesh.new()
+	mm.transform_format = MultiMesh.TRANSFORM_3D
+	mm.mesh = _unit_cube_mesh()
+	mm.instance_count = xforms.size()
+	for i in xforms.size():
+		mm.set_instance_transform(i, xforms[i] as Transform3D)
+	var mmi := MultiMeshInstance3D.new()
+	mmi.multimesh = mm
+	mmi.material_override = _promoted_material(type_idx)
+	mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON
+	add_child(mmi)
+	(g["mmis"] as Array).append(mmi)
+
+
+## Local-frame (pre-piece-xform) transforms — one per ALIVE chunk — that subdivide a piece's CELL-wide
+## face into a grid*grid array of sub-cell boxes, omitting cleared chunks. The local frame matches
+## _structure_xform (origin at cell centre x/z + cell base y; +X = U/width, +Y = up; z = 0 at the wall
+## centre-plane). Mirrors ChunkMask's bit layout (bit = row*grid+col, bit 0 = min-U/min-V corner) so a
+## rendered hole lands exactly where the sim cleared chunks. Pure -> unit-testable.
+static func chunk_hole_xforms(mask: int, grid: int, height: float, thickness: float) -> Array:
+	var out: Array = []
+	if grid <= 0:
+		return out
+	var ustep := BuildGrid.CELL_SIZE / float(grid)
+	var vstep := height / float(grid)
+	var x0 := -BuildGrid.CELL_SIZE * 0.5
+	var scale := Basis.from_scale(Vector3(ustep, vstep, thickness))
+	for row in grid:
+		for col in grid:
+			if (mask & (1 << (row * grid + col))) == 0:
+				continue
+			var pos := Vector3(x0 + (float(col) + 0.5) * ustep, (float(row) + 0.5) * vstep, 0.0)
+			out.append(Transform3D(scale, pos))
+	return out
+
+
+func _promoted_height(type_idx: int) -> float:
+	var half := false
+	if piece_catalog != null:
+		half = piece_catalog.is_half(type_idx)
+	elif type_idx < STRUCT_TYPE_ID.size():
+		half = STRUCT_TYPE_ID[type_idx] == "bwall_half"
+	return BuildGrid.CELL_SIZE * (0.5 if half else 1.0)
+
+
+## Wall depth for the chunk boxes (perp to the face). A representative slab thickness — the exact kit
+## depth varies (0.3–0.35) but a damaged wall reads as broken concrete either way.
+func _promoted_thickness(_type_idx: int) -> float:
+	return 0.3
+
+
+func _unit_cube_mesh() -> BoxMesh:
+	if _promoted_cube == null:
+		_promoted_cube = BoxMesh.new()
+		_promoted_cube.size = Vector3.ONE
+	return _promoted_cube
+
+
+func _promoted_material(type_idx: int) -> StandardMaterial3D:
+	if _promoted_mats.has(type_idx):
+		return _promoted_mats[type_idx]
+	var pid: String = STRUCT_TYPE_ID[type_idx] if type_idx < STRUCT_TYPE_ID.size() else "bwall"
+	var base: Color = BuildingKit.COL_WALL
+	if pid.contains("brick"):
+		base = BuildingKit.COL_BRICK
+	elif pid.contains("metal"):
+		base = BuildingKit.COL_METALW
+	elif pid.contains("wood"):
+		base = BuildingKit.COL_WOODW
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = Color(base.r * 0.78, base.g * 0.78, base.b * 0.78)   # dirtied/damaged
+	mat.roughness = 0.95
+	_promoted_mats[type_idx] = mat
+	return mat
+
+
 ## Incremental path: a structure delta touched only `dirty_ids` — move each between its old and
 ## new visual-key groups and rebuild ONLY the groups whose membership changed. Untouched groups
 ## keep their MultiMesh nodes (the whole point: no full 8k-piece regroup per chunk carve).
@@ -2510,7 +2637,11 @@ func _incremental_struct_update(dirty_ids: Array, structs: Dictionary) -> void:
 		if rec != null and int((rec as Dictionary).get("under_construction", 0)) != 1:
 			new_key = _struct_visual_key(rec)
 		if new_key == old_key:
-			continue   # same bucket (or still a ghost): transforms never change, nothing to rebuild
+			# A promoted (partially-carved) piece keeps its "P:type" key as more chunks clear, but its
+			# hole mask changed -> the group MUST rebuild. Normal batches never change transforms in place.
+			if new_key.begins_with("P:"):
+				dirty_keys[new_key] = true
+			continue
 		if old_key != "" and _struct_groups.has(old_key):
 			(_struct_groups[old_key]["ids"] as Dictionary).erase(id)
 			dirty_keys[old_key] = true
@@ -2527,7 +2658,7 @@ func _incremental_struct_update(dirty_ids: Array, structs: Dictionary) -> void:
 			_struct_key_of.erase(id)
 	for key: String in dirty_keys:
 		if _struct_groups.has(key):
-			_build_group_mmis(key, structs)
+			_build_key_mmis(key, structs)
 	# Ghost reconcile stays a full pass — under-construction sites are few, and OP_PROGRESS
 	# (same-key above) still needs its fill re-aimed.
 	var under: Dictionary = {}
@@ -2643,6 +2774,11 @@ func _struct_visual_key(rec: Dictionary) -> String:
 	var type_idx: int = int(rec.get("type", 0))
 	var cell: Vector3i = rec["cell"] as Vector3i
 	var piece_id: String = STRUCT_TYPE_ID[type_idx] if type_idx < STRUCT_TYPE_ID.size() else "wall"
+	# M11 Gate-B: a partially-carved chunked piece is PROMOTED out of the batched whole-mesh into a
+	# per-chunk hole grid (its own MultiMesh) so a real see-through hole shows exactly where you shot.
+	# Pristine (full mask) and fully-removed pieces stay on the cheap batched path -> no steady-state cost.
+	if _is_promotable(rec):
+		return "P:%d" % type_idx
 	var skirt: bool = cell.y == 0 and (piece_id.begins_with("bwall") or piece_id == "bcolumn" \
 		or piece_id.begins_with("prop_"))
 	return "%d:%d:%d" % [type_idx, _bucket_of(rec), 1 if skirt else 0]

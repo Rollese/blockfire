@@ -1,10 +1,10 @@
 extends SceneTree
 ## Standalone screenshot harness for M11 destruction FEEL validation. Stamps conquest_town's REAL
 ## buildings into a client StructureStore (mirrors server_main boot), feeds them to a WorldView +
-## WorldRenderer, then drives ONE building through the full destruction arc — intact, mid-carve
-## (chunk mask cleared), a wall piece fully removed (the best "hole" the current renderer can make:
-## a whole 2 m cell), and a whole-building COLLAPSE (cinematic burst + rubble mound). Captures a PNG
-## at each stage so the current cosmetic feel can be eyeballed BEFORE changing anything.
+## WorldRenderer, then drives ONE building through the destruction arc — intact, a window-sized
+## see-through HOLE (carved with the sim's own ChunkMask.clear_in_radius so it matches the sim), a
+## wide BREACH, and a whole-building COLLAPSE (footprint-scaled cinematic + rubble field). Captures a
+## PNG per stage to eyeball the destruction feel (H1 hole-aware geometry + scaled collapse).
 ##   godot --path . -s res://tools/render_destruct_shots.gd --rendering-driver <opengl3|vulkan>
 ## Deterministic (no networking, no bots). A QA tool, not a game path.
 
@@ -74,13 +74,17 @@ func _initialize() -> void:
 	# the camera's global transform (else global_position/look_at error and the shot stays at origin).
 	await _settle()
 
-	# --- Seat the camera ~11 m out from the centroid, slightly above eye height, looking at it.
+	# --- Choose a camera-facing wall piece near eye height to carve (the "shoot a hole" demo), then
+	#     frame the camera ~5 m directly OUT from that wall so a sub-cell hole is clearly visible.
+	var wall_rec := _nearest_wall(r, trecs, centroid + Vector3(11, 3.5, 11))
 	var cam_pos := centroid + Vector3(11.0, 3.5, 11.0)
+	var wall_pt := centroid + Vector3(0, 1.0, 0)
+	if not wall_rec.is_empty():
+		wall_pt = r._structure_xform(wall_rec).origin + Vector3(0, 1.0, 0)
+		var outward := (Vector3(wall_pt.x, 0, wall_pt.z) - Vector3(centroid.x, 0, centroid.z)).normalized()
+		cam_pos = wall_pt + outward * 5.0 + Vector3(0, 0.6, 0)
 	cam.global_position = cam_pos
-	cam.look_at(centroid + Vector3(0, 1.0, 0), Vector3.UP)
-
-	# --- Choose a camera-facing wall piece near eye height to carve/remove (the "hole" demo).
-	var wall_rec := _nearest_wall(r, trecs, cam_pos)
+	cam.look_at(wall_pt, Vector3.UP)
 
 	var dir := "user://destruct_shots"
 	DirAccess.make_dir_recursive_absolute(dir)
@@ -91,29 +95,36 @@ func _initialize() -> void:
 	await _settle()
 	await _capture(cam, dir, "0_intact")
 
-	# Stage 1: mid-carve — clear ~half the chunk bits of the facing wall (drops it a damage bucket:
-	# it darkens + sprouts a base rubble pile, but still renders + blocks WHOLE). This is the current
-	# "damaged wall" look. No sub-cell hole exists.
+	# Stage 1: shoot a WINDOW-SIZED hole. Carve with the sim's own ChunkMask.clear_in_radius at a point
+	# on the wall face (exactly how a bullet/blast carves) so the rendered hole matches the sim. With
+	# H1 this PROMOTES the wall to per-chunk geometry -> a real see-through hole appears.
 	if not wall_rec.is_empty():
 		var pid := int(wall_rec["id"])
-		var carved := int(wall_rec.get("chunks", -1)) & ~0x00000000FFFFFFFF   # clear low 32 of 64 bits
+		var ty := int(wall_rec["type"])
+		var cgrid := cat.chunk_grid_of(ty)
+		var fh := BuildGrid.CELL_SIZE * (0.5 if cat.is_half(ty) else 1.0)
+		var cell := wall_rec["cell"] as Vector3i
+		var yaw := int(wall_rec["yaw"])
+		var impact := ChunkMask.chunk_center(cell, yaw, cgrid / 2, cgrid / 2, cgrid, fh)   # face centre
+		var carved := ChunkMask.clear_in_radius(int(wall_rec["chunks"]), cell, yaw, cgrid, fh, impact, 0.6)
 		now += 0.5
 		wv.apply_structure_delta(Protocol.encode_structure_delta(Protocol.OP_CHUNK, {"id": pid, "mask": carved}))
 		r._sync_structure_pool(wv, now)
 		await _settle()
-		await _capture(cam, dir, "1_carved")
+		await _capture(cam, dir, "1_hole")
 
-	# Stage 2: the best "hole" the current renderer can make — fully remove the facing wall piece +
-	# its vertical neighbour so a full 2 m x 4 m cell gap opens (all-or-nothing, no sub-cell edges).
-	if not wall_rec.is_empty():
+		# Stage 2: widen it to a big breach (radius 1.3 m) — most of the wall gone, jagged chunk edges.
+		var breach := ChunkMask.clear_in_radius(carved, cell, yaw, cgrid, fh, impact, 1.3)
 		now += 0.5
-		for pid2 in _column_ids(trecs, wall_rec):
-			wv.apply_structure_delta(Protocol.encode_structure_delta(Protocol.OP_REMOVE, {"id": pid2}))
+		wv.apply_structure_delta(Protocol.encode_structure_delta(Protocol.OP_CHUNK, {"id": pid, "mask": breach}))
 		r._sync_structure_pool(wv, now)
 		await _settle()
-		await _capture(cam, dir, "2_wall_removed")
+		await _capture(cam, dir, "2_breach")
 
-	# Stage 3: whole-building COLLAPSE — cinematic dust/debris burst + rubble mound swap.
+	# Stage 3: whole-building COLLAPSE — cinematic dust/debris burst + footprint-scaled rubble. Pull the
+	# camera back so the whole building + its rubble field frame (the close hole-shot framing is too tight).
+	cam.global_position = centroid + Vector3(16.0, 7.0, 16.0)
+	cam.look_at(Vector3(centroid.x, centroid.y - 1.0, centroid.z), Vector3.UP)
 	now += 0.5
 	wv.apply_collapse(target_bid)
 	r._sync_structure_pool(wv, now)
