@@ -359,7 +359,7 @@ void fragment() {
 	float side = smoothstep(0.35, 0.65, surf.g);
 	vec3 asphalt = mix(vec3(0.135, 0.135, 0.145), vec3(0.175, 0.175, 0.185), patch);
 	col = mix(col, asphalt, road);
-	col = mix(col, vec3(0.55, 0.55, 0.57), side);
+	col = mix(col, vec3(0.40, 0.40, 0.42), side);   // muted concrete curb (was stark white)
 	ALBEDO = col;
 	ROUGHNESS = 1.0;
 }
@@ -399,7 +399,7 @@ func _build_grass_foliage(map: MapDef) -> void:
 			boxes.append(Vector4(float(f["min_x"]), float(f["min_z"]), float(f["max_x"]), float(f["max_z"])))
 	# Roads + their painted SIDEWALK border (SIDEWALK_M in map_gen.gen_town_surface_map) so grass never
 	# pokes through the white sidewalk.
-	var SIDEWALK_M := 2.6
+	var SIDEWALK_M := 2.2
 	for rd: Dictionary in map.roads:
 		var rmn: Vector3 = rd["min"]
 		var rmx: Vector3 = rd["max"]

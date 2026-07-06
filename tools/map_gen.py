@@ -297,7 +297,7 @@ def gen_town_surface_map(world_half=170.0, res=684):
     import numpy as np
     axis = np.linspace(-world_half, world_half, res)
     X, Z = np.meshgrid(axis, axis)                        # X[row,col]=x (per col), Z[row,col]=z (per row)
-    SIDEWALK_M = 2.5
+    SIDEWALK_M = 2.0
     any_road = np.zeros((res, res), dtype=bool)
     any_ring = np.zeros((res, res), dtype=bool)
     for rd in roads:
@@ -419,10 +419,11 @@ def gen_town_heightmap(world_half=170.0, spacing=2.0):
     axis = -world_half + np.arange(n) * spacing
     X, Z = np.meshgrid(axis, axis)
     hm = np.zeros((n, n), dtype=np.float64)
-    # Gentle core swell (~7.5 m, grade ~8 deg), a secondary octave (~2.5 m), and a fine undulation.
-    hm += 7.5 * np.sin(X / 75.0) * np.cos(Z / 90.0)
-    hm += 2.5 * np.sin(X / 45.0 + 1.3) * np.cos(Z / 52.0 + 0.7)
-    hm += 1.5 * np.sin(X / 30.0 + 2.1) * np.cos(Z / 36.0 + 1.1)
+    # A SINGLE gentle long-wavelength swell across the core (grade ~4 deg). The old stacked medium/short
+    # octaves made the built-up core read as BUMPY, so leveled roads rode up-and-down over it and their
+    # edges waved against the lower grass. One smooth swell -> roads (and the whole village) sit on a
+    # near-flat grade; the dramatic relief lives in the perimeter countryside hills below.
+    hm += 5.0 * np.sin(X / 88.0) * np.cos(Z / 98.0)
     # Perimeter hills: ramp in taller relief only OUTSIDE the built-up core (|x|>115 or |z|>120), where
     # edge buildings were removed. `edge` is 0 in the core and eases to 1 toward the map rim, so the
     # extra amplitude never touches a building pad. Wavelengths stay long -> the hills read big but the
