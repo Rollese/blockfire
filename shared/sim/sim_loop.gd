@@ -188,7 +188,12 @@ func step_vehicles(vinputs: Dictionary, world_half: float = Vehicle.WORLD_HALF) 
 		if not v.alive:
 			continue
 		var prev := v.pos
+		v.terrain = terrain
 		v.step(DT, vinputs.get(vid, {}), world_half)
+		# Terrain slope-block: revert an advance that climbed a too-steep face.
+		var t_res := Terrain.resolve_movement(terrain, prev, v.pos)
+		if t_res != v.pos:
+			v.pos = prev; v.speed = 0.0; v.velocity = Vector3.ZERO
 		if structures != null:
 			var seg := v.pos - prev
 			var seg_len := seg.length()
@@ -197,6 +202,7 @@ func step_vehicles(vinputs: Dictionary, world_half: float = Vehicle.WORLD_HALF) 
 				if bool(m["hit"]):
 					v.pos = prev; v.speed = 0.0; v.velocity = Vector3.ZERO
 		var floor_y := Ladder.platform_floor(platforms, v.pos.x, v.pos.z, v.pos.y)
+		floor_y = maxf(floor_y, Terrain.height_at(terrain, v.pos.x, v.pos.z))
 		if v.pos.y < floor_y:
 			v.pos.y = floor_y; v.velocity.y = 0.0
 		for seat in v.seats.size():
