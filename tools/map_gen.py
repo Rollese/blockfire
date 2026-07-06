@@ -444,22 +444,33 @@ def gen_town_heightmap(world_half=170.0, spacing=2.0):
         t = np.clip((d - R0) / BLEND, 0.0, 1.0)
         w = 1.0 - (t * t * (3.0 - 2.0 * t))
         hm = hm * (1.0 - w) + ch * w
-    # Flatten the terrain UNDER the ROAD corridors so roads read as graded/level, not bumpy like open
-    # ground. Blend road cells toward a heavily low-passed grade (all roads share the same smoothed
-    # field, so intersections match) with a short edge ramp. On the gentle core the smoothed grade is
-    # nearly level; approach roads over the countryside keep only a gentle longitudinal slope. Buildings
-    # sit on their own runtime pads and never overlap roads, so there's no pad/road conflict.
-    sm = hm.copy()
-    for _ in range(40):
-        sm = 0.2 * (sm + np.roll(sm, 1, 0) + np.roll(sm, -1, 0) + np.roll(sm, 1, 1) + np.roll(sm, -1, 1))
-    rmask = np.zeros((n, n))
-    RBLEND = 3.5
+    # Level each ROAD to a FLAT cross-section (no side-tilt) with a smoothly-graded centreline (no
+    # bumpy oscillation): sample the terrain along the road's centreline, smooth it 1D, then assign that
+    # ONE height across the whole road WIDTH at each point along its length, with a short perpendicular
+    # ramp into the grass. Roads are axis-aligned (long axis = the wider dimension). Intersections: a
+    # later road overwrites the crossing cells (tiny mismatch, invisible on the gentle core). Buildings
+    # never overlap roads (validated), so no pad/road conflict.
+    def _ix(w):
+        return min(max(int(round((w + world_half) / spacing)), 0), n - 1)
+    def _smooth1d(a, k=24):
+        for _ in range(k):
+            a = 0.5 * a + 0.25 * (np.roll(a, 1) + np.roll(a, -1))
+        return a
+    SHOULDER = 5   # cells of perpendicular road->grass ramp beyond each edge (gentle, walkable berm)
     for rd in roads:
-        x0, z0, x1, z1 = rd["min"][0], rd["min"][2], rd["max"][0], rd["max"][2]
-        dx = np.maximum(np.maximum(x0 - X, X - x1), 0.0)    # 0 inside the AABB, else distance outside
-        dz = np.maximum(np.maximum(z0 - Z, Z - z1), 0.0)
-        rmask = np.maximum(rmask, np.clip(1.0 - np.hypot(dx, dz) / RBLEND, 0.0, 1.0))
-    hm = hm * (1.0 - rmask) + sm * rmask
+        xi0, xi1, zi0, zi1 = _ix(rd["min"][0]), _ix(rd["max"][0]), _ix(rd["min"][2]), _ix(rd["max"][2])
+        if (xi1 - xi0) >= (zi1 - zi0):                          # E-W road -> level across Z
+            prof = _smooth1d(hm[(zi0 + zi1) // 2, :].copy())
+            for zi in range(max(zi0 - SHOULDER, 0), min(zi1 + SHOULDER + 1, n)):
+                d = (zi0 - zi) if zi < zi0 else ((zi - zi1) if zi > zi1 else 0)
+                w = max(1.0 - d / (SHOULDER + 1.0), 0.0)
+                hm[zi, xi0:xi1 + 1] = w * prof[xi0:xi1 + 1] + (1.0 - w) * hm[zi, xi0:xi1 + 1]
+        else:                                                   # N-S road -> level across X
+            prof = _smooth1d(hm[:, (xi0 + xi1) // 2].copy())
+            for xi in range(max(xi0 - SHOULDER, 0), min(xi1 + SHOULDER + 1, n)):
+                d = (xi0 - xi) if xi < xi0 else ((xi - xi1) if xi > xi1 else 0)
+                w = max(1.0 - d / (SHOULDER + 1.0), 0.0)
+                hm[zi0:zi1 + 1, xi] = w * prof[zi0:zi1 + 1] + (1.0 - w) * hm[zi0:zi1 + 1, xi]
     # TIGHT dynamic 8-bit range (just cover the actual relief + a small margin) so the quantization step
     # is as fine as possible — a wide fixed range wasted levels and micro-stairstepped flat roads.
     import math

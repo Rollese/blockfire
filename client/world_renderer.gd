@@ -397,10 +397,14 @@ func _build_grass_foliage(map: MapDef) -> void:
 		if b.has("footprint"):
 			var f: Dictionary = b["footprint"]
 			boxes.append(Vector4(float(f["min_x"]), float(f["min_z"]), float(f["max_x"]), float(f["max_z"])))
+	# Roads + their painted SIDEWALK border (SIDEWALK_M in map_gen.gen_town_surface_map) so grass never
+	# pokes through the white sidewalk.
+	var SIDEWALK_M := 2.6
 	for rd: Dictionary in map.roads:
 		var rmn: Vector3 = rd["min"]
 		var rmx: Vector3 = rd["max"]
-		boxes.append(Vector4(minf(rmn.x, rmx.x), minf(rmn.z, rmx.z), maxf(rmn.x, rmx.x), maxf(rmn.z, rmx.z)))
+		boxes.append(Vector4(minf(rmn.x, rmx.x) - SIDEWALK_M, minf(rmn.z, rmx.z) - SIDEWALK_M,
+			maxf(rmn.x, rmx.x) + SIDEWALK_M, maxf(rmn.z, rmx.z) + SIDEWALK_M))
 
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 0x6A55_1EAF   # fixed -> deterministic scatter
