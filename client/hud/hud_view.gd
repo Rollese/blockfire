@@ -8,6 +8,11 @@ const ObjectiveMarker := preload("res://client/hud/objective_marker.gd")   # cap
 const COMPASS_STRIP_WIDTH := 400.0
 const COMPASS_HEIGHT := 24.0
 const COMPASS_MARKER_POOL := 12   # reused objective-marker labels (never realloc per frame)
+# Match-status band (BattleBit-style ticket/timer readout) — pinned top-centre, ABOVE the compass.
+const STATUS_TOP := 8.0
+const STATUS_HEIGHT := 40.0
+const STATUS_STRIP_WIDTH := 300.0
+const COMPASS_TOP := STATUS_TOP + STATUS_HEIGHT + 6.0   # compass drops below the status band
 const KILLFEED_MAX := 6
 const CAPTURE_FEED_MAX := 3      # max concurrent capture banners
 const CAPTURE_FEED_TTL_VIEW := 4.0   # mirror HudModel.CAPTURE_FEED_TTL (drives the fade-out)
@@ -30,7 +35,10 @@ var _ammo_panel: Control   # ammo readout container — hidden while downed/dead
 var _compass_label: Label
 var _compass_container: Control   # holds marker labels; children are reused per render
 var _compass_markers: Array[Label] = []   # pooled objective-marker labels (▼), reused each frame
-var _tickets_label: Label
+var _status_my: Label       # viewer's ticket count (blue), left of the timer
+var _status_enemy: Label    # enemy ticket count (red), right of the timer
+var _status_timer: Label    # match timer MM:SS, centred at top of the band
+var _tickets_label: Label   # WINNING/LOSING/TIED word (outlined), centred under the timer
 var _cap_widget: Control          # capture widget container (top-centre, under the compass)
 var _cap_title: Label             # "POINT A · HELD/ENEMY/NEUTRAL/CONTESTED"
 var _cap_bar: ColorRect           # capture progress bar background (tinted by current owner)
@@ -122,7 +130,7 @@ func render(model: Dictionary) -> void:
 	var _cs := Time.get_ticks_usec()
 	_render_compass(model.get("compass", {}))
 	_perf_compass_us = Time.get_ticks_usec() - _cs
-	_render_tickets(model.get("tickets", [0, 0]))
+	_render_tickets(model.get("tickets", {}))
 	_render_capture(model.get("capture"))
 	_render_killfeed(model.get("killfeed", []))
 	_render_capture_feed(model.get("capture_feed", []))
@@ -441,8 +449,8 @@ func _build_compass() -> void:
 	strip.anchor_bottom = 0.0
 	strip.offset_left = -COMPASS_STRIP_WIDTH * 0.5
 	strip.offset_right = COMPASS_STRIP_WIDTH * 0.5
-	strip.offset_top = 8.0
-	strip.offset_bottom = 8.0 + COMPASS_HEIGHT + 16.0
+	strip.offset_top = COMPASS_TOP
+	strip.offset_bottom = COMPASS_TOP + COMPASS_HEIGHT + 16.0
 	strip.mouse_filter = MOUSE_FILTER_IGNORE
 	add_child(strip)
 
@@ -485,7 +493,7 @@ func _build_capture_widget() -> void:
 	# who owns it (ours/enemy/neutral, viewer-relative colour), and live capture progress. Hidden
 	# unless you're inside a capture radius.
 	var w := 300.0
-	var top := 8.0 + COMPASS_HEIGHT + 16.0 + 8.0   # clear the compass strip above
+	var top := COMPASS_TOP + COMPASS_HEIGHT + 16.0 + 8.0   # clear the compass strip above
 	_cap_widget = Control.new()
 	_cap_widget.anchor_left = 0.5
 	_cap_widget.anchor_right = 0.5
@@ -527,23 +535,89 @@ func _build_capture_widget() -> void:
 
 
 func _build_tickets() -> void:
-	# Tickets — top-left.
+	# Match-status band — top-centre, above the compass. A dark backing panel makes the counts,
+	# timer and WINNING/LOSING word readable over sky / snow / white terrain (fixes white-on-white).
 	var panel := Control.new()
-	panel.anchor_left = 0.0
-	panel.anchor_right = 0.0
+	panel.anchor_left = 0.5
+	panel.anchor_right = 0.5
 	panel.anchor_top = 0.0
 	panel.anchor_bottom = 0.0
-	panel.offset_left = 12.0
-	panel.offset_right = 200.0
-	panel.offset_top = 8.0
-	panel.offset_bottom = 80.0
+	panel.offset_left = -STATUS_STRIP_WIDTH * 0.5
+	panel.offset_right = STATUS_STRIP_WIDTH * 0.5
+	panel.offset_top = STATUS_TOP
+	panel.offset_bottom = STATUS_TOP + STATUS_HEIGHT
 	panel.mouse_filter = MOUSE_FILTER_IGNORE
 	add_child(panel)
 
+	# Semi-transparent dark backing (the visibility fix).
+	var bg := ColorRect.new()
+	bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	bg.color = Color(0, 0, 0, 0.55)
+	bg.mouse_filter = MOUSE_FILTER_IGNORE
+	panel.add_child(bg)
+
+	# Viewer's ticket count — left, blue (recoloured each frame via _rel_color).
+	_status_my = Label.new()
+	_status_my.anchor_left = 0.0
+	_status_my.anchor_right = 0.0
+	_status_my.offset_left = 12.0
+	_status_my.offset_right = 92.0
+	_status_my.offset_top = 4.0
+	_status_my.offset_bottom = STATUS_HEIGHT - 2.0
+	_status_my.text = "0"
+	_status_my.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+	_status_my.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	_status_my.add_theme_font_size_override("font_size", 24)
+	_status_my.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.9))
+	_status_my.add_theme_constant_override("outline_size", 4)
+	_status_my.mouse_filter = MOUSE_FILTER_IGNORE
+	panel.add_child(_status_my)
+
+	# Enemy ticket count — right, red.
+	_status_enemy = Label.new()
+	_status_enemy.anchor_left = 1.0
+	_status_enemy.anchor_right = 1.0
+	_status_enemy.offset_left = -92.0
+	_status_enemy.offset_right = -12.0
+	_status_enemy.offset_top = 4.0
+	_status_enemy.offset_bottom = STATUS_HEIGHT - 2.0
+	_status_enemy.text = "0"
+	_status_enemy.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	_status_enemy.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	_status_enemy.add_theme_font_size_override("font_size", 24)
+	_status_enemy.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.9))
+	_status_enemy.add_theme_constant_override("outline_size", 4)
+	_status_enemy.mouse_filter = MOUSE_FILTER_IGNORE
+	panel.add_child(_status_enemy)
+
+	# Match timer MM:SS — centred, top row.
+	_status_timer = Label.new()
+	_status_timer.anchor_left = 0.5
+	_status_timer.anchor_right = 0.5
+	_status_timer.offset_left = -50.0
+	_status_timer.offset_right = 50.0
+	_status_timer.offset_top = 2.0
+	_status_timer.text = "00:00"
+	_status_timer.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_status_timer.add_theme_font_size_override("font_size", 16)
+	_status_timer.add_theme_color_override("font_color", Color(1, 1, 1))
+	_status_timer.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.9))
+	_status_timer.add_theme_constant_override("outline_size", 4)
+	_status_timer.mouse_filter = MOUSE_FILTER_IGNORE
+	panel.add_child(_status_timer)
+
+	# WINNING / LOSING / TIED word — centred under the timer, outlined so it reads on any background.
 	_tickets_label = Label.new()
-	_tickets_label.text = "T0: 0  T1: 0"
-	_tickets_label.add_theme_font_size_override("font_size", 16)
-	_tickets_label.modulate = Color(1, 1, 1)
+	_tickets_label.anchor_left = 0.5
+	_tickets_label.anchor_right = 0.5
+	_tickets_label.offset_left = -70.0
+	_tickets_label.offset_right = 70.0
+	_tickets_label.offset_top = 21.0
+	_tickets_label.text = "TIED"
+	_tickets_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_tickets_label.add_theme_font_size_override("font_size", 13)
+	_tickets_label.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.95))
+	_tickets_label.add_theme_constant_override("outline_size", 4)
 	_tickets_label.mouse_filter = MOUSE_FILTER_IGNORE
 	panel.add_child(_tickets_label)
 
@@ -1491,10 +1565,22 @@ func _render_compass(compass: Dictionary) -> void:
 		dot.visible = true
 
 
-func _render_tickets(tickets: Array) -> void:
-	var t0: int = int(tickets[0]) if tickets.size() > 0 else 0
-	var t1: int = int(tickets[1]) if tickets.size() > 1 else 0
-	_tickets_label.text = "%d  |  %d" % [t0, t1]
+## Top-centre match-status band: viewer-relative ticket counts, the match timer, and the viewer's
+## WINNING/LOSING/TIED standing. `status` is the HudModel._tickets dict.
+func _render_tickets(status: Dictionary) -> void:
+	var my_team: int = int(status.get("my_team", -1))
+	_status_my.text = str(int(status.get("my_tickets", 0)))
+	_status_my.add_theme_color_override("font_color", _rel_color(my_team, my_team))
+	_status_enemy.text = str(int(status.get("enemy_tickets", 0)))
+	# The enemy is any team that is not the viewer's; colour it via the "opposite team" rule.
+	_status_enemy.add_theme_color_override("font_color", _rel_color(1 - my_team if my_team >= 0 else -1, my_team))
+	_status_timer.text = String(status.get("timer_str", "00:00"))
+	var word := String(status.get("status", "TIED"))
+	_tickets_label.text = word
+	var wc := Color(0.62, 0.62, 0.62)   # TIED = grey
+	if word == "WINNING": wc = Color(0.4, 0.9, 0.45)   # green
+	elif word == "LOSING": wc = Color(1.0, 0.42, 0.42)   # red
+	_tickets_label.add_theme_color_override("font_color", wc)
 
 ## Top-centre capture widget: which point, who owns it (viewer-relative), and live progress.
 func _render_capture(capture) -> void:

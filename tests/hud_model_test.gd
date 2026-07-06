@@ -76,13 +76,39 @@ func test_compass_bearing_wraps_behind() -> void:
 		"objectives": [{"pos": Vector3(0, 0, 10), "owner": -1}], "tick": 0})
 	assert_almost_eq(absf(rad_to_deg(out["compass"]["markers"][0]["rel_bearing"])), 180.0, 1.0)
 
-func test_tickets_passthrough_and_capture_when_on_point() -> void:
+func test_match_status_band_and_capture_when_on_point() -> void:
+	# Match-status band: viewer on team 0 with 120 vs enemy 95, timer at 1:23 -> WINNING.
 	var m := HudModel.new()
-	var ms := {"points": [{"owner": -1, "attacker": 0, "cap": 0.4}], "tickets": [120, 95]}
-	var out := m.build({"match_state": ms, "self_pos": Vector3(5, 0, 5),
+	var ms := {"points": [{"owner": -1, "attacker": 0, "cap": 0.4}], "tickets": [120, 95], "elapsed": 83}
+	var out := m.build({"match_state": ms, "self_team": 0, "self_pos": Vector3(5, 0, 5),
 		"point_positions": [Vector3(6, 0, 6)], "point_radii": [8.0], "tick": 0})
-	assert_eq(out["tickets"], [120, 95])
+	var st: Dictionary = out["tickets"]
+	assert_eq(st["my_tickets"], 120, "team 0 -> t0 is mine")
+	assert_eq(st["enemy_tickets"], 95)
+	assert_eq(st["timer_str"], "01:23")
+	assert_eq(st["status"], "WINNING")
 	assert_almost_eq(out["capture"]["cap"], 0.4, 0.001, "on the point -> progress shown")
+
+func test_match_status_viewer_relative_for_team1() -> void:
+	# The team-1 viewer sees t1 (95) as "mine" and t0 (120) as enemy -> LOSING.
+	var m := HudModel.new()
+	var ms := {"tickets": [120, 95], "elapsed": 0}
+	var out := m.build({"match_state": ms, "self_team": 1, "self_pos": Vector3(500, 0, 500),
+		"point_positions": [], "point_radii": [], "tick": 0})
+	var st: Dictionary = out["tickets"]
+	assert_eq(st["my_tickets"], 95)
+	assert_eq(st["enemy_tickets"], 120)
+	assert_eq(st["status"], "LOSING")
+
+func test_format_timer_and_ticket_status_pure() -> void:
+	assert_eq(HudModel.format_timer(0), "00:00")
+	assert_eq(HudModel.format_timer(9), "00:09")
+	assert_eq(HudModel.format_timer(83), "01:23")
+	assert_eq(HudModel.format_timer(600), "10:00")
+	assert_eq(HudModel.format_timer(-5), "00:00", "negatives clamp to 0")
+	assert_eq(HudModel.ticket_status(120, 95), "WINNING")
+	assert_eq(HudModel.ticket_status(95, 120), "LOSING")
+	assert_eq(HudModel.ticket_status(50, 50), "TIED")
 
 func test_capture_uses_true_point_radius_not_a_constant() -> void:
 	# Regression (2026-07-03): the widget must trigger at the point's real radius (== ground ring +

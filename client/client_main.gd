@@ -789,7 +789,7 @@ func _process(_dt: float) -> void:
 		"grenades": _grenade_danger_sources(),
 		"in_vehicle": _in_vehicle(),
 		"objectives": _objectives(),
-		"self_team": _self_team(),   # for friend/foe (relative) colouring of compass + objective markers
+		"self_team": _self_team(),   # friend/foe (relative) colour: compass + objective markers + score band
 		"match_state": _match_state,
 		"point_positions": _point_positions(),
 		"point_radii": _point_radii(),   # per-point TRUE capture radius (matches the ground ring + server)

@@ -182,9 +182,34 @@ func _compass(ctx: Dictionary) -> Dictionary:
 			"label": String(o.get("label", ""))})
 	return {"heading": view, "markers": markers, "my_team": int(ctx.get("self_team", -1))}
 
-func _tickets(ctx: Dictionary) -> Array:
+## Top-centre match-status readout (BattleBit-style): both teams' ticket counts (viewer-relative,
+## ours vs enemy), the match timer (MM:SS from `elapsed`), and a WINNING/LOSING/TIED word for the
+## viewer. Pure — reads the decoded match_state + the viewer's team. Falls back to the roster if
+## `self_team` isn't supplied in ctx.
+func _tickets(ctx: Dictionary) -> Dictionary:
 	var ms: Dictionary = ctx.get("match_state", {})
-	return ms.get("tickets", [0, 0])
+	var tk: Array = ms.get("tickets", [0, 0])
+	var t0: int = int(tk[0]) if tk.size() > 0 else 0
+	var t1: int = int(tk[1]) if tk.size() > 1 else 0
+	var my_team := int(ctx.get("self_team", -1))
+	if my_team < 0:
+		my_team = _self_team(ctx)
+	# Viewer-relative split: team 1 sees its own count as "mine". Neutral/unknown (-1) keeps t0 as mine.
+	var mine := t1 if my_team == 1 else t0
+	var enemy := t0 if my_team == 1 else t1
+	return {"my_tickets": mine, "enemy_tickets": enemy, "t0": t0, "t1": t1, "my_team": my_team,
+		"timer_str": format_timer(int(ms.get("elapsed", 0))), "status": ticket_status(mine, enemy)}
+
+## MM:SS from a whole-second elapsed count. Pure; clamps negatives to 0.
+static func format_timer(elapsed: int) -> String:
+	var e: int = maxi(elapsed, 0)
+	return "%02d:%02d" % [e / 60, e % 60]
+
+## Viewer's standing from the two ticket counts: more tickets = WINNING, fewer = LOSING, equal = TIED.
+static func ticket_status(mine: int, enemy: int) -> String:
+	if mine > enemy: return "WINNING"
+	if mine < enemy: return "LOSING"
+	return "TIED"
 
 func _capture(ctx: Dictionary):
 	var ms: Dictionary = ctx.get("match_state", {})
