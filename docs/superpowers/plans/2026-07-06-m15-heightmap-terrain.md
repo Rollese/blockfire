@@ -231,15 +231,27 @@ git commit -m "feat(m15): TerrainGrid + Terrain.height_at bilinear sampling with
 Reuse the `_grid()` helper. Append:
 
 ```gdscript
+# A uniformly steep ramp rising 4 m per 2 m cell in +x -> gradient 2.0/m -> atan(2)=63.4 deg (> MAX).
+# NOTE: central difference must be tested on a LINEAR ramp (true gradient regardless of step) with no
+# symmetric extremum — the 3x3 _grid() peak cancels a central difference to 0 and dilutes flanks.
+func _steep_ramp() -> TerrainGrid:
+	var g := TerrainGrid.new()
+	g.cols = 11; g.rows = 11; g.spacing = 2.0; g.origin_x = -10.0; g.origin_z = -10.0
+	var s := PackedFloat32Array(); s.resize(121)
+	for zi in 11:
+		for xi in 11:
+			s[zi*11 + xi] = float(xi) * 4.0
+	g.samples = s
+	return g
+
 func test_slope_flat_is_zero() -> void:
 	assert_almost_eq(Terrain.slope_at(null, 0.0, 0.0), 0.0, 0.001, "null = flat, 0 deg")
 	# a flat corner region of _grid() (away from the peak) is ~flat
 	assert_almost_eq(Terrain.slope_at(_grid(), -2.0, -2.0), 0.0, 0.001, "flat corner ~0 deg")
 
 func test_slope_on_incline_is_positive() -> void:
-	# halfway up the peak the gradient is 4 m over 2 m run -> atan(2) ~= 63.4 deg
-	var s := Terrain.slope_at(_grid(), 1.0, 0.0)
-	assert_true(s > 45.0, "steep flank reads steep (got %f)" % s)
+	var s := Terrain.slope_at(_steep_ramp(), 0.0, 0.0)
+	assert_true(s > 50.0, "steep ramp reads steep (got %f)" % s)
 
 func test_resolve_movement_null_grid_passes() -> void:
 	var to := Vector3(5, 0, 5)
@@ -259,10 +271,10 @@ func test_resolve_movement_gentle_slope_passes() -> void:
 	assert_eq(Terrain.resolve_movement(g, Vector3(0,0,0), to), to, "gentle slope walkable")
 
 func test_resolve_movement_too_steep_is_clipped() -> void:
-	# destination is on the sharp peak flank of _grid() (slope > MAX) -> movement into it is clipped.
-	var from := Vector3(-2, 0, 0)
-	var to := Vector3(0, 0, 0)   # the 4 m peak column, flanks steeper than MAX_WALKABLE_SLOPE_DEG
-	var out := Terrain.resolve_movement(_grid(), from, to)
+	var g := _steep_ramp()
+	var from := Vector3(-4, 0, 0)
+	var to := Vector3(0, 0, 0)   # up the steep ramp, slope > MAX_WALKABLE_SLOPE_DEG
+	var out := Terrain.resolve_movement(g, from, to)
 	assert_ne(out, to, "too-steep destination is not reached (clipped/slid)")
 ```
 
