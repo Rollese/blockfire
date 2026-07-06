@@ -274,21 +274,33 @@ def gen_proving_grounds_heightmap(world_half=1000.0, spacing=2.0):
     # valley -> demonstrates a capture point on low ground; B is excluded from the flats below)
     dvb = np.hypot(X + 300.0, Z - 300.0)
     hm += np.where(dvb < 180.0, -12.0 * (1.0 - dvb / 180.0), 0.0)
-    # a deliberately too-steep cliff wall x=400..430 (~40 m over 30 m run, >50 deg -> unwalkable)
-    in_z = (Z >= -200.0) & (Z <= 200.0)
-    hm += np.where((X >= 400.0) & (X <= 430.0) & in_z, 40.0 * (X - 400.0) / 30.0, 0.0)
-    hm += np.where((X > 430.0) & in_z, 40.0, 0.0)         # flat mesa on top of the cliff
+    # a deliberately too-steep RIDGE wall centred at x=415, z in +/-80: a localized triangular ridge
+    # rising ~20 m over a 10 m run (gradient 2.0 -> ~63 deg, well past MAX_WALKABLE_SLOPE_DEG=50) then
+    # back down — a wall to test slope-blocking (walk/jump/drive rejected), NOT a mesa. Deliberately
+    # localized (z flanks are open) so bots route AROUND it: it must not partition the map or wall a
+    # base. (An earlier version made x>430 a 40 m mesa over the whole east half, trapping team-1's base
+    # behind a 40 m cliff — the bot fleet froze at spawn. This ridge keeps the too-steep test feature
+    # without that partition.)
+    in_z = (Z >= -80.0) & (Z <= 80.0)
+    ridge = np.clip(1.0 - np.abs(X - 415.0) / 10.0, 0.0, 1.0)   # triangular 0->1->0 over x=405..425
+    hm += np.where(in_z, 20.0 * ridge, 0.0)
     # tunnel-entrance ramps sculpted down to portals at (0,-120) and (0,120)
     for pz in (-120.0, 120.0):
         dp = np.hypot(X, Z - pz)
         hm += np.where(dp < 40.0, -8.0 * (1.0 - dp / 40.0), 0.0)
-    # pin flat lots under bases/points so the render reads intentional. Radius ~45 m. Point B
-    # (-300,300) is intentionally OMITTED so its valley basin survives (a flat-0 pad in a -12 m
-    # basin would create an ugly wall at the pad edge). Buildings get their own runtime pad in
+    # SMOOTHLY blend flat lots under bases/points into the surrounding grade. A HARD radius-45 pad set
+    # to 0 created a 0->~5 m step at the pad edge whose central-difference slope sat right at/above the
+    # 50 deg walk limit, ringing every spawn with an unwalkable wall (the fleet froze at base). Instead:
+    # flat within R0, then a smoothstep blend to natural terrain over BLEND m (max edge slope ~5-7 deg).
+    # Point B (-300,300) is OMITTED so its valley basin survives; buildings get their own runtime pad in
     # Terrain.load_for_map, snapped to local grade.
+    R0, BLEND = 30.0, 40.0
     flats = [(-900, 0), (900, 0), (-600, -400), (0, 0), (300, -300), (600, 400)]
     for fx, fz in flats:
-        hm[np.hypot(X - fx, Z - fz) < 45.0] = 0.0
+        d = np.hypot(X - fx, Z - fz)
+        t = np.clip((d - R0) / BLEND, 0.0, 1.0)
+        w = 1.0 - (t * t * (3.0 - 2.0 * t))     # smoothstep: w=1 (flat) inside R0 -> 0 (natural) at R0+BLEND
+        hm = hm * (1.0 - w)                      # inside: hm->0; outside the blend band: unchanged
     height_min, height_scale = -16.0, 64.0
     px = np.clip(np.round((hm - height_min) / height_scale * 255.0), 0, 255).astype(np.uint8)
     return px, n, height_min, height_scale

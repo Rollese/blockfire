@@ -12,8 +12,17 @@ func test_proving_grounds_terrain_features() -> void:
 	var g := Terrain.load_for_map(m, "res://maps", Callable())
 	assert_ne(g, null, "proving_grounds has terrain")
 	assert_true(Terrain.height_at(g, -300, 300) < -2.0, "valley basin is below grade")
-	assert_true(Terrain.height_at(g, 431, 0) > 20.0, "cliff top is high")
+	assert_true(Terrain.height_at(g, 415, 0) > 15.0, "the too-steep ridge crest is high")
+	assert_true(Terrain.slope_at(g, 410, 0) > Terrain.MAX_WALKABLE_SLOPE_DEG, "ridge face is unwalkable (slope-block test)")
 	assert_almost_eq(Terrain.height_at(g, -900, 0), 0.0, 1.0, "team-0 base is flat")
+	# Regression guard for the fleet-freeze bug: the base pad must be walkable ALL the way out (no
+	# ring of >50 deg pad-edge slope). Sample a full circle at the old hard-pad radius.
+	for deg in range(0, 360, 30):
+		var rad := deg_to_rad(float(deg))
+		var x := -900.0 + cos(rad) * 45.0
+		var z := 0.0 + sin(rad) * 45.0
+		assert_true(Terrain.slope_at(g, x, z) <= Terrain.MAX_WALKABLE_SLOPE_DEG,
+			"base-0 pad edge walkable at %d deg (slope %.1f)" % [deg, Terrain.slope_at(g, x, z)])
 
 # Regression (review C1/I1): a pawn must be able to descend INTO sub-zero terrain (a valley) —
 # the platform_floor 0.0 default used to clamp it back up to y=0 and it floated over the basin.
