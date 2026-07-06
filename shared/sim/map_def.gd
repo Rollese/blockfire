@@ -16,6 +16,7 @@ var buildings: Array = []  # [{prefab:String, origin_cell:Vector3i, yaw:int}]
 var scenery: Array = []  # [{id, pos, yaw, scale, palette?}] cosmetic trees/rocks (client-only)
 var scenery_palette: Dictionary = {}  # optional {tree:String, rock:String} colorsheet names (client-only)
 var vehicle_spawns: Array = []  # [{team:int, type:String, pos:Vector3, heading:float}]
+var terrain: Dictionary = {}   # {heightmap:String, sample_spacing:float, height_min:float, height_scale:float} or {} (flat)
 
 func base_for(team: int) -> Dictionary:
 	for b in bases:
@@ -94,6 +95,7 @@ static func from_dict(data: Dictionary) -> Dictionary:
 			"prefab": String(b["prefab"]),
 			"origin_cell": Vector3i(int(oc[0]), int(oc[1]), int(oc[2])),
 			"yaw": byaw,
+			"terrain_cutout": bool(b.get("terrain_cutout", false)),
 		})
 	for sc in data.get("scenery", []):
 		if not (sc is Dictionary) or not sc.has("id") or not sc.has("pos") \
@@ -124,6 +126,16 @@ static func from_dict(data: Dictionary) -> Dictionary:
 			"pos": _vec3(vs["pos"]),
 			"heading": float(vs.get("heading", 0.0)),
 		})
+	var raw_terrain: Variant = data.get("terrain", {})
+	if typeof(raw_terrain) == TYPE_DICTIONARY and not raw_terrain.is_empty():
+		if not raw_terrain.has("heightmap"):
+			return {"ok": false, "map": null, "error": "terrain needs a heightmap path"}
+		m.terrain = {
+			"heightmap": String(raw_terrain["heightmap"]),
+			"sample_spacing": float(raw_terrain.get("sample_spacing", 2.0)),
+			"height_min": float(raw_terrain.get("height_min", 0.0)),
+			"height_scale": float(raw_terrain.get("height_scale", 0.0)),
+		}
 	return {"ok": true, "map": m, "error": ""}
 
 static func load_file(path: String) -> MapDef:
