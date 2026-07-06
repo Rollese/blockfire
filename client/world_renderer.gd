@@ -268,8 +268,10 @@ const VEHICLE_SMOOTH_RATE := 16.0                # higher = snappier; ~1/e catch
 var _wreck_mat: StandardMaterial3D = null        # shared burnt-out material for destroyed vehicles
 const _WRECK_DEMO_VID := -424242                 # synthetic vid for the --vehicle-test wreck
 const _DMG_DEMO_VID := -424243                   # synthetic vid for the --vehicle-test damaged transport
-# M11: building_id(int) -> footprint ground centre; rubble spawns here on COLLAPSE.
-var _building_centroid: Dictionary = {}
+# M11: building_id(int) -> {min,max} world footprint, unioned over the building's lifetime and NEVER
+# shrunk, so a COLLAPSE anchors rubble on the ORIGINAL ground centre — not the orphaned upper-floor
+# remnant that survives to the fall (that floated the mound; playtest). Persists across rebuilds.
+var _building_footprint: Dictionary = {}
 var _map: MapDef = null   # retained from setup() so a late joiner can anchor rejoin rubble on the static footprint (A3b)
 
 # viewmodel box (optional placeholder)
@@ -293,6 +295,7 @@ var vm_reload_test := false       # --reload-test: hold the viewmodel mid-reload
 func setup(map: MapDef, camera: Camera3D) -> void:
 	_camera = camera
 	_map = map
+	_building_footprint.clear()   # fresh map: drop any prior match's cached footprints
 	# Interpret settings.fov as HORIZONTAL fov (BattleBit-style). Godot defaults to KEEP_HEIGHT
 	# (vertical), which turns fov=90 into ~121° horizontal on 16:9 — the "fisheye" warp at edges.
 	_camera.keep_aspect = Camera3D.KEEP_WIDTH
@@ -2077,7 +2080,8 @@ func _rebuild_structure_batches(structs: Dictionary) -> void:
 			n.queue_free()
 	_struct_groups.clear()
 	_struct_key_of.clear()
-	_building_centroid.clear()
+	# NB: _building_footprint is NOT cleared here — it persists + only grows, so a collapse still knows
+	# the original footprint after damage has removed the ground pieces.
 
 	# M12-P2: under-construction build sites are NOT batched — each renders as an individual ghost
 	# (translucent target silhouette + a progress fill). Split them out before grouping the rest.
@@ -2087,8 +2091,7 @@ func _rebuild_structure_batches(structs: Dictionary) -> void:
 			under[id_v] = structs[id_v]
 	_sync_buildsite_ghosts(under)
 
-	# Group piece ids by visual key; accumulate a per-building ground anchor for collapse rubble.
-	var bacc: Dictionary = {}   # bid -> {sx, sz, n, miny}
+	# Group piece ids by visual key; union each building's extents into its persistent footprint.
 	for id_v: Variant in structs:
 		var rec: Dictionary = structs[id_v]
 		if int(rec.get("under_construction", 0)) == 1:
@@ -2100,17 +2103,7 @@ func _rebuild_structure_batches(structs: Dictionary) -> void:
 		_struct_key_of[int(id_v)] = key
 		var bid: int = int(rec.get("building_id", 0))
 		if bid != 0:
-			var o: Vector3 = _structure_xform(rec).origin
-			var a: Dictionary = bacc.get(bid, {"sx": 0.0, "sz": 0.0, "n": 0, "miny": o.y})
-			a["sx"] = float(a["sx"]) + o.x
-			a["sz"] = float(a["sz"]) + o.z
-			a["n"] = int(a["n"]) + 1
-			a["miny"] = minf(float(a["miny"]), o.y)   # lowest course -> rubble lands on the ground, not a floating upper floor (A3a)
-			bacc[bid] = a
-	for bid_v: Variant in bacc:
-		var a: Dictionary = bacc[bid_v]
-		var n := float(a["n"])
-		_building_centroid[int(bid_v)] = Vector3(float(a["sx"]) / n, float(a["miny"]), float(a["sz"]) / n)
+			_union_building_footprint(bid, _structure_xform(rec).origin)
 
 	for key: String in _struct_groups:
 		_build_group_mmis(key, structs)
@@ -2178,7 +2171,7 @@ func _incremental_struct_update(dirty_ids: Array, structs: Dictionary) -> void:
 			_struct_key_of[id] = new_key
 			var bid: int = int((rec as Dictionary).get("building_id", 0))
 			if bid != 0:
-				_building_centroid[bid] = _structure_xform(rec).origin
+				_union_building_footprint(bid, _structure_xform(rec).origin)
 		else:
 			_struct_key_of.erase(id)
 	for key: String in dirty_keys:
@@ -2450,11 +2443,29 @@ func _make_structure_node(rec: Dictionary) -> Node3D:
 
 ## M11: replace a collapsed building with a rubble mound at its last-known centroid + a collapse
 ## cinematic (rolling dust, flung debris, screen shake) so a building coming down reads as an event.
+## Grow building `bid`'s cached footprint to include a piece origin at `o` (cell-centre). Union-only —
+## the box never shrinks, so after damage strips the ground pieces the original ground centre survives.
+func _union_building_footprint(bid: int, o: Vector3) -> void:
+	var half := BuildGrid.CELL_SIZE * 0.5
+	if not _building_footprint.has(bid):
+		_building_footprint[bid] = {"min": Vector3(o.x - half, o.y, o.z - half), "max": Vector3(o.x + half, o.y, o.z + half)}
+		return
+	var b: Dictionary = _building_footprint[bid]
+	var mn: Vector3 = b["min"]
+	var mx: Vector3 = b["max"]
+	b["min"] = Vector3(minf(mn.x, o.x - half), minf(mn.y, o.y), minf(mn.z, o.z - half))
+	b["max"] = Vector3(maxf(mx.x, o.x + half), maxf(mx.y, o.y), maxf(mx.z, o.z + half))
+	_building_footprint[bid] = b
+
 func _spawn_rubble_for(building_id: int) -> void:
-	if _building_centroid.has(building_id):
-		# Live collapse we witnessed the pieces of: full cinematic (fireball/debris/shake) + the mound.
-		var center: Vector3 = _building_centroid[building_id]
-		_building_centroid.erase(building_id)
+	if _building_footprint.has(building_id):
+		# Live collapse we witnessed the pieces of: full cinematic (fireball/debris/shake) + the mound,
+		# anchored on the footprint's GROUND centre (min.y) so the mound lands on the ground.
+		var b: Dictionary = _building_footprint[building_id]
+		var mn: Vector3 = b["min"]
+		var mx: Vector3 = b["max"]
+		var center := Vector3((mn.x + mx.x) * 0.5, mn.y, (mn.z + mx.z) * 0.5)
+		_building_footprint.erase(building_id)
 		_play_collapse_fx(center, _now)
 	else:
 		# Late joiner: this building fell before we connected (COLLAPSE join-replay). Show ONLY the

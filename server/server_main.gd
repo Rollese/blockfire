@@ -128,6 +128,7 @@ var _transport_origin := {}   # id -> Vector3 boarding pos (transport-distance m
 var _pending_removes: Array = []   # [{id, cell}] removes awaiting send (degradation queue)
 var _dmg_touched := {}             # id -> true: pieces holed (alive) this tick, for end-of-tick chunk-mask resend
 var _buildings_to_cascade := {}    # building_id -> true; resolved at end of tick
+var _building_footprint := {}      # building_id -> ORIGINAL footprint bounds (marginless) from map load; the collapse crush zone (pieces surviving the fall have shrunk, so the remnant is the wrong volume)
 var _collapsed_bids: Array = []    # building_ids fully collapsed this match — replayed to late joiners
                                    # (A3 playtest bug: a reconnecting client rebuilt every map ladder
                                    # from the static MapDef and showed ghost ladders on dead buildings)
@@ -245,6 +246,7 @@ func _start_match() -> bool:
 		_next_struct_id += 1
 		_store.place(sid, ti, pb["cell"], 0, 0)   # owner 0 = world-placed
 	# M11: stamp destructible building prefabs, each instance a unique building_id (>=1).
+	_building_footprint.clear()   # rebuilt below from the intact pieces (map load / rotation)
 	var _next_building_id := 1
 	var _b_gen_idx := -1
 	for b in _map.buildings:
@@ -263,6 +265,7 @@ func _start_match() -> bool:
 		var inst_yaw: int = int(b["yaw"])
 		if inst_yaw < 0 or inst_yaw >= BuildGrid.YAW_STEPS:
 			push_error("[map] building '%s' yaw %d out of range" % [b["prefab"], inst_yaw]); continue
+		var bcells: Array = []
 		for piece in pres["prefab"]["pieces"]:
 			var cell := origin + _rotate_offset(piece["offset"], inst_yaw)
 			var bsid := _next_struct_id
@@ -270,6 +273,12 @@ func _start_match() -> bool:
 			var placed := _store.place(bsid, int(piece["type"]), cell, (int(piece["yaw"]) + inst_yaw) % BuildGrid.YAW_STEPS, -1, bid)
 			if placed.is_empty():
 				push_error("[map] building '%s' piece at cell %s overlaps an occupied cell (dropped)" % [b["prefab"], cell])
+			else:
+				bcells.append(cell)
+		# Cache the intact footprint now — the collapse crush zone reads THIS, not the handful of
+		# orphaned pieces that survive to the moment the building actually comes down.
+		if not bcells.is_empty():
+			_building_footprint[bid] = CollapseZone.bounds(bcells, 0.0)
 	_spawn_map_vehicles()
 	return true
 
@@ -1860,16 +1869,21 @@ const COLLAPSE_CRUSH_MARGIN := 1.5   # m: the "inside or very close" band around
 func _collapse_building(bid: int) -> void:
 	if _collapsed_bids.has(bid):
 		return   # idempotent: the cascade resolver and the empty-building path can both target one bid
-	# Capture the footprint from the live pieces BEFORE we drop them — it's the crush volume.
-	var cells: Array = []
+	# Crush volume = the building's ORIGINAL footprint (cached at map load), expanded by the "very
+	# close" margin. Using the surviving pieces here gave a shrunken/empty zone (a building only ever
+	# loses pieces before it falls) — so someone against the original wall wasn't caught (playtest).
+	var remnant: Array = []
 	for oid in _store.ids_of_building(bid):
 		var crec := _store.get_record(oid)
 		if not crec.is_empty():
-			cells.append(crec["cell"])
+			remnant.append(crec["cell"])
 			_remove_c4_on_cell(crec["cell"])
 		_dmg_touched.erase(oid)
 		_store.remove(oid)
-	_apply_collapse_crush(CollapseZone.bounds(cells, COLLAPSE_CRUSH_MARGIN))
+	var zone: Dictionary = CollapseZone.expand(_building_footprint.get(bid, {}), COLLAPSE_CRUSH_MARGIN)
+	if zone.is_empty():
+		zone = CollapseZone.bounds(remnant, COLLAPSE_CRUSH_MARGIN)   # player-built (no cached footprint): use what's there
+	_apply_collapse_crush(zone)
 	_stats.collapsed += 1
 	# H1: the building is gone — remove its roof ladder(s) so nobody climbs a ghost into thin air.
 	var kept_ladders: Array = []

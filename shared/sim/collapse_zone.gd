@@ -24,6 +24,16 @@ static func bounds(cells: Array, margin: float) -> Dictionary:
 	mn.z -= margin; mx.z += margin
 	return {"min": mn, "max": mx}
 
+## Grow an existing (marginless) bounds horizontally by `margin` m — used to apply the "very close"
+## band to a building's cached ORIGINAL footprint at collapse time (the footprint is cached without a
+## margin so it can be reused/unioned; the margin is a crush-time concern).
+static func expand(b: Dictionary, margin: float) -> Dictionary:
+	if b.is_empty():
+		return {}
+	var mn: Vector3 = b["min"]
+	var mx: Vector3 = b["max"]
+	return {"min": Vector3(mn.x - margin, mn.y, mn.z - margin), "max": Vector3(mx.x + margin, mx.y, mx.z + margin)}
+
 ## Is world position `p` inside the collapse kill volume? XZ within the expanded footprint AND at/below
 ## the top (anyone standing on/under the building when it drops is crushed). A small vertical slack
 ## keeps a pawn whose feet sit just above the top course (rooftop stander) in the zone.

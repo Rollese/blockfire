@@ -41,6 +41,16 @@ func test_pawn_high_above_survives() -> void:
 	var b := CollapseZone.bounds(_cells(), 1.5)
 	assert_false(CollapseZone.contains(b, Vector3(12, 10, 12)), "flying/on a taller neighbour's roof above the top -> safe")
 
+func test_expand_grows_xz_keeps_y_and_reaches_original_edge() -> void:
+	# The lethality fix caches the ORIGINAL (marginless) footprint, then expands at collapse time. A
+	# pawn at the original wall edge must be crushed even if only a shrunken remnant survives the fall.
+	var original := CollapseZone.bounds(_cells(), 0.0)   # footprint of the intact building
+	var zone := CollapseZone.expand(original, 1.5)
+	assert_eq(zone["min"], Vector3(8.5, 0, 8.5), "XZ grew by margin")
+	assert_eq(zone["max"], Vector3(15.5, 4, 15.5), "XZ grew by margin; Y untouched")
+	assert_true(CollapseZone.contains(zone, Vector3(14, 0, 12)), "on the far wall edge of the intact footprint -> crushed")
+	assert_true(CollapseZone.expand({}, 1.5).is_empty(), "expanding an empty footprint stays empty")
+
 func test_empty_building_crushes_nothing() -> void:
 	var b := CollapseZone.bounds([], 1.5)
 	assert_true(b.is_empty(), "no cells -> no zone")
