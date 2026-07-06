@@ -113,6 +113,27 @@ func test_frag_ignores_wall_and_waits_for_fuse() -> void:
 	assert_eq(srv._grenades.size(), 1, "frag still in flight (fuse not elapsed, airborne)")
 	srv.free()
 
+func test_frag_on_subzero_terrain_does_not_instant_detonate() -> void:
+	# Playtest bug: on ground BELOW y=0 (a base/valley on M15 terrain) a thrown frag spawned already
+	# "underground" (eye y < 0) and detonated on the FIRST tick — instant blast, nothing thrown. Ground
+	# contact must compare against the TERRAIN surface, not a hard y=0.
+	var srv := _make_server()
+	var g := TerrainGrid.new()
+	g.cols = 21; g.rows = 21; g.spacing = 4.0; g.origin_x = -40.0; g.origin_z = -40.0
+	var s := PackedFloat32Array(); s.resize(441); s.fill(-6.0)   # flat ground at y = -6
+	g.samples = s
+	srv._terrain = g
+	var dir := Vector3(0.0, 0.5, 1.0).normalized()
+	srv._grenades.append({
+		"owner": 1, "team": 0, "type": Grenade.FRAG,
+		"pos": Vector3(0.0, -4.4, 0.0), "vel": Grenade.launch_velocity(dir),   # eye height on the -6 ground
+		"detonate_tick": srv._sim.tick + 45,
+	})
+	srv._step_grenades()
+	assert_eq(srv._stats.nades, 0, "no detonation on the first tick (was: instant, pos.y < 0)")
+	assert_eq(srv._grenades.size(), 1, "frag arcs from the sub-zero ground instead of instant-detonating")
+	srv.free()
+
 # --- Task 3: melee knife resolve --------------------------------------------------------------
 
 func test_knife_frontal_does_body_damage_not_kill() -> void:

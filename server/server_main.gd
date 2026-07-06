@@ -1518,6 +1518,14 @@ func _remove_c4_on_cell(cell: Vector3i) -> void:
 ## A DOWNED player chooses to skip the bleed-out and die now (BattleBit give-up) -> true death,
 ## spends a ticket, returns them to the deploy screen.
 ## Integrate live grenades; detonate on fuse or ground contact (v1). Detonation is present-time.
+## Ground height under a grenade — the TERRAIN surface (0 on a flat map). The frag ground-detonation
+## and the bounce/rest checks compare against THIS, not a hard y=0: on M15 terrain the ground is at the
+## local elevation, so on low-lying ground (a base/valley where terrain is below 0) a thrown frag used
+## to spawn already "underground" (eye y < 0) and detonate on the first tick — instant blast, no arc
+## (playtest: sprint onto low ground, release a cooked nade -> instant explosion, nothing thrown).
+func _grenade_ground_y(pos: Vector3) -> float:
+	return Terrain.height_at(_terrain, pos.x, pos.z)
+
 func _step_grenades() -> void:
 	if _grenades.is_empty():
 		return
@@ -1545,12 +1553,12 @@ func _step_grenades() -> void:
 					continue   # cloud finished — drop the canister (zone expires via _expire_smoke_zones)
 			still.append(g)
 			continue
-		# Frag / flashbang: airburst on the fuse, or blast on first ground contact.
+		# Frag / flashbang: airburst on the fuse, or blast on first ground contact (terrain surface).
 		if _sim.tick >= int(g["detonate_tick"]):
 			_detonate(g)
 			continue
 		_integrate_grenade(g)
-		if g["pos"].y <= 0.0:
+		if g["pos"].y <= _grenade_ground_y(g["pos"]):
 			_detonate(g)
 		else:
 			still.append(g)
@@ -1575,13 +1583,15 @@ func _integrate_grenade(g: Dictionary) -> void:
 				var v: Vector3 = s["vel"]
 				g["pos"] = (hit["point"] as Vector3) + n * GRENADE_BOUNCE_SKIN
 				g["vel"] = (v - 2.0 * v.dot(n) * n) * GRENADE_RESTITUTION   # reflect + lose energy
-				if g["pos"].y <= 0.0:
-					g["pos"].y = 0.0
+				var gy_b := _grenade_ground_y(g["pos"])
+				if g["pos"].y <= gy_b:
+					g["pos"].y = gy_b
 					g["vel"] = Vector3.ZERO
 				return
 	g["pos"] = new_pos; g["vel"] = s["vel"]
-	if g["pos"].y <= 0.0:
-		g["pos"].y = 0.0
+	var gy := _grenade_ground_y(g["pos"])
+	if g["pos"].y <= gy:
+		g["pos"].y = gy
 		g["vel"] = Vector3.ZERO
 
 ## One integration step for an impact grenade. Detonates (frag blast via _detonate) on the first
@@ -1591,7 +1601,7 @@ func _step_impact(g: Dictionary) -> bool:
 	var s := Grenade.integrate(g["pos"], g["vel"], SimLoop.DT)
 	var seg: Vector3 = (s["pos"] as Vector3) - (g["pos"] as Vector3)
 	var seg_len := seg.length()
-	var struck: bool = s["pos"].y <= 0.0
+	var struck: bool = s["pos"].y <= _grenade_ground_y(s["pos"])
 	if not struck and _store != null and (_store.count() > 0 or _store.terrain != null) and seg_len > 0.0001:
 		if bool(_store.march(g["pos"], seg / seg_len, seg_len)["hit"]):
 			struck = true
