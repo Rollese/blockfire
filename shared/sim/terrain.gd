@@ -59,3 +59,44 @@ static func resolve_movement(grid: TerrainGrid, from: Vector3, to: Vector3) -> V
 	if slope_at(grid, try_z.x, try_z.z) <= MAX_WALKABLE_SLOPE_DEG:
 		return try_z
 	return Vector3(from.x, to.y, from.z)
+
+## Build a TerrainGrid from a grayscale Image. Red channel 0..1 -> [height_min, height_min+scale].
+## Image is cols x rows; samples read row-major with z increasing downward (image row 0 = z=-world_half).
+static func build_grid(img: Image, spacing: float, world_half: float, height_min: float, height_scale: float) -> TerrainGrid:
+	var g := TerrainGrid.new()
+	g.cols = img.get_width()
+	g.rows = img.get_height()
+	g.spacing = spacing
+	g.origin_x = -world_half
+	g.origin_z = -world_half
+	var s := PackedFloat32Array()
+	s.resize(g.cols * g.rows)
+	for zi in g.rows:
+		for xi in g.cols:
+			var v := img.get_pixel(xi, zi).r   # grayscale: r==g==b
+			s[zi * g.cols + xi] = height_min + v * height_scale
+	g.samples = s
+	return g
+
+## Level every sample whose world column falls in the AABB [min_x..max_x]x[min_z..max_z] to `height`.
+## The +/- spacing slack guarantees the pad covers samples straddling the footprint edge so a building
+## foundation never floats over a half-flattened boundary cell.
+static func flatten_pad(grid: TerrainGrid, min_x: float, max_x: float, min_z: float, max_z: float, height: float) -> void:
+	if grid == null:
+		return
+	for zi in grid.rows:
+		var wz := grid.origin_z + float(zi) * grid.spacing
+		if wz < min_z - grid.spacing or wz > max_z + grid.spacing:
+			continue
+		for xi in grid.cols:
+			var wx := grid.origin_x + float(xi) * grid.spacing
+			if wx < min_x - grid.spacing or wx > max_x + grid.spacing:
+				continue
+			grid.samples[zi * grid.cols + xi] = height
+
+## Record a terrain-suppression AABB (tunnel). Inside it, height_at returns floor_y (a low value)
+## so structure pieces own the column and march() does not treat the column as solid ground.
+static func carve_cutout(grid: TerrainGrid, min_x: float, max_x: float, min_z: float, max_z: float, floor_y: float) -> void:
+	if grid == null:
+		return
+	grid.cutouts.append({"min_x": min_x, "max_x": max_x, "min_z": min_z, "max_z": max_z, "floor_y": floor_y})
