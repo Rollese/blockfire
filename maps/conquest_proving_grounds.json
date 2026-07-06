@@ -232,7 +232,7 @@
   "terrain": {
     "heightmap": "heightmaps/proving_grounds.png",
     "sample_spacing": 2.0,
-    "height_min": -16.0,
-    "height_scale": 64.0
+    "height_min": -45.0,
+    "height_scale": 105.0
   }
 }

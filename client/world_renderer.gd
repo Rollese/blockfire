@@ -318,26 +318,31 @@ func _build_terrain_chunks(mat: Material) -> void:
 			cz += TERRAIN_CHUNK
 		cx += TERRAIN_CHUNK
 
-## One chunk mesh: two triangles per grid quad over [x0,x1)×[z0,z1], world-space vertices at sample heights.
+## One chunk mesh: two triangles per grid quad over [x0,x1)×[z0,z1], world-space vertices at sample
+## heights. Each vertex carries a planar UV (world XZ mapped 0..1 across the map, exactly like the flat
+## PlaneMesh's auto-UVs) so the shared two-tone ground texture tiles — WITHOUT UVs the material samples
+## one texel and the whole terrain reads as a single flat colour (no depth cue → looks flat).
 func _chunk_mesh(g: TerrainGrid, x0: int, z0: int, x1: int, z1: int) -> ArrayMesh:
 	var st := SurfaceTool.new()
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var side: float = maxf(float(g.cols - 1) * g.spacing, 1.0)   # map extent; UV 0..1 across it
 	for zi in range(z0, z1):
 		for xi in range(x0, x1):
-			var p00 := _terr_vtx(g, xi,   zi)
-			var p10 := _terr_vtx(g, xi + 1, zi)
-			var p01 := _terr_vtx(g, xi,   zi + 1)
-			var p11 := _terr_vtx(g, xi + 1, zi + 1)
-			st.add_vertex(p00); st.add_vertex(p01); st.add_vertex(p11)
-			st.add_vertex(p00); st.add_vertex(p11); st.add_vertex(p10)
-	st.generate_normals()
+			_terr_emit(st, g, side, xi,     zi)
+			_terr_emit(st, g, side, xi,     zi + 1)
+			_terr_emit(st, g, side, xi + 1, zi + 1)
+			_terr_emit(st, g, side, xi,     zi)
+			_terr_emit(st, g, side, xi + 1, zi + 1)
+			_terr_emit(st, g, side, xi + 1, zi)
+	st.generate_normals()   # per-face normals -> slopes catch the sun (reveals elevation)
 	return st.commit()
 
-## World-space vertex for grid sample (xi,zi): planar X/Z from origin+spacing, Y from the height sample.
-func _terr_vtx(g: TerrainGrid, xi: int, zi: int) -> Vector3:
+## Emit one terrain vertex (planar UV set BEFORE the vertex, as SurfaceTool requires).
+func _terr_emit(st: SurfaceTool, g: TerrainGrid, side: float, xi: int, zi: int) -> void:
 	var wx := g.origin_x + float(xi) * g.spacing
 	var wz := g.origin_z + float(zi) * g.spacing
-	return Vector3(wx, g.sample(xi, zi), wz)
+	st.set_uv(Vector2((wx - g.origin_x) / side, (wz - g.origin_z) / side))
+	st.add_vertex(Vector3(wx, g.sample(xi, zi), wz))
 
 ## Build static world geometry once. Call before any update().
 func setup(map: MapDef, camera: Camera3D) -> void:
@@ -380,9 +385,14 @@ func setup(map: MapDef, camera: Camera3D) -> void:
 		ground.material_override = gmat
 		add_child(ground)
 	else:
-		# M15: heightmap map — replace the flat plane with a chunked terrain mesh (same two-tone
-		# material). Chunks give free frustum culling; no collision (sim is kinematic via Terrain queries).
-		_build_terrain_chunks(gmat)
+		# M15: heightmap map — replace the flat plane with a chunked terrain mesh. Use a SOLID green
+		# material (not the NoiseTexture2D two-tone): the noise generates asynchronously and can render
+		# as a grey/untextured surface on some drivers, and across a big terrain the per-face normals +
+		# sun already give plenty of slope shading to read the relief. Robust green on every GPU.
+		var tmat := StandardMaterial3D.new()
+		tmat.albedo_color = Color(0.33, 0.52, 0.24)   # bright, saturated grass-green so it reads GREEN
+		tmat.roughness = 1.0                            # (not grey) under the scene's heavy bluish sky ambient
+		_build_terrain_chunks(tmat)
 
 	# Roads — flat dark-grey asphalt strips laid just above the ground (cosmetic, no collision).
 	# A faint yellow centre-line is drawn down the long axis so the road network reads as a network.

@@ -146,4 +146,19 @@ static func load_for_map(map: MapDef, base_dir: String, footprint_fn: Callable) 
 			var h := snap_pad_height(height_at(grid, cx, cz))
 			flatten_pad(grid, fp["min_x"], fp["max_x"], fp["min_z"], fp["max_z"], h)
 			b["origin_cell"] = Vector3i(oc.x, int(round(h / BuildGrid.CELL_SIZE)), oc.z)
+	# Terrain-adjust standalone map geometry (authored at y=0 for a flat map) so it sits ON the terrain
+	# instead of floating above / buried below it. Ladders shift by the terrain height at their foot
+	# (length preserved); platforms shift by the terrain height at their centre. Both server and client
+	# derive this identically (same grid), so climb/platform-floor stay consistent with the render.
+	for lad in map.ladders:
+		var b: Vector3 = lad["bottom"]
+		var dy := height_at(grid, b.x, b.z)
+		lad["bottom"] = b + Vector3(0.0, dy, 0.0)
+		lad["top"] = (lad["top"] as Vector3) + Vector3(0.0, dy, 0.0)
+	for pf in map.platforms:
+		var pmn: Vector3 = pf["min"]
+		var pmx: Vector3 = pf["max"]
+		var pdy := height_at(grid, (pmn.x + pmx.x) * 0.5, (pmn.z + pmx.z) * 0.5)
+		pf["min"] = pmn + Vector3(0.0, pdy, 0.0)
+		pf["max"] = pmx + Vector3(0.0, pdy, 0.0)
 	return grid
