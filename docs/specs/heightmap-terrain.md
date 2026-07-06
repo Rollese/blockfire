@@ -1,6 +1,6 @@
 # Spec — M15: Heightmap Terrain
 
-**Status:** brainstorm-of-record, ratified 2026-07-03. **Branch:** `worktree-m15-heightmap-terrain`.
+**Status:** IMPLEMENTED 2026-07-06 (branch `m15-heightmap-terrain`) — deterministic suite (1326/0) + 128-bot fleet gate PASS on `conquest_proving_grounds` (`winner=1 elapsed=249s peak tick=16.72ms<33.3`); owner feel-playtest pending. Ratified 2026-07-03. See `docs/sessions/2026-07-06-m15-heightmap-terrain.md`.
 **Builds on:** M11 (StructureStore / building pieces) + M14 (walkable multi-floor — the vertical-movement
 seam this milestone extends).
 
