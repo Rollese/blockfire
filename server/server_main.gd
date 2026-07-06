@@ -39,7 +39,7 @@ const FIRE_CONE_DOT := 0.985       # broad-phase: target within ~10deg of ray
 const FIRE_CONE_SKIP_RANGE := 8.0  # below this, skip the cone cull — feet/chest parallax exceeds the half-angle at point blank
 const RPG_RELOAD_SECS := 3.0       # reload refills the rocket pool (RPG has no hit-scan mag)
 const FIRE_RANGE_MARGIN := 20.0    # grid broad-phase slack for lag-comp movement
-const MAP_PATH := "res://maps/conquest_proving_grounds.json"   # default; override with --map=<name>
+const MAP_PATH := "res://maps/conquest_town.json"   # default village map; override with --map=<name>
 const MATCH_STATE_INTERVAL := 15   # ticks between match-state broadcasts (2 Hz)
 const KILL_SCORE := 100             # score points awarded to killer per kill
 const ROSTER_STRIDE_TICKS := 30    # broadcast roster every N ticks (~1 Hz @30Hz)
@@ -1049,6 +1049,7 @@ func _handle_deploy_request(peer: ENetPacketPeer, bytes: PackedByteArray) -> voi
 	var c = _clients[id]
 	var p: Pawn = _sim.world.get_pawn(id)
 	if p == null or p.alive: return    # already deployed
+	if _conquest.match_over: return    # match ended (victory/defeat screen up) — no more spawning in
 	if _sim.tick < int(c.get("deploy_ready_tick", 0)): return   # respawn cooldown not elapsed
 	var ref := int(Protocol.decode_deploy_request(bytes)["spawn_ref"])
 	var mates := _squad_candidates(id, int(c["team"]), int(c["squad"]))

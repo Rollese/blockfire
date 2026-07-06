@@ -25,6 +25,42 @@ func test_proving_grounds_terrain_features() -> void:
 		assert_true(Terrain.slope_at(g, x, z) <= Terrain.MAX_WALKABLE_SLOPE_DEG,
 			"base-0 pad edge walkable at %d deg (slope %.1f)" % [deg, Terrain.slope_at(g, x, z)])
 
+# End-to-end for the playable VILLAGE map: conquest_town now ships heightmap terrain (gentle core +
+# countryside hills). Guards the full load (31 building pads flattened over slopes), flat base spawns,
+# a fully-walkable village core, and every roof ladder's foot seated on its (padded) building — the
+# regression that produced "lonely ladders" floating above/below the ground on the old flat map.
+func test_town_terrain_loads_and_is_walkable() -> void:
+	var m := MapDef.load_file("res://maps/conquest_town.json")
+	assert_ne(m, null, "town map loads")
+	assert_false(m.terrain.is_empty(), "conquest_town has a terrain block")
+	var g := Terrain.load_for_map(m, "res://maps", Callable())
+	assert_ne(g, null, "town terrain grid builds")
+	# Base spawns flattened to local grade (clean, level deploy).
+	for b in m.bases:
+		var bp: Vector3 = b["pos"]
+		assert_true(Terrain.slope_at(g, bp.x, bp.z) < 6.0,
+			"team-%d base spawn is flat (slope %.1f)" % [int(b["team"]), Terrain.slope_at(g, bp.x, bp.z)])
+	# Village CORE (where the buildings/points are) is fully walkable — no pad-edge cliff rings.
+	var unwalkable := 0
+	for xz_x in range(-100, 101, 5):
+		for xz_z in range(-90, 81, 5):
+			if Terrain.slope_at(g, float(xz_x), float(xz_z)) > Terrain.MAX_WALKABLE_SLOPE_DEG:
+				unwalkable += 1
+	assert_eq(unwalkable, 0, "no unwalkable cell in the village core (dense-pad cliff guard)")
+
+func test_town_ladders_seated_on_buildings() -> void:
+	var m := MapDef.load_file("res://maps/conquest_town.json")
+	var g := Terrain.load_for_map(m, "res://maps", Callable())
+	assert_true(m.ladders.size() > 0, "town has roof ladders")
+	for lad in m.ladders:
+		var bottom: Vector3 = lad["bottom"]
+		var top: Vector3 = lad["top"]
+		# Foot sits ON the terrain/pad at its column (terrain-adjusted at load) — not floating/buried.
+		assert_almost_eq(bottom.y, Terrain.height_at(g, bottom.x, bottom.z), 0.02,
+			"ladder foot seated on the ground at (%.0f,%.0f)" % [bottom.x, bottom.z])
+		# It is a real vertical climb to a roof deck (length preserved through the terrain shift).
+		assert_true(top.y - bottom.y >= 6.0, "ladder is a full roof climb (%.1f m)" % (top.y - bottom.y))
+
 # Regression (review C1/I1): a pawn must be able to descend INTO sub-zero terrain (a valley) —
 # the platform_floor 0.0 default used to clamp it back up to y=0 and it floated over the basin.
 func test_pawn_descends_into_sub_zero_valley() -> void:

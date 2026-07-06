@@ -43,6 +43,16 @@ func test_deploy_blocked_during_respawn_cooldown() -> void:
 	assert_true((srv._sim.world.get_pawn(1) as Pawn).alive, "deploys once the cooldown elapses")
 
 
+func test_deploy_blocked_after_match_over() -> void:
+	# Playtest bug: with the victory/defeat overlay up, the deploy menu's buttons stayed clickable and
+	# the server happily re-spawned the player into a finished match. Deploy must be rejected once the
+	# match is over (the client also hides the menu now).
+	var srv := _srv_with_awaiting_pawn(0)
+	srv._conquest.match_over = true
+	srv._handle_deploy_request(null, Protocol.encode_deploy_request(0))   # ref 0 = HQ, normally valid
+	assert_false((srv._sim.world.get_pawn(1) as Pawn).alive, "no deploying after the match has ended")
+
+
 func test_deploy_resets_ledger_and_clears_downed_state() -> void:
 	var srv := _srv_with_awaiting_pawn(0)
 	srv._clients[1]["dmg_ledger"] = {9: 55}

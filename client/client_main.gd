@@ -826,6 +826,13 @@ func _process(_dt: float) -> void:
 	var _model := _hud_model.build(ctx)
 	var _t2 := Time.get_ticks_usec()
 	_hud_view.render(_model)
+	# BattleBit-style capture-point markers: diamonds anchored over each point in the world (letter +
+	# distance), coloured us=blue / enemy=red / neutral=grey. Hidden while dead in the deploy menu, in
+	# free-fly, or on the end-of-match screen. Presentation only — fed the camera + live objectives here.
+	var _markers_on := _scene_built and not _photo_mode and _match_end_overlay == null \
+		and (_deploy_menu == null or not _deploy_menu.visible)
+	var _self_p: Vector3 = _pred.predicted.pos if _pred != null else Vector3.ZERO
+	_hud_view.update_objective_markers(_camera, _objectives(), _self_team(), _self_p, _markers_on)
 	var _t3 := Time.get_ticks_usec()
 	# Per-section CPU timings surfaced on the perf overlay (permanent dev tool).
 	_hud_view.perf_render_us = _t1 - _t0   # world: entity pool + interpolation + camera + tracers
@@ -1120,7 +1127,11 @@ func _process(_dt: float) -> void:
 		var ss: EntityState = _wv.self_state()
 		var deployed: bool = ss != null and ss.alive
 		var settings_open: bool = _settings_menu != null and _settings_menu.visible
-		_deploy_menu.visible = not deployed and not settings_open
+		# Once the match is over (victory/defeat overlay up) the deploy menu must NOT be interactable —
+		# otherwise its spawn buttons stayed clickable under the end screen and let you re-enter a
+		# finished match (server also rejects the request now, but hide it so it can't be clicked).
+		var match_over: bool = _match_end_overlay != null
+		_deploy_menu.visible = not deployed and not settings_open and not match_over
 
 	# M12: hide the build-tool ghost + hint and drop any pending wheel whenever build mode isn't
 	# actively interactive — inactive, a menu is open, or the player isn't alive (covers the 1-frame
@@ -1653,8 +1664,20 @@ func _objectives() -> Array:
 	var pts: Array = _match_state.get("points", [])
 	for i in _map.points.size():
 		var owner: int = int(pts[i]["owner"]) if i < pts.size() else -1
-		out.append({"pos": _map.points[i]["pos"], "owner": owner})
+		# Raise the marker anchor onto the terrain (+~2 m) so the on-screen chip sits over the real
+		# point on the hills, and carry the letter id (A/B/C…) for the BattleBit-style HUD marker.
+		var p: Vector3 = _map.points[i]["pos"]
+		var anchor := Vector3(p.x, Terrain.height_at(_terrain_grid, p.x, p.z) + 2.0, p.z)
+		out.append({"pos": _map.points[i]["pos"], "owner": owner, "label": String(_map.points[i]["id"]), "anchor": anchor})
 	return out
+
+## This client's team (from the roster), or -1 if unknown — used to colour objective markers
+## friend/foe (BattleBit read: us = blue, enemy = red, neutral = grey).
+func _self_team() -> int:
+	for rw in _wv.roster():
+		if int(rw["id"]) == my_id:
+			return int(rw["team"])
+	return -1
 
 ## Fake roster for --killfeed-test so synthetic kills resolve to names + friend/foe (self_id is 1 -> team 0).
 func _killfeed_test_roster() -> Array:

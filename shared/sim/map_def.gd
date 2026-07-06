@@ -91,12 +91,22 @@ static func from_dict(data: Dictionary) -> Dictionary:
 		var byaw := int(b.get("yaw", 0))
 		if byaw < 0 or byaw >= BuildGrid.YAW_STEPS:
 			return {"ok": false, "map": null, "error": "building yaw out of range"}
-		m.buildings.append({
+		var bentry := {
 			"prefab": String(b["prefab"]),
 			"origin_cell": Vector3i(int(oc[0]), int(oc[1]), int(oc[2])),
 			"yaw": byaw,
 			"terrain_cutout": bool(b.get("terrain_cutout", false)),
-		})
+		}
+		# Optional baked world-AABB footprint (map_gen). Lets Terrain.load_for_map flatten the FULL
+		# building pad (not just the origin cell) so buildings sit flush on sloped terrain — without a
+		# runtime prefab-extent dependency. {min_x,max_x,min_z,max_z} in world metres.
+		if b.has("footprint") and b["footprint"] is Dictionary:
+			var f: Dictionary = b["footprint"]
+			bentry["footprint"] = {
+				"min_x": float(f.get("min_x", 0.0)), "max_x": float(f.get("max_x", 0.0)),
+				"min_z": float(f.get("min_z", 0.0)), "max_z": float(f.get("max_z", 0.0)),
+			}
+		m.buildings.append(bentry)
 	for sc in data.get("scenery", []):
 		if not (sc is Dictionary) or not sc.has("id") or not sc.has("pos") \
 				or not (sc["pos"] is Array) or sc["pos"].size() != 3:

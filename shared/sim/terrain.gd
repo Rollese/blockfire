@@ -134,6 +134,8 @@ static func load_for_map(map: MapDef, base_dir: String, footprint_fn: Callable) 
 		var fp: Dictionary
 		if footprint_fn.is_valid():
 			fp = footprint_fn.call(b)
+		elif b.has("footprint"):
+			fp = b["footprint"]   # baked world-AABB from map_gen -> flatten the FULL building pad
 		else:
 			var mn := BuildGrid.cell_min(oc)
 			fp = {"min_x": mn.x, "max_x": mn.x + BuildGrid.CELL_SIZE, "min_z": mn.z, "max_z": mn.z + BuildGrid.CELL_SIZE}

@@ -97,14 +97,15 @@ IND = ["warehouse", "factory", "hangar", "bunker", "silo", "parking", "supermark
 CIV = ["office", "office_tower", "apartment", "supermarket", "gas_station", "guardhouse", "materials"]
 RES = ["house", "family_a", "family_b", "cottage", "townhouse", "villa", "lhouse", "barn", "shed", "barracks"]
 
-# One frontage row per band, fronting the E-W street to its south (min-corner z = band bottom).
-# Bands south->north: between bases (z +-150) and the five cross-streets.
-fill_row(IND, -150, 150, z_corner=-124)  # B1: south outskirts (clear of team-0 base approach)
-fill_row(IND, -150, 150, z_corner=-90)   # B2: industrial, north of Cross -100
-fill_row(CIV, -150, 150, z_corner=-40)   # B3: commercial, north of Cross -50
-fill_row(CIV, -150, 150, z_corner=12)    # B4: civic, north of Center St
-fill_row(RES, -150, 150, z_corner=62)    # B5: residential, north of Cross +50
-fill_row(RES, -150, 150, z_corner=108)   # B6: north outskirts (clear of team-1 base approach)
+# A compact VILLAGE CENTRE: dense frontages clustered around the central square and main avenue.
+# The old outskirts rows (south B1 z=-124 / north B6 z=108) are REMOVED and the flanks trimmed to
+# ~ +/-100 m — those edge buildings went unvisited (owner feedback). The cleared perimeter becomes
+# walkable COUNTRYSIDE: rolling hills (gen_town_heightmap edge band) + fields (decorations/grass).
+# Bands south->north front the E-W cross-street to their south; the 5 capture points ring the core.
+fill_row(IND, -95, 95, z_corner=-90)    # south edge: workshops/light industrial (points A/B just south)
+fill_row(CIV, -100, 100, z_corner=-40)  # commercial row, north of Cross -50
+fill_row(CIV, -100, 100, z_corner=12)   # civic row at the central square (point C)
+fill_row(RES, -95, 95, z_corner=62)     # residential row, north edge of the village (points D/E)
 
 # Landmark: walkable two-story house at the central square (point C) for M14 playtest.
 # Source prefab: `tools/twostory_gen.py` -> `buildings/twostory_house.json`.
@@ -219,6 +220,12 @@ for nm, bx in boxes:
             problems.append("BASE OVERLAP: %s in team-%d spawn" % (nm, bs["team"]))
 for p in problems:
     print("  ! " + p)
+
+# Bake each building's world-AABB footprint so Terrain.load_for_map can flatten the FULL pad (not
+# just the origin cell) — buildings then sit flush on the village's sloped ground. aabb() -> world m.
+for b in buildings:
+    x0, z0, x1, z1 = aabb(b)
+    b["footprint"] = {"min_x": x0, "max_x": x1, "min_z": z0, "max_z": z1}
 
 path = os.path.join(ROOT, "maps", "conquest_town.json")
 json.dump(out, open(path, "w"), indent=2)
@@ -350,4 +357,169 @@ def add_terrain_to_proving_grounds():
           % (png_path, n, n, os.path.getsize(png_path), map_path))
 
 
+def gen_town_heightmap(world_half=170.0, spacing=2.0):
+    """GENTLE rolling hills for the infantry town. Unlike proving_grounds (4 spread-out buildings,
+    dramatic relief), conquest_town packs buildings ~7 m apart, and EACH gets a HARD flat pad at
+    load (Terrain.flatten_pad — no blend). If the natural grade under a footprint is steep, the pad
+    edge becomes a cliff and rings spawns/rows with an unwalkable wall (the M15 fleet-freeze bug).
+    So the CORE (where buildings stand) keeps a low grade (~11 deg): long wavelengths + modest
+    amplitude. The cleared PERIMETER (edge rows were thinned — nobody visited them) gets taller
+    ROLLING HILLS as a scenic, walkable backdrop. Base spawns are flattened to their local grade."""
+    import numpy as np
+    n = int(round(2 * world_half / spacing)) + 1            # 171 for the defaults
+    axis = -world_half + np.arange(n) * spacing
+    X, Z = np.meshgrid(axis, axis)
+    hm = np.zeros((n, n), dtype=np.float64)
+    # Gentle core swell (~7.5 m, grade ~8 deg), a secondary octave (~2.5 m), and a fine undulation.
+    hm += 7.5 * np.sin(X / 75.0) * np.cos(Z / 90.0)
+    hm += 2.5 * np.sin(X / 45.0 + 1.3) * np.cos(Z / 52.0 + 0.7)
+    hm += 1.5 * np.sin(X / 30.0 + 2.1) * np.cos(Z / 36.0 + 1.1)
+    # Perimeter hills: ramp in taller relief only OUTSIDE the built-up core (|x|>115 or |z|>120), where
+    # edge buildings were removed. `edge` is 0 in the core and eases to 1 toward the map rim, so the
+    # extra amplitude never touches a building pad. Wavelengths stay long -> the hills read big but the
+    # slope stays walkable (~14 deg peak on the rim).
+    ex = np.clip((np.abs(X) - 115.0) / 40.0, 0.0, 1.0)
+    ez = np.clip((np.abs(Z) - 120.0) / 40.0, 0.0, 1.0)
+    edge = np.maximum(ex, ez)
+    edge = edge * edge * (3.0 - 2.0 * edge)                 # smoothstep for a seamless core->rim blend
+    hm += edge * 14.0 * np.sin(X / 90.0 + 0.4) * np.cos(Z / 100.0 + 1.9)
+    hm += edge * 6.0 * np.cos(X / 55.0 + 2.6) * np.sin(Z / 60.0 + 0.8)
+    # Flatten each team base spawn (z = +/-150) to the LOCAL grade with a smoothstep blend (flat within
+    # R0, ramping to natural over BLEND) so deploy areas are level without a hard pad-edge step.
+    R0, BLEND = 24.0, 28.0
+    for bx, bz in [(0.0, -150.0), (0.0, 150.0)]:
+        cxi = min(max(int(round((bx + world_half) / spacing)), 0), n - 1)
+        czi = min(max(int(round((bz + world_half) / spacing)), 0), n - 1)
+        ch = hm[czi][cxi]
+        d = np.hypot(X - bx, Z - bz)
+        t = np.clip((d - R0) / BLEND, 0.0, 1.0)
+        w = 1.0 - (t * t * (3.0 - 2.0 * t))
+        hm = hm * (1.0 - w) + ch * w
+    height_min, height_scale = -24.0, 56.0                  # covers rim hills (~+22) down to cutouts
+    px = np.clip(np.round((hm - height_min) / height_scale * 255.0), 0, 255).astype(np.uint8)
+    return px, n, height_min, height_scale
+
+
+def add_terrain_to_town():
+    """Render the town heightmap PNG and inject the terrain block into conquest_town.json, preserving
+    every existing key (buildings/ladders/points/bases/roads). Idempotent."""
+    px, n, height_min, height_scale = gen_town_heightmap(170.0, 2.0)
+    hm_dir = os.path.join(ROOT, "maps", "heightmaps")
+    os.makedirs(hm_dir, exist_ok=True)
+    png_path = os.path.join(hm_dir, "conquest_town.png")
+    _write_gray_png(png_path, n, n, px.tobytes())
+
+    map_path = os.path.join(ROOT, "maps", "conquest_town.json")
+    md = json.load(open(map_path))
+    md["terrain"] = {
+        "heightmap": "heightmaps/conquest_town.png",
+        "sample_spacing": float(2.0),
+        "height_min": float(height_min),
+        "height_scale": float(height_scale),
+    }
+    json.dump(md, open(map_path, "w"), indent=2)
+    print("wrote %s (%dx%d, %d bytes) + terrain block -> %s"
+          % (png_path, n, n, os.path.getsize(png_path), map_path))
+
+
+def add_scenery_to_town():
+    """Scatter countryside decorations — trees (copses in the fields) + rocks — onto the GRASS of
+    conquest_town, avoiding building footprints, roads, and the capture/base zones. Deterministic
+    (fixed seed -> reproducible). Emitted as `scenery` (id/pos/yaw/scale/palette); the client seats
+    each on the terrain (WorldRenderer._terrain_y) and renders the GLB (cosmetic, no collision). Denser
+    in the cleared perimeter (countryside/fields) than in the village core. Idempotent."""
+    import random
+    rng = random.Random(0xB10CF19E)
+    map_path = os.path.join(ROOT, "maps", "conquest_town.json")
+    md = json.load(open(map_path))
+    world_half = float(md.get("world_half", 170.0))
+
+    # Exclusion AABBs/circles: keep decorations off buildings, roads, and objectives.
+    boxes = []  # (x0, z0, x1, z1) with margin
+    for b in md.get("buildings", []):
+        f = b.get("footprint")
+        if f:
+            boxes.append((f["min_x"] - 2.0, f["min_z"] - 2.0, f["max_x"] + 2.0, f["max_z"] + 2.0))
+    for rd in md.get("roads", []):
+        boxes.append((rd["min"][0] - 1.5, rd["min"][2] - 1.5, rd["max"][0] + 1.5, rd["max"][2] + 1.5))
+    circles = []  # (cx, cz, r) — capture points + bases kept clear so nothing blocks the zone read
+    for pt in md.get("points", []):
+        circles.append((pt["pos"][0], pt["pos"][2], float(pt.get("radius", 20)) + 2.0))
+    for bs in md.get("bases", []):
+        circles.append((bs["pos"][0], bs["pos"][2], float(bs.get("radius", 22)) + 4.0))
+
+    def blocked(x, z):
+        for x0, z0, x1, z1 in boxes:
+            if x0 <= x <= x1 and z0 <= z <= z1:
+                return True
+        for cx, cz, r in circles:
+            if (x - cx) ** 2 + (z - cz) ** 2 <= r * r:
+                return True
+        return False
+
+    def is_countryside(x, z):
+        return abs(x) > 108.0 or z < -92.0 or z > 80.0
+
+    TREES = ["tree_type0_01", "tree_type0_03", "tree_type1_02", "tree_type2_01", "tree_type2_04",
+             "tree_type3_02", "tree_type4_01", "tree_type5_03", "tree_type6_02", "tree_type7_01"]
+    ROCKS = ["rock_type1_02", "rock_type2_01", "rock_type3_03", "rock_type4_02", "rock_type5_01", "rock_type6_04"]
+    TREE_PAL = ["normal", "normal", "normal", "normal", "dry"]   # green countryside, an occasional dry tree
+
+    scenery = []
+    lim = world_half - 4.0
+
+    def try_place(x, z, kind):
+        if abs(x) > lim or abs(z) > lim or blocked(x, z):
+            return False
+        if kind == "tree":
+            scenery.append({"id": rng.choice(TREES), "pos": [round(x, 1), 0.0, round(z, 1)],
+                            "yaw": round(rng.uniform(0.0, 6.283), 3), "scale": round(rng.uniform(0.85, 1.5), 2),
+                            "palette": rng.choice(TREE_PAL)})
+        else:
+            scenery.append({"id": rng.choice(ROCKS), "pos": [round(x, 1), 0.0, round(z, 1)],
+                            "yaw": round(rng.uniform(0.0, 6.283), 3), "scale": round(rng.uniform(0.7, 1.8), 2),
+                            "palette": rng.choice(["grey", "grey", "green"])})
+        return True
+
+    # Tree copses: seed cluster centres, denser in the countryside; drop a few trees around each.
+    copses = 0
+    attempts = 0
+    while copses < 34 and attempts < 4000:
+        attempts += 1
+        cx = rng.uniform(-lim, lim)
+        cz = rng.uniform(-lim, lim)
+        if blocked(cx, cz):
+            continue
+        if not is_countryside(cx, cz) and rng.random() > 0.28:
+            continue   # keep the village interior sparse (only ~28% of copses land in-town)
+        n = rng.randint(2, 6)
+        placed_any = False
+        for _ in range(n):
+            x = cx + rng.uniform(-8.0, 8.0)
+            z = cz + rng.uniform(-8.0, 8.0)
+            placed_any |= try_place(x, z, "tree")
+        if placed_any:
+            copses += 1
+
+    # Scattered lone rocks/boulders across the whole grass surface.
+    rocks = 0
+    attempts = 0
+    while rocks < 55 and attempts < 6000:
+        attempts += 1
+        x = rng.uniform(-lim, lim)
+        z = rng.uniform(-lim, lim)
+        if not is_countryside(x, z) and rng.random() > 0.35:
+            continue
+        if try_place(x, z, "rock"):
+            rocks += 1
+
+    md["scenery"] = scenery
+    md["scenery_palette"] = {"tree": "normal", "rock": "grey"}
+    json.dump(md, open(map_path, "w"), indent=2)
+    n_tree = sum(1 for s in scenery if s["id"].startswith("tree"))
+    print("wrote %d scenery (%d trees / %d rocks) -> %s" % (len(scenery), n_tree, len(scenery) - n_tree, map_path))
+
+
 add_terrain_to_proving_grounds()
+add_terrain_to_town()
+add_scenery_to_town()

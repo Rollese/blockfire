@@ -42,7 +42,7 @@ func test_no_config_file_keeps_defaults() -> void:
 	assert_eq(srv._port, 27015)
 	assert_eq(srv._max_players, 128)
 	assert_false(srv._rotate)
-	assert_eq(srv._map_path, "res://maps/conquest_proving_grounds.json")
+	assert_eq(srv._map_path, "res://maps/conquest_town.json")   # default village map (M15 town terrain)
 
 func test_degrade_band_from_config_file() -> void:
 	_write('{"degrade_high_ms": 28.0, "degrade_low_ms": 24.0}')

@@ -30,7 +30,9 @@ func _town_store_and_map() -> Array:
 
 func test_town_has_roof_ladders() -> void:
 	var mres := MapDef.load_file("res://maps/conquest_town.json")
-	assert_true(mres.ladders.size() >= 20, "town generates roof ladders (>=20), got %d" % mres.ladders.size())
+	# The village-centre layout (edge rows removed for countryside) ships fewer buildings than the old
+	# dense grid, hence fewer tall roofs — but the multi-storey landmarks still get their roof ladders.
+	assert_true(mres.ladders.size() >= 8, "town generates roof ladders (>=8), got %d" % mres.ladders.size())
 
 func test_every_ladder_top_lands_on_a_walkable_deck() -> void:
 	var pair := _town_store_and_map()

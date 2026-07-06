@@ -301,8 +301,56 @@ var _terrain: TerrainGrid = null
 func set_terrain(g) -> void:
 	_terrain = g
 
+## Terrain surface height at world (x,z), or 0 on a flat map. Used to seat cosmetic map geometry
+## (scenery, point/base markers) ON the hills instead of at the authored y=0 (float/bury otherwise).
+func _terrain_y(x: float, z: float) -> float:
+	return Terrain.height_at(_terrain, x, z) if _terrain != null else 0.0
+
 ## Build the heightmap ground as a grid of MeshInstance3D chunks (TERRAIN_CHUNK cells each) sharing the
 ## two-tone ground material. Chunking exists only for frustum culling — no custom LOD, no collision.
+## Procedural world-space grass shader for the heightmap terrain. Computed in the fragment shader
+## (no texture asset, no async NoiseTexture generation -> no grey flash, identical on every GPU):
+## multi-octave value noise over world XZ gives per-metre fine speckle (motion reference underfoot)
+## + large patches of grass vs dry field; steep normals read as rocky earth. specular_disabled keeps
+## it matte (no bluish sky-reflection at grazing angles — the artefact that read as "grey" before).
+func _terrain_material() -> ShaderMaterial:
+	var sh := Shader.new()
+	sh.code = """
+shader_type spatial;
+render_mode diffuse_burley, specular_disabled;
+varying vec3 v_world;
+varying vec3 v_wn;
+void vertex() {
+	v_world = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
+	v_wn = normalize((MODEL_MATRIX * vec4(NORMAL, 0.0)).xyz);
+}
+float hash(vec2 p) { p = fract(p * vec2(123.34, 345.45)); p += dot(p, p + 34.345); return fract(p.x * p.y); }
+float vnoise(vec2 p) {
+	vec2 i = floor(p); vec2 f = fract(p); vec2 u = f * f * (3.0 - 2.0 * f);
+	float a = hash(i), b = hash(i + vec2(1.0, 0.0)), c = hash(i + vec2(0.0, 1.0)), d = hash(i + vec2(1.0, 1.0));
+	return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);
+}
+float fbm(vec2 p) { float s = 0.0, a = 0.5; for (int i = 0; i < 4; i++) { s += a * vnoise(p); p *= 2.03; a *= 0.5; } return s; }
+void fragment() {
+	vec2 w = v_world.xz;
+	float fine = fbm(w * 0.7);      // ~1.4 m speckle -> per-metre motion reference
+	float patch = fbm(w * 0.06);    // ~16 m patches -> grass vs dry field
+	vec3 grass_d = vec3(0.16, 0.26, 0.11);
+	vec3 grass_l = vec3(0.33, 0.45, 0.19);
+	vec3 dry = vec3(0.45, 0.44, 0.22);
+	vec3 col = mix(grass_d, grass_l, patch);
+	col = mix(col, dry, smoothstep(0.55, 0.92, patch) * 0.55);
+	col = mix(col * 0.82, col * 1.16, fine);              // fine light/dark speckle
+	float steep = 1.0 - smoothstep(0.62, 0.86, v_wn.y);   // steep slopes -> rocky earth
+	col = mix(col, vec3(0.29, 0.25, 0.19), steep * 0.75);
+	ALBEDO = col;
+	ROUGHNESS = 1.0;
+}
+"""
+	var m := ShaderMaterial.new()
+	m.shader = sh
+	return m
+
 func _build_terrain_chunks(mat: Material) -> void:
 	var g := _terrain
 	var cx := 0
@@ -317,6 +365,113 @@ func _build_terrain_chunks(mat: Material) -> void:
 			add_child(mi)
 			cz += TERRAIN_CHUNK
 		cx += TERRAIN_CHUNK
+
+## Scatter grass tufts over the terrain as a single MultiMesh (one draw call), on GRASS only:
+## every clump inside a building footprint or on a road is skipped, so grass never grows indoors or
+## on asphalt. Deterministic (fixed-seed RNG -> identical every run). Denser in the cleared perimeter
+## (countryside/fields) than in the village core. Seated on the terrain surface. Cosmetic, no collision.
+func _build_grass_foliage(map: MapDef) -> void:
+	if _terrain == null:
+		return
+	# Exclusion AABBs (x0,z0,x1,z1): building footprints (baked) + roads. No objective exclusions —
+	# grass under a capture ring is fine.
+	var boxes: Array = []
+	for b: Dictionary in map.buildings:
+		if b.has("footprint"):
+			var f: Dictionary = b["footprint"]
+			boxes.append(Vector4(float(f["min_x"]), float(f["min_z"]), float(f["max_x"]), float(f["max_z"])))
+	for rd: Dictionary in map.roads:
+		var rmn: Vector3 = rd["min"]
+		var rmx: Vector3 = rd["max"]
+		boxes.append(Vector4(minf(rmn.x, rmx.x), minf(rmn.z, rmx.z), maxf(rmn.x, rmx.x), maxf(rmn.z, rmx.z)))
+
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 0x6A55_1EAF   # fixed -> deterministic scatter
+	var half := map.world_half
+	var step := 2.1                                   # jittered grid pitch
+	var xforms: Array[Transform3D] = []
+	var wx := -half + 2.0
+	while wx < half - 2.0:
+		var wz := -half + 2.0
+		while wz < half - 2.0:
+			var px := wx + rng.randf_range(-1.1, 1.1)
+			var pz := wz + rng.randf_range(-1.1, 1.1)
+			wz += step
+			# countryside (perimeter) is lush; village interior keeps only scattered tufts
+			var country := absf(px) > 108.0 or pz < -92.0 or pz > 80.0
+			if rng.randf() > (0.95 if country else 0.55):
+				continue
+			var blocked := false
+			for bx: Vector4 in boxes:
+				if px >= bx.x and px <= bx.z and pz >= bx.y and pz <= bx.w:
+					blocked = true
+					break
+			if blocked:
+				continue
+			# skip steep rock faces (grass thins out on the near-cliff countryside slopes)
+			if Terrain.slope_at(_terrain, px, pz) > 34.0:
+				continue
+			var yaw := rng.randf_range(0.0, TAU)
+			var sc := rng.randf_range(0.75, 1.45)
+			var basis := Basis(Vector3.UP, yaw).scaled(Vector3(sc, sc, sc))
+			xforms.append(Transform3D(basis, Vector3(px, _terrain_y(px, pz), pz)))
+		wx += step
+
+	if xforms.is_empty():
+		return
+	var mm := MultiMesh.new()
+	mm.transform_format = MultiMesh.TRANSFORM_3D
+	mm.mesh = _grass_clump_mesh()
+	mm.instance_count = xforms.size()
+	for i in xforms.size():
+		mm.set_instance_transform(i, xforms[i])
+	var mmi := MultiMeshInstance3D.new()
+	mmi.multimesh = mm
+	# Force a map-spanning AABB: a MultiMesh's auto-bounds can collapse to the origin and then the whole
+	# instance is frustum-culled (grass vanishes even underfoot when the camera is far from 0,0). This
+	# covers the full terrain so it's never wrongly culled.
+	mmi.custom_aabb = AABB(Vector3(-half, -60.0, -half), Vector3(half * 2.0, 120.0, half * 2.0))
+	mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF   # thousands of tufts: shadows too costly
+	# NOTE: no visibility_range here — on a MultiMeshInstance3D it measures from the NODE origin (0,0,0),
+	# not per-instance, so any camera/player >range from map centre culls the ENTIRE field (the bug that
+	# hid all grass at the base ~150 m out). 9.7k instances is one cheap draw; per-instance frustum
+	# culling + the map-spanning custom_aabb keep it correct.
+	add_child(mmi)
+
+## A single grass tuft: a fan of thin tapered blades, vertex-coloured dark green at the base to a
+## lighter green tip. Double-sided + unshaded-ish (matte) so it reads from any angle. ~0.4 m tall.
+func _grass_clump_mesh() -> ArrayMesh:
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var base_col := Color(0.14, 0.24, 0.09)
+	var tip_col := Color(0.46, 0.58, 0.26)   # lighter/yellower tip -> the tuft silhouettes against the ground
+	var blades := 5
+	for bi in blades:
+		var ang := TAU * float(bi) / float(blades) + 0.6
+		var off := Vector3(cos(ang), 0.0, sin(ang)) * 0.07
+		var lean := Vector3(cos(ang), 0.0, sin(ang)) * 0.14
+		var h := 0.42 + 0.18 * float((bi * 7) % 5) / 4.0   # ~0.42-0.6 m: visible, but below crouch height
+		var w := Vector3(-sin(ang), 0.0, cos(ang)) * 0.045   # blade half-width, perpendicular
+		var p0 := off - w
+		var p1 := off + w
+		var p2 := off + lean + Vector3(0.0, h, 0.0)
+		# UP normal on every vertex so the near-vertical blades catch the sky/sun like the ground does
+		# (with no normals the tufts render unlit -> invisible against the grass). SurfaceTool wants the
+		# normal set BEFORE each vertex.
+		st.set_normal(Vector3.UP)
+		st.set_color(base_col); st.add_vertex(p0)
+		st.set_normal(Vector3.UP)
+		st.set_color(base_col); st.add_vertex(p1)
+		st.set_normal(Vector3.UP)
+		st.set_color(tip_col);  st.add_vertex(p2)
+	var mesh := st.commit()
+	var gm := StandardMaterial3D.new()
+	gm.vertex_color_use_as_albedo = true
+	gm.cull_mode = BaseMaterial3D.CULL_DISABLED       # visible from both sides
+	gm.roughness = 1.0
+	gm.specular_mode = BaseMaterial3D.SPECULAR_DISABLED
+	mesh.surface_set_material(0, gm)
+	return mesh
 
 ## One chunk mesh: two triangles per grid quad over [x0,x1)×[z0,z1], world-space vertices at sample
 ## heights. Each vertex carries a planar UV (world XZ mapped 0..1 across the map, exactly like the flat
@@ -389,16 +544,14 @@ func setup(map: MapDef, camera: Camera3D) -> void:
 		ground.material_override = gmat
 		add_child(ground)
 	else:
-		# M15: heightmap map — replace the flat plane with a chunked terrain mesh. Use a SOLID green
-		# material (not the NoiseTexture2D two-tone): the noise generates asynchronously and can render
-		# as a grey/untextured surface on some drivers, and across a big terrain the per-face normals +
-		# sun already give plenty of slope shading to read the relief. Robust green on every GPU.
-		var tmat := StandardMaterial3D.new()
-		tmat.albedo_color = Color(0.33, 0.52, 0.24)   # bright, saturated grass-green so it reads GREEN
-		tmat.roughness = 1.0
-		tmat.metallic_specular = 0.0                    # kill the specular fresnel: no bluish sky reflection
-		tmat.specular_mode = BaseMaterial3D.SPECULAR_DISABLED  # -> green at ALL view angles, not grey at grazing
-		_build_terrain_chunks(tmat)
+		# M15: heightmap map — replace the flat plane with a chunked terrain mesh, shaded by a
+		# WORLD-SPACE procedural grass shader (_terrain_material). Unlike a NoiseTexture2D (generates
+		# async -> can flash grey on some drivers) the noise is computed in the fragment shader from
+		# world XZ: no asset, no async, identical on every GPU. It gives per-metre fine detail (the
+		# near-field MOTION REFERENCE the player was missing on the old flat single-colour terrain),
+		# large grass/dry-field patches, and rocky earth on the steep countryside slopes.
+		_build_terrain_chunks(_terrain_material())
+		_build_grass_foliage(map)
 
 	# Roads — flat dark-grey asphalt strips laid just above the ground (cosmetic, no collision).
 	# A faint yellow centre-line is drawn down the long axis so the road network reads as a network.
@@ -445,39 +598,34 @@ func setup(map: MapDef, camera: Camera3D) -> void:
 		if node == null:
 			continue
 		var sc_pos: Vector3 = sc["pos"] as Vector3
-		node.position = sc_pos
+		node.position = Vector3(sc_pos.x, _terrain_y(sc_pos.x, sc_pos.z) + sc_pos.y, sc_pos.z)
 		node.rotation.y = float(sc.get("yaw", 0.0))
 		var sc_scale := float(sc.get("scale", 1.0))
 		if absf(sc_scale - 1.0) > 0.001:
 			node.scale = Vector3(sc_scale, sc_scale, sc_scale)
 		add_child(node)
 
-	# Capture point markers — a flat ground RING at the true capture radius (BattleBit zone read,
-	# not a big solid disc that fills the screen at spawn) + a tall beacon so the point is a visible
-	# landmark from across the map (flat terrain is otherwise impossible to navigate).
+	# Capture point markers — just a flat ground RING at the true capture radius (BattleBit zone read).
+	# The towering beacon columns were replaced by the screen-space capture-point markers (letter +
+	# ownership colour + distance) drawn by HudView.update_objective_markers — see client_main.
 	for pt: Dictionary in map.points:
 		var pt_pos: Vector3 = pt["pos"] as Vector3
 		var pt_radius: float = pt["radius"] as float
+		var pt_y := _terrain_y(pt_pos.x, pt_pos.z)
 		var marker := _make_ring_marker(pt_radius, 0.6, NEUTRAL_COLOR)
-		marker.position = Vector3(pt_pos.x, 0.12, pt_pos.z)
+		marker.position = Vector3(pt_pos.x, pt_y + 0.12, pt_pos.z)
 		add_child(marker)
-		var beacon := _make_box_mesh(Vector3(1.2, 30.0, 1.2), Color(0.95, 0.85, 0.25))
-		beacon.position = Vector3(pt_pos.x, 15.0, pt_pos.z)
-		add_child(beacon)
 
-	# Base markers — team-coloured ground ring at the true base radius + a tall beacon.
+	# Base markers — team-coloured ground ring at the true base radius (tall beacon removed too).
 	for b: Dictionary in map.bases:
 		var b_team: int = b["team"] as int
 		var b_pos: Vector3 = b["pos"] as Vector3
 		var b_radius: float = b["radius"] as float
 		var col: Color = TEAM_COLOR[b_team] if b_team < TEAM_COLOR.size() else NEUTRAL_COLOR
+		var b_y := _terrain_y(b_pos.x, b_pos.z)
 		var base_marker := _make_ring_marker(b_radius, 0.8, col)
-		base_marker.position = Vector3(b_pos.x, 0.12, b_pos.z)
+		base_marker.position = Vector3(b_pos.x, b_y + 0.12, b_pos.z)
 		add_child(base_marker)
-		# Tall team-coloured beacon at each base — a navigation landmark.
-		var base_beacon := _make_box_mesh(Vector3(2.0, 40.0, 2.0), col)
-		base_beacon.position = Vector3(b_pos.x, 20.0, b_pos.z)
-		add_child(base_beacon)
 
 	# Roof-access ladders — the map's climb VOLUMES rendered as visible red ladders (the only way
 	# onto the tall buildings' walkable roof decks; see WorldRenderer._make_ladder + tools/map_gen.py).

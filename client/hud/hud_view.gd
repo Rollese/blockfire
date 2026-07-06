@@ -166,6 +166,7 @@ func _build_tree() -> void:
 	_build_repair_gauge()
 	_build_ammo()
 	_build_compass()
+	_build_objective_markers()
 	_build_capture_widget()
 	_build_tickets()
 	_build_killfeed()
@@ -183,6 +184,95 @@ func _build_tree() -> void:
 	_build_perf()
 	_build_blind()        # truly last: a flashbang white-out covers even the HUD/scoreboard
 
+
+# ---- objective (capture-point) world markers --------------------------------
+# BattleBit/BF read: each capture point shows a diamond chip anchored over the point in the world,
+# coloured by ownership (us=blue, enemy=red, neutral=grey), the point LETTER inside it, and the
+# metre distance below. Off-screen/behind points clamp to the screen edge that points at them.
+# Presentation only: fed camera + objective list each frame by client_main (no authority/protocol).
+var _obj_root: Control
+var _obj_pool: Array = []          # [{root, dia_bg, dia, letter, dist}] pooled, reused each frame
+const OBJ_FRIEND := Color(0.28, 0.62, 1.0)
+const OBJ_ENEMY := Color(1.0, 0.36, 0.28)
+const OBJ_NEUTRAL := Color(0.82, 0.82, 0.82)
+
+func _build_objective_markers() -> void:
+	_obj_root = Control.new()
+	_obj_root.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_obj_root.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(_obj_root)
+
+func _make_obj_marker() -> Dictionary:
+	var root := Control.new()
+	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	root.size = Vector2(48, 62)
+	# dark backing diamond (a touch larger) so the chip reads against bright sky/terrain
+	var dia_bg := ColorRect.new()
+	dia_bg.size = Vector2(30, 30); dia_bg.position = Vector2(9, 2)
+	dia_bg.pivot_offset = Vector2(15, 15); dia_bg.rotation = PI / 4.0
+	dia_bg.color = Color(0, 0, 0, 0.55); dia_bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	root.add_child(dia_bg)
+	var dia := ColorRect.new()
+	dia.size = Vector2(24, 24); dia.position = Vector2(12, 5)
+	dia.pivot_offset = Vector2(12, 12); dia.rotation = PI / 4.0
+	dia.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	root.add_child(dia)
+	var letter := Label.new()
+	letter.size = Vector2(48, 34); letter.position = Vector2(0, 0)
+	letter.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	letter.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	letter.add_theme_color_override("font_color", Color(1, 1, 1))
+	letter.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.9))
+	letter.add_theme_constant_override("outline_size", 4)
+	letter.add_theme_font_size_override("font_size", 17)
+	letter.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	root.add_child(letter)
+	var dist := Label.new()
+	dist.size = Vector2(48, 16); dist.position = Vector2(0, 36)
+	dist.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	dist.add_theme_color_override("font_color", Color(1, 1, 1, 0.92))
+	dist.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.9))
+	dist.add_theme_constant_override("outline_size", 3)
+	dist.add_theme_font_size_override("font_size", 12)
+	dist.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	root.add_child(dist)
+	_obj_root.add_child(root)
+	return {"root": root, "dia_bg": dia_bg, "dia": dia, "letter": letter, "dist": dist}
+
+## Reposition/colour the capture-point diamonds. `objectives` = [{anchor:Vector3, owner:int, label}].
+func update_objective_markers(cam: Camera3D, objectives: Array, my_team: int, self_pos: Vector3, show: bool) -> void:
+	if _obj_root == null:
+		return
+	if not show or cam == null:
+		for mk in _obj_pool:
+			(mk["root"] as Control).visible = false
+		return
+	var vp := get_viewport_rect().size
+	var margin := 46.0
+	for i in objectives.size():
+		while i >= _obj_pool.size():
+			_obj_pool.append(_make_obj_marker())
+		var o: Dictionary = objectives[i]
+		var mk: Dictionary = _obj_pool[i]
+		var anchor: Vector3 = o.get("anchor", o["pos"])
+		var sp := cam.unproject_position(anchor)
+		if cam.is_position_behind(anchor):
+			sp = vp * 0.5 - (sp - vp * 0.5)   # mirror so a point behind you rides the correct edge
+		sp.x = clampf(sp.x, margin, vp.x - margin)
+		sp.y = clampf(sp.y, margin, vp.y - margin)
+		var owner := int(o["owner"])
+		var col := OBJ_NEUTRAL
+		if owner >= 0:
+			col = OBJ_FRIEND if owner == my_team else OBJ_ENEMY
+		(mk["dia"] as ColorRect).color = col
+		(mk["letter"] as Label).text = String(o.get("label", "?"))
+		var dm := int(round(Vector2(anchor.x - self_pos.x, anchor.z - self_pos.z).length()))
+		(mk["dist"] as Label).text = "%dm" % dm
+		var root: Control = mk["root"]
+		root.position = sp - root.size * 0.5
+		root.visible = true
+	for j in range(objectives.size(), _obj_pool.size()):
+		(_obj_pool[j]["root"] as Control).visible = false
 
 const CH_TICK_LEN := 7.0       # px length of each reticle tick
 const CH_TICK_THICK := 2.0     # px thickness
