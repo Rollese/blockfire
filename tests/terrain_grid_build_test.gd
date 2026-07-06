@@ -1,6 +1,8 @@
 extends TestCase
 const Terrain := preload("res://shared/sim/terrain.gd")
 const TerrainGrid := preload("res://shared/sim/terrain_grid.gd")
+const MapDef := preload("res://shared/sim/map_def.gd")
+const BuildGrid := preload("res://shared/sim/build_grid.gd")
 
 # Build a 5x5 image (world_half=4, spacing=2 -> 5 samples per axis) with a linear x-ramp:
 # red 0.0 at x-col 0 .. 1.0 at x-col 4.
@@ -38,3 +40,13 @@ func test_carve_cutout_records_suppression() -> void:
 	Terrain.carve_cutout(g, -1.0, 1.0, -1.0, 1.0, -100.0)
 	assert_almost_eq(Terrain.height_at(g, 0.0, 0.0), -100.0, 0.01, "inside cutout suppressed")
 	assert_true(Terrain.height_at(g, 4.0, 0.0) > 5.0, "outside cutout untouched")
+
+func test_load_for_map_flat_when_no_terrain() -> void:
+	var res := MapDef.from_json_string('{"name":"f","world_half":10,"points":[{"id":"A","pos":[0,0,0],"radius":5}],"bases":[{"team":0,"pos":[-3,0,0],"radius":2},{"team":1,"pos":[3,0,0],"radius":2}]}')
+	var m: MapDef = res["map"]
+	assert_eq(Terrain.load_for_map(m, "res://tests/fixtures", Callable()), null, "no terrain -> null grid (flat)")
+
+func test_snap_to_cell_height() -> void:
+	assert_almost_eq(Terrain.snap_pad_height(7.3), 8.0, 0.001, "7.3 -> 8")
+	assert_almost_eq(Terrain.snap_pad_height(6.9), 6.0, 0.001, "6.9 -> 6")
+	assert_almost_eq(Terrain.snap_pad_height(0.4), 0.0, 0.001, "0.4 -> 0")

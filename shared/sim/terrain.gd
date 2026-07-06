@@ -100,3 +100,50 @@ static func carve_cutout(grid: TerrainGrid, min_x: float, max_x: float, min_z: f
 	if grid == null:
 		return
 	grid.cutouts.append({"min_x": min_x, "max_x": max_x, "min_z": min_z, "max_z": max_z, "floor_y": floor_y})
+
+## Cutout floor sentinel: well below any real terrain so the maxf(structure, terrain) chain always
+## lets a structure floor win inside a tunnel, and march never treats the column as solid ground.
+const CUTOUT_FLOOR := -1000.0
+
+## Round a sampled terrain height to a BuildGrid cell base (buildings are cell-aligned; a fractional
+## foundation would need sub-cell offsets, out of scope per spec).
+static func snap_pad_height(h: float) -> float:
+	return roundf(h / BuildGrid.CELL_SIZE) * BuildGrid.CELL_SIZE
+
+## Load the map's heightmap PNG (relative to base_dir), build the grid, and apply the load-time
+## footprint pass: flatten a flat pad under each building (or carve a cutout when terrain_cutout),
+## snapping origin_cell.y to the pad. Returns null when the map has no terrain (flat). Deterministic:
+## server and client call this with the same map + PNG and get an identical grid + origin_cell.y
+## writeback (no wire cost, no divergence). `footprint_fn` (Callable) maps a building entry ->
+## {min_x,max_x,min_z,max_z}; pass an invalid Callable to default to the origin cell only.
+static func load_for_map(map: MapDef, base_dir: String, footprint_fn: Callable) -> TerrainGrid:
+	if map == null or map.terrain.is_empty():
+		return null
+	var t: Dictionary = map.terrain
+	var path: String = base_dir.path_join(String(t["heightmap"]))
+	var img := Image.new()
+	var err := img.load(path)
+	if err != OK:
+		push_error("[terrain] failed to load heightmap %s (err %d)" % [path, err])
+		return null
+	if img.get_format() != Image.FORMAT_RGBF:
+		img.convert(Image.FORMAT_RGBF)
+	var grid := build_grid(img, float(t["sample_spacing"]), map.world_half, float(t["height_min"]), float(t["height_scale"]))
+	for b in map.buildings:
+		var oc: Vector3i = b["origin_cell"]
+		var fp: Dictionary
+		if footprint_fn.is_valid():
+			fp = footprint_fn.call(b)
+		else:
+			var mn := BuildGrid.cell_min(oc)
+			fp = {"min_x": mn.x, "max_x": mn.x + BuildGrid.CELL_SIZE, "min_z": mn.z, "max_z": mn.z + BuildGrid.CELL_SIZE}
+		var cx := (float(fp["min_x"]) + float(fp["max_x"])) * 0.5
+		var cz := (float(fp["min_z"]) + float(fp["max_z"])) * 0.5
+		if bool(b.get("terrain_cutout", false)):
+			carve_cutout(grid, fp["min_x"], fp["max_x"], fp["min_z"], fp["max_z"], CUTOUT_FLOOR)
+			# a cutout building keeps its authored origin_cell.y (it sits below grade by design)
+		else:
+			var h := snap_pad_height(height_at(grid, cx, cz))
+			flatten_pad(grid, fp["min_x"], fp["max_x"], fp["min_z"], fp["max_z"], h)
+			b["origin_cell"] = Vector3i(oc.x, int(round(h / BuildGrid.CELL_SIZE)), oc.z)
+	return grid
