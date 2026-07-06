@@ -237,9 +237,18 @@ func march(origin: Vector3, dir: Vector3, max_dist: float) -> Dictionary:
 	while t <= max_dist:
 		var id: int = _occupancy.get(cell, 0)
 		if id != 0:
-			var hit_t := _ray_piece(origin, d, _by_id[id])
+			var rec: Dictionary = _by_id[id]
+			var hit_t := _ray_piece(origin, d, rec)
 			if hit_t >= 0.0 and hit_t <= max_dist:
-				return {"hit": true, "dist": hit_t, "id": id}
+				# M11 Gate-B — HOLE-AWARE MARCH. A carved chunked piece (grid>=2) only blocks the shot if
+				# the chunk at the contact point is still intact; a cleared chunk is a see-through hole the
+				# ray passes through (fall through to the DDA advance). One cheap bit-test per piece HIT —
+				# not a per-tick scan — so it adds no systematic tick cost. grid<2 pieces always block.
+				var type := int(rec["type"])
+				var grid := _catalog.chunk_grid_of(type)
+				if grid < 2 or ChunkMask.is_alive_at(int(rec["chunks"]), rec["cell"], int(rec["yaw"]),
+						grid, _face_height(type), origin + d * hit_t):
+					return {"hit": true, "dist": hit_t, "id": id}
 		# M15 terrain occlusion: if the ray has dropped to/below the terrain surface at this column,
 		# the world (hill) blocks it — like striking a piece (id 0 = terrain, not a piece).
 		if terrain != null and t > 0.0:
