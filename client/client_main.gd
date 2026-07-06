@@ -95,6 +95,7 @@ var _match_state: Dictionary = {}
 var _prev_point_owners: Array = []   # capture-point owners last broadcast; diffed for capture banners
 var _piece_cat: PieceCatalog        # client mirror of the server piece catalog (for prediction collision)
 var _struct_store: StructureStore   # client mirror of the server StructureStore; feeds prediction wall collision
+var _terrain_grid: TerrainGrid = null   # M15: heightmap grid the client derives (null = flat map); shared by prediction+mirror+render
 var _auto_deploy_ref: int = -1    # --deploy=N arg; -1 = not set
 var _auto_deploy_sent := false    # only send once
 var _flash_test := false          # --flash-test: force the flashbang white-out on (visual QA)
@@ -1512,9 +1513,21 @@ func _build_scene() -> void:
 	_scene_root = world_node
 	_camera = world_node.get_node("Camera3D") as Camera3D
 
+	# M15: derive the SAME terrain grid the server derived (same heightmap PNG + building list ->
+	# byte-identical) so prediction, the occlusion/collision mirror, and the rendered mesh all agree.
+	# Flat maps (map.terrain empty) return null and keep the original flat-plane path unchanged.
+	# NOTE: load_for_map() flattens map.buildings' origin_cell.y in place, so it MUST run before the
+	# renderer/prediction read building heights — hence here, before setup() and before any piece render.
+	_terrain_grid = Terrain.load_for_map(_map, "res://maps", Callable())
+	if _pred != null:
+		_pred.terrain = _terrain_grid
+	if _struct_store != null:
+		_struct_store.terrain = _terrain_grid   # if the mirror already exists; else set at creation
+
 	# WorldRenderer — added under ClientWorld
 	_renderer = WorldRenderer.new()
 	world_node.add_child(_renderer)
+	_renderer.set_terrain(_terrain_grid)   # BEFORE setup(): chooses chunked-terrain vs flat-plane ground
 	_renderer.setup(_map, _camera)
 	_renderer.use_models = _settings.use_model_characters
 	_renderer.piece_catalog = _piece_cat     # M12: lets the renderer derive build-site fill fractions
@@ -1659,6 +1672,7 @@ func _rebuild_struct_store(bytes: PackedByteArray) -> void:
 		return
 	if _struct_store == null:
 		_struct_store = StructureStore.new(_piece_cat)
+		_struct_store.terrain = _terrain_grid   # M15: the mirror grounds pieces on the same heightmap (null = flat)
 	if _pred != null:
 		_pred.structures = _struct_store
 	if _renderer != null:
