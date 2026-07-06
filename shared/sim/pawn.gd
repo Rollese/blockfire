@@ -4,6 +4,8 @@ extends RefCounted
 ## step() takes a command dict {move_x,move_y,yaw,pitch,buttons}; missing keys default,
 ## so partial dicts are tolerated. Movement is world-space planar + vertical jump/gravity.
 
+const Terrain := preload("res://shared/sim/terrain.gd")
+
 const SPRINT_MULT := 1.6
 const GRAVITY := 14.0
 const JUMP_V0 := 4.5
@@ -26,6 +28,7 @@ var stance: int = 0
 var lean: int = 0
 var stamina: float = STAMINA_MAX
 var grounded: bool = true
+var terrain: TerrainGrid = null   # optional heightmap; null = flat (y ground plane at 0)
 var health: int = 100
 var alive: bool = true
 var team: int = 0
@@ -104,8 +107,9 @@ func step(dt: float, cmd: Dictionary, world_half: float = WORLD_HALF) -> void:
 	# gravity + integrate
 	velocity.y -= GRAVITY * dt
 	pos += velocity * dt
-	if pos.y <= 0.0:
-		pos.y = 0.0
+	var ground := Terrain.height_at(terrain, pos.x, pos.z)
+	if pos.y <= ground:
+		pos.y = ground
 		velocity.y = 0.0
 		grounded = true
 
@@ -142,8 +146,9 @@ func _step_downed(dt: float, cmd: Dictionary, world_half: float = WORLD_HALF) ->
 	velocity.z = move.z * Revive.DOWNED_CRAWL_SPEED
 	velocity.y -= GRAVITY * dt
 	pos += velocity * dt
-	if pos.y <= 0.0:
-		pos.y = 0.0
+	var ground := Terrain.height_at(terrain, pos.x, pos.z)
+	if pos.y <= ground:
+		pos.y = ground
 		velocity.y = 0.0
 		grounded = true
 	pos.x = clampf(pos.x, -world_half, world_half)
