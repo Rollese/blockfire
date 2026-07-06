@@ -457,19 +457,24 @@ def gen_town_heightmap(world_half=170.0, spacing=2.0):
         for _ in range(k):
             a = 0.5 * a + 0.25 * (np.roll(a, 1) + np.roll(a, -1))
         return a
-    SHOULDER = 5   # cells of perpendicular road->grass ramp beyond each edge (gentle, walkable berm)
+    SHOULDER = 5   # cells of perpendicular road->grass ramp beyond the flat bed (gentle, walkable)
+    PAD = 2        # cells of FLAT bed kept BEYOND the road edge to cover the painted 2 m sidewalk, so the
+                   # sidewalk sits on LEVEL ground (not the sloped shoulder) -> its edge reads straight,
+                   # not wavy. The ramp to grass starts only AFTER the sidewalk.
     for rd in roads:
         xi0, xi1, zi0, zi1 = _ix(rd["min"][0]), _ix(rd["max"][0]), _ix(rd["min"][2]), _ix(rd["max"][2])
         if (xi1 - xi0) >= (zi1 - zi0):                          # E-W road -> level across Z
             prof = _smooth1d(hm[(zi0 + zi1) // 2, :].copy())
-            for zi in range(max(zi0 - SHOULDER, 0), min(zi1 + SHOULDER + 1, n)):
-                d = (zi0 - zi) if zi < zi0 else ((zi - zi1) if zi > zi1 else 0)
+            lo, hi = zi0 - PAD, zi1 + PAD                       # flat bed = road + sidewalk
+            for zi in range(max(lo - SHOULDER, 0), min(hi + SHOULDER + 1, n)):
+                d = (lo - zi) if zi < lo else ((zi - hi) if zi > hi else 0)
                 w = max(1.0 - d / (SHOULDER + 1.0), 0.0)
                 hm[zi, xi0:xi1 + 1] = w * prof[xi0:xi1 + 1] + (1.0 - w) * hm[zi, xi0:xi1 + 1]
         else:                                                   # N-S road -> level across X
             prof = _smooth1d(hm[:, (xi0 + xi1) // 2].copy())
-            for xi in range(max(xi0 - SHOULDER, 0), min(xi1 + SHOULDER + 1, n)):
-                d = (xi0 - xi) if xi < xi0 else ((xi - xi1) if xi > xi1 else 0)
+            lo, hi = xi0 - PAD, xi1 + PAD
+            for xi in range(max(lo - SHOULDER, 0), min(hi + SHOULDER + 1, n)):
+                d = (lo - xi) if xi < lo else ((xi - hi) if xi > hi else 0)
                 w = max(1.0 - d / (SHOULDER + 1.0), 0.0)
                 hm[zi0:zi1 + 1, xi] = w * prof[zi0:zi1 + 1] + (1.0 - w) * hm[zi0:zi1 + 1, xi]
     # TIGHT dynamic 8-bit range (just cover the actual relief + a small margin) so the quantization step
