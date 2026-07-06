@@ -328,12 +328,15 @@ func _chunk_mesh(g: TerrainGrid, x0: int, z0: int, x1: int, z1: int) -> ArrayMes
 	var side: float = maxf(float(g.cols - 1) * g.spacing, 1.0)   # map extent; UV 0..1 across it
 	for zi in range(z0, z1):
 		for xi in range(x0, x1):
+			# winding order gives UP-facing normals (verified on-GPU) so the sun lights the TOP surface
+			# green — the earlier order produced downward normals (top lit only by bluish ambient -> grey;
+			# the underside was correctly lit, which is how we caught it).
 			_terr_emit(st, g, side, xi,     zi)
+			_terr_emit(st, g, side, xi + 1, zi + 1)
 			_terr_emit(st, g, side, xi,     zi + 1)
-			_terr_emit(st, g, side, xi + 1, zi + 1)
 			_terr_emit(st, g, side, xi,     zi)
-			_terr_emit(st, g, side, xi + 1, zi + 1)
 			_terr_emit(st, g, side, xi + 1, zi)
+			_terr_emit(st, g, side, xi + 1, zi + 1)
 	st.index()              # merge shared corner verts -> SMOOTH (per-vertex) normals: no facet shimmer/moiré
 	st.generate_normals()   # smooth normals so slopes catch the sun as a soft gradient (reveals elevation)
 	return st.commit()
