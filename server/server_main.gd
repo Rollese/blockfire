@@ -1015,11 +1015,13 @@ func _vehicle_candidates(team: int) -> Array:
 	return out
 
 ## M12-P3: one entry per built FOB owned by a squad on `team` (enabled = currently spawnable).
-func _grenade_cooldown_ticks() -> int:
-	return 1 if _fast_nades else GRENADE_COOLDOWN_TICKS   # --fast-nades: near-instant re-throw for destruction testing
+func _grenade_cooldown_ticks(c: Dictionary) -> int:
+	# --fast-nades: near-instant re-throw for destruction testing, HUMANS ONLY (auto_deploy=false) so
+	# bots don't nade-spam the map into rubble during a playtest.
+	return 1 if _fast_nades and not bool(c["auto_deploy"]) else GRENADE_COOLDOWN_TICKS
 
 func _throwables_for(c: Dictionary) -> Array:
-	var ready := 1 if _sim.tick - int(c["last_grenade_tick"]) >= _grenade_cooldown_ticks() else 0
+	var ready := 1 if _sim.tick - int(c["last_grenade_tick"]) >= _grenade_cooldown_ticks(c) else 0
 	var list: Array = [{"kind": Grenade.FRAG, "count": ready}, {"kind": Grenade.SMOKE, "count": ready}]
 	if int(c["weapon"]) == Weapon.RPG:
 		list.append({"kind": 100, "count": int(c["rockets"])})   # kind 100 = RPG (UI-only tag; M5.5 formalizes)
@@ -1184,7 +1186,7 @@ func _handle_grenade_throw(peer: ENetPacketPeer, bytes: PackedByteArray) -> void
 	var c = _clients[id]
 	var p: Pawn = _sim.world.get_pawn(id)
 	if p == null or not p.alive or p.is_downed or p.climbing: return   # downed/climbing = incapacitated (same gate as fire/melee/gadgets)
-	if _sim.tick - int(c["last_grenade_tick"]) < _grenade_cooldown_ticks(): return
+	if _sim.tick - int(c["last_grenade_tick"]) < _grenade_cooldown_ticks(c): return
 	var d := Protocol.decode_grenade_throw(bytes)
 	var dir: Vector3 = d["dir"]
 	if dir.length() < 0.001: return
@@ -1347,10 +1349,11 @@ func _fire_rocket(id: int, p: Pawn, dir: Vector3) -> void:
 	if int(c["weapon"]) != Weapon.RPG: return
 	if int(c["rockets"]) <= 0: return
 	var rdef: Dictionary = _gadgets.def_of_kind(Gadget.KIND_RPG)
-	if not _fast_rpg and _sim.tick - int(c["last_rocket_tick"]) < int(rdef["cooldown_ticks"]): return
+	var fast_rpg := _fast_rpg and not bool(c["auto_deploy"])   # HUMANS ONLY — never let bots' RPGs go on infinite fire
+	if not fast_rpg and _sim.tick - int(c["last_rocket_tick"]) < int(rdef["cooldown_ticks"]): return
 	if dir.length() < 0.001: return
 	c["last_rocket_tick"] = _sim.tick
-	if not _fast_rpg:
+	if not fast_rpg:
 		c["rockets"] = int(c["rockets"]) - 1
 	_rockets.append({"owner": id, "team": p.team, "pos": p.eye_position(), "vel": dir.normalized() * float(rdef["rocket_speed"])})
 	# Cosmetic: tell other humans a rocket launched so they render it flying. The shooter renders
@@ -1853,13 +1856,20 @@ func _damage_structure(id: int, source: int, impact: Vector3, radius: float) -> 
 ## Fully collapse one building: drop every remaining piece (and any C4 stuck to them), remove its
 ## roof ladders (H1), broadcast COLLAPSE, and record the id so late joiners get the collapse
 ## replayed at welcome (A3 ghost-ladder fix). Called by the cascade resolver and --collapse-test.
+const COLLAPSE_CRUSH_MARGIN := 1.5   # m: the "inside or very close" band around the footprint that a collapse crushes
 func _collapse_building(bid: int) -> void:
+	if _collapsed_bids.has(bid):
+		return   # idempotent: the cascade resolver and the empty-building path can both target one bid
+	# Capture the footprint from the live pieces BEFORE we drop them — it's the crush volume.
+	var cells: Array = []
 	for oid in _store.ids_of_building(bid):
 		var crec := _store.get_record(oid)
 		if not crec.is_empty():
+			cells.append(crec["cell"])
 			_remove_c4_on_cell(crec["cell"])
 		_dmg_touched.erase(oid)
 		_store.remove(oid)
+	_apply_collapse_crush(CollapseZone.bounds(cells, COLLAPSE_CRUSH_MARGIN))
 	_stats.collapsed += 1
 	# H1: the building is gone — remove its roof ladder(s) so nobody climbs a ghost into thin air.
 	var kept_ladders: Array = []
@@ -1872,6 +1882,25 @@ func _collapse_building(bid: int) -> void:
 		_net.send_to(_clients[cid]["peer"], NetHost.CHANNEL_CONTROL, bytes, ENetPacketPeer.FLAG_RELIABLE)
 	_collapsed_bids.append(bid)   # so a late joiner's welcome replays this collapse (ghost ladders)
 
+## Collapse lethality: a building coming down crushes everything inside/very-close to its footprint —
+## every pawn (any team; environmental, self-attributed like a fall), any vehicle, and deployed gear
+## (C4/mines/bags). Vehicles first so their occupants die via the vehicle path; then loose pawns.
+func _apply_collapse_crush(zone: Dictionary) -> void:
+	if zone.is_empty():
+		return   # already-emptied building (no live pieces) — nothing physically fell to crush anyone
+	for vid in _sim.world.vehicles.keys():
+		var v: Vehicle = _sim.world.vehicles[vid]
+		if v != null and v.hp > 0 and CollapseZone.contains(zone, v.pos):
+			_destroy_vehicle(vid, v, 0)   # killer 0 = environmental (no client, so no kill credit)
+	for pid in _sim.world.pawns.keys():
+		var pawn: Pawn = _sim.world.pawns[pid]
+		if pawn == null or not pawn.alive or pawn.in_vehicle > 0:
+			continue   # dead already, or seated (handled by the vehicle crush above)
+		if CollapseZone.contains(zone, pawn.pos):
+			_kill_pawn(pid, pawn, pid, 0, false, Revive.Source.BLAST)   # self-attributed -> no kill awarded
+	_mines = _mines.filter(func(m): return not CollapseZone.contains(zone, m["pos"]))
+	_bags = _bags.filter(func(b): return not CollapseZone.contains(zone, b["pos"]))
+
 ## After this tick's structural removals, orphan-check each touched building. Large orphan sets
 ## collapse the whole building (one COLLAPSE broadcast); small sets queue per-piece removes.
 func _resolve_cascades() -> void:
@@ -1879,20 +1908,24 @@ func _resolve_cascades() -> void:
 		return
 	for bid in _buildings_to_cascade.keys():
 		var orphans := Support.orphaned_after(_store, bid, [])
-		if orphans.is_empty():
-			continue
 		if Support.should_collapse(orphans.size()):
 			_collapse_building(bid)
-		else:
-			for oid in orphans:
-				var orec := _store.get_record(oid)
-				if orec.is_empty():
-					continue
-				var ocell: Vector3i = orec["cell"]
-				_remove_c4_on_cell(ocell)
-				_store.remove(oid)
-				_pending_removes.append({"id": oid, "cell": ocell})
-				_dmg_touched.erase(oid)
+			continue
+		for oid in orphans:
+			var orec := _store.get_record(oid)
+			if orec.is_empty():
+				continue
+			var ocell: Vector3i = orec["cell"]
+			_remove_c4_on_cell(ocell)
+			_store.remove(oid)
+			_pending_removes.append({"id": oid, "cell": ocell})
+			_dmg_touched.erase(oid)
+		# A building whittled down to no pieces (by this tick's orphan removal OR by direct damage that
+		# left no orphans to cascade) is effectively gone — collapse it so its roof ladders are freed and
+		# the empty state replays to late joiners. Without this those ladders floated on "destroyed but
+		# not collapsed" buildings (playtest: far ghost ladders after reconnect).
+		if _store.ids_of_building(bid).is_empty():
+			_collapse_building(bid)
 	_buildings_to_cascade.clear()
 
 ## Flush queued removes + chunk-mask deltas to interested clients, bounded by
