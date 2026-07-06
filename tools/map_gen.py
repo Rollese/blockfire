@@ -224,3 +224,108 @@ path = os.path.join(ROOT, "maps", "conquest_town.json")
 json.dump(out, open(path, "w"), indent=2)
 print("wrote %s: %d buildings, %d ladders, %d roads, %d points, %d bases, %d problems"
       % (path, len(buildings), len(ladders), len(roads), len(points), len(bases), len(problems)))
+
+
+# ============================================================ M15 heightmap terrain
+# proving_grounds is a HAND-AUTHORED map (this tool does not emit its points/bases/ladders).
+# For M15 we procedurally (a) render a grayscale heightmap PNG that exercises every terrain
+# mechanic and (b) inject the `terrain` block (+ one terrain_cutout building) into the existing
+# JSON, preserving all its other keys. Re-running this tool is idempotent and reproducible.
+#
+# Encoding contract (must match shared/sim/terrain.gd::build_grid): a pixel value v in 0..255
+# decodes to height = height_min + (v/255) * height_scale metres. n = 2*world_half/spacing + 1
+# samples per axis; image row 0 == world z = -world_half (row-major, z increasing downward).
+
+def _write_gray_png(path, width, height, data):
+    """Write a valid 8-bit grayscale PNG (stdlib only: zlib + struct). `data` is row-major bytes
+    of length width*height. Godot's Image.load() opens this straight into FORMAT_L8 -> RGBF."""
+    import zlib, struct
+    def chunk(typ, body):
+        return (struct.pack(">I", len(body)) + typ + body
+                + struct.pack(">I", zlib.crc32(typ + body) & 0xffffffff))
+    ihdr = struct.pack(">IIBBBBB", width, height, 8, 0, 0, 0, 0)  # bit depth 8, colour type 0 (gray)
+    raw = bytearray()
+    stride = width
+    for y in range(height):
+        raw.append(0)                                   # filter type 0 (none) per scanline
+        raw.extend(data[y * stride:(y + 1) * stride])
+    idat = zlib.compress(bytes(raw), 9)
+    with open(path, "wb") as f:
+        f.write(b"\x89PNG\r\n\x1a\n")
+        f.write(chunk(b"IHDR", ihdr))
+        f.write(chunk(b"IDAT", idat))
+        f.write(chunk(b"IEND", b""))
+
+
+def gen_proving_grounds_heightmap(world_half=1000.0, spacing=2.0):
+    """Compose the proving_grounds height field (metres) and quantize to 8-bit given
+    height_min=-16, height_scale=64. Exercises: rolling hills, a valley basin at point B, a
+    deliberately too-steep cliff wall, tunnel-portal ramps, and flat lots under bases/points.
+    Returns (px uint8 n*n array, n, height_min, height_scale). Uses numpy (available on the
+    toolchain) for a fast vectorized field; the PNG itself is written with stdlib only."""
+    import numpy as np
+    n = int(round(2 * world_half / spacing)) + 1          # 1001 for the defaults
+    axis = -world_half + np.arange(n) * spacing
+    X, Z = np.meshgrid(axis, axis)                        # X[zi,xi]=world x, Z[zi,xi]=world z
+    hm = np.zeros((n, n), dtype=np.float64)
+    # gentle rolling hills (low-frequency), amplitude ~6 m
+    hm += 6.0 * np.sin(X / 220.0) * np.cos(Z / 260.0)
+    # a valley basin at point B (-300, 300), depth ~ -12 m (point B deliberately sits IN the
+    # valley -> demonstrates a capture point on low ground; B is excluded from the flats below)
+    dvb = np.hypot(X + 300.0, Z - 300.0)
+    hm += np.where(dvb < 180.0, -12.0 * (1.0 - dvb / 180.0), 0.0)
+    # a deliberately too-steep cliff wall x=400..430 (~40 m over 30 m run, >50 deg -> unwalkable)
+    in_z = (Z >= -200.0) & (Z <= 200.0)
+    hm += np.where((X >= 400.0) & (X <= 430.0) & in_z, 40.0 * (X - 400.0) / 30.0, 0.0)
+    hm += np.where((X > 430.0) & in_z, 40.0, 0.0)         # flat mesa on top of the cliff
+    # tunnel-entrance ramps sculpted down to portals at (0,-120) and (0,120)
+    for pz in (-120.0, 120.0):
+        dp = np.hypot(X, Z - pz)
+        hm += np.where(dp < 40.0, -8.0 * (1.0 - dp / 40.0), 0.0)
+    # pin flat lots under bases/points so the render reads intentional. Radius ~45 m. Point B
+    # (-300,300) is intentionally OMITTED so its valley basin survives (a flat-0 pad in a -12 m
+    # basin would create an ugly wall at the pad edge). Buildings get their own runtime pad in
+    # Terrain.load_for_map, snapped to local grade.
+    flats = [(-900, 0), (900, 0), (-600, -400), (0, 0), (300, -300), (600, 400)]
+    for fx, fz in flats:
+        hm[np.hypot(X - fx, Z - fz) < 45.0] = 0.0
+    height_min, height_scale = -16.0, 64.0
+    px = np.clip(np.round((hm - height_min) / height_scale * 255.0), 0, 255).astype(np.uint8)
+    return px, n, height_min, height_scale
+
+
+def add_terrain_to_proving_grounds():
+    """Render the heightmap PNG and inject the terrain block + a terrain_cutout building into the
+    hand-authored conquest_proving_grounds.json, preserving every existing key. Idempotent."""
+    px, n, height_min, height_scale = gen_proving_grounds_heightmap(1000.0, 2.0)
+    hm_dir = os.path.join(ROOT, "maps", "heightmaps")
+    os.makedirs(hm_dir, exist_ok=True)
+    png_path = os.path.join(hm_dir, "proving_grounds.png")
+    _write_gray_png(png_path, n, n, px.tobytes())
+
+    map_path = os.path.join(ROOT, "maps", "conquest_proving_grounds.json")
+    md = json.load(open(map_path))
+    md["terrain"] = {
+        "heightmap": "heightmaps/proving_grounds.png",
+        "sample_spacing": float(2.0),
+        "height_min": float(height_min),
+        "height_scale": float(height_scale),
+    }
+    # A terrain_cutout building in the sculpted depression at the (0,-120) tunnel portal, to
+    # exercise the cutout mechanism end-to-end in a real map. `guardhouse` is an existing small
+    # prefab (26 pieces) already shipped in conquest_town. Idempotent: strip any prior cutout
+    # building first so re-runs don't stack duplicates.
+    bl = [b for b in md.get("buildings", []) if not b.get("terrain_cutout", False)]
+    bl.append({
+        "prefab": "guardhouse",
+        "origin_cell": [0, -2, -60],   # world (0,-4,-120): below grade at the tunnel portal
+        "yaw": 0,
+        "terrain_cutout": True,
+    })
+    md["buildings"] = bl
+    json.dump(md, open(map_path, "w"), indent=2)
+    print("wrote %s (%dx%d, %d bytes) + terrain block + cutout guardhouse -> %s"
+          % (png_path, n, n, os.path.getsize(png_path), map_path))
+
+
+add_terrain_to_proving_grounds()

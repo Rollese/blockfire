@@ -2,6 +2,18 @@ extends TestCase
 const Pawn := preload("res://shared/sim/pawn.gd")
 const Terrain := preload("res://shared/sim/terrain.gd")
 const TerrainGrid := preload("res://shared/sim/terrain_grid.gd")
+const MapDef := preload("res://shared/sim/map_def.gd")
+
+# End-to-end: the tool-regenerated proving_grounds heightmap loads and reads back its sculpted
+# features (valley basin, cliff mesa, flat base pad). Guards the M15 map + fleet gate.
+func test_proving_grounds_terrain_features() -> void:
+	var m := MapDef.load_file("res://maps/conquest_proving_grounds.json")
+	assert_ne(m, null, "map loads")
+	var g := Terrain.load_for_map(m, "res://maps", Callable())
+	assert_ne(g, null, "proving_grounds has terrain")
+	assert_true(Terrain.height_at(g, -300, 300) < -2.0, "valley basin is below grade")
+	assert_true(Terrain.height_at(g, 431, 0) > 20.0, "cliff top is high")
+	assert_almost_eq(Terrain.height_at(g, -900, 0), 0.0, 1.0, "team-0 base is flat")
 
 # Flat grid at a raised height of `h` m across a 40x40 m area.
 func _plateau(h: float) -> TerrainGrid:
