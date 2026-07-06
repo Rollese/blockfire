@@ -2451,17 +2451,18 @@ func _make_structure_node(rec: Dictionary) -> Node3D:
 ## M11: replace a collapsed building with a rubble mound at its last-known centroid + a collapse
 ## cinematic (rolling dust, flung debris, screen shake) so a building coming down reads as an event.
 func _spawn_rubble_for(building_id: int) -> void:
-	var center: Vector3
 	if _building_centroid.has(building_id):
-		center = _building_centroid[building_id]
+		# Live collapse we witnessed the pieces of: full cinematic (fireball/debris/shake) + the mound.
+		var center: Vector3 = _building_centroid[building_id]
 		_building_centroid.erase(building_id)
+		_play_collapse_fx(center, _now)
 	else:
-		# Late joiner: the building's pieces were removed server-side before we connected, so we never
-		# built a centroid. Anchor on the static footprint so a reconnect still shows rubble (A3b).
-		center = _footprint_anchor(building_id)
-		if not center.is_finite():
-			return   # unknown building / no map — don't dump rubble at world origin
-	_play_collapse_fx(center, _now)
+		# Late joiner: this building fell before we connected (COLLAPSE join-replay). Show ONLY the
+		# end-state rubble mound — NOT the explosion cinematic, or every past collapse "blows up" on the
+		# HUD in the first second after connecting (playtest). Anchor on the static footprint (A3b).
+		var center := _footprint_anchor(building_id)
+		if center.is_finite():
+			_place_rubble_mound(center)
 
 ## Ground anchor for a building we hold no live geometry for (rejoin rubble). Prefer the building's own
 ## roof-ladder ring — its XZ centroid tracks the footprint and the nodes are still present here (freed
@@ -2538,11 +2539,16 @@ func _play_collapse_fx(center: Vector3, now: float) -> void:
 	# Heavy debris burst flung up + out from the footprint.
 	_spawn_brick_debris(center + Vector3(0, 1.0, 0), now, 16, 0.26, 5.5, 7.0)
 	# The persistent rubble mound this building leaves behind.
+	_place_rubble_mound(center)
+	# Shake the view if the player is near enough to feel the building come down.
+	_add_shake(center, now, 0.28, 0.6)
+
+## The persistent rubble mound a collapsed building leaves behind. Split out so a join-replay collapse
+## can drop the end-state mound WITHOUT the explosive cinematic (no fresh "blow up" for old collapses).
+func _place_rubble_mound(center: Vector3) -> void:
 	var rubble := BuildingKit.build_rubble()
 	rubble.position = center
 	add_child(rubble)
-	# Shake the view if the player is near enough to feel the building come down.
-	_add_shake(center, now, 0.28, 0.6)
 
 ## Arm a camera shake of `mag` metres for `dur` s if `world_pos` is within feel range of the camera.
 func _add_shake(world_pos: Vector3, now: float, mag: float, dur: float) -> void:
