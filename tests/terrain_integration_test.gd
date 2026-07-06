@@ -14,7 +14,8 @@ func test_proving_grounds_terrain_features() -> void:
 	assert_true(Terrain.height_at(g, -300, 300) < -2.0, "valley basin is below grade")
 	assert_true(Terrain.height_at(g, 415, 0) > 15.0, "the too-steep ridge crest is high")
 	assert_true(Terrain.slope_at(g, 410, 0) > Terrain.MAX_WALKABLE_SLOPE_DEG, "ridge face is unwalkable (slope-block test)")
-	assert_almost_eq(Terrain.height_at(g, -900, 0), 0.0, 1.0, "team-0 base is flat")
+	# base pad is FLAT (low slope) at its LOCAL grade — not forced to y=0 (that made bases sit in pits).
+	assert_true(Terrain.slope_at(g, -900, 0) < 6.0, "team-0 base pad is flat (low slope), got %.1f deg" % Terrain.slope_at(g, -900, 0))
 	# Regression guard for the fleet-freeze bug: the base pad must be walkable ALL the way out (no
 	# ring of >50 deg pad-edge slope). Sample a full circle at the old hard-pad radius.
 	for deg in range(0, 360, 30):

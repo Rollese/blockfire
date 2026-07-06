@@ -334,7 +334,8 @@ func _chunk_mesh(g: TerrainGrid, x0: int, z0: int, x1: int, z1: int) -> ArrayMes
 			_terr_emit(st, g, side, xi,     zi)
 			_terr_emit(st, g, side, xi + 1, zi + 1)
 			_terr_emit(st, g, side, xi + 1, zi)
-	st.generate_normals()   # per-face normals -> slopes catch the sun (reveals elevation)
+	st.index()              # merge shared corner verts -> SMOOTH (per-vertex) normals: no facet shimmer/moiré
+	st.generate_normals()   # smooth normals so slopes catch the sun as a soft gradient (reveals elevation)
 	return st.commit()
 
 ## Emit one terrain vertex (planar UV set BEFORE the vertex, as SurfaceTool requires).
@@ -391,7 +392,9 @@ func setup(map: MapDef, camera: Camera3D) -> void:
 		# sun already give plenty of slope shading to read the relief. Robust green on every GPU.
 		var tmat := StandardMaterial3D.new()
 		tmat.albedo_color = Color(0.33, 0.52, 0.24)   # bright, saturated grass-green so it reads GREEN
-		tmat.roughness = 1.0                            # (not grey) under the scene's heavy bluish sky ambient
+		tmat.roughness = 1.0
+		tmat.metallic_specular = 0.0                    # kill the specular fresnel: no bluish sky reflection
+		tmat.specular_mode = BaseMaterial3D.SPECULAR_DISABLED  # -> green at ALL view angles, not grey at grazing
 		_build_terrain_chunks(tmat)
 
 	# Roads — flat dark-grey asphalt strips laid just above the ground (cosmetic, no collision).

@@ -301,10 +301,16 @@ def gen_proving_grounds_heightmap(world_half=1000.0, spacing=2.0):
     R0, BLEND = 30.0, 65.0   # wider blend: with ~24 m hills the pad edge must ramp gently (stay < 50 deg)
     flats = [(-900, 0), (900, 0), (-600, -400), (0, 0), (300, -300), (600, 400)]
     for fx, fz in flats:
+        # Flatten to the LOCAL grade (the natural height at the pad centre), NOT absolute 0 — else a base
+        # sitting where the terrain is naturally +18 m becomes an 18 m PIT ("underground"). Sampling the
+        # centre height first makes each pad a flat clearing at the surrounding elevation.
+        cxi = min(max(int(round((fx + world_half) / spacing)), 0), n - 1)
+        czi = min(max(int(round((fz + world_half) / spacing)), 0), n - 1)
+        ch = hm[czi][cxi]
         d = np.hypot(X - fx, Z - fz)
         t = np.clip((d - R0) / BLEND, 0.0, 1.0)
         w = 1.0 - (t * t * (3.0 - 2.0 * t))     # smoothstep: w=1 (flat) inside R0 -> 0 (natural) at R0+BLEND
-        hm = hm * (1.0 - w)                      # inside: hm->0; outside the blend band: unchanged
+        hm = hm * (1.0 - w) + ch * w            # inside: hm->ch (flat at local grade); outside: unchanged
     height_min, height_scale = -45.0, 105.0   # covers the deep valley (~-40) up to hills+ridge (~+55)
     px = np.clip(np.round((hm - height_min) / height_scale * 255.0), 0, 255).astype(np.uint8)
     return px, n, height_min, height_scale
