@@ -1,4 +1,16 @@
-# Handoff: "wavy roads" on conquest_town (M15 village) — fresh eyes needed
+# Handoff: "wavy roads" on conquest_town (M15 village) — ✅ RESOLVED
+
+> **✅ RESOLVED 2026-07-06 (master `7859727`) — owner-confirmed live ("This looks very good").** Root cause
+> (measured, not guessed): a road is painted on the terrain surface, so it inherits it; along every road the
+> engine-decoded eye-height showed 9–21 m of relief with an **inconsistent gradient** (max|2nd-diff| up to
+> 1.22 m) — the defect was the *inconsistent grade*, not elevation. First attempt (flat plateau, `0b11079`)
+> over-corrected (owner: "too extreme, we want elevation everywhere"). **Keeper fix (`7859727`):** restore
+> rolling elevation everywhere (long primary swell + gentle grassy rolls between buildings + smooth perimeter
+> hills) and **regrade the road corridors** — replace each road centreline with a *wide*-Gaussian smoothing
+> (σ≈26 m, vs. the old ~7 m that was 4× too narrow) so the road keeps the long swell (real elevation, consistent
+> grade) but sheds the short grassy rolls onto gentle grass banks beside it. Verified: road max|2nd-diff|
+> 1.22 → 0.09 m (the 8-bit floor) while roads keep 1.3–7.3 m of rise; suite 1335/0; 128-bot gate PASS.
+> **This closed the M15 owner feel-gate.** The historical investigation below is kept for the record.
 
 **Date:** 2026-07-06 · **Branch:** `master` (pushed) · **Last commit:** `f5688d7`
 **Owner verdict:** *"It's still wavy, a little better now that the sidewalk is aligned. Let's pause — we're getting nowhere, get fresh eyes."*

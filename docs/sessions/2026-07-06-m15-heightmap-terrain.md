@@ -46,7 +46,15 @@ A final review of `git diff master...HEAD` caught **real correctness bugs my tes
 
 ### Visual validation
 
-Automated Xvfb/opengl3 screenshot could not complete **in this session** — the sandbox SIGKILLs
+> **✅ OWNER FEEL-GATE PASSED 2026-07-06.** `conquest_town` was reworked into the playable M15 village
+> (rolling countryside heightmap, procedural scenery, capture markers + HUD polish) and owner-confirmed live
+> on the desktop client. The last hold-out — roads reading "wavy" — was fixed by a rolling-terrain +
+> consistent-gradient road regrade (master `7859727`; see `2026-07-06-wavy-roads-handoff.md`). Xvfb/opengl3
+> self-validation *does* work when the client is driven as a `SceneTree` tool with `--rendering-driver opengl3`
+> (`tools/render_town_shots.gd`) — the earlier "144 under sandbox" limitation was the detached-GL-on-bash-exit
+> case, avoided by capturing inside the tool and quitting cleanly. **M15 is closed.**
+
+Automated Xvfb/opengl3 screenshot could not complete **in the original session** — the sandbox SIGKILLs
 detached GL client processes on bash exit and the `opengl3` client returns 144 under it (an
 environment limitation, not a code issue). The client terrain render path (`world_renderer` chunked
 mesh + `client_main` grid wiring) is unit-logic-verified (full suite green) and code-reviewed; the map
