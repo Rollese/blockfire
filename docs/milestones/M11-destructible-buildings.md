@@ -126,5 +126,29 @@ pile regardless of building size.
   is inside an occupied cell). A high/small shot-through hole still blocks the feet — shoot-through before
   walk-through, as in BattleBit. Pawn-only. Gate re-run for H3.
 
-Suite 1353/0 (+18 across the phase). **Remaining: Gate B = owner playtest** of holes/shoot-through/walk-through/
-collapse on the rendered client; then the deferred cosmetic tweaks above.
+Suite 1353/0 (+18 across the phase). Round 1 **owner-playtested 2026-07-07** on the rendered client.
+
+### Round 2 — from the owner playtest (2026-07-07)
+
+Owner feedback drove a second pass (all gated on conquest_town, winner + tick < 26 ms + 0 errors):
+- **R1** (`ed9fdea`) — floor/roof (horizontal) pieces were promoted with the vertical-wall chunk geometry
+  and rendered as vertical blocks poking through decks/roofs. Only vertical **wall** pieces get sub-cell
+  holes now; floors/stairs keep the batched whole-mesh.
+- **R2** (`ed9fdea`) — destruction was far too severe (one RPG/grenade levelled a building). Split the
+  structural carve radius per weapon: **frag 0.4 m** (a nick, no breach), **RPG 1.3 m** (one breach hole),
+  **C4 2.2 m** (the heavy breacher). Grenades no longer breach walls.
+- **R3** (`ed9fdea`) — upper floors floated on holey walls. A structural piece now conducts support only
+  while ≥ `SUPPORT_MIN_FRACTION` (0.25) of its chunks survive — blow the base out and the floors collapse;
+  a single breach still holds.
+- **A1** (`ed9fdea`) — carve holes were perfect circles. `ChunkMask.clear_in_radius` now jitters the rim
+  per-chunk with a deterministic (no-RNG) distance-scaled hash → ragged, organic holes.
+- **R5** (`53833a6`) — collapse left no-collision cosmetic rubble → players hid invisibly inside it. Collapse
+  now stamps real, **walkable, INDESTRUCTIBLE** `brubble` pieces across the footprint (half-height, surface,
+  `damage:[]`, replicated via OP_PLACE, `building_id 0`) — cover you crouch behind + a deck you stand on. The
+  cinematic keeps its dust but drops the fake mound.
+- **R4** (`73a1bb4`) — a wall shot down to a low stub couldn't be crossed. A chunked wall's effective top is
+  now its top surviving chunk row (`ChunkMask.top_alive_height`) → vault a stub; a middle-hole wall (top
+  intact) stays tall (shoot/walk through, don't vault); pristine walls unchanged.
+
+Suite 1366/0. **Still deferred:** R6 (a long organic/non-scripted collapse — biggest, "if possible") + the
+cosmetic BuildingKit tweaks. **Gate B closes on the owner's re-playtest of the round-2 build.**
