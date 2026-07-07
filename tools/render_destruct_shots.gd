@@ -127,6 +127,21 @@ func _initialize() -> void:
 	cam.look_at(Vector3(centroid.x, centroid.y - 1.0, centroid.z), Vector3.UP)
 	now += 0.5
 	wv.apply_collapse(target_bid)
+	# R5: mirror the server — stamp indestructible walkable `brubble` across the footprint ground cells
+	# and replicate as OP_PLACE (building_id 0 so apply_collapse doesn't drop it) so the remnant renders.
+	var brub := cat.index_of("brubble")
+	var seen := {}
+	for rec in trecs:
+		var c := rec["cell"] as Vector3i
+		var xz := Vector2i(c.x, c.z)
+		if seen.has(xz):
+			continue
+		seen[xz] = true
+		var rcell := Vector3i(c.x, 0, c.z)
+		var rr: Dictionary = store.place(next_sid, brub, rcell, 0, 0, 0)
+		next_sid += 1
+		if not rr.is_empty():
+			wv.apply_structure_delta(Protocol.encode_structure_delta(Protocol.OP_PLACE, rr))
 	r._sync_structure_pool(wv, now)
 	await _settle()
 	await _capture(cam, dir, "3_collapsed")

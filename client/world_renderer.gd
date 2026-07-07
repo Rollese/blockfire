@@ -13,12 +13,12 @@ const NEUTRAL_COLOR := Color(0.6, 0.6, 0.6)
 # -- structure type -> PieceCatalog id (array order == wire `type` int; see pieces/pieces.json) -----
 # pieces.json order: 0 = sandbag, 1 = wall, 2+ = building pieces. Unknown/extra types fall back to "wall"
 # (StructureKit also falls back to "wall" for any id it doesn't know).
-const STRUCT_TYPE_ID := ["sandbag", "wall", "bwall", "bwall_window", "bwall_door", "bfloor", "bstair", "bcolumn", "brailing", "prop_crate", "bwall_half", "bwall_brick", "bwall_metal", "bwall_wood", "bwall_garage", "bwall_glass", "prop_table", "prop_chair", "prop_shelf", "prop_locker", "prop_barrel", "bwall_corner", "heavy_barricade", "fob"]
+const STRUCT_TYPE_ID := ["sandbag", "wall", "bwall", "bwall_window", "bwall_door", "bfloor", "bstair", "bcolumn", "brailing", "prop_crate", "bwall_half", "bwall_brick", "bwall_metal", "bwall_wood", "bwall_garage", "bwall_glass", "prop_table", "prop_chair", "prop_shelf", "prop_locker", "prop_barrel", "bwall_corner", "heavy_barricade", "fob", "brubble"]
 
 # -- structure type -> chunk-grid (mirror of pieces/pieces.json `chunk_grid`) ----------
 # Needed to turn a piece's live chunk alive-mask into a damage tier. Keep aligned with STRUCT_TYPE_ID
 # order; unknown types fall back to the 8x8 fortification grid.
-const STRUCT_TYPE_GRID := [8, 8, 8, 8, 8, 8, 8, 8, 4, 1, 8, 8, 8, 8, 8, 8, 1, 1, 1, 1, 1, 8, 8, 8]
+const STRUCT_TYPE_GRID := [8, 8, 8, 8, 8, 8, 8, 8, 4, 1, 8, 8, 8, 8, 8, 8, 1, 1, 1, 1, 1, 8, 8, 8, 1]
 
 # -- structure feedback timing ------------------------------------------------
 const STRUCT_LIFT := 0.06          # m: lift buildings onto a thin foundation (no grass z-fight)
@@ -2967,13 +2967,9 @@ func _spawn_rubble_for(building_id: int) -> void:
 		var center := Vector3((mn.x + mx.x) * 0.5, mn.y, (mn.z + mx.z) * 0.5)
 		_building_footprint.erase(building_id)
 		_play_collapse_fx(center, _now, mn, mx)
-	else:
-		# Late joiner: this building fell before we connected (COLLAPSE join-replay). Show ONLY the
-		# end-state rubble mound — NOT the explosion cinematic, or every past collapse "blows up" on the
-		# HUD in the first second after connecting (playtest). Anchor on the static footprint (A3b).
-		var center := _footprint_anchor(building_id)
-		if center.is_finite():
-			_place_rubble_mound(center)
+	# Late joiner (else): a building that fell before we connected is already REAL `brubble` pieces in
+	# our structure baseline (R5) — nothing cosmetic to place, and no explosion cinematic (which would
+	# "blow up" every past collapse in the first second after connecting).
 
 ## Ground anchor for a building we hold no live geometry for (rejoin rubble). Prefer the building's own
 ## roof-ladder ring — its XZ centroid tracks the footprint and the nodes are still present here (freed
@@ -3060,8 +3056,9 @@ func _play_collapse_fx(center: Vector3, now: float, mn: Vector3 = Vector3.INF, m
 	# Heavy debris burst flung up + out; more shards for a bigger footprint (bounded).
 	var shards := 16 + clampi(int(half_x * half_z * 0.6), 0, 28)
 	_spawn_brick_debris(center + Vector3(0, height * 0.4, 0), now, shards, 0.26, span + 3.5, 7.0)
-	# The persistent rubble field this building leaves behind — tiled across the footprint.
-	_place_rubble_field(center, half_x, half_z, height)
+	# R5: the persistent remnant is now REAL walkable `brubble` pieces (server-stamped, arriving via
+	# OP_PLACE), not a cosmetic mound — so this plays only the dust/debris cinematic. The half_x/height
+	# above still scale the dust to the footprint.
 	# Shake the view if the player is near enough to feel the building come down.
 	_add_shake(center, now, 0.28, 0.6)
 

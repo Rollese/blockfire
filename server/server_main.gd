@@ -106,6 +106,7 @@ var _attachments: Attachment
 var _vehicles_cat: VehicleCatalog
 var _next_struct_id := 1
 var _next_id := 1
+var _brubble_type := -1        # M11 R5: catalog index of the indestructible walkable rubble remnant
 var _tele_accum := 0.0
 # Per-phase tick profiling (mean usec/tick over the telemetry window).
 var _phase_us := {"poll": 0, "move": 0, "veh": 0, "lag": 0, "interest": 0, "fire": 0, "ordnance": 0, "support": 0, "build": 0, "respawn": 0, "conquest": 0, "match": 0, "snap": 0}
@@ -197,6 +198,7 @@ func _ready() -> void:
 	_catalog = PieceCatalog.load_file(PIECES_PATH)
 	if _catalog == null:
 		push_error("[server] failed to load pieces %s" % PIECES_PATH); get_tree().quit(1); return
+	_brubble_type = _catalog.index_of("brubble")   # M11 R5: the walkable remnant a collapse leaves
 	_gadgets = Gadget.load_file(GADGETS_PATH)
 	if _gadgets == null:
 		push_error("[server] failed to load gadgets %s" % GADGETS_PATH); get_tree().quit(1); return
@@ -1892,13 +1894,29 @@ func _collapse_building(bid: int) -> void:
 	# close" margin. Using the surviving pieces here gave a shrunken/empty zone (a building only ever
 	# loses pieces before it falls) — so someone against the original wall wasn't caught (playtest).
 	var remnant: Array = []
+	var footprint_xz := {}   # unique (x,z) ground columns -> for the walkable rubble remnant (R5)
 	for oid in _store.ids_of_building(bid):
 		var crec := _store.get_record(oid)
 		if not crec.is_empty():
-			remnant.append(crec["cell"])
-			_remove_c4_on_cell(crec["cell"])
+			var ccell: Vector3i = crec["cell"]
+			remnant.append(ccell)
+			footprint_xz[Vector2i(ccell.x, ccell.z)] = true
+			_remove_c4_on_cell(ccell)
 		_dmg_touched.erase(oid)
 		_store.remove(oid)
+	# R5: leave a low, INDESTRUCTIBLE, walkable rubble remnant across the footprint (real collidable
+	# pieces, not cosmetic mounds) so nobody can hide invisibly inside a collapsed building's rubble.
+	# building_id 0 so this survives the client's apply_collapse(bid) drop; replicated via OP_PLACE.
+	if _brubble_type >= 0:
+		for xz: Vector2i in footprint_xz:
+			var rcell := Vector3i(xz.x, 0, xz.y)
+			if _store.occupied(rcell):
+				continue   # a neighbouring building's ground piece already holds this cell
+			var rsid := _next_struct_id
+			_next_struct_id += 1
+			var rrec: Dictionary = _store.place(rsid, _brubble_type, rcell, 0, 0, 0)   # owner 0 = world piece
+			if not rrec.is_empty():
+				_emit_structure_delta(Protocol.OP_PLACE, rrec, rcell)
 	var zone: Dictionary = CollapseZone.expand(_building_footprint.get(bid, {}), COLLAPSE_CRUSH_MARGIN)
 	if zone.is_empty():
 		zone = CollapseZone.bounds(remnant, COLLAPSE_CRUSH_MARGIN)   # player-built (no cached footprint): use what's there

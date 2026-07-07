@@ -130,6 +130,15 @@ static func build(piece_id: String, bucket: int, floor_skirt: bool = false, yaw_
 				_:   # exterior N + W
 					root.add_child(_box("ArmN", Vector3(CELL, CELL, t), Vector3(0, h, edge), bucket, COL_WALL))
 					root.add_child(_box("ArmW", Vector3(t, CELL, CELL), Vector3(-edge, h, 0), bucket, COL_WALL))
+		"brubble":
+			# M11 R5: the low, walkable, INDESTRUCTIBLE remnant a collapsed building leaves — a mound of
+			# broken concrete filling the cell up to ~1 m (half height). Cover to crouch behind + a deck to
+			# stand on (surface piece). Fixed layout (deterministic). Always full-tint (never damaged).
+			root.add_child(_chunk(Vector3(1.6, 0.7, 1.5), Vector3(-0.25, 0.35, -0.2), 0.3, 0.05, COL_RUBBLE_B))
+			root.add_child(_chunk(Vector3(1.4, 0.6, 1.6), Vector3(0.3, 0.30, 0.28), -0.4, 0.0, COL_RUBBLE_A))
+			root.add_child(_chunk(Vector3(1.1, 0.9, 1.0), Vector3(0.08, 0.55, -0.35), 0.7, 0.06, COL_RUBBLE_C))
+			root.add_child(_chunk(Vector3(0.9, 0.6, 1.1), Vector3(-0.35, 0.30, 0.36), 1.0, -0.05, COL_RUBBLE_B))
+			root.add_child(_chunk(Vector3(0.8, 0.5, 0.8), Vector3(0.34, 0.5, -0.05), 0.5, 0.0, COL_RUBBLE_A))
 		_:
 			# bwall and any unknown id -> solid full wall.
 			root.add_child(_box("Wall", Vector3(CELL, CELL, 0.3), Vector3(0, CELL * 0.5, 0), bucket, COL_WALL))
