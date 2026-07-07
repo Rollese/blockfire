@@ -5,15 +5,20 @@ extends Object
 ## Procedural kits set the filter inline at creation; this helper is for GLB-loaded
 ## models whose materials are baked LINEAR by the glTF importer.
 
-## Returns the number of materials switched. Idempotent.
+## Returns the number of materials actually switched (already-NEAREST materials are left alone and
+## not counted). Idempotent: a second call over the same tree returns 0.
 static func apply_nearest(root: Node) -> int:
+	if root == null:
+		return 0
 	var count := 0
-	for node in _iter(root):
+	var stack: Array = [root]
+	while not stack.is_empty():
+		var node: Node = stack.pop_back()
+		stack.append_array(node.get_children())
 		if node is MeshInstance3D:
 			var mi := node as MeshInstance3D
 			if mi.material_override is BaseMaterial3D:
-				(mi.material_override as BaseMaterial3D).texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
-				count += 1
+				count += _set_nearest(mi.material_override as BaseMaterial3D)
 			var surfaces := 0
 			if mi.mesh != null:
 				surfaces = mi.mesh.get_surface_count()
@@ -22,12 +27,12 @@ static func apply_nearest(root: Node) -> int:
 				if m == null and mi.mesh != null:
 					m = mi.mesh.surface_get_material(s)
 				if m is BaseMaterial3D:
-					(m as BaseMaterial3D).texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
-					count += 1
+					count += _set_nearest(m as BaseMaterial3D)
 	return count
 
-static func _iter(root: Node) -> Array:
-	var out: Array = [root]
-	for c in root.get_children():
-		out.append_array(_iter(c))
-	return out
+## Force NEAREST filtering; returns 1 if the value actually changed, else 0.
+static func _set_nearest(mat: BaseMaterial3D) -> int:
+	if mat.texture_filter == BaseMaterial3D.TEXTURE_FILTER_NEAREST:
+		return 0
+	mat.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
+	return 1

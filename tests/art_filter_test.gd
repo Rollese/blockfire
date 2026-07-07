@@ -57,5 +57,22 @@ func test_apply_nearest_is_idempotent() -> void:
 	autofree(root)
 	root.add_child(_mesh_with_override())
 	var first := ArtFilter.apply_nearest(root)
+	assert_gt(first, 0, "first walk switches the LINEAR material")
 	var second := ArtFilter.apply_nearest(root)
-	assert_eq(first, second, "idempotent: same count on a re-walk")
+	assert_eq(second, 0, "idempotent: nothing left to switch on the second walk")
+
+func test_apply_nearest_switches_mesh_surface_material() -> void:
+	# The path GLB models actually use: a material stored on the mesh surface itself, with NO override.
+	var root := Node3D.new()
+	autofree(root)
+	var mi := MeshInstance3D.new()
+	var bm := BoxMesh.new()
+	var mat := StandardMaterial3D.new()
+	mat.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
+	bm.surface_set_material(0, mat)
+	mi.mesh = bm
+	root.add_child(mi)
+	var count := ArtFilter.apply_nearest(root)
+	assert_gt(count, 0, "mesh surface material switched via surface_get_material fallback")
+	assert_eq((mi.mesh.surface_get_material(0) as BaseMaterial3D).texture_filter,
+		BaseMaterial3D.TEXTURE_FILTER_NEAREST, "surface_get_material material is NEAREST")
