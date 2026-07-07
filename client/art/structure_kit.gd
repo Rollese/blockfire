@@ -5,10 +5,11 @@ extends Object
 
 # id -> {size, base_color}. base_color mirrors the piece's material tag.
 const _SPEC := {
-	"wall":            {"size": Vector3(2.0, 2.4, 0.3), "color": ArtPalette.STRUCT_CONCRETE},
-	"sandbag":         {"size": Vector3(2.0, 1.0, 0.6), "color": ArtPalette.STRUCT_METAL_THIN},
+	# Width (x) must equal BuildGrid.CELL_SIZE (2.4) so a fortification spans its cell edge-to-edge.
+	"wall":            {"size": Vector3(2.4, 2.4, 0.3), "color": ArtPalette.STRUCT_CONCRETE},
+	"sandbag":         {"size": Vector3(2.4, 1.0, 0.6), "color": ArtPalette.STRUCT_METAL_THIN},
 	# Large cooperative piece (M12): a thick, full-cell barricade — reads as a heavier wall.
-	"heavy_barricade": {"size": Vector3(2.0, 2.4, 1.2), "color": ArtPalette.STRUCT_CONCRETE},
+	"heavy_barricade": {"size": Vector3(2.4, 2.4, 1.2), "color": ArtPalette.STRUCT_CONCRETE},
 }
 
 static func build(piece_id: String, bucket: int) -> Node3D:

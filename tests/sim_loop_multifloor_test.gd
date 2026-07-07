@@ -9,14 +9,14 @@ func _sim_with_floor(cell: Vector3i, type: int, yaw: int) -> SimLoop:
 	return sim
 
 func test_pawn_settles_onto_structure_floor() -> void:
-	var sim := _sim_with_floor(Vector3i(0, 1, 0), 0, 0)   # bfloor at cell y=1 -> surface 2.0
+	var sim := _sim_with_floor(Vector3i(0, 1, 0), 0, 0)   # bfloor at cell y=1 -> surface 2.4
 	var p := Pawn.new(1)
-	p.pos = Vector3(1.0, 3.0, 1.0)   # dropped in above the floor
+	p.pos = Vector3(1.0, 3.4, 1.0)   # dropped in above the floor
 	p.grounded = false
 	sim.world.pawns[1] = p
 	for _i in 30:
 		sim.step({1: {}})
-	assert_almost_eq(p.pos.y, 2.0, 0.05, "pawn lands on the structure floor at y=2")
+	assert_almost_eq(p.pos.y, 2.4, 0.05, "pawn lands on the structure floor at y=2.4")
 	assert_true(p.grounded, "grounded on the floor")
 
 func test_walking_a_stair_ramp_raises_the_pawn() -> void:
@@ -89,7 +89,7 @@ func test_climb_twostory_house_reaches_top_floor() -> void:
 	var sim := SimLoop.new()
 	sim.structures = store
 	var pawn := Pawn.new(1)
-	pawn.pos = Vector3(7.0, 0.0, -1.0)   # south of the door (cell (3,0,0))
+	pawn.pos = Vector3(8.4, 0.0, -1.0)   # south of the door (cell (3,0,0) centre @ 2.4 m = x 8.4)
 	sim.world.pawns[1] = pawn
 	var max_y := 0.0
 	for _i in 220:

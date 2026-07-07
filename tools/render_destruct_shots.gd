@@ -82,7 +82,12 @@ func _initialize() -> void:
 	if not wall_rec.is_empty():
 		wall_pt = r._structure_xform(wall_rec).origin + Vector3(0, 1.0, 0)
 		var outward := (Vector3(wall_pt.x, 0, wall_pt.z) - Vector3(centroid.x, 0, centroid.z)).normalized()
-		cam_pos = wall_pt + outward * 5.0 + Vector3(0, 0.6, 0)
+		# A corner reads as an L only from further back + a touch higher (a 5 m close-up flattens it into
+		# one face); a flat-wall hole wants the close 5 m framing so the sub-cell gap is legible.
+		if OS.get_environment("BF_CORNER") == "1":
+			cam_pos = wall_pt + outward * 9.0 + Vector3(0, 3.0, 0)
+		else:
+			cam_pos = wall_pt + outward * 5.0 + Vector3(0, 0.6, 0)
 	cam.global_position = cam_pos
 	cam.look_at(wall_pt, Vector3.UP)
 
@@ -128,6 +133,11 @@ func _initialize() -> void:
 	# cells and skipped every rubble piece.
 	now += 0.5
 	var brub := cat.index_of("brubble")
+	var base_y := 0x7fffffff   # building floor cell.y (mirror server _collapse_building — rubble sits here)
+	for rec in trecs:
+		base_y = mini(base_y, (rec["cell"] as Vector3i).y)
+	if base_y == 0x7fffffff:
+		base_y = 0
 	for rec in trecs:
 		wv.apply_structure_delta(Protocol.encode_structure_delta(Protocol.OP_REMOVE, {"id": int(rec["id"])}))
 		store.remove(int(rec["id"]))
@@ -139,7 +149,7 @@ func _initialize() -> void:
 		if seen.has(xz):
 			continue
 		seen[xz] = true
-		var rr: Dictionary = store.place(next_sid, brub, Vector3i(c.x, 0, c.z), 0, 0, 0)
+		var rr: Dictionary = store.place(next_sid, brub, Vector3i(c.x, base_y, c.z), 0, 0, 0)
 		next_sid += 1
 		if not rr.is_empty():
 			wv.apply_structure_delta(Protocol.encode_structure_delta(Protocol.OP_PLACE, rr))
@@ -152,9 +162,9 @@ func _initialize() -> void:
 			brub_key = k
 	print("brubble placed=", placed_rubble, " render_group=", brub_key,
 		" mmis=", (r._struct_groups[brub_key]["mmis"].size() if brub_key != "" else -1))
-	# Top-down so the ground rubble field is clearly visible.
-	cam.global_position = centroid + Vector3(2.0, 34.0, 2.0)
-	cam.look_at(Vector3(centroid.x, 0.0, centroid.z), Vector3(0, 0, -1))
+	# Low oblique so the walkable rubble mounds read in silhouette (a top-down flattens them).
+	cam.global_position = Vector3(centroid.x + 16.0, 9.0, centroid.z + 16.0)
+	cam.look_at(Vector3(centroid.x, 0.5, centroid.z), Vector3.UP)
 	await _settle()
 	await _capture(cam, dir, "3_rubble")
 
@@ -205,11 +215,19 @@ func _centroid(r: WorldRenderer, recs: Array) -> Vector3:
 ## Set BF_HIGH_WALL=1 to instead target the HIGHEST wall (roofline) — repro for the roof stick-through.
 func _nearest_wall(r: WorldRenderer, recs: Array, cam_pos: Vector3) -> Dictionary:
 	var high := OS.get_environment("BF_HIGH_WALL") == "1"
+	var corner := OS.get_environment("BF_CORNER") == "1"   # target a CORNER piece (verify it stays an L, not a slab)
 	var best: Dictionary = {}
 	var best_d := INF
 	var best_y := -999
 	for rec in recs:
-		if not _piece_id(rec).begins_with("bwall"):
+		# Default: a FLAT wall for the hole demo — a corner (L of two faces) is not sub-cell carvable
+		# (it stays whole until removed), so it can't show a see-through hole. BF_CORNER flips this to
+		# target a corner so the L-shape-preservation fix can be eyeballed.
+		var pid := _piece_id(rec)
+		if corner:
+			if pid != "bwall_corner":
+				continue
+		elif not pid.begins_with("bwall") or pid == "bwall_corner":
 			continue
 		var cy := (rec["cell"] as Vector3i).y
 		if high:

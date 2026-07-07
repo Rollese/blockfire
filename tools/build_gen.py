@@ -30,3 +30,16 @@ def build(name, footprint, h, doors, mat="bwall", window_every=2, roof=True, gla
     json.dump({"name":name,"pieces":pieces}, open(f"buildings/{name}.json","w"), indent=2)
     c=[tuple(q["offset"]) for q in pieces]; dup=[x for x in set(c) if c.count(x)>1]
     return f"{name}: {len(pieces)}p {'DUP'+str(dup) if dup else 'ok'}"
+
+
+if __name__ == "__main__":
+    import os
+    os.chdir(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    # Two new Kenney-quality templates for the M11 gate map (build_fix.py then adds the ground floor,
+    # props, bwall_corner corners + raises height; the renderer adds the parapet roof cap + quoins).
+    # manor: a wide, grand two-storey residence (build_fix lifts it to 3 courses). Multiple entrances
+    # (one per face — front/back/both sides) for tactical access, per owner (2026-07-07).
+    print("  " + build("manor", rect(0, 0, 6, 5), h=2, doors={(3, 0), (3, 4), (0, 2), (5, 2)}, window_every=2))
+    # rowhouse: a tall, narrow three-storey terraced house — a different silhouette. Front/back + a door
+    # on each long side.
+    print("  " + build("rowhouse", rect(0, 0, 3, 6), h=3, doors={(1, 0), (1, 5), (0, 2), (2, 3)}, window_every=2))

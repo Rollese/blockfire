@@ -107,7 +107,7 @@ def close_corners(pieces, fp):
         if p["type"] in ("bwall", "bwall_brick", "bwall_metal", "bwall_wood") \
                 and turning_corner(p["offset"][0], p["offset"][2]):
             p["type"] = "bwall_corner"
-            p["yaw"] = corner_yaw(x, z, fp)
+            p["yaw"] = corner_yaw(p["offset"][0], p["offset"][2], fp)
             n += 1
     for p in pieces:
         if p["type"] == "bwall_corner":

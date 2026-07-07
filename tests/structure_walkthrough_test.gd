@@ -33,8 +33,9 @@ func test_intact_wall_blocks_crossing() -> void:
 func test_floor_breach_lets_the_pawn_walk_through() -> void:
 	var s := _store()
 	s.place(1, 0, Vector3i(1, 0, 0), 0, 7)
-	# Blow a wide, floor-level breach at the crossing column (x=3), like a rocket/repeated fire.
-	s.damage_chunks(1, PieceCatalog.SRC_EXPLOSIVE, Vector3(3, 0.6, 0), 1.2)
+	# Blow a wide, floor-level breach at the crossing column (x=3), like an RPG (carve radius ~1.3 m).
+	# On a 2.4 m wall this clears the pawn's full standing column (feet .. ~1.6 m) with margin.
+	s.damage_chunks(1, PieceCatalog.SRC_EXPLOSIVE, Vector3(3, 1.0, 0), 1.3)
 	var out := s.resolve_movement(Vector3(3, 0, -1), Vector3(3, 0, 1))
 	assert_true(out.z > 0.0, "a floor-level breach lets the pawn step through to the far side")
 

@@ -7,7 +7,7 @@ extends Node
 ## Run: godot --path . client/art/preview/building_preview.tscn -- --building=<name> --shot=<prefix>
 ## Saves <prefix>_{iso,front,side,eye}.png at 1920x1080.
 
-const CELL := 2.0
+const CELL := 2.4   # BuildGrid.CELL_SIZE
 const RES := Vector2i(1920, 1080)
 var _vp: SubViewport
 var _cam: Camera3D
@@ -84,10 +84,13 @@ func _build_building(name: String) -> AABB:
 	var lo := Vector3(INF, INF, INF)
 	var hi := Vector3(-INF, -INF, -INF)
 	var maxy := 0
+	var wymax := -1   # top wall course (for the parapet/cornice roof cap; mirrors world_renderer)
 	var cxmin := 1 << 30; var cxmax := -(1 << 30); var czmin := 1 << 30; var czmax := -(1 << 30)
 	for piece in data["pieces"]:
 		var o = piece["offset"]
 		maxy = maxi(maxy, int(o[1]))
+		if String(piece["type"]).begins_with("bwall"):
+			wymax = maxi(wymax, int(o[1]))
 		cxmin = mini(cxmin, int(o[0])); cxmax = maxi(cxmax, int(o[0]))
 		czmin = mini(czmin, int(o[2])); czmax = maxi(czmax, int(o[2]))
 	var cenx := float(cxmin + cxmax) * 0.5   # building centre in cells
@@ -101,8 +104,9 @@ func _build_building(name: String) -> AABB:
 		# Mirror world_renderer: ground-level (cell.y == 0) perimeter walls/columns + interior props skirt.
 		var skirt := _skirt and cell.y == 0 and (pid.begins_with("bwall") or pid == "bcolumn" \
 			or pid.begins_with("prop_"))
+		var roof_cap := pid.begins_with("bwall") and cell.y == wymax
 		var ystep := int(piece.get("yaw", 0))
-		var node: Node3D = BuildingKit.build(pid, 3, skirt, ystep)
+		var node: Node3D = BuildingKit.build(pid, 3, skirt, ystep, roof_cap)
 		var wpos := Vector3((float(cell.x) + 0.5) * CELL, float(cell.y) * CELL, (float(cell.z) + 0.5) * CELL)
 		node.position = wpos
 		if pid != "bwall_corner":

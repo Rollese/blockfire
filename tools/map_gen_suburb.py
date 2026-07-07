@@ -9,7 +9,7 @@ Run:  python3 tools/map_gen_suburb.py
 import json
 import os
 
-CELL = 2.0
+CELL = 2.4   # BuildGrid.CELL_SIZE (global cube, 2026-07-07)
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _FP = {}
 
@@ -106,26 +106,30 @@ RES = ["cottage", "family_a", "family_b", "house", "townhouse", "villa", "lhouse
 CIV = ["gas_station", "guardhouse", "office", "materials", "parking"]
 IND = ["warehouse", "factory", "bunker", "silo", "hangar", "supermarket"]
 
-# South / north residential bands (clear of the E-W cross-street at z=0).
-fill_row(RES, -110, 110, z_corner=-38)
+# South / north residential bands (clear of the E-W cross-street at z=0). At CELL=2.4 the buildings
+# are ~20% deeper, so the south row is pushed further south to keep the deep cul-de-sac industrial row
+# (below) clear of both it and the cross-street.
+fill_row(RES, -110, 110, z_corner=-46)
 fill_row(RES, -110, 110, z_corner=16)
 
-# West cul-de-sac frontage — starts west of the spur, marches east.
+# West cul-de-sac frontage — starts west of the spur, marches east. z=-24 so the deepest bays
+# (factory/warehouse ~17 m) still end south of the z=-6 cross-street at 2.4 m cells.
 x = -108
 for name in IND[:4]:
     hi = crosses_any_skip(x, footprint(name)[0] * CELL)
     if hi is not None:
         x = skip_past(hi)
-    place(name, x, -20)
+    place(name, x, -24)
     x += footprint(name)[0] * CELL + GAP
 
-# East cul-de-sac frontage.
+# East cul-de-sac frontage (the 26 m-wide hangar no longer fits east of the spur at 2.4 m — dropped;
+# it still appears on conquest_showcase/town).
 x = 56
-for name in CIV[:3] + IND[4:5]:
+for name in CIV[:3]:
     hi = in_any_skip(x)
     if hi is not None:
         x = skip_past(hi)
-    place(name, x, -20)
+    place(name, x, -24)
     x += footprint(name)[0] * CELL + GAP
 
 # Landmarks around the central crossroads (placed in open quadrants).

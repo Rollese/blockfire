@@ -13,7 +13,7 @@ Run:  python3 tools/showcase_gen.py
 """
 import json, os, glob
 
-CELL = 2.0
+CELL = 2.4   # BuildGrid.CELL_SIZE (global cube, 2026-07-07)
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _FP = {}
 

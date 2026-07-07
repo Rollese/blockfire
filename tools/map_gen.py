@@ -13,7 +13,7 @@ Run:  python3 tools/map_gen.py   ->  writes maps/conquest_town.json
 """
 import json, os
 
-CELL = 2.0
+CELL = 2.4   # BuildGrid.CELL_SIZE (global cube, 2026-07-07)
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _FP = {}
 
@@ -95,7 +95,9 @@ roads = [
 # Themed prefab pools (cycled to fill). South=industrial, center=commercial/civic, north=residential.
 IND = ["warehouse", "factory", "hangar", "bunker", "silo", "parking", "supermarket"]
 CIV = ["office", "office_tower", "apartment", "supermarket", "gas_station", "guardhouse", "materials"]
-RES = ["house", "family_a", "family_b", "cottage", "townhouse", "villa", "lhouse", "barn", "shed", "barracks"]
+# manor + rowhouse: the two new Kenney-quality templates (2026-07-07) — prepended so the residential
+# row always places them (they are the M11 gate/sign-off items).
+RES = ["manor", "rowhouse", "house", "family_a", "family_b", "cottage", "townhouse", "villa", "lhouse", "barn", "shed", "barracks"]
 
 # A compact VILLAGE CENTRE: dense frontages clustered around the central square and main avenue.
 # The old outskirts rows (south B1 z=-124 / north B6 z=108) are REMOVED and the flanks trimmed to

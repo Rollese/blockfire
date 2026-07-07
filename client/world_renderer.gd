@@ -213,6 +213,10 @@ var _vaultpose_demo_done := false
 var glbshoot_demo := false        # --glbshoot-test: GLB hold vs holding-both-shoot clip A/B (QA)
 var _glbshoot_demo_done := false
 # M11-P4 destruction cosmetics: per-piece debris/dust + a whole-building collapse cinematic + shake.
+# BF_NOFX (env): suppress the cosmetic dust/debris/collapse cinematic so a STATIC geometry QA capture
+# (render_destruct_shots) shows the structural geometry unobscured — the frozen dust/debris otherwise
+# reads as "floating balls" over a hole/rubble. Runtime game never sets it.
+var _nofx := OS.has_environment("BF_NOFX")
 var destroy_demo := false         # --destroy-test: pump piece destruction bursts in front of camera (QA)
 var _destroy_demo_next := 0.0
 var collapse_demo := false        # --collapse-test: play a building collapse cinematic in front of camera (QA)
@@ -2404,6 +2408,8 @@ func _sync_structure_pool(world_view: WorldView, now: float) -> void:
 	# M11-P4: drain per-piece destruction cosmetics — a removed piece bursts brick debris + dust,
 	# a freshly-carved piece kicks a small dust puff (the batched renderer can't see per-piece changes).
 	for ev_v: Variant in world_view.take_struct_fx():
+		if _nofx:
+			continue   # drain the queue but skip the cosmetic burst (clean geometry QA capture)
 		var ev: Dictionary = ev_v
 		var p := _structure_xform({"cell": ev["cell"], "yaw": int(ev.get("yaw", 0))}).origin
 		p.y += BuildGrid.CELL_SIZE * 0.5   # raise to roughly the piece mid-height
@@ -2464,12 +2470,18 @@ func _rebuild_structure_batches(structs: Dictionary) -> void:
 		if rbid == 0:
 			continue
 		var rc: Vector3i = r["cell"] as Vector3i
+		# wymax = top wall course of the building (for the renderer's parapet/cornice roof cap). -1 until a
+		# wall is seen, so a wall-less building (unlikely) never caps.
+		var rt := int(r.get("type", -1))
+		var rwall: bool = rt >= 0 and rt < STRUCT_TYPE_ID.size() and String(STRUCT_TYPE_ID[rt]).begins_with("bwall")
 		if not _building_bounds.has(rbid):
-			_building_bounds[rbid] = {"cxmin": rc.x, "cxmax": rc.x, "czmin": rc.z, "czmax": rc.z}
+			_building_bounds[rbid] = {"cxmin": rc.x, "cxmax": rc.x, "czmin": rc.z, "czmax": rc.z, "wymax": (rc.y if rwall else -1)}
 		else:
 			var bb: Dictionary = _building_bounds[rbid]
 			bb["cxmin"] = mini(int(bb["cxmin"]), rc.x); bb["cxmax"] = maxi(int(bb["cxmax"]), rc.x)
 			bb["czmin"] = mini(int(bb["czmin"]), rc.z); bb["czmax"] = maxi(int(bb["czmax"]), rc.z)
+			if rwall:
+				bb["wymax"] = maxi(int(bb["wymax"]), rc.y)
 
 	# Group piece ids by visual key; union each building's extents into its persistent footprint.
 	for id_v: Variant in structs:
@@ -2502,11 +2514,26 @@ func _build_group_mmis(key: String, structs: Dictionary) -> void:
 		return
 	var xforms: Array = []
 	var sample: Dictionary = {}
+	# Collapse rubble is the SAME piece stamped once per footprint cell -> without variation it reads as an
+	# artificial lattice of identical mounds. Spin/scale/offset each per a deterministic cell hash (no RNG,
+	# client-cosmetic; collision + walkability are unchanged) so it reads as an organic ruin field.
+	var is_rubble := false   # set from the first record (all members of a group share a type)
+	var tints: Array = []    # per-instance brightness (rubble only) so mounds don't read as one flat tone
 	for id_v: Variant in ids:
 		var rec: Dictionary = structs[id_v]
 		if sample.is_empty():
 			sample = rec
-		xforms.append(_structure_xform(rec))
+			var st := int(rec.get("type", -1))
+			is_rubble = st >= 0 and st < STRUCT_TYPE_ID.size() and STRUCT_TYPE_ID[st] == "brubble"
+		var xf := _structure_xform(rec)
+		if is_rubble:
+			var cell := rec["cell"] as Vector3i
+			xf = xf * _rubble_variation(cell)
+			var rh := hash(Vector2i(cell.x, cell.z))
+			var b := 0.60 + float((rh >> 4) & 255) / 255.0 * 0.62         # 0.60..1.22 brightness
+			var warm := (float((rh >> 12) & 63) / 63.0 - 0.5) * 0.22      # +-0.11 warm(+R,-B) / cool(-R,+B)
+			tints.append(Color(clampf(b + warm, 0.0, 1.4), b, clampf(b - warm, 0.0, 1.4)))
+		xforms.append(xf)
 	var template: Node3D = _make_structure_node(sample)
 	var slots: Array = []
 	_collect_mesh_slots(template, Transform3D.IDENTITY, slots)
@@ -2514,16 +2541,41 @@ func _build_group_mmis(key: String, structs: Dictionary) -> void:
 	for slot: Dictionary in slots:
 		var mm := MultiMesh.new()
 		mm.transform_format = MultiMesh.TRANSFORM_3D
+		mm.use_colors = is_rubble   # per-instance brightness modulation for the rubble field
 		mm.mesh = slot["mesh"]
 		mm.instance_count = xforms.size()
 		for i in xforms.size():
 			mm.set_instance_transform(i, (xforms[i] as Transform3D) * (slot["local"] as Transform3D))
+			if is_rubble:
+				mm.set_instance_color(i, tints[i] as Color)
 		var mmi := MultiMeshInstance3D.new()
 		mmi.multimesh = mm
-		mmi.material_override = slot["material"]
+		mmi.material_override = _rubble_tinted_material(slot["material"] as Material) if is_rubble else slot["material"]
 		mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON
 		add_child(mmi)
 		(g["mmis"] as Array).append(mmi)
+
+
+## Deterministic per-cell cosmetic variation for a rubble mound: a full yaw spin + a scale wobble +
+## a small in-cell shove, hashed from the cell so it is stable and identical for every viewer. Applied
+## around the mound base (y stays on the ground). Render-only — the piece's collision cell is unchanged.
+func _rubble_variation(cell: Vector3i) -> Transform3D:
+	var h := hash(Vector2i(cell.x, cell.z))
+	var yaw := float(h & 1023) / 1024.0 * TAU
+	var s := 0.82 + float((h >> 10) & 255) / 255.0 * 0.42          # 0.82 .. 1.24
+	var ox := (float((h >> 18) & 127) / 127.0 - 0.5) * 0.7         # +-0.35 m
+	var oz := (float((h >> 25) & 127) / 127.0 - 0.5) * 0.7
+	return Transform3D(Basis.from_euler(Vector3(0.0, yaw, 0.0)).scaled(Vector3(s, s, s)), Vector3(ox, 0.0, oz))
+
+
+## Rubble material that reads the MultiMesh per-instance colour as an albedo multiplier (so the per-cell
+## brightness in _build_group_mmis lands). Duplicated from the kit material (rebuilt rarely, on collapse).
+func _rubble_tinted_material(src: Material) -> Material:
+	var m := src.duplicate() as StandardMaterial3D
+	if m == null:
+		return src
+	m.vertex_color_use_as_albedo = true
+	return m
 
 
 ## Dispatch a visual-key group to its builder: "P:<type>" keys are partially-carved pieces rendered
@@ -2551,6 +2603,12 @@ func _is_promotable(rec: Dictionary) -> bool:
 	# so those keep the batched whole-mesh until fully removed.
 	if not _is_wall_piece(type_idx):
 		return false
+	# A corner is an L of TWO faces; the chunk mask is a SINGLE vertical face, so promoting it collapses
+	# the L into one flat centred slab (one arm shifts to the cell centre, the other vanishes). Keep the
+	# whole L-mesh (damage-tinted) until the piece is fully removed — same reasoning as floors/stairs.
+	var pid: String = STRUCT_TYPE_ID[type_idx] if type_idx < STRUCT_TYPE_ID.size() else ""
+	if pid == "bwall_corner":
+		return false
 	var grid := _grid_of(type_idx)
 	if grid < 2:
 		return false   # 1x1 pieces are alive-or-gone; no sub-cell hole
@@ -2563,6 +2621,20 @@ func _is_promotable(rec: Dictionary) -> bool:
 func _is_wall_piece(type_idx: int) -> bool:
 	var pid: String = STRUCT_TYPE_ID[type_idx] if type_idx < STRUCT_TYPE_ID.size() else ""
 	return pid.begins_with("bwall") or pid == "wall" or pid == "sandbag"
+
+
+## True for a wall on a building's TOP wall course -> it carries the parapet/coping roof cap (Kenney
+## flat-roof silhouette). Corners cap both arms (BuildingKit) so the parapet rings the roof with no gap.
+## Needs _building_bounds (built each full rebuild; persists for the incremental path).
+func _roof_cap_of(rec: Dictionary) -> bool:
+	var type_idx := int(rec.get("type", 0))
+	var pid: String = STRUCT_TYPE_ID[type_idx] if type_idx < STRUCT_TYPE_ID.size() else ""
+	if not pid.begins_with("bwall"):
+		return false
+	var bid := int(rec.get("building_id", 0))
+	if bid == 0 or not _building_bounds.has(bid):
+		return false
+	return int((rec["cell"] as Vector3i).y) == int((_building_bounds[bid] as Dictionary).get("wymax", -1))
 
 
 func _build_promoted_mmis(key: String, structs: Dictionary) -> void:
@@ -2827,7 +2899,7 @@ func _struct_visual_key(rec: Dictionary) -> String:
 		return "P:%d" % type_idx
 	var skirt: bool = cell.y == 0 and (piece_id.begins_with("bwall") or piece_id == "bcolumn" \
 		or piece_id.begins_with("prop_"))
-	return "%d:%d:%d" % [type_idx, _bucket_of(rec), 1 if skirt else 0]
+	return "%d:%d:%d:%d" % [type_idx, _bucket_of(rec), 1 if skirt else 0, 1 if _roof_cap_of(rec) else 0]
 
 
 ## World transform of a piece (mirrors _pose_structure: cell-centred + lifted, Y-yawed).
@@ -2986,7 +3058,7 @@ func _make_structure_node(rec: Dictionary) -> Node3D:
 		var cell: Vector3i = rec["cell"] as Vector3i
 		var skirt := cell.y == 0 and (piece_id.begins_with("bwall") or piece_id == "bcolumn" \
 			or piece_id.begins_with("prop_"))
-		return BuildingKit.build(piece_id, _bucket_of(rec), skirt, int(rec.get("yaw", 0)))
+		return BuildingKit.build(piece_id, _bucket_of(rec), skirt, int(rec.get("yaw", 0)), _roof_cap_of(rec))
 	return StructureKit.build(piece_id, _bucket_of(rec))
 
 

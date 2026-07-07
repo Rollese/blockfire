@@ -7,9 +7,9 @@ func _store() -> StructureStore:
 
 func test_upper_wall_blocks_only_upstairs() -> void:
 	var s := _store()
-	s.place(1, 0, Vector3i(1, 1, 0), 0, 99)   # wall at cell (1,1,0): blocks at y in [2,4]
-	var up := s.resolve_movement(Vector3(1.0, 2.0, 1.0), Vector3(3.0, 2.0, 1.0))
-	assert_true(up.distance_to(Vector3(3.0, 2.0, 1.0)) > 0.5, "upper-floor wall blocks at y=2")
+	s.place(1, 0, Vector3i(1, 1, 0), 0, 99)   # wall at cell (1,1,0): blocks at y in [2.4,4.8]
+	var up := s.resolve_movement(Vector3(1.0, 3.0, 1.0), Vector3(3.0, 3.0, 1.0))
+	assert_true(up.distance_to(Vector3(3.0, 3.0, 1.0)) > 0.5, "upper-floor wall blocks at y=3 (upper cell)")
 	var down := s.resolve_movement(Vector3(1.0, 0.0, 1.0), Vector3(3.0, 0.0, 1.0))
 	assert_eq(down, Vector3(3.0, 0.0, 1.0), "ground floor under an upper wall is clear")
 
@@ -35,5 +35,5 @@ func test_ground_blocker_top_is_height_relative() -> void:
 	# pawn on the upper floor (else they'd vault-teleport down — M14 final-review fix).
 	var s := StructureStore.new(PieceCatalog.from_json_string(HALF_CAT)["catalog"])
 	s.place(1, 0, Vector3i(0, 0, 0), 0, 99)   # half sandbag at the GROUND cell (0,0,0)
-	assert_almost_eq(s.ground_blocker_top(Vector3(1.0, 2.0, 1.0)), 0.0, 0.01, "ground half-piece is not a blocker from the upper floor")
-	assert_almost_eq(s.ground_blocker_top(Vector3(1.0, 0.0, 1.0)), 1.0, 0.01, "same half-piece is a 1m vaultable blocker at ground level (unchanged)")
+	assert_almost_eq(s.ground_blocker_top(Vector3(1.0, 2.5, 1.0)), 0.0, 0.01, "ground half-piece is not a blocker from the upper floor")
+	assert_almost_eq(s.ground_blocker_top(Vector3(1.0, 0.0, 1.0)), 1.2, 0.01, "same half-piece is a 1.2m vaultable blocker at ground level (unchanged)")

@@ -121,10 +121,11 @@ func test_ids_in_radius_returns_occupied_within_range() -> void:
 	s.place(1, 1, Vector3i(0, 0, 0), 0, 7)
 	s.place(2, 1, Vector3i(2, 0, 0), 0, 7)
 	s.place(3, 1, Vector3i(3, 0, 0), 0, 7)
+	# Cell centres at 2.4 m: id1 @ (1.2,1.2,1.2), id2 @ (6.0,1.2,1.2), id3 @ (8.4,1.2,1.2).
 	var near := s.ids_in_radius(Vector3(1, 1, 1), 3.0)
 	assert_eq(near.size(), 1)
 	assert_eq(near[0], 1)
-	var wider := s.ids_in_radius(Vector3(1, 1, 1), 4.5)
+	var wider := s.ids_in_radius(Vector3(1, 1, 1), 5.5)   # reaches id2 (dist ~5.0), excludes id3 (~7.4)
 	assert_eq(wider.size(), 2)
 	assert_eq(wider.has(1) and wider.has(2), true)
 

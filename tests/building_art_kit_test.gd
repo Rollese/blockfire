@@ -44,7 +44,12 @@ func test_corner_is_l_not_centred_cross() -> void:
 	for c in root.get_children():
 		if c is MeshInstance3D:
 			names.append(c.name)
-	assert_eq(names.size(), 2, "corner is two edge arms")
+	# Two edge arms (an L) — plus quoin relief up the corner edge. NOT a centred cross slab.
+	var arms := 0
+	for nm in names:
+		if nm.begins_with("Arm"):
+			arms += 1
+	assert_eq(arms, 2, "corner is two edge arms")
 	assert_true("ArmS" in names or "ArmN" in names, "has a span arm")
 	assert_false("CornX" in names, "no centred cross slab")
 

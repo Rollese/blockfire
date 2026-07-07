@@ -7,11 +7,11 @@ func _store() -> StructureStore:
 
 func test_march_hits_wall_ahead() -> void:
 	var s := _store()
-	s.place(1, 1, Vector3i(2, 0, 0), 0, 7)   # wall AABB x:[4,6] y:[0,2] z:[0,2]
+	s.place(1, 1, Vector3i(2, 0, 0), 0, 7)   # wall AABB x:[4.8,7.2] y:[0,2.4] z:[0,2.4]
 	var r := s.march(Vector3(0.0, 1.0, 1.0), Vector3(1, 0, 0), 50.0)
 	assert_eq(r["hit"], true)
 	assert_eq(r["id"], 1)
-	assert_almost_eq(r["dist"], 4.0, 0.6)    # enters the box at x=4
+	assert_almost_eq(r["dist"], 4.8, 0.6)    # enters the box at x=4.8
 
 func test_march_misses_empty_path() -> void:
 	var s := _store()
@@ -52,15 +52,15 @@ func test_resolve_movement_passes_through_free_space() -> void:
 	assert_eq(out, Vector3(10.0, 0.0, 10.0))
 
 func test_march_hits_corner_clipped_cell() -> void:
-	# Regression: 0.5 m point-sampling could step OVER a cell the ray crossed for only
-	# ~0.14 m (corner clip) — occasional through-the-corner bullets on every cover check
-	# (fire, rockets, flash LOS, sledge). This diagonal crosses cell (1,0,1) for
-	# t in [2.83, 2.97) — exactly between the t=2.5 and t=3.0 samples.
+	# Regression: 0.5 m point-sampling could step OVER a cell the ray crossed for only a
+	# short corner clip — occasional through-the-corner bullets on every cover check
+	# (fire, rockets, flash LOS, sledge). This diagonal enters cell (1,0,1) on its x=2.4 face
+	# (a corner-clipped crossing the DDA must still catch).
 	var s := _store()
-	s.place(1, 1, Vector3i(1, 0, 1), 0, 7)   # wall AABB x:[2,4] y:[0,2] z:[2,4]
+	s.place(1, 1, Vector3i(1, 0, 1), 0, 7)   # wall AABB x:[2.4,4.8] y:[0,2.4] z:[2.4,4.8]
 	var r := s.march(Vector3(0.0, 1.0, 1.9), Vector3(1, 0, 1).normalized(), 10.0)
 	assert_eq(r["hit"], true, "corner-clipped wall must stop the bullet")
-	assert_almost_eq(float(r["dist"]), 2.828, 0.01, "entry on the x=2 face")
+	assert_almost_eq(float(r["dist"]), 3.394, 0.01, "entry on the x=2.4 face")
 
 func test_march_zero_direction_is_safe() -> void:
 	var s := _store()
@@ -71,11 +71,11 @@ func test_march_normal_front_face() -> void:
 	# Grenade-bounce primitive: a ray into the -x face of a wall returns a normal pointing back
 	# at the shooter (-x) and the contact point on that face.
 	var s := _store()
-	s.place(1, 1, Vector3i(2, 0, 0), 0, 7)   # wall AABB x:[4,6] y:[0,2] z:[0,2]
+	s.place(1, 1, Vector3i(2, 0, 0), 0, 7)   # wall AABB x:[4.8,7.2] y:[0,2.4] z:[0,2.4]
 	var r := s.march_normal(Vector3(0.0, 1.0, 1.0), Vector3(1, 0, 0), 50.0)
 	assert_eq(r["hit"], true)
 	assert_eq(r["normal"], Vector3(-1, 0, 0), "hit the -x face; normal faces the shooter")
-	assert_almost_eq((r["point"] as Vector3).x, 4.0, 0.05, "contact on the x=4 plane")
+	assert_almost_eq((r["point"] as Vector3).x, 4.8, 0.05, "contact on the x=4.8 plane")
 
 func test_march_normal_side_face() -> void:
 	var s := _store()

@@ -4,9 +4,9 @@ extends Object
 ## whose top is <= VAULT_MAX_HEIGHT is vaultable, so future low pieces vault with no code change.
 ## State lives on the Pawn (vaulting / vault_* fields); SimLoop drives the arc each tick.
 
-const VAULT_MAX_HEIGHT := 1.2   # m; half structure piece (1.0 m) qualifies, full wall (2.0 m) does not
+const VAULT_MAX_HEIGHT := 1.2   # m; half structure piece (0.5*CELL = 1.2 m) qualifies, full wall (2.4 m) does not
 const VAULT_TICKS := 8          # ticks to complete the arc (~0.27 s @30Hz)
-const VAULT_FORWARD := 2.5      # m carried forward, enough to clear one CELL_SIZE (2.0 m) obstacle
+const VAULT_FORWARD := 2.5      # m carried forward; the collision-safe landing scan clears a full CELL (2.4 m) obstacle
 const VAULT_PEAK := 0.6         # m arc apex above the straight line
 
 ## A standing, moving pawn may vault a blocker whose top is in (0, VAULT_MAX_HEIGHT].

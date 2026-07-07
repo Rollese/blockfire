@@ -8,12 +8,13 @@ func test_run_dir_quarter_turns() -> void:
 	assert_eq(Stairs.run_dir(6), Vector2(-1, 0), "yaw 6 ascends -X")
 
 func test_surface_rises_low_to_high_edge() -> void:
+	# Cell y=1 -> base 2.4 m, next floor 4.8 m; z runs 0..CELL(2.4) across the cell.
 	var cell := Vector3i(0, 1, 0)
-	assert_almost_eq(Stairs.surface_at(cell, 0, 1.0, 0.0), 2.0, 0.01, "low edge = cell base")
-	assert_almost_eq(Stairs.surface_at(cell, 0, 1.0, 2.0), 4.0, 0.01, "high edge = next floor")
-	assert_almost_eq(Stairs.surface_at(cell, 0, 1.0, 1.0), 3.0, 0.01, "mid = halfway up")
+	assert_almost_eq(Stairs.surface_at(cell, 0, 1.0, 0.0), 2.4, 0.01, "low edge = cell base")
+	assert_almost_eq(Stairs.surface_at(cell, 0, 1.0, 2.4), 4.8, 0.01, "high edge = next floor")
+	assert_almost_eq(Stairs.surface_at(cell, 0, 1.0, 1.2), 3.6, 0.01, "mid = halfway up")
 
 func test_surface_respects_yaw_direction() -> void:
 	var cell := Vector3i(0, 1, 0)
-	assert_almost_eq(Stairs.surface_at(cell, 4, 1.0, 0.0), 4.0, 0.01, "yaw4 low-z edge is the top")
-	assert_almost_eq(Stairs.surface_at(cell, 4, 1.0, 2.0), 2.0, 0.01, "yaw4 high-z edge is the bottom")
+	assert_almost_eq(Stairs.surface_at(cell, 4, 1.0, 0.0), 4.8, 0.01, "yaw4 low-z edge is the top")
+	assert_almost_eq(Stairs.surface_at(cell, 4, 1.0, 2.4), 2.4, 0.01, "yaw4 high-z edge is the bottom")

@@ -1,10 +1,10 @@
 class_name BuildGrid
 extends Object
-## Snap-to-grid quantization for fortification placement. 2 m cubic cells, 8 yaw steps.
+## Snap-to-grid quantization for fortification placement. 2.4 m cubic cells, 8 yaw steps.
 ## Pure functions; the single source of truth for cell<->world math shared by server, bots,
 ## and the structure store. See docs/specs/building.md.
 
-const CELL_SIZE := 2.0
+const CELL_SIZE := 2.4   # global cube (owner-chosen 2026-07-07): a clear standing volume per cell
 const YAW_STEPS := 8
 const MAX_STACK := 8   # cells high; bounds vertical stacking
 

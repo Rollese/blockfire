@@ -173,3 +173,41 @@ to master unless noted):
 Suite 1372/0. Owner sign-off on the destruction feel is pending a **joint playtest** once a parallel workstream
 integrates two new asset-based buildings onto the map. **Still deferred:** R6 (a long organic/non-scripted
 collapse) + the cosmetic BuildingKit geometry tweaks.
+
+### Two new gate buildings + 2.4 m cell overhaul — landed (building-overhaul session, 2026-07-07)
+
+The two new buildings the final owner sign-off waited on are **procedural** (not asset-based — the owner chose the
+procedural Kenney-quality path over a third-party kit): `manor` (wide 3-storey grand residence) + `rowhouse` (tall
+narrow 3-storey terrace), both authored via `build_gen.py` + `build_fix.py`, with the Task-2 Kenney pieces (parapet/
+coping roof cap, keystoned/silled windows, keystoned doors + threshold, corner quoining) and **multiple entrances**
+(one per face, owner-directed). Placed on `conquest_town` (23 buildings, `map_gen.py` reports 0 problems).
+
+**128-bot Gate-A re-run PASS on `conquest_town`** (game2, `SERVER_CPUS=0-3 BOTS_CPUS=4-31`, 2026-07-07):
+`winner=1 elapsed=79s peak tick=22.60 ms < 33.3, struct=2459 destroyed=2 rstruct=9 collapsed=0, script_errors=0`
+(`docker/srvlog-m11-20260707-211246.log` on game2). Also covers the 2.4 m global-cube cell-size change
+(`BuildGrid.CELL_SIZE 2.0→2.4` + all matching geometry sites) and the collateral fixes below. Full unit suite 1379/0.
+
+### Corner destructibility (deferred — building-overhaul session, 2026-07-07)
+
+`bwall_corner` is an **L of two perpendicular faces**, but `ChunkMask` is a **single-face** 64-bit model, so a
+carved corner promoted through `chunk_hole_xforms` collapses into one flat inward-shifted slab (one arm to the
+cell centre, the other gone). Owner ruled this unacceptable — corners must breach like regular walls meeting at a
+corner, else they are impenetrable cover that only clears on whole-building collapse.
+
+**Owner decision (2026-07-07):** implement the **shared-mask** approach — render + carve BOTH arms from the same
+64-bit mask (a corner breach opens both arms together near the join; accepted trade-off: a hole in one arm mirrors
+on the other away from the join). Sequenced **after** the two new gate buildings land, in a focused destruction
+pass with one combined 128-bot re-gate. **Interim:** `bwall_corner` is excluded from client promotion
+(`world_renderer._is_promotable`) so it keeps a clean L-mesh (no slab) but is not yet breachable — a placeholder the
+shared-mask pass replaces.
+
+### Building-overhaul session collateral fixes (2026-07-07, worktree `worktree-building-overhaul-cell24`)
+
+- **Collapse rubble was buried on raised terrain:** `server_main._footprint_ground_cells` stamped `brubble` at a
+  hardcoded `cell.y=0`, but a building on a hill sits at `cell.y>0` — the rubble landed a cell under the terrain
+  (invisible + unwalkable). Now stamped at the building's actual floor `cell.y` (from the cached original footprint).
+- **Rubble read as an artificial lattice:** the per-cell walkable `brubble` pieces (kept — owner chose walkable) now
+  get a deterministic per-cell spin + scale + in-cell offset + warm/cool tint in `world_renderer._build_group_mmis`
+  so the ruin field reads organic. Client-cosmetic; collision/walkability unchanged.
+- **QA:** `BF_NOFX` env on `WorldRenderer` suppresses the dust/debris/collapse cosmetics so
+  `tools/render_destruct_shots.gd` static captures show unobscured geometry (`BF_CORNER` targets a corner piece).

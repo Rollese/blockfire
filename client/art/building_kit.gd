@@ -3,7 +3,7 @@ extends Object
 ## Procedural low-poly geometry for M11 building pieces. Presentation-only, no team-tint. Keyed by
 ## piece id + damage bucket (3 pristine .. 0 heavy), mirroring StructureKit's damage read.
 
-const CELL := 2.0  # BuildGrid.CELL_SIZE
+const CELL := 2.4  # BuildGrid.CELL_SIZE
 const TEX_WORLD_SCALE := 1.0   # texture tiles per metre (world-triplanar) — shared by walls + hole chunks
 
 # Per-piece palette — distinct tones so a building reads as walls/floors/columns/trim instead of a
@@ -23,7 +23,7 @@ const COL_RUBBLE_B := Color(0.47, 0.45, 0.42) # broken concrete (mid)
 const COL_RUBBLE_C := Color(0.60, 0.58, 0.54) # broken concrete (pale)
 const COL_FOUND := Color(0.46, 0.45, 0.43)   # concrete foundation slab / floor-skirt under walls
 
-static func build(piece_id: String, bucket: int, floor_skirt: bool = false, yaw_step: int = 0) -> Node3D:
+static func build(piece_id: String, bucket: int, floor_skirt: bool = false, yaw_step: int = 0, roof_cap: bool = false) -> Node3D:
 	var root := Node3D.new()
 	if floor_skirt:
 		# Ground-level perimeter walls/columns and interior prop cells hold a single centred piece but NO
@@ -70,41 +70,53 @@ static func build(piece_id: String, bucket: int, floor_skirt: bool = false, yaw_
 		"prop_crate":
 			root.add_child(_box("Crate", Vector3(0.9, 0.9, 0.9), Vector3(0, 0.45, 0), bucket, Color(0.45, 0.32, 0.18), "wood"))
 		"bwall_window":
-			# Kenney-style framed window: a large opening (1.1 x 0.95 m) left by solid sill/header/side
-			# fills (these form the CELL-wide carvable slab -> chunk-hole promotion stays seamless), a
+			# Kenney-style framed window: a large opening left by solid sill/header/side fills (these form
+			# the CELL-wide, full-cell-height carvable slab -> chunk-hole promotion stays seamless), a
 			# RECESSED glazing pane + mullions read as a real window, and a proud trim frame + sill ledge
 			# give the face depth. Trim/glazing are shallow relief -> they harmlessly drop when the slab carves.
-			var op_h := 0.95      # opening height
-			var op_cy := 1.325    # opening centre Y (sill at ~0.85, head at ~1.80)
+			var sill_top := 0.9   # windowsill height
+			var op_h := 1.05      # opening height (sill_top .. sill_top+op_h)
+			var op_cy := sill_top + op_h * 0.5   # opening centre Y
+			var head_bot := sill_top + op_h      # header fill bottom
 			var op_hw := 0.55     # opening half-width
-			root.add_child(_box("Sill", Vector3(CELL, 0.85, 0.3), Vector3(0, 0.425, 0), bucket, COL_WALL))
-			root.add_child(_box("Header", Vector3(CELL, 0.20, 0.3), Vector3(0, 1.90, 0), bucket, COL_WALL))
+			root.add_child(_box("Sill", Vector3(CELL, sill_top, 0.3), Vector3(0, sill_top * 0.5, 0), bucket, COL_WALL))
+			root.add_child(_box("Header", Vector3(CELL, CELL - head_bot, 0.3), Vector3(0, head_bot + (CELL - head_bot) * 0.5, 0), bucket, COL_WALL))
 			root.add_child(_box("WSideL", Vector3(CELL * 0.5 - op_hw, op_h, 0.3), Vector3(-(op_hw + (CELL * 0.5 - op_hw) * 0.5), op_cy, 0), bucket, COL_WALL))
 			root.add_child(_box("WSideR", Vector3(CELL * 0.5 - op_hw, op_h, 0.3), Vector3(op_hw + (CELL * 0.5 - op_hw) * 0.5, op_cy, 0), bucket, COL_WALL))
-			# Recessed glazing + a simple mullion cross (flat, slightly behind the face plane).
-			root.add_child(_box("Glaze", Vector3(op_hw * 2.0, op_h, 0.05), Vector3(0, op_cy, -0.06), 3, Color(0.22, 0.27, 0.32), ""))
-			root.add_child(_box("MullV", Vector3(0.05, op_h, 0.06), Vector3(0, op_cy, -0.02), bucket, COL_TRIM, ""))
-			root.add_child(_box("MullH", Vector3(op_hw * 2.0, 0.05, 0.06), Vector3(0, op_cy, -0.02), bucket, COL_TRIM, ""))
-			# Proud trim frame + a sill ledge for depth (face is at z=+0.15).
-			root.add_child(_box("TrimT", Vector3(op_hw * 2.0 + 0.14, 0.09, 0.10), Vector3(0, op_cy + op_h * 0.5, 0.16), bucket, COL_TRIM, ""))
-			root.add_child(_box("TrimL", Vector3(0.09, op_h + 0.18, 0.10), Vector3(-op_hw - 0.05, op_cy, 0.16), bucket, COL_TRIM, ""))
-			root.add_child(_box("TrimR", Vector3(0.09, op_h + 0.18, 0.10), Vector3(op_hw + 0.05, op_cy, 0.16), bucket, COL_TRIM, ""))
-			root.add_child(_box("SillLedge", Vector3(op_hw * 2.0 + 0.30, 0.10, 0.16), Vector3(0, op_cy - op_h * 0.5, 0.12), bucket, COL_TRIM, ""))
+			# DEEP recessed glazing (set well back for a real reveal) + a mullion cross on the pane.
+			root.add_child(_box("Glaze", Vector3(op_hw * 2.0, op_h, 0.05), Vector3(0, op_cy, -0.11), 3, Color(0.22, 0.27, 0.32), ""))
+			root.add_child(_box("MullV", Vector3(0.05, op_h, 0.06), Vector3(0, op_cy, -0.05), bucket, COL_TRIM, ""))
+			root.add_child(_box("MullH", Vector3(op_hw * 2.0, 0.05, 0.06), Vector3(0, op_cy, -0.05), bucket, COL_TRIM, ""))
+			# Proud architrave frame (face at z=+0.15) — jambs + head, a projecting stone SILL, and a
+			# KEYSTONE centred on the head for the Kenney look.
+			root.add_child(_box("TrimT", Vector3(op_hw * 2.0 + 0.16, 0.10, 0.12), Vector3(0, op_cy + op_h * 0.5 + 0.01, 0.17), bucket, COL_TRIM, ""))
+			root.add_child(_box("TrimL", Vector3(0.10, op_h + 0.20, 0.12), Vector3(-op_hw - 0.06, op_cy, 0.17), bucket, COL_TRIM, ""))
+			root.add_child(_box("TrimR", Vector3(0.10, op_h + 0.20, 0.12), Vector3(op_hw + 0.06, op_cy, 0.17), bucket, COL_TRIM, ""))
+			root.add_child(_box("Keystone", Vector3(0.18, 0.22, 0.16), Vector3(0, op_cy + op_h * 0.5 + 0.05, 0.19), bucket, COL_TRIM, ""))
+			root.add_child(_box("SillLedge", Vector3(op_hw * 2.0 + 0.34, 0.12, 0.22), Vector3(0, op_cy - op_h * 0.5 - 0.02, 0.12), bucket, COL_TRIM, ""))
 		"bwall_door":
-			# Framed doorway: full-height solid side fills (the carvable slab) leave a ~1 m opening; a
-			# RECESSED panelled door slab + a proud trim surround give it depth. The cell above is the header.
-			var d_hw := 0.5                      # door opening half-width
+			# Framed doorway self-contained in ONE 2.4 m cell (no "the cell above is the header" hack):
+			# full-height side fills + a solid header fill above a fixed ~2.1 m opening form the CELL-wide
+			# carvable slab; a RECESSED panelled leaf + a proud trim surround give depth. Trim/leaf are
+			# shallow relief -> they harmlessly drop when the slab carves.
+			var d_hw := 0.5                      # door opening half-width (1.0 m leaf)
+			var op_h := 2.1                      # opening height — clears a standing pawn
 			var side_w := CELL * 0.5 - d_hw      # solid fill each side of the opening
+			var head_h := CELL - op_h            # solid header fill above the opening (~0.3 m)
 			root.add_child(_box("DSideL", Vector3(side_w, CELL, 0.3), Vector3(-(d_hw + side_w * 0.5), CELL * 0.5, 0), bucket, COL_WALL))
 			root.add_child(_box("DSideR", Vector3(side_w, CELL, 0.3), Vector3(d_hw + side_w * 0.5, CELL * 0.5, 0), bucket, COL_WALL))
+			root.add_child(_box("DHeader", Vector3(d_hw * 2.0, head_h, 0.3), Vector3(0, op_h + head_h * 0.5, 0), bucket, COL_WALL))
 			# Recessed door leaf (dark wood) + two proud panel strips so it reads as a real door.
-			root.add_child(_box("DoorLeaf", Vector3(d_hw * 2.0 - 0.08, CELL - 0.1, 0.06), Vector3(0, (CELL - 0.1) * 0.5, -0.05), 3, Color(0.32, 0.22, 0.14), ""))
-			root.add_child(_box("DPanelL", Vector3(0.06, CELL - 0.4, 0.03), Vector3(-0.22, CELL * 0.5, -0.01), 3, Color(0.26, 0.18, 0.11), ""))
-			root.add_child(_box("DPanelR", Vector3(0.06, CELL - 0.4, 0.03), Vector3(0.22, CELL * 0.5, -0.01), 3, Color(0.26, 0.18, 0.11), ""))
-			# Proud trim surround (jambs + lintel) at the face.
-			root.add_child(_box("DJambL", Vector3(0.10, CELL, 0.12), Vector3(-d_hw - 0.05, CELL * 0.5, 0.16), bucket, COL_TRIM, ""))
-			root.add_child(_box("DJambR", Vector3(0.10, CELL, 0.12), Vector3(d_hw + 0.05, CELL * 0.5, 0.16), bucket, COL_TRIM, ""))
-			root.add_child(_box("DLintel", Vector3(d_hw * 2.0 + 0.20, 0.12, 0.12), Vector3(0, CELL - 0.06, 0.16), bucket, COL_TRIM, ""))
+			root.add_child(_box("DoorLeaf", Vector3(d_hw * 2.0 - 0.08, op_h - 0.06, 0.06), Vector3(0, (op_h - 0.06) * 0.5, -0.05), 3, Color(0.32, 0.22, 0.14), ""))
+			root.add_child(_box("DPanelL", Vector3(0.06, op_h - 0.4, 0.03), Vector3(-0.22, op_h * 0.5, -0.01), 3, Color(0.26, 0.18, 0.11), ""))
+			root.add_child(_box("DPanelR", Vector3(0.06, op_h - 0.4, 0.03), Vector3(0.22, op_h * 0.5, -0.01), 3, Color(0.26, 0.18, 0.11), ""))
+			# Proud architrave (jambs + lintel) at the face, a KEYSTONE on the lintel, and a projecting
+			# threshold step at the base — the Kenney doorway look.
+			root.add_child(_box("DJambL", Vector3(0.11, op_h, 0.13), Vector3(-d_hw - 0.055, op_h * 0.5, 0.17), bucket, COL_TRIM, ""))
+			root.add_child(_box("DJambR", Vector3(0.11, op_h, 0.13), Vector3(d_hw + 0.055, op_h * 0.5, 0.17), bucket, COL_TRIM, ""))
+			root.add_child(_box("DLintel", Vector3(d_hw * 2.0 + 0.24, 0.13, 0.13), Vector3(0, op_h + 0.065, 0.17), bucket, COL_TRIM, ""))
+			root.add_child(_box("DKeystone", Vector3(0.20, 0.24, 0.17), Vector3(0, op_h + 0.10, 0.19), bucket, COL_TRIM, ""))
+			root.add_child(_box("DThreshold", Vector3(d_hw * 2.0 + 0.30, 0.10, 0.24), Vector3(0, 0.05, 0.10), bucket, COL_TRIM, ""))
 		"bstair":
 			for s in range(4):
 				var h := CELL * (float(s) + 1.0) / 4.0
@@ -153,6 +165,11 @@ static func build(piece_id: String, bucket: int, floor_skirt: bool = false, yaw_
 				_:   # exterior N + W
 					root.add_child(_box("ArmN", Vector3(CELL, CELL, t), Vector3(0, h, edge), bucket, COL_WALL))
 					root.add_child(_box("ArmW", Vector3(t, CELL, CELL), Vector3(-edge, h, 0), bucket, COL_WALL))
+			# Quoins up the outer vertical edge (the two-arm join). Outer-corner sign per orientation.
+			var q := (yaw_step % BuildGrid.YAW_STEPS) / 2
+			var csx := -1.0 if (q == 0 or q == 3) else 1.0
+			var csz := -1.0 if (q == 0 or q == 1) else 1.0
+			_corner_quoins(root, bucket, csx, csz)
 		"brubble":
 			# M11 R5: the low, walkable, INDESTRUCTIBLE remnant a collapsed building leaves — a mound of
 			# broken concrete filling the cell up to ~1 m (half height). Cover to crouch behind + a deck to
@@ -165,6 +182,21 @@ static func build(piece_id: String, bucket: int, floor_skirt: bool = false, yaw_
 		_:
 			# bwall and any unknown id -> solid full wall.
 			root.add_child(_box("Wall", Vector3(CELL, CELL, 0.3), Vector3(0, CELL * 0.5, 0), bucket, COL_WALL))
+	# Kenney flat-roof cap on a top-course wall: a low parapet rising above the roofline + a proud trim
+	# coping (the coping's overhang reads as a small eave). A straight wall caps along its length; a corner
+	# caps BOTH exterior arms so the parapet is a continuous ring (no gap at the corners). Shallow relief
+	# riding the slab -> it drops harmlessly when a straight wall carves into hole chunks (constraint).
+	if roof_cap and piece_id.begins_with("bwall"):
+		if piece_id == "bwall_corner":
+			var e := CELL * 0.5 - 0.15   # exterior edge offset (matches the corner arms)
+			match (yaw_step % BuildGrid.YAW_STEPS) / 2:
+				0:   _roof_parapet_x(root, bucket, -e); _roof_parapet_z(root, bucket, -e)   # S + W
+				1:   _roof_parapet_x(root, bucket, -e); _roof_parapet_z(root, bucket, e)    # S + E
+				2:   _roof_parapet_x(root, bucket, e);  _roof_parapet_z(root, bucket, e)    # N + E
+				_:   _roof_parapet_x(root, bucket, e);  _roof_parapet_z(root, bucket, -e)   # N + W
+		else:
+			# Straight wall: parapet on the cell centre-line; _structure_xform shifts it out to the edge.
+			_roof_parapet_x(root, bucket, 0.0)
 	if bucket <= 1:
 		# Heavy damage -> a small pile of broken-concrete chunks at the BASE of the piece (rests on the
 		# floor/ground). Several light, irregular, tilted blocks read as rubble, not a dark box.
@@ -174,6 +206,29 @@ static func build(piece_id: String, bucket: int, floor_skirt: bool = false, yaw_
 		root.add_child(_chunk(Vector3(0.28, 0.22, 0.26), Vector3(-0.14, 0.11, -0.30), 1.2, 0.20, COL_RUBBLE_B))
 		root.add_child(_chunk(Vector3(0.22, 0.18, 0.22), Vector3(0.20, 0.09, 0.24), 0.2, 0.0, COL_RUBBLE_A))
 	return root
+
+## One roof-cap parapet+coping segment running along X (thin in Z) at z=`zoff`. The coping's overhang
+## (wider than the parapet) reads as a small eave. Parapet takes the damage tint; coping stays full.
+static func _roof_parapet_x(root: Node3D, bucket: int, zoff: float) -> void:
+	root.add_child(_box("Parapet", Vector3(CELL, 0.5, 0.30), Vector3(0, CELL + 0.25, zoff), bucket, COL_WALL))
+	root.add_child(_box("Coping", Vector3(CELL, 0.08, 0.42), Vector3(0, CELL + 0.54, zoff), 3, COL_TRIM, ""))
+
+## One roof-cap parapet+coping segment running along Z (thin in X) at x=`xoff`.
+static func _roof_parapet_z(root: Node3D, bucket: int, xoff: float) -> void:
+	root.add_child(_box("Parapet", Vector3(0.30, 0.5, CELL), Vector3(xoff, CELL + 0.25, 0), bucket, COL_WALL))
+	root.add_child(_box("Coping", Vector3(0.42, 0.08, CELL), Vector3(xoff, CELL + 0.54, 0), 3, COL_TRIM, ""))
+
+## Alternating proud blocks up the outer vertical edge of a corner -> quoined stonework. Same wall tone;
+## the proud offset (beyond the two faces) casts the reading shadow line. csx/csz = outer-corner sign.
+static func _corner_quoins(root: Node3D, bucket: int, csx: float, csz: float) -> void:
+	var n := 5
+	for i in n:
+		var qw := 0.44 if i % 2 == 0 else 0.30
+		var qh := CELL / float(n) - 0.07
+		var cy := (float(i) + 0.5) * CELL / float(n)
+		var px := csx * (CELL * 0.5 - qw * 0.5 + 0.05)
+		var pz := csz * (CELL * 0.5 - qw * 0.5 + 0.05)
+		root.add_child(_box("Quoin%d" % i, Vector3(qw, qh, qw), Vector3(px, cy, pz), bucket, COL_WALL))
 
 ## A single tilted rubble chunk. Always full-tint (bucket 3) so debris stays light grey instead of
 ## being darkened by the damage tint (the old debris went near-black for that reason).

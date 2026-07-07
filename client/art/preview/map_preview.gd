@@ -7,7 +7,7 @@ extends Node
 ## Run: godot --path . client/art/preview/map_preview.tscn -- --map=<name> --shot=<prefix>
 ## Saves <prefix>_{top,iso}.png at 1920x1080.
 
-const CELL := 2.0
+const CELL := 2.4   # BuildGrid.CELL_SIZE
 const RES := Vector2i(1920, 1080)
 var _vp: SubViewport
 var _cam: Camera3D

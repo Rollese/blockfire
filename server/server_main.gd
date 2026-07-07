@@ -1955,18 +1955,23 @@ func _collapse_center(bid: int) -> Vector3:
 ## stamping the collapse rubble field — so a gutted building still leaves a full ruin, not one built
 ## only from its few surviving columns. Player-built structures (no cached footprint) fall back to the
 ## surviving-piece columns.
-func _footprint_ground_cells(bid: int, fallback_xz: Dictionary) -> Array:
+## Ground cells to stamp the walkable rubble across. `base_y` is the building's floor cell.y — a
+## building on raised terrain sits at cell.y > 0, so the rubble must land there, NOT at y=0 (which
+## buries it under the terrain -> invisible + unwalkable). The cached original footprint (world-space)
+## already encodes the floor height, so its cell.y is authoritative; base_y is the fallback.
+func _footprint_ground_cells(bid: int, fallback_xz: Dictionary, base_y: int) -> Array:
 	var out: Array = []
 	var fp: Dictionary = _building_footprint.get(bid, {})
 	if fp.has("min") and fp.has("max"):
 		var c0 := BuildGrid.cell_of(fp["min"] as Vector3)
 		var c1 := BuildGrid.cell_of(fp["max"] as Vector3)
+		var fy := mini(c0.y, c1.y)
 		for cx in range(mini(c0.x, c1.x), maxi(c0.x, c1.x) + 1):
 			for cz in range(mini(c0.z, c1.z), maxi(c0.z, c1.z) + 1):
-				out.append(Vector3i(cx, 0, cz))
+				out.append(Vector3i(cx, fy, cz))
 		return out
 	for xz: Vector2i in fallback_xz:
-		out.append(Vector3i(xz.x, 0, xz.y))
+		out.append(Vector3i(xz.x, base_y, xz.y))
 	return out
 
 ## Fire any scheduled collapses whose warning window has elapsed (called each tick).
@@ -1994,15 +1999,19 @@ func _collapse_building(bid: int) -> void:
 	# loses pieces before it falls) — so someone against the original wall wasn't caught (playtest).
 	var remnant: Array = []
 	var footprint_xz := {}   # unique (x,z) ground columns -> for the walkable rubble remnant (R5)
+	var base_y := 0x7fffffff   # lowest occupied cell.y -> the building's floor level (may sit on raised terrain)
 	for oid in _store.ids_of_building(bid):
 		var crec := _store.get_record(oid)
 		if not crec.is_empty():
 			var ccell: Vector3i = crec["cell"]
 			remnant.append(ccell)
 			footprint_xz[Vector2i(ccell.x, ccell.z)] = true
+			base_y = mini(base_y, ccell.y)
 			_remove_c4_on_cell(ccell)
 		_dmg_touched.erase(oid)
 		_store.remove(oid)
+	if base_y == 0x7fffffff:
+		base_y = 0
 	# R5: leave a low, INDESTRUCTIBLE, walkable rubble remnant across the footprint (real collidable
 	# pieces, not cosmetic mounds) so nobody hides invisibly in a collapsed building's rubble AND so
 	# there's a clear ruin where it stood. Use the ORIGINAL footprint (cached at map load), NOT the
@@ -2011,7 +2020,7 @@ func _collapse_building(bid: int) -> void:
 	# client's apply_collapse(bid) doesn't drop it; replicated via OP_PLACE.
 	var rubble_placed := 0
 	if _brubble_type >= 0:
-		for rcell: Vector3i in _footprint_ground_cells(bid, footprint_xz):
+		for rcell: Vector3i in _footprint_ground_cells(bid, footprint_xz, base_y):
 			if _store.occupied(rcell):
 				continue   # a neighbouring building's ground piece already holds this cell
 			var rsid := _next_struct_id

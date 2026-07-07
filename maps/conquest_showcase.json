@@ -1,11 +1,11 @@
 {
   "name": "Showcase",
-  "world_half": 283.0,
+  "world_half": 312.79999999999995,
   "buildings": [
     {
       "prefab": "apartment",
       "origin_cell": [
-        -80,
+        -67,
         0,
         0
       ],
@@ -14,7 +14,7 @@
     {
       "prefab": "barn",
       "origin_cell": [
-        -70,
+        -57,
         0,
         0
       ],
@@ -23,7 +23,7 @@
     {
       "prefab": "barracks",
       "origin_cell": [
-        -60,
+        -48,
         0,
         0
       ],
@@ -32,7 +32,7 @@
     {
       "prefab": "bunker",
       "origin_cell": [
-        -47,
+        -36,
         0,
         0
       ],
@@ -41,7 +41,7 @@
     {
       "prefab": "cottage",
       "origin_cell": [
-        -39,
+        -28,
         0,
         0
       ],
@@ -50,7 +50,7 @@
     {
       "prefab": "factory",
       "origin_cell": [
-        -32,
+        -22,
         0,
         0
       ],
@@ -59,7 +59,7 @@
     {
       "prefab": "family_a",
       "origin_cell": [
-        -20,
+        -11,
         0,
         0
       ],
@@ -68,7 +68,7 @@
     {
       "prefab": "family_b",
       "origin_cell": [
-        -12,
+        -3,
         0,
         0
       ],
@@ -77,7 +77,7 @@
     {
       "prefab": "gas_station",
       "origin_cell": [
-        -3,
+        5,
         0,
         0
       ],
@@ -86,7 +86,7 @@
     {
       "prefab": "guardhouse",
       "origin_cell": [
-        7,
+        14,
         0,
         0
       ],
@@ -95,7 +95,7 @@
     {
       "prefab": "hangar",
       "origin_cell": [
-        14,
+        21,
         0,
         0
       ],
@@ -104,7 +104,7 @@
     {
       "prefab": "house",
       "origin_cell": [
-        29,
+        35,
         0,
         0
       ],
@@ -113,7 +113,7 @@
     {
       "prefab": "lhouse",
       "origin_cell": [
-        38,
+        43,
         0,
         0
       ],
@@ -122,7 +122,7 @@
     {
       "prefab": "materials",
       "origin_cell": [
-        50,
+        55,
         0,
         2
       ],
@@ -131,7 +131,7 @@
     {
       "prefab": "office",
       "origin_cell": [
-        60,
+        64,
         0,
         0
       ],
@@ -140,7 +140,7 @@
     {
       "prefab": "office_tower",
       "origin_cell": [
-        69,
+        72,
         0,
         0
       ],
@@ -149,7 +149,7 @@
     {
       "prefab": "parking",
       "origin_cell": [
-        78,
+        81,
         0,
         0
       ],
@@ -158,7 +158,7 @@
     {
       "prefab": "shed",
       "origin_cell": [
-        89,
+        91,
         0,
         0
       ],
@@ -167,7 +167,7 @@
     {
       "prefab": "silo",
       "origin_cell": [
-        96,
+        97,
         0,
         0
       ],
@@ -176,7 +176,7 @@
     {
       "prefab": "supermarket",
       "origin_cell": [
-        103,
+        104,
         0,
         0
       ],
@@ -194,7 +194,7 @@
     {
       "prefab": "tower",
       "origin_cell": [
-        126,
+        125,
         0,
         0
       ],
@@ -203,7 +203,7 @@
     {
       "prefab": "townhouse",
       "origin_cell": [
-        133,
+        132,
         0,
         0
       ],
@@ -212,7 +212,7 @@
     {
       "prefab": "twostory_house",
       "origin_cell": [
-        140,
+        138,
         0,
         0
       ],
@@ -221,7 +221,7 @@
     {
       "prefab": "villa",
       "origin_cell": [
-        151,
+        148,
         0,
         0
       ],
@@ -230,7 +230,7 @@
     {
       "prefab": "warehouse",
       "origin_cell": [
-        161,
+        158,
         0,
         0
       ],

@@ -47,6 +47,7 @@ func test_load_for_map_flat_when_no_terrain() -> void:
 	assert_eq(Terrain.load_for_map(m, "res://tests/fixtures", Callable()), null, "no terrain -> null grid (flat)")
 
 func test_snap_to_cell_height() -> void:
-	assert_almost_eq(Terrain.snap_pad_height(7.3), 8.0, 0.001, "7.3 -> 8")
-	assert_almost_eq(Terrain.snap_pad_height(6.9), 6.0, 0.001, "6.9 -> 6")
+	# Snaps to the nearest 2.4 m cell height (BuildGrid.CELL_SIZE).
+	assert_almost_eq(Terrain.snap_pad_height(2.5), 2.4, 0.001, "2.5 -> 2.4 (one cell)")
+	assert_almost_eq(Terrain.snap_pad_height(6.2), 7.2, 0.001, "6.2 -> 7.2 (three cells)")
 	assert_almost_eq(Terrain.snap_pad_height(0.4), 0.0, 0.001, "0.4 -> 0")
