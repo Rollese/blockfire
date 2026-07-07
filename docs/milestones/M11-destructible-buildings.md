@@ -150,5 +150,26 @@ Owner feedback drove a second pass (all gated on conquest_town, winner + tick < 
   now its top surviving chunk row (`ChunkMask.top_alive_height`) → vault a stub; a middle-hole wall (top
   intact) stays tall (shoot/walk through, don't vault); pristine walls unchanged.
 
-Suite 1366/0. **Still deferred:** R6 (a long organic/non-scripted collapse — biggest, "if possible") + the
-cosmetic BuildingKit tweaks. **Gate B closes on the owner's re-playtest of the round-2 build.**
+Suite 1366/0.
+
+### Round 2 — live owner playtests (2026-07-07)
+
+Several live RPG playtests with the owner drove a long fix sequence (all gated on conquest_town, all pushed
+to master unless noted):
+- **Collision/damage:** rocket detonates on the wall it hit (was blasting past it → carving the interior);
+  carve is direction-independent + spans cells (was only S/W walls, per-cell); rocket doesn't cross-carve a
+  perpendicular wall at a corner; **E/W-wall hole mirror fixed** — `ChunkMask`'s face U-axis + origin now match
+  the renderer (`_structure_xform`) for every yaw (was a latent M11-P1 bug: sim carved one chunk, renderer drew
+  its mirror on E/W-facing walls). Isolated floating chunks drop.
+- **Balance:** frag 0.4 / RPG 1.3 / C4 2.2 m carve radii (grenades don't breach); walls bear load until nearly
+  destroyed (`SUPPORT_MIN_FRACTION` 0.12); **whole-building collapse requires ~half the pieces orphaned**
+  (`COLLAPSE_FRACTION` 0.5) so destroying upstairs walls drops the local section, not the whole building.
+- **Feel:** BattleBit-style collapse — a ~7 s rumble/shake warning (`COLLAPSE_WARNING` msg, delayed collapse)
+  then a longer/bigger dust cinematic; collapse leaves a full **walkable indestructible rubble ruin** across the
+  ORIGINAL footprint (was sparse/absent); holed walls are seamless (world-triplanar) with no dark tint; RPG
+  debris = more/bigger bricks that tumble, land, rest ~5 s, and inherit the wall's colour.
+- **Client:** no combat input from the frozen F8 free-fly pawn.
+
+Suite 1372/0. Owner sign-off on the destruction feel is pending a **joint playtest** once a parallel workstream
+integrates two new asset-based buildings onto the map. **Still deferred:** R6 (a long organic/non-scripted
+collapse) + the cosmetic BuildingKit geometry tweaks.
