@@ -1633,7 +1633,12 @@ func _step_impact(g: Dictionary) -> bool:
 func _blast_at(center: Vector3, owner: int, team: int, pawn_dmg: int, pawn_radius: float,
 		struct_dmg: int, struct_radius: float, veh_dmg: int = 0) -> int:
 	if struct_dmg > 0 and struct_radius > 0.0:
-		for sid in _store.ids_in_radius(center, struct_radius):
+		# Search a cell BEYOND the carve radius so a blast near a cell boundary carves the chunks in the
+		# NEIGHBOURING cells too — holes flow across cells instead of stopping dead at each 2 m edge
+		# (playtest: "per-cell holes, one wall intact in the middle"). ChunkMask.clear_in_radius still
+		# only clears chunks actually within `struct_radius` on each face, and its depth gate rejects the
+		# parallel walls behind, so this widens the hole without punching through the building.
+		for sid in _store.ids_in_radius(center, struct_radius + BuildGrid.CELL_SIZE):
 			_damage_structure(sid, PieceCatalog.SRC_EXPLOSIVE, center, struct_radius)
 	var hits := 0
 	for pid in _sim.world.pawns:

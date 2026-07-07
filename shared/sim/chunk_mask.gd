@@ -94,24 +94,41 @@ static func _chunk_noise(cell: Vector3i, row: int, col: int) -> float:
 	var f := float(n & 0xFFFF) / 65536.0        # [0,1)
 	return (f - 0.5) * 2.0 * CARVE_NOISE
 
-## Clear every intact chunk whose centre is within `radius` (world) of `impact`, with a deterministic
-## per-chunk radius jitter so the boundary is ragged (irregular holes, not clean circles — playtest A1).
-## New mask.
+## A blast is ignored on a piece whose face plane is farther than this (m) from the impact along the
+## piece normal — so a blast carves the wall it HIT, not the parallel wall(s) behind it. Must exceed a
+## contact impact's off-plane distance: a rocket detonates on the cell's AABB face (<=1 m off the wall
+## centre) and a chunk_center impact is <= half*sqrt(2) ~ 1.41 m off, so 1.5 clears both while still
+## rejecting a wall a full cell (2 m) behind.
+const DEPTH_TOLERANCE := 1.5
+
+## Clear intact chunks within `radius` of `impact`, measured IN THE FACE PLANE (width x height) — the
+## depth/normal component is dropped so a wall carves the same whether the blast hits its +X/+Z or
+## -X/-Z side (playtest: only S/W-facing walls destroyed; N/E took many rockets). A depth gate skips
+## the piece if the impact is well off its plane (no punch-through to walls behind). Per-chunk radius
+## jitter keeps the edge ragged (A1); isolated survivors drop. New mask.
 static func clear_in_radius(mask: int, cell: Vector3i, yaw: int, grid: int, height: float, impact: Vector3, radius: float) -> int:
 	var m := mask
-	var origin := BuildGrid.cell_min(cell)
-	var u := _u_axis(yaw)
+	var cmin := BuildGrid.cell_min(cell)
+	var a := BuildGrid.yaw_radians(yaw)
+	var u := Vector3(cos(a), 0.0, sin(a))          # face width axis
+	var n := Vector3(-sin(a), 0.0, cos(a))         # face normal (horizontal, perp to u)
+	var half := BuildGrid.CELL_SIZE * 0.5
+	var centre := cmin + Vector3(half, half, half)
+	if absf((impact - centre).dot(n)) > DEPTH_TOLERANCE:
+		return m                                    # impact off this wall's plane -> don't carve it
 	var ustep := BuildGrid.CELL_SIZE / float(grid)
 	var vstep := height / float(grid)
+	var rel := impact - cmin
+	var iu := rel.dot(u)                            # impact projected onto the face: width coord
+	var iv := rel.y                                 # ... and height coord
 	for row in grid:
 		for col in grid:
 			var bit := row * grid + col
 			if (m & (1 << bit)) == 0:
 				continue
-			var center := origin + u * ((float(col) + 0.5) * ustep) + Vector3(0.0, (float(row) + 0.5) * vstep, 0.0)
-			var dist := center.distance_to(impact)
-			# Jitter scales with distance: ~0 at the centre (the hit chunk always dies) and full at the
-			# rim, so the boundary is ragged but the core of the hole is solid.
+			var du := (float(col) + 0.5) * ustep - iu
+			var dv := (float(row) + 0.5) * vstep - iv
+			var dist := sqrt(du * du + dv * dv)     # in-face distance (depth dropped)
 			var edge := radius + _chunk_noise(cell, row, col) * clampf(dist / maxf(radius, 0.01), 0.0, 1.0)
 			if dist <= edge:
 				m &= ~(1 << bit)

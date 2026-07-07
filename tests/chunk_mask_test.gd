@@ -50,6 +50,21 @@ func test_connected_chunks_survive_the_isolated_drop() -> void:
 	var pair := (1 << (4 * 8 + 4)) | (1 << (4 * 8 + 5))   # two horizontally adjacent chunks
 	assert_eq(ChunkMask.popcount(ChunkMask._drop_isolated(pair, 8)), 2, "a connected pair stays put")
 
+func test_carve_is_direction_independent() -> void:
+	# Wall at cell(0,0,0) yaw 0: face is X-Y, thin in Z. A hit from the -Z (south) side and the +Z
+	# (north) side at the same face point must carve the SAME chunks (playtest: N/E walls barely carved).
+	var full := ChunkMask.full_mask(8)
+	var from_south := ChunkMask.clear_in_radius(full, Vector3i(0, 0, 0), 0, 8, 2.0, Vector3(1.0, 1.0, 0.0), 0.6)
+	var from_north := ChunkMask.clear_in_radius(full, Vector3i(0, 0, 0), 0, 8, 2.0, Vector3(1.0, 1.0, 2.0), 0.6)
+	assert_true(ChunkMask.popcount(from_south) < 64, "the hit carves chunks")
+	assert_eq(from_south, from_north, "a north-side and a south-side hit carve identically")
+
+func test_depth_gate_rejects_a_blast_off_the_wall_plane() -> void:
+	var full := ChunkMask.full_mask(8)
+	# 4 m off the wall's plane (a parallel wall behind the one that was hit) — must not be carved.
+	var far := ChunkMask.clear_in_radius(full, Vector3i(0, 0, 0), 0, 8, 2.0, Vector3(1.0, 1.0, 5.0), 1.3)
+	assert_eq(far, full, "a blast well off a wall's plane doesn't punch through it")
+
 func test_is_empty() -> void:
 	assert_true(ChunkMask.is_empty(0))
 	assert_false(ChunkMask.is_empty(1))
