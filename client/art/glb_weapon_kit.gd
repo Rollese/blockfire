@@ -32,6 +32,7 @@ static func build(weapon_id: int) -> Node3D:
 	if ps == null:
 		return WeaponKit.build(weapon_id)        # load/import failure -> procedural fallback
 	var model := ps.instantiate() as Node3D
+	ArtFilter.apply_nearest(model)   # importer bakes GLB materials LINEAR -> force game-wide pixel look
 	# Normalize the longest dimension to TARGET_LENGTH so every gun is a consistent in-hand size.
 	var sz: Vector3 = GlbCharacterKit.world_aabb(model).size
 	var longest: float = maxf(sz.x, maxf(sz.y, sz.z))

@@ -26,6 +26,7 @@ static func build() -> Node3D:
 	var model := ps.instantiate() as Node3D
 	if model == null:
 		return CharacterKit.build()
+	ArtFilter.apply_nearest(model)   # importer bakes GLB materials LINEAR -> force game-wide pixel look
 	# Normalize the model's own height to STAND_HEIGHT.
 	var raw := world_aabb(model)
 	if raw.size.y > 0.001:
