@@ -973,7 +973,9 @@ func _process(_dt: float) -> void:
 		var building: bool = _build_ctrl != null and _build_ctrl.active
 		# Climbing a ladder incapacitates combat (server ignores fire/throw/melee/gadget/swap while
 		# climbing) — lock the one-shots too so the local player sees no phantom action. A1 playtest.
-		var combat_locked: bool = building or menu_open0 or _pred.predicted.climbing
+		# _photo_mode (F8 free-fly): the soldier is frozen and hidden, so no combat input reaches it —
+		# else an RPG/grenade/C4 fires from the invisible pawn while you fly the camera around (playtest).
+		var combat_locked: bool = building or menu_open0 or _pred.predicted.climbing or _photo_mode
 
 		# Throwable cycle
 		if Input.is_action_just_pressed("throwable_cycle") and not combat_locked:
