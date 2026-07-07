@@ -49,6 +49,15 @@ fog_sun_scatter = 0.2
 fog_density = 0.0005
 fog_aerial_perspective = 0.08
 fog_sky_affect = 0.1
+volumetric_fog_enabled = true
+volumetric_fog_density = 0.01
+volumetric_fog_albedo = Color(1, 0.9, 0.8, 1)
+volumetric_fog_emission = Color(0, 0, 0, 1)
+volumetric_fog_emission_energy = 0.0
+volumetric_fog_gi_inject = 0.0
+volumetric_fog_length = 96.0
+volumetric_fog_detail_spread = 2.0
+volumetric_fog_ambient_inject = 0.1
 
 [node name="ClientWorld" type="Node3D"]
 
