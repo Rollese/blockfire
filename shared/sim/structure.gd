@@ -387,10 +387,22 @@ func is_tall_blocker(p: Vector3) -> bool:
 	var cell := BuildGrid.cell_of(Vector3(p.x, p.y + FEET_EPS, p.z))
 	if not _occupancy.has(cell):
 		return false
-	var t := int(_by_id[_occupancy[cell]]["type"])
+	var rec: Dictionary = _by_id[_occupancy[cell]]
+	var t := int(rec["type"])
 	if _catalog.passable_of(t) or _catalog.is_flat_surface(t) or _catalog.is_ramp(t):
 		return false
-	return _face_height(t) > Vault.VAULT_MAX_HEIGHT
+	return _effective_top(rec) > Vault.VAULT_MAX_HEIGHT
+
+## Effective top of a piece (m up the face): its full face height, lowered to the top surviving chunk
+## row for a carved chunked wall — so a wall shot down to a stub reads as a low, vaultable blocker
+## (playtest R4). Pristine walls (full mask) return the full face height, so vaulting is unchanged.
+func _effective_top(rec: Dictionary) -> float:
+	var t := int(rec["type"])
+	var fh := _face_height(t)
+	var grid := _catalog.chunk_grid_of(t)
+	if grid < 2:
+		return fh
+	return minf(fh, ChunkMask.top_alive_height(int(rec["chunks"]), grid, fh))
 
 ## Highest walkable structure surface at or below `y` at column (x,z); -INF if none. Floors yield
 ## their cell-base plane; stairs yield a ramped height. Bounded by building height (a handful of cells).
@@ -427,4 +439,5 @@ func ground_blocker_top(p: Vector3) -> float:
 	if not _occupancy.has(cell):
 		return 0.0
 	var rec: Dictionary = _by_id[_occupancy[cell]]
-	return float(cell.y) * BuildGrid.CELL_SIZE + _face_height(int(rec["type"])) - p.y
+	# Effective top (carved-down stub reads lower) so you can vault a wall you've shot the top off (R4).
+	return float(cell.y) * BuildGrid.CELL_SIZE + _effective_top(rec) - p.y

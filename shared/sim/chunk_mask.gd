@@ -73,6 +73,17 @@ static func region_clear(mask: int, cell: Vector3i, yaw: int, grid: int, height:
 				return false   # a chunk still solid somewhere in the pawn's path -> not walk-through
 	return true
 
+## Height (m up the face) of the TOP surviving chunk row — the effective top of a carved wall. A wall
+## shot down from the top has a lower top than its full face, so it becomes vault/step-able (playtest
+## R4). Full mask -> full `height` (pristine walls are unchanged). Empty -> 0.
+static func top_alive_height(mask: int, grid: int, height: float) -> float:
+	var vstep := height / float(grid)
+	for row in range(grid - 1, -1, -1):
+		for col in grid:
+			if (mask & (1 << (row * grid + col))) != 0:
+				return float(row + 1) * vstep
+	return 0.0
+
 ## Ragged-edge amplitude (m): per-chunk jitter on the carve radius so holes aren't perfect circles.
 const CARVE_NOISE := 0.22
 
