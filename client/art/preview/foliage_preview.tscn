@@ -1,0 +1,6 @@
+[gd_scene load_steps=2 format=3 uid="uid://foliageprev001"]
+
+[ext_resource type="Script" path="res://client/art/preview/foliage_preview.gd" id="1"]
+
+[node name="FoliagePreview" type="Node"]
+script = ExtResource("1")

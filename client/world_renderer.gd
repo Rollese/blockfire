@@ -633,12 +633,15 @@ func setup(map: MapDef, camera: Camera3D) -> void:
 			line.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 			add_child(line)
 
-	# Scenery — imported tree/rock GLBs placed from map JSON (cosmetic, no collision).
+	# Scenery — procedural trees/rocks (TreeKit/RockKit) + imported GLB props, placed from map JSON
+	# (cosmetic, no collision). Trees/rocks are seeded per-placement (stable id+position hash) so each
+	# is deterministic but varied across the map.
 	for sc: Dictionary in map.scenery:
-		var node := SceneryKit.build(String(sc["id"]), map.scenery_palette, String(sc.get("palette", "")))
+		var sc_pos: Vector3 = sc["pos"] as Vector3
+		var sc_seed := hash(String(sc["id"]) + str(sc_pos))
+		var node := SceneryKit.build(String(sc["id"]), map.scenery_palette, String(sc.get("palette", "")), sc_seed)
 		if node == null:
 			continue
-		var sc_pos: Vector3 = sc["pos"] as Vector3
 		node.position = Vector3(sc_pos.x, _terrain_y(sc_pos.x, sc_pos.z) + sc_pos.y, sc_pos.z)
 		node.rotation.y = float(sc.get("yaw", 0.0))
 		var sc_scale := float(sc.get("scale", 1.0))

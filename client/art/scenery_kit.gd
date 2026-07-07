@@ -1,10 +1,13 @@
 class_name SceneryKit
 extends Object
-## Instantiates imported Broken Vector scenery GLBs by catalog id. Presentation-only (AGENTS.md §7).
-## Categories: tree, rock, cliff, road, road_car, storage, vehicle_static, prop (vertex-colored; no palette).
-## Models are exported Y-up with their base on y=0; map `scenery` entries place them at pos + yaw (+ optional scale).
-## Map-wide `scenery_palette` sets default colorsheets; per-instance `palette` on a scenery entry overrides
-## the map default for that prop's category (tree or rock).
+## Instantiates map scenery. TREES and ROCKS are generated procedurally by [TreeKit] / [RockKit]
+## (BattleBit-style pixel-cutout frond foliage + faceted triplanar boulders) — routed by id prefix,
+## no external mesh. Every other category (cliff / road / road_car / storage / vehicle_static / prop)
+## loads its imported GLB + palette-texture as before. Presentation-only (AGENTS.md §7).
+##
+## Trees/rocks previously used flat GLBs whose UVs were dropped on export (rendered grey/pink), worked
+## around with a procedural override material. That whole path is gone — the kits own the geometry AND
+## the UVs, so the pixel textures map correctly.
 
 const CATALOG_PATH := "res://data/scenery_catalog.json"
 
@@ -15,9 +18,15 @@ static func _cat() -> SceneryCatalog:
 		_catalog = SceneryCatalog.load_file(CATALOG_PATH)
 	return _catalog
 
-## Build a scenery instance. `map_palette` is the map's scenery_palette ({tree, rock} names).
-## `instance_palette` overrides the map default for this prop's category when non-empty.
-static func build(scenery_id: String, map_palette: Dictionary = {}, instance_palette: String = "") -> Node3D:
+## Build a scenery instance. `tree_*` / `rock_*` ids are generated procedurally, seeded by `seed` so each
+## placement is deterministic but varied. All other ids load their catalog GLB. `map_palette` /
+## `instance_palette` still tint the GLB categories; they are ignored for the procedural kinds.
+static func build(scenery_id: String, map_palette: Dictionary = {}, instance_palette: String = "", seed: int = 0) -> Node3D:
+	if scenery_id.begins_with("tree_"):
+		return TreeKit.build(seed)
+	if scenery_id.begins_with("rock_"):
+		return RockKit.build(seed)
+
 	var path := _cat().path_for(scenery_id) if _cat() != null else ""
 	if path.is_empty():
 		push_warning("[SceneryKit] unknown id: %s" % scenery_id)
@@ -56,16 +65,6 @@ static func _apply_palette(root: Node3D, scenery_id: String, map_palette: Dictio
 	var category := cat.category_for(scenery_id)
 	if category.is_empty():
 		return
-	# The tree/rock GLBs import with NO usable UVs, so neither their own baked atlas nor a palette LUT
-	# maps — they render a flat dark/grey/pink colour on every GPU (2026-07-06 playtest). Override with a
-	# procedural material instead: a local-height gradient (brown trunk -> green canopy) for trees, and a
-	# mottled stone shader for rocks. Deterministic, GPU-independent, and actually looks like nature.
-	if category == "tree":
-		_apply_override(root, _tree_material())
-		return
-	if category == "rock":
-		_apply_override(root, _rock_material())
-		return
 	var palette_name := _resolve_palette_name(category, map_palette, instance_palette)
 	var tex_path := cat.palette_path_for(category, palette_name)
 	if tex_path.is_empty():
@@ -82,73 +81,6 @@ static func _apply_palette(root: Node3D, scenery_id: String, map_palette: Dictio
 		for child in node.get_children():
 			stack.append(child)
 
-static var _tree_mat: ShaderMaterial
-static var _rock_mat: ShaderMaterial
-
-static func _apply_override(root: Node3D, mat: Material) -> void:
-	var stack: Array = [root]
-	while not stack.is_empty():
-		var node: Node = stack.pop_back()
-		if node is MeshInstance3D:
-			(node as MeshInstance3D).material_override = mat
-		for child in node.get_children():
-			stack.append(child)
-
-## These GLBs have NO UVs/vertex-colours (trimesh export dropped them), so the baked texture can't map
-## -> we colour procedurally from geometry. The trunk is BROWN only where the mesh is BOTH central
-## (small XZ radius from the trunk axis) AND low; everything else — canopy and low OUTWARD branches — is
-## GREEN (fixes "low green branches rendered brown" from the naive height-only gradient). A sharp-ish
-## transition + per-cell hue variation reads as distinct trunk/foliage flat-colour, not a smooth wash.
-static func _tree_material() -> ShaderMaterial:
-	if _tree_mat == null:
-		var sh := Shader.new()
-		sh.code = """
-shader_type spatial;
-render_mode specular_disabled;
-varying vec3 lv;
-varying vec3 lw;
-void vertex() { lv = VERTEX; lw = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz; }
-float h3(vec3 p) { return fract(sin(dot(floor(p), vec3(12.9, 78.2, 37.7))) * 43758.5); }
-void fragment() {
-	float radius = length(lv.xz);                      // horizontal distance from the trunk axis
-	float central = 1.0 - smoothstep(0.22, 0.62, radius);   // 1 near the axis -> 0 outward
-	float low = 1.0 - smoothstep(0.7, 2.1, lv.y);           // 1 near the base -> 0 up high
-	float trunk = smoothstep(0.45, 0.7, central * low);     // brown ONLY where central AND low (sharp)
-	vec3 trunk_col = vec3(0.30, 0.20, 0.11);
-	vec3 leaf = mix(vec3(0.13, 0.30, 0.12), vec3(0.25, 0.45, 0.19), h3(lw * 1.7));
-	ALBEDO = mix(leaf, trunk_col, trunk);
-	ROUGHNESS = 1.0;
-}
-"""
-		_tree_mat = ShaderMaterial.new()
-		_tree_mat.shader = sh
-	return _tree_mat
-
-## Mottled grey/tan stone with fake AO (undersides darker) so rocks read as textured, not flat grey.
-static func _rock_material() -> ShaderMaterial:
-	if _rock_mat == null:
-		var sh := Shader.new()
-		sh.code = """
-shader_type spatial;
-render_mode specular_disabled;
-varying vec3 lw;
-varying vec3 wn;
-void vertex() { lw = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz; wn = normalize((MODEL_MATRIX * vec4(NORMAL, 0.0)).xyz); }
-float hh(vec2 p) { p = fract(p * vec2(123.3, 345.4)); p += dot(p, p + 34.3); return fract(p.x * p.y); }
-float vn(vec2 p) { vec2 i = floor(p); vec2 f = fract(p); vec2 u = f * f * (3.0 - 2.0 * f);
-	return mix(mix(hh(i), hh(i + vec2(1,0)), u.x), mix(hh(i + vec2(0,1)), hh(i + vec2(1,1)), u.x), u.y); }
-void fragment() {
-	float n = vn(lw.xz * 0.7) * 0.5 + vn(lw.xz * 3.1) * 0.5;
-	vec3 base = mix(vec3(0.29, 0.29, 0.31), vec3(0.52, 0.49, 0.45), n);
-	base *= (0.68 + 0.32 * clamp(wn.y * 0.5 + 0.5, 0.0, 1.0));   // tops lighter, undersides darker
-	ALBEDO = base;
-	ROUGHNESS = 1.0;
-}
-"""
-		_rock_mat = ShaderMaterial.new()
-		_rock_mat.shader = sh
-	return _rock_mat
-
 static func _set_mesh_albedo(mi: MeshInstance3D, tex: Texture2D) -> void:
 	var mesh: Mesh = mi.mesh
 	if mesh == null:
@@ -164,11 +96,9 @@ static func _set_mesh_albedo(mi: MeshInstance3D, tex: Texture2D) -> void:
 			mi.set_surface_override_material(si, mat)
 		if mat is BaseMaterial3D:
 			var bm := mat as BaseMaterial3D
-			# These GLBs ship their OWN baked colour-atlas texture (green foliage + brown trunk) with
-			# model-specific UVs. The old code REPLACED it with a shared 16x16 palette LUT whose layout
-			# does NOT match those UVs -> garbage colours (grey/pink trees). Keep the model's own texture;
-			# only drop in the palette when the model shipped none. Force NEAREST either way: these tiny
-			# colour atlases blur into muddy wrong colours under the default LINEAR filter.
+			# These GLBs ship their OWN baked colour-atlas with model-specific UVs. Keep the model's own
+			# texture; only drop in the palette when the model shipped none. Force NEAREST either way:
+			# these tiny colour atlases blur into muddy wrong colours under the default LINEAR filter.
 			bm.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
 			if bm.albedo_texture == null:
 				bm.albedo_texture = tex
