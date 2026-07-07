@@ -133,6 +133,7 @@ var _dmg_touched := {}             # id -> true: pieces holed (alive) this tick,
 var _buildings_to_cascade := {}    # building_id -> true; resolved at end of tick
 var _collapsing := {}              # building_id -> tick it actually collapses; a WARNING (rumble+shake) fires first
 const COLLAPSE_WARN_TICKS := 210   # ~7 s at 30 Hz: imminent-collapse warning (rumble+shake) — time to escape before it falls
+const COLLAPSE_FRACTION := 0.5     # whole-building collapse needs this fraction of pieces orphaned (base gone), else the orphaned section just drops locally
 var _building_footprint := {}      # building_id -> ORIGINAL footprint bounds (marginless) from map load; the collapse crush zone (pieces surviving the fall have shrunk, so the remnant is the wrong volume)
 var _collapsed_bids: Array = []    # building_ids fully collapsed this match — replayed to late joiners
                                    # (A3 playtest bug: a reconnecting client rebuilt every map ladder
@@ -2019,7 +2020,6 @@ func _collapse_building(bid: int) -> void:
 			if not rrec.is_empty():
 				_emit_structure_delta(Protocol.OP_PLACE, rrec, rcell)
 				rubble_placed += 1
-	print("[collapse] bid=%d survivors=%d rubble=%d clients=%d" % [bid, remnant.size(), rubble_placed, _clients.size()])
 	var zone: Dictionary = CollapseZone.expand(_building_footprint.get(bid, {}), COLLAPSE_CRUSH_MARGIN)
 	if zone.is_empty():
 		zone = CollapseZone.bounds(remnant, COLLAPSE_CRUSH_MARGIN)   # player-built (no cached footprint): use what's there
@@ -2062,7 +2062,13 @@ func _resolve_cascades() -> void:
 		return
 	for bid in _buildings_to_cascade.keys():
 		var orphans := Support.orphaned_after(_store, bid, [])
-		if Support.should_collapse(orphans.size()):
+		# Whole-building COLLAPSE only when the orphaned set is BOTH large (> threshold) AND a big FRACTION
+		# of the building — i.e. its base/integrity is gone. A smaller orphaned section (e.g. the roof above
+		# the upper-floor walls you just shot out) DROPS LOCALLY via the per-piece removes below, so
+		# destroying upstairs walls no longer brings down a large building whose ground floor is intact
+		# (playtest: 2 RPGs at 2nd-floor walls collapsed the whole building).
+		var total_pieces := _store.ids_of_building(bid).size()
+		if Support.should_collapse(orphans.size()) and orphans.size() >= int(ceil(total_pieces * COLLAPSE_FRACTION)):
 			_begin_collapse(bid)   # rumble + shake warning; the building actually falls ~3 s later
 			continue
 		for oid in orphans:
