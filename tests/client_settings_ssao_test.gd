@@ -13,3 +13,17 @@ func test_ssao_round_trips_through_configfile() -> void:
 	b.load_from(path)
 	assert_false(b.ssao_enabled, "SSAO toggle persists across save/load")
 	DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
+
+func test_volfog_defaults_true() -> void:
+	var s := ClientSettings.new()
+	assert_true(s.volumetric_fog_enabled, "volumetric fog on by default (client.tscn ships volumetric_fog_enabled = true)")
+
+func test_volfog_round_trips_through_configfile() -> void:
+	var path := "user://volfog_test.cfg"
+	var a := ClientSettings.new()
+	a.volumetric_fog_enabled = false
+	a.save_to(path)
+	var b := ClientSettings.new()
+	b.load_from(path)
+	assert_false(b.volumetric_fog_enabled, "volumetric-fog toggle persists across save/load")
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(path))

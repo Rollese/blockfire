@@ -10,6 +10,7 @@ var voice_volume: float = 0.8
 var invert_y: bool = false
 var renderer_fallback: bool = false   # true -> request GL Compatibility
 var ssao_enabled: bool = true   # SSAO on by default; toggle in settings
+var volumetric_fog_enabled: bool = true   # volumetric fog on by default; toggle in settings
 var use_model_characters: bool = true   # default ON: imported GLB soldier; set false for procedural CharacterKit
 var player_name: String = "Player"
 var resolution_x: int = 1920
@@ -28,6 +29,7 @@ func save_to(path: String = "user://settings.cfg") -> void:
 	cf.set_value("video", "fov", fov)
 	cf.set_value("video", "renderer_fallback", renderer_fallback)
 	cf.set_value("video", "ssao_enabled", ssao_enabled)
+	cf.set_value("video", "volumetric_fog_enabled", volumetric_fog_enabled)
 	cf.set_value("video", "use_model_characters", use_model_characters)
 	cf.set_value("video", "resolution_x", resolution_x)
 	cf.set_value("video", "resolution_y", resolution_y)
@@ -50,6 +52,7 @@ func load_from(path: String = "user://settings.cfg") -> void:
 	fov = float(cf.get_value("video", "fov", fov))
 	renderer_fallback = bool(cf.get_value("video", "renderer_fallback", renderer_fallback))
 	ssao_enabled = bool(cf.get_value("video", "ssao_enabled", ssao_enabled))
+	volumetric_fog_enabled = bool(cf.get_value("video", "volumetric_fog_enabled", volumetric_fog_enabled))
 	use_model_characters = bool(cf.get_value("video", "use_model_characters", use_model_characters))
 	resolution_x = int(cf.get_value("video", "resolution_x", resolution_x))
 	resolution_y = int(cf.get_value("video", "resolution_y", resolution_y))

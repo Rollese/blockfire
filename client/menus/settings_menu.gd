@@ -17,6 +17,7 @@ var _window_mode_option: OptionButton = null
 var _fov_spin: SpinBox = null
 var _fallback_check: CheckBox = null
 var _ssao_check: CheckBox = null
+var _volfog_check: CheckBox = null
 
 # Audio
 var _master_slider: HSlider = null
@@ -150,6 +151,10 @@ func _build_graphics_tab(tabs: TabContainer) -> void:
 	_ssao_check.text = "Ambient occlusion (SSAO)"
 	vbox.add_child(_ssao_check)
 
+	_volfog_check = CheckBox.new()
+	_volfog_check.text = "Volumetric fog"
+	vbox.add_child(_volfog_check)
+
 func _build_audio_tab(tabs: TabContainer) -> void:
 	var scroll := _scroll_page("Audio")
 	tabs.add_child(scroll)
@@ -273,6 +278,8 @@ func _populate_controls() -> void:
 		_fallback_check.button_pressed = settings.renderer_fallback
 	if _ssao_check != null:
 		_ssao_check.button_pressed = settings.ssao_enabled
+	if _volfog_check != null:
+		_volfog_check.button_pressed = settings.volumetric_fog_enabled
 	if _resolution_option != null:
 		var idx := VideoSettings.find_resolution_index(settings.resolution_x, settings.resolution_y)
 		_resolution_option.select(maxi(idx, 0))
@@ -318,6 +325,8 @@ func apply() -> void:
 		settings.renderer_fallback = _fallback_check.button_pressed
 	if _ssao_check != null:
 		settings.ssao_enabled = _ssao_check.button_pressed
+	if _volfog_check != null:
+		settings.volumetric_fog_enabled = _volfog_check.button_pressed
 	if _resolution_option != null:
 		var res_idx := _resolution_option.selected
 		var presets := VideoSettings.common_resolutions()

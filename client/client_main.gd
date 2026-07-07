@@ -1535,7 +1535,7 @@ func _build_scene() -> void:
 
 	_scene_root = world_node
 	_camera = world_node.get_node("Camera3D") as Camera3D
-	_apply_ssao_setting()   # honor a persisted "off" on boot (WorldEnvironment exists in client.tscn)
+	_apply_env_quality()   # honor persisted "off" toggles on boot (WorldEnvironment exists in client.tscn)
 
 	# M15: derive the SAME terrain grid the server derived (same heightmap PNG + building list ->
 	# byte-identical) so prediction, the occlusion/collision mirror, and the rendered mesh all agree.
@@ -1636,15 +1636,17 @@ func _on_settings_applied(new_settings: ClientSettings) -> void:
 	# sensitivity and fov are read each frame from _settings — already live
 	_apply_audio_settings()
 	VideoSettings.apply(_settings)
-	_apply_ssao_setting()
+	_apply_env_quality()
 
-## Apply the SSAO on/off setting to the live client Environment (presentation-only, AGENTS.md §7).
-func _apply_ssao_setting() -> void:
+## Apply the SSAO + volumetric-fog on/off settings to the live client Environment
+## (presentation-only, AGENTS.md §7).
+func _apply_env_quality() -> void:
 	if _scene_root == null or _settings == null:
 		return
 	var we := _scene_root.get_node_or_null("WorldEnvironment") as WorldEnvironment
 	if we != null and we.environment != null:
 		we.environment.ssao_enabled = _settings.ssao_enabled
+		we.environment.volumetric_fog_enabled = _settings.volumetric_fog_enabled
 
 ## A footfall fired by the renderer (local pawn or a visible remote) -> spatial footstep sound.
 ## Presentation-only (AGENTS.md §7); the AudioDirector handles distance falloff + voice priority.
