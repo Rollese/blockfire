@@ -17,7 +17,11 @@ func test_clear_in_radius_clears_only_near_chunks() -> void:
 	assert_true(ChunkMask.popcount(after) < 64, "some chunks cleared")
 	assert_true(ChunkMask.popcount(after) > 0, "not all chunks cleared")
 	assert_false(ChunkMask.is_alive_at(after, cell, 0, grid, height, impact), "hit chunk is dead")
-	assert_eq(ChunkMask.popcount(after), 61, "exactly 3 chunks cleared (hit + 2 orthogonal neighbours; diagonal at 0.354m is outside 0.3m)")
+	# A1: the carve edge is deterministically jittered (ragged, not a clean circle), so the exact count
+	# varies at the rim — a small radius still clears just a local nick (core: hit + orthogonal neighbours).
+	var cleared := 64 - ChunkMask.popcount(after)
+	assert_true(cleared >= 3 and cleared <= 6, "a small local nick with a ragged edge (cleared %d)" % cleared)
+	assert_false(ChunkMask.is_alive_at(after, cell, 0, grid, height, ChunkMask.chunk_center(cell, 0, 0, 1, grid, height)), "orthogonal neighbour cleared")
 
 func test_clear_whole_face_destroys() -> void:
 	var cell := Vector3i(0, 0, 0)

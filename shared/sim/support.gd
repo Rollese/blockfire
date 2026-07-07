@@ -19,6 +19,8 @@ static func foundation_ids(store: StructureStore, building_id: int) -> Array:
 			continue
 		if not store.is_structural(id):
 			continue
+		if not store.support_intact(id):
+			continue   # a carved-out base wall no longer anchors the building (playtest R3)
 		if (rec["cell"] as Vector3i).y == 0:
 			out.append(id)
 	return out
@@ -40,7 +42,11 @@ static func orphaned_after(store: StructureStore, building_id: int, _removed_ids
 		if rec.is_empty():
 			continue
 		if store.is_structural(id):
-			structural_cell_to_id[rec["cell"]] = id
+			# A carved-out wall (below the support fraction) no longer conducts load: it is neither a BFS
+			# conductor nor an orphan candidate — it stays standing as a damaged wall, but whatever it was
+			# holding up loses this support path (playtest R3: floors floated on holey walls).
+			if store.support_intact(id):
+				structural_cell_to_id[rec["cell"]] = id
 		else:
 			nonstructural_cell_to_id[rec["cell"]] = id
 	# BFS from every structural foundation cell over structural cells only.

@@ -115,6 +115,22 @@ func remove(id: int) -> void:
 func _face_height(type: int) -> float:
 	return BuildGrid.CELL_SIZE * (0.5 if _catalog.is_half(type) else 1.0)
 
+## Fraction of a piece's chunks that must survive for it to still bear load. Below this a wall is so
+## carved it no longer holds up what's above (the support cascade treats it as absent) — so blowing the
+## base of a building out drops the upper floors instead of leaving them floating (playtest R3). Low
+## enough that a single RPG breach (one hole) doesn't drop the building — it takes sustained damage.
+const SUPPORT_MIN_FRACTION := 0.25
+
+## True if piece `id` still bears structural load (enough chunks intact). Used by Support's cascade BFS.
+func support_intact(id: int) -> bool:
+	var rec: Dictionary = _by_id.get(id, {})
+	if rec.is_empty():
+		return false
+	var total := ChunkMask.count(_catalog.chunk_grid_of(int(rec["type"])))
+	if total <= 0:
+		return true
+	return float(ChunkMask.popcount(int(rec["chunks"]))) / float(total) >= SUPPORT_MIN_FRACTION
+
 ## Clear chunks within `radius` of world `impact` on piece `id`, if the source can damage this
 ## piece type. Returns {hit, holed, destroyed, mask}; removes the piece when the mask empties.
 ## Pure over store state + catalog — unit-testable.

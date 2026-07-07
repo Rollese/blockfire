@@ -73,7 +73,19 @@ static func region_clear(mask: int, cell: Vector3i, yaw: int, grid: int, height:
 				return false   # a chunk still solid somewhere in the pawn's path -> not walk-through
 	return true
 
-## Clear every intact chunk whose centre is within `radius` (world) of `impact`. New mask.
+## Ragged-edge amplitude (m): per-chunk jitter on the carve radius so holes aren't perfect circles.
+const CARVE_NOISE := 0.22
+
+## Deterministic per-chunk noise in [-CARVE_NOISE, +CARVE_NOISE] — a pure hash of the world cell + chunk
+## index (NO RNG, so server/client/bots agree and the hole edge never shimmers between carves).
+static func _chunk_noise(cell: Vector3i, row: int, col: int) -> float:
+	var n: int = (cell.x * 73856093) ^ (cell.y * 19349663) ^ (cell.z * 83492791) ^ (row * 26699) ^ (col * 40503)
+	var f := float(n & 0xFFFF) / 65536.0        # [0,1)
+	return (f - 0.5) * 2.0 * CARVE_NOISE
+
+## Clear every intact chunk whose centre is within `radius` (world) of `impact`, with a deterministic
+## per-chunk radius jitter so the boundary is ragged (irregular holes, not clean circles — playtest A1).
+## New mask.
 static func clear_in_radius(mask: int, cell: Vector3i, yaw: int, grid: int, height: float, impact: Vector3, radius: float) -> int:
 	var m := mask
 	var origin := BuildGrid.cell_min(cell)
@@ -86,6 +98,10 @@ static func clear_in_radius(mask: int, cell: Vector3i, yaw: int, grid: int, heig
 			if (m & (1 << bit)) == 0:
 				continue
 			var center := origin + u * ((float(col) + 0.5) * ustep) + Vector3(0.0, (float(row) + 0.5) * vstep, 0.0)
-			if center.distance_to(impact) <= radius:
+			var dist := center.distance_to(impact)
+			# Jitter scales with distance: ~0 at the centre (the hit chunk always dies) and full at the
+			# rim, so the boundary is ragged but the core of the hole is solid.
+			var edge := radius + _chunk_noise(cell, row, col) * clampf(dist / maxf(radius, 0.01), 0.0, 1.0)
+			if dist <= edge:
 				m &= ~(1 << bit)
 	return m

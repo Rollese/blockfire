@@ -2519,12 +2519,25 @@ func _build_key_mmis(key: String, structs: Dictionary) -> void:
 func _is_promotable(rec: Dictionary) -> bool:
 	if int(rec.get("under_construction", 0)) == 1:
 		return false
-	var grid := _grid_of(int(rec.get("type", 0)))
+	var type_idx := int(rec.get("type", 0))
+	# Sub-cell holes are ONLY for vertical walls: the chunk grid is a vertical face (U = width, V = up).
+	# A horizontal piece (floor/roof) or a non-wall piece (stairs/railings/columns/props) promoted with
+	# that geometry would stand the grid UP as a vertical block poking through the deck (playtest R1) —
+	# so those keep the batched whole-mesh until fully removed.
+	if not _is_wall_piece(type_idx):
+		return false
+	var grid := _grid_of(type_idx)
 	if grid < 2:
-		return false   # 1x1 pieces (columns/railings/props) are alive-or-gone; no sub-cell hole
+		return false   # 1x1 pieces are alive-or-gone; no sub-cell hole
 	var full := ChunkMask.full_mask(grid)
 	var mask := int(rec.get("chunks", -1)) & full
 	return mask != full and mask != 0   # partially carved
+
+
+## Vertical wall pieces that get sub-cell holes: the building wall family + player-built fortifications.
+func _is_wall_piece(type_idx: int) -> bool:
+	var pid: String = STRUCT_TYPE_ID[type_idx] if type_idx < STRUCT_TYPE_ID.size() else ""
+	return pid.begins_with("bwall") or pid == "wall" or pid == "sandbag"
 
 
 func _build_promoted_mmis(key: String, structs: Dictionary) -> void:

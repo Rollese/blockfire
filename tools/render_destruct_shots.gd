@@ -175,13 +175,20 @@ func _centroid(r: WorldRenderer, recs: Array) -> Vector3:
 
 
 ## Camera-facing wall piece nearest the camera, biased toward eye height (cell.y in {0,1}).
+## Set BF_HIGH_WALL=1 to instead target the HIGHEST wall (roofline) — repro for the roof stick-through.
 func _nearest_wall(r: WorldRenderer, recs: Array, cam_pos: Vector3) -> Dictionary:
+	var high := OS.get_environment("BF_HIGH_WALL") == "1"
 	var best: Dictionary = {}
 	var best_d := INF
+	var best_y := -999
 	for rec in recs:
 		if not _piece_id(rec).begins_with("bwall"):
 			continue
 		var cy := (rec["cell"] as Vector3i).y
+		if high:
+			if cy > best_y:
+				best_y = cy; best = rec
+			continue
 		if cy > 1:
 			continue
 		var d := r._structure_xform(rec).origin.distance_to(cam_pos)

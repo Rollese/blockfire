@@ -54,7 +54,8 @@ const BULLET_CARVE_RADIUS := 0.30   # m: chunks a single blocked bullet clears (
 const GRENADE_FUSE_TICKS := 45        # 1.5s @30Hz
 const GRENADE_COOLDOWN_TICKS := 300   # 10s between a player's throws (shared frag/smoke)
 const BLAST_PAWN_RADIUS := 8.0        # m, sphere (current positions, FF-off) — was 6, felt too small
-const BLAST_STRUCT_RADIUS := 4.0      # m (~2 build cells)
+const BLAST_STRUCT_RADIUS := 0.4      # m: frag only NICKS a wall (a chunk or two) — grenades don't breach.
+                                      # C4 (2.2) + RPG (1.3, data/gadgets.json) are the breaching tools (playtest R2).
 const GRENADE_DAMAGE_PAWN := 100      # frag pawn splash at centre, linear falloff
 const GRENADE_DAMAGE_STRUCT := 200    # frag structure blast GATE (>0 = enabled; magnitude unused — carve is governed by struct_radius, M11)
 const IMPACT_CONTACT_RADIUS := 1.0    # m — an impact grenade detonates this close to an enemy pawn
