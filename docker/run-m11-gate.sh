@@ -76,7 +76,12 @@ echo "[m11] struct=${struct:-0} dmg=${dmg:-0} destroyed=${destroyed:-0} rstruct=
 ok=1
 [ "$winner" = "0" ] || [ "$winner" = "1" ] || { echo "FAIL: no valid winner"; ok=0; }
 [ "${struct:-0}" -ge 1 ] || { echo "FAIL: no buildings stamped (struct=0) — wrong map?"; ok=0; }
-[ "${destroyed:-0}" -ge 1 ] || { echo "FAIL: no pieces destroyed (destroyed=0) — if near-building combat density was low this is expected; mechanic proven in tests/server_buildings_functional_test.gd"; ok=0; }
+# Destruction replicated at scale. Since the Gate-B round-2 rebalance (2026-07-07: frag 0.4 / RPG 1.3 /
+# C4 2.2 m carve radii — grenades no longer breach, one rocket doesn't level a building), a bot fleet
+# rarely fully clears a single piece to chunks=0 in one match (destroyed is stochastic 0-1), so the
+# reliable destruction signal is rstruct (pieces removed, incl. support-cascade orphans from breached
+# walls). Gate on destroyed OR rstruct; the mechanic is proven deterministically in the unit suite.
+[ "$(( ${destroyed:-0} + ${rstruct:-0} ))" -ge 1 ] || { echo "FAIL: no destruction replicated (destroyed=0 AND rstruct=0)"; ok=0; }
 [ "${errors:-1}" -eq 0 ] || { echo "FAIL: server script/parse errors in the run"; ok=0; }
 # Reported (not gated): cascade orphan removals + whole-building collapse are density-dependent.
 [ "${collapsed:-0}" -ge 1 ] && echo "[m11] note: collapsed=${collapsed} (whole-building COLLAPSE fired under load)" || echo "[m11] note: collapsed=0 (density-dependent; proven deterministically in tests/server_buildings_functional_test.gd + support_test.gd)"
