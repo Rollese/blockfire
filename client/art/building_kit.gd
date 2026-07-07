@@ -205,6 +205,7 @@ static func _box(node_name: String, size: Vector3, pos: Vector3, bucket: int, ba
 	mat.roughness = 0.9
 	if tex != "":
 		mat.albedo_texture = BuildingTextures.tex(tex)
+		mat.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST   # game-wide pixel look
 		# WORLD-space triplanar (~1 tile/m): the texture maps by world position, so a wall and the per-chunk
 		# hole geometry that replaces it (world_renderer promotion) sample the IDENTICAL texture and blend
 		# seamlessly — no flat/lighter rectangle around a hole (playtest). Also hides UV seams on a box.
@@ -238,6 +239,7 @@ static func _cyl(radius: float, height: float, pos: Vector3, bucket: int, base: 
 	var f := ArtPalette.damage_tint(Color.WHITE, bucket).r
 	mat.albedo_color = Color(base.r * f, base.g * f, base.b * f)
 	mat.albedo_texture = BuildingTextures.tex("metal")
+	mat.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST   # game-wide pixel look
 	mat.roughness = 0.7
 	mi.material_override = mat
 	return mi
