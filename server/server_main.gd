@@ -132,7 +132,7 @@ var _pending_removes: Array = []   # [{id, cell}] removes awaiting send (degrada
 var _dmg_touched := {}             # id -> true: pieces holed (alive) this tick, for end-of-tick chunk-mask resend
 var _buildings_to_cascade := {}    # building_id -> true; resolved at end of tick
 var _collapsing := {}              # building_id -> tick it actually collapses; a WARNING (rumble+shake) fires first
-const COLLAPSE_WARN_TICKS := 90    # ~3 s at 30 Hz: BattleBit-style imminent-collapse warning before it comes down
+const COLLAPSE_WARN_TICKS := 210   # ~7 s at 30 Hz: imminent-collapse warning (rumble+shake) — time to escape before it falls
 var _building_footprint := {}      # building_id -> ORIGINAL footprint bounds (marginless) from map load; the collapse crush zone (pieces surviving the fall have shrunk, so the remnant is the wrong volume)
 var _collapsed_bids: Array = []    # building_ids fully collapsed this match — replayed to late joiners
                                    # (A3 playtest bug: a reconnecting client rebuilt every map ladder
@@ -1927,6 +1927,24 @@ func _collapse_center(bid: int) -> Vector3:
 		return ((fp["min"] as Vector3) + (fp["max"] as Vector3)) * 0.5
 	return Vector3.ZERO
 
+## Ground cells (y=0) spanning building `bid`'s ORIGINAL footprint (the AABB cached at map load), for
+## stamping the collapse rubble field — so a gutted building still leaves a full ruin, not one built
+## only from its few surviving columns. Player-built structures (no cached footprint) fall back to the
+## surviving-piece columns.
+func _footprint_ground_cells(bid: int, fallback_xz: Dictionary) -> Array:
+	var out: Array = []
+	var fp: Dictionary = _building_footprint.get(bid, {})
+	if fp.has("min") and fp.has("max"):
+		var c0 := BuildGrid.cell_of(fp["min"] as Vector3)
+		var c1 := BuildGrid.cell_of(fp["max"] as Vector3)
+		for cx in range(mini(c0.x, c1.x), maxi(c0.x, c1.x) + 1):
+			for cz in range(mini(c0.z, c1.z), maxi(c0.z, c1.z) + 1):
+				out.append(Vector3i(cx, 0, cz))
+		return out
+	for xz: Vector2i in fallback_xz:
+		out.append(Vector3i(xz.x, 0, xz.y))
+	return out
+
 ## Fire any scheduled collapses whose warning window has elapsed (called each tick).
 func _step_collapses() -> void:
 	if _collapsing.is_empty():
@@ -1962,11 +1980,14 @@ func _collapse_building(bid: int) -> void:
 		_dmg_touched.erase(oid)
 		_store.remove(oid)
 	# R5: leave a low, INDESTRUCTIBLE, walkable rubble remnant across the footprint (real collidable
-	# pieces, not cosmetic mounds) so nobody can hide invisibly inside a collapsed building's rubble.
-	# building_id 0 so this survives the client's apply_collapse(bid) drop; replicated via OP_PLACE.
+	# pieces, not cosmetic mounds) so nobody hides invisibly in a collapsed building's rubble AND so
+	# there's a clear ruin where it stood. Use the ORIGINAL footprint (cached at map load), NOT the
+	# surviving pieces — a building whose walls were already destroyed before it fell must still leave a
+	# full ruin, not a sparse/empty one (playtest: "no ruins after collapse"). building_id 0 so the
+	# client's apply_collapse(bid) doesn't drop it; replicated via OP_PLACE.
+	var rubble_placed := 0
 	if _brubble_type >= 0:
-		for xz: Vector2i in footprint_xz:
-			var rcell := Vector3i(xz.x, 0, xz.y)
+		for rcell: Vector3i in _footprint_ground_cells(bid, footprint_xz):
 			if _store.occupied(rcell):
 				continue   # a neighbouring building's ground piece already holds this cell
 			var rsid := _next_struct_id
@@ -1974,6 +1995,8 @@ func _collapse_building(bid: int) -> void:
 			var rrec: Dictionary = _store.place(rsid, _brubble_type, rcell, 0, 0, 0)   # owner 0 = world piece
 			if not rrec.is_empty():
 				_emit_structure_delta(Protocol.OP_PLACE, rrec, rcell)
+				rubble_placed += 1
+	print("[collapse] bid=%d survivors=%d rubble=%d clients=%d" % [bid, remnant.size(), rubble_placed, _clients.size()])
 	var zone: Dictionary = CollapseZone.expand(_building_footprint.get(bid, {}), COLLAPSE_CRUSH_MARGIN)
 	if zone.is_empty():
 		zone = CollapseZone.bounds(remnant, COLLAPSE_CRUSH_MARGIN)   # player-built (no cached footprint): use what's there

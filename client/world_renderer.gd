@@ -2400,10 +2400,11 @@ func _sync_structure_pool(world_view: WorldView, now: float) -> void:
 		var ev: Dictionary = ev_v
 		var p := _structure_xform({"cell": ev["cell"], "yaw": int(ev.get("yaw", 0))}).origin
 		p.y += BuildGrid.CELL_SIZE * 0.5   # raise to roughly the piece mid-height
+		var col := _wall_debris_color(int(ev.get("type", 0)))   # bricks inherit the wall's material colour
 		if String(ev["kind"]) == "destroy":
-			_play_piece_destroy_fx(p, now)
+			_play_piece_destroy_fx(p, now, col)
 		else:
-			_play_piece_damage_fx(p, now)
+			_play_piece_damage_fx(p, now, col)
 
 	# M11: drain collapse events — each fully-collapsed building plays a cinematic + swaps to rubble.
 	# Must run every frame (the queue is normally empty; a collapse also bumps the version below).
@@ -2633,11 +2634,15 @@ func _promoted_material(type_idx: int) -> StandardMaterial3D:
 	elif pid.contains("wood"):
 		base = BuildingKit.COL_WOODW; tex = "wood"
 	var mat := StandardMaterial3D.new()
-	# Match the intact wall exactly — no dark damage tint. The HOLE is the damage indicator now, so a
-	# holed wall shouldn't wear a darker rectangle around the gap (playtest). Same base colour + texture.
+	# Match the intact wall EXACTLY — same base colour + texture, and the same world-space triplanar
+	# mapping so the per-chunk hole geometry samples the identical concrete as the wall around it (no
+	# dark tint, no flat/lighter rectangle around the gap — playtest). The hole is the damage indicator.
 	mat.albedo_color = base
 	mat.roughness = 0.9
 	mat.albedo_texture = BuildingTextures.tex(tex)
+	mat.uv1_triplanar = true
+	mat.uv1_world_triplanar = true
+	mat.uv1_scale = Vector3.ONE * BuildingKit.TEX_WORLD_SCALE
 	_promoted_mats[type_idx] = mat
 	return mat
 
@@ -3005,23 +3010,36 @@ const COL_DEBRIS_B := Color(0.47, 0.45, 0.42)   # broken concrete (mid)
 const COL_DEBRIS_BRICK := Color(0.58, 0.31, 0.25)   # brick-red shard
 const DUST_COLOR := Color(0.66, 0.63, 0.57, 0.6)    # warm concrete dust
 
-## A piece reached 0 chunks: a concrete dust puff + a big fan of chunky brick/concrete debris.
-func _play_piece_destroy_fx(pos: Vector3, now: float) -> void:
+## A piece reached 0 chunks: a concrete dust puff + a big fan of debris in the wall's material colour.
+func _play_piece_destroy_fx(pos: Vector3, now: float, col: Color = COL_DEBRIS_A) -> void:
 	_fx.spawn_puff(pos, 1.6, 0.55, now, DUST_COLOR)
-	_spawn_brick_debris(pos, now, 14, 0.20, 4.5, 6.0)
+	_spawn_brick_debris(pos, now, 14, 0.20, 4.5, 6.0, col)
 
 ## A piece took chunk damage but still stands (e.g. an RPG breach): a dust kick + a shower of the bricks
-## that were knocked out of the wall — they fly off, tumble, and settle on the ground (playtest).
-func _play_piece_damage_fx(pos: Vector3, now: float) -> void:
+## that were knocked out of the wall (in the wall's colour) — they fly off, tumble, and settle (playtest).
+func _play_piece_damage_fx(pos: Vector3, now: float, col: Color = COL_DEBRIS_A) -> void:
 	_fx.spawn_puff(pos, 0.8, 0.4, now, DUST_COLOR)
-	_spawn_brick_debris(pos, now, 9, 0.16, 3.2, 4.2)
+	_spawn_brick_debris(pos, now, 9, 0.16, 3.2, 4.2, col)
+
+## Debris colour for a wall type — grey concrete walls throw grey rubble, brick throws red brick, etc.
+## (playtest: bricks were always red). Mirrors the wall-material colour choice in _promoted_material.
+func _wall_debris_color(type_idx: int) -> Color:
+	var pid: String = STRUCT_TYPE_ID[type_idx] if type_idx < STRUCT_TYPE_ID.size() else "bwall"
+	if pid.contains("brick"):
+		return COL_DEBRIS_BRICK
+	if pid.contains("metal"):
+		return BuildingKit.COL_METALW
+	if pid.contains("wood"):
+		return BuildingKit.COL_WOODW
+	return COL_DEBRIS_A   # broken grey concrete — matches the (grey) concrete walls
 
 ## Brick/concrete chunks flung from a damage point, integrated + settled by the shared FxPool debris pool.
 ## `box` = cube edge (m), `spread`/`lift` = horizontal/vertical launch speed.
-func _spawn_brick_debris(pos: Vector3, now: float, count: int, box: float, spread: float, lift: float) -> void:
+func _spawn_brick_debris(pos: Vector3, now: float, count: int, box: float, spread: float, lift: float, base_col: Color = COL_DEBRIS_A) -> void:
 	if count <= 0:
 		return
-	var cols := [COL_DEBRIS_A, COL_DEBRIS_B, COL_DEBRIS_BRICK]
+	# Shades of the destroyed wall's material colour (light/mid/base) so the flung bricks match it.
+	var cols := [base_col, base_col.darkened(0.14), base_col.lightened(0.10)]
 	for i in range(count):
 		var node := MeshInstance3D.new()
 		# Vary the shard size per index (no per-frame RNG) so debris doesn't read as uniform cubes.
@@ -3101,7 +3119,7 @@ func _place_rubble_mound(center: Vector3) -> void:
 ## R6 — imminent-collapse rumble. A building sends a COLLAPSE_WARNING ~3 s before it actually falls;
 ## rumble the view (bursts that RAMP UP toward the fall) for that window, then the collapse cinematic
 ## adds its big shake. Bounded (collapses are rare); entries clear when their window elapses.
-const COLLAPSE_WARN_DURATION := 3.0
+const COLLAPSE_WARN_DURATION := 7.0   # matches server COLLAPSE_WARN_TICKS (210 @ 30 Hz) — time to escape
 var _collapse_warnings: Array = []   # [{center, start, end}]
 
 func begin_collapse_warning(center: Vector3, now: float) -> void:

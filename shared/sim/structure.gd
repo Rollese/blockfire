@@ -119,7 +119,7 @@ func _face_height(type: int) -> float:
 ## carved it no longer holds up what's above (the support cascade treats it as absent) — so blowing the
 ## base of a building out drops the upper floors instead of leaving them floating (playtest R3). Low
 ## enough that a single RPG breach (one hole) doesn't drop the building — it takes sustained damage.
-const SUPPORT_MIN_FRACTION := 0.25
+const SUPPORT_MIN_FRACTION := 0.12
 
 ## True if piece `id` still bears structural load (enough chunks intact). Used by Support's cascade BFS.
 func support_intact(id: int) -> bool:

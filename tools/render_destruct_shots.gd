@@ -121,30 +121,42 @@ func _initialize() -> void:
 		await _settle()
 		await _capture(cam, dir, "2_breach")
 
-	# Stage 3: whole-building COLLAPSE — cinematic dust/debris burst + footprint-scaled rubble. Pull the
-	# camera back so the whole building + its rubble field frame (the close hole-shot framing is too tight).
-	cam.global_position = centroid + Vector3(16.0, 7.0, 16.0)
-	cam.look_at(Vector3(centroid.x, centroid.y - 1.0, centroid.z), Vector3.UP)
+	# Stage 3: whole-building COLLAPSE remnant — mirror the SERVER's _collapse_building: remove every
+	# building piece from BOTH the client view AND the sim store (so the footprint cells free up), then
+	# stamp indestructible walkable `brubble` across the footprint ground cells + replicate via OP_PLACE.
+	# NOTE the bug this harness previously hid: without removing from `store` first, place() hit occupied
+	# cells and skipped every rubble piece.
 	now += 0.5
-	wv.apply_collapse(target_bid)
-	# R5: mirror the server — stamp indestructible walkable `brubble` across the footprint ground cells
-	# and replicate as OP_PLACE (building_id 0 so apply_collapse doesn't drop it) so the remnant renders.
 	var brub := cat.index_of("brubble")
+	for rec in trecs:
+		wv.apply_structure_delta(Protocol.encode_structure_delta(Protocol.OP_REMOVE, {"id": int(rec["id"])}))
+		store.remove(int(rec["id"]))
 	var seen := {}
+	var placed_rubble := 0
 	for rec in trecs:
 		var c := rec["cell"] as Vector3i
 		var xz := Vector2i(c.x, c.z)
 		if seen.has(xz):
 			continue
 		seen[xz] = true
-		var rcell := Vector3i(c.x, 0, c.z)
-		var rr: Dictionary = store.place(next_sid, brub, rcell, 0, 0, 0)
+		var rr: Dictionary = store.place(next_sid, brub, Vector3i(c.x, 0, c.z), 0, 0, 0)
 		next_sid += 1
 		if not rr.is_empty():
 			wv.apply_structure_delta(Protocol.encode_structure_delta(Protocol.OP_PLACE, rr))
+			placed_rubble += 1
 	r._sync_structure_pool(wv, now)
+	# Report whether the renderer actually built nodes for the brubble type (24) — the real diagnostic.
+	var brub_key := ""
+	for k in r._struct_groups:
+		if String(k).begins_with("%d:" % brub):
+			brub_key = k
+	print("brubble placed=", placed_rubble, " render_group=", brub_key,
+		" mmis=", (r._struct_groups[brub_key]["mmis"].size() if brub_key != "" else -1))
+	# Top-down so the ground rubble field is clearly visible.
+	cam.global_position = centroid + Vector3(2.0, 34.0, 2.0)
+	cam.look_at(Vector3(centroid.x, 0.0, centroid.z), Vector3(0, 0, -1))
 	await _settle()
-	await _capture(cam, dir, "3_collapsed")
+	await _capture(cam, dir, "3_rubble")
 
 	print("done")
 	quit(0)

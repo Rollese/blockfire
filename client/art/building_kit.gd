@@ -4,6 +4,7 @@ extends Object
 ## piece id + damage bucket (3 pristine .. 0 heavy), mirroring StructureKit's damage read.
 
 const CELL := 2.0  # BuildGrid.CELL_SIZE
+const TEX_WORLD_SCALE := 1.0   # texture tiles per metre (world-triplanar) — shared by walls + hole chunks
 
 # Per-piece palette — distinct tones so a building reads as walls/floors/columns/trim instead of a
 # uniform grey blob (playtest feedback 2026-06-18). Tints still modulate by damage bucket in _box().
@@ -182,10 +183,12 @@ static func _box(node_name: String, size: Vector3, pos: Vector3, bucket: int, ba
 	mat.roughness = 0.9
 	if tex != "":
 		mat.albedo_texture = BuildingTextures.tex(tex)
-		# Tile ~1 tile/m across the piece's dominant face (two largest dimensions).
-		var d := [absf(size.x), absf(size.y), absf(size.z)]
-		d.sort()
-		mat.uv1_scale = Vector3(maxf(d[2], 0.5), maxf(d[1], 0.5), 1.0)
+		# WORLD-space triplanar (~1 tile/m): the texture maps by world position, so a wall and the per-chunk
+		# hole geometry that replaces it (world_renderer promotion) sample the IDENTICAL texture and blend
+		# seamlessly — no flat/lighter rectangle around a hole (playtest). Also hides UV seams on a box.
+		mat.uv1_triplanar = true
+		mat.uv1_world_triplanar = true
+		mat.uv1_scale = Vector3.ONE * TEX_WORLD_SCALE
 	mi.material_override = mat
 	return mi
 

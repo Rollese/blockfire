@@ -78,7 +78,7 @@ func apply_structure_delta(bytes: PackedByteArray) -> void:
 				# M11-P4: a piece reaching 0 chunks is a destruction moment — queue a debris/dust burst
 				# at its cell before dropping the record (the batched renderer can't infer per-piece removals).
 				var rrec: Dictionary = _structs[rid]
-				_struct_fx.append({"cell": rrec["cell"], "yaw": int(rrec.get("yaw", 0)), "kind": "destroy"})
+				_struct_fx.append({"cell": rrec["cell"], "yaw": int(rrec.get("yaw", 0)), "kind": "destroy", "type": int(rrec.get("type", 0))})
 				_structs.erase(rid)
 				_struct_dirty[rid] = true
 				_structs_version += 1
@@ -101,7 +101,7 @@ func apply_structure_delta(bytes: PackedByteArray) -> void:
 				# unchanged mask must not re-fire the version bump or a cosmetic dust puff.
 				if int(crec.get("chunks", -1)) != newmask:
 					crec["chunks"] = newmask
-					_struct_fx.append({"cell": crec["cell"], "yaw": int(crec.get("yaw", 0)), "kind": "damage"})
+					_struct_fx.append({"cell": crec["cell"], "yaw": int(crec.get("yaw", 0)), "kind": "damage", "type": int(crec.get("type", 0))})
 					_struct_dirty[cid] = true
 					_structs_version += 1
 
