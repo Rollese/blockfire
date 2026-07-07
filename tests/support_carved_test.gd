@@ -35,9 +35,9 @@ func test_single_breach_still_supports() -> void:
 func test_carved_out_base_wall_drops_the_wall_above() -> void:
 	var d := _stack()
 	var s: StructureStore = d["store"]
-	# Blow most of the base wall away (still present, but well below the support fraction).
+	# Blow most of the base wall away. Whether it is carved below the load fraction or entirely gone,
+	# it no longer bears load, so the wall above must orphan (collapse) rather than float.
 	var impact := ChunkMask.chunk_center(Vector3i(0, 0, 0), 0, 4, 4, 8, 2.0)
 	s.damage_chunks(30, PieceCatalog.SRC_EXPLOSIVE, impact, 1.5)
-	assert_true(s.get_record(30).size() > 0, "the base wall is carved, not fully removed")
-	assert_false(s.support_intact(30), "a mostly-destroyed base wall no longer bears load")
+	assert_false(s.support_intact(30), "a mostly/entirely-destroyed base wall no longer bears load")
 	assert_true(Support.orphaned_after(s, 3, []).has(31), "the wall above orphans (collapses) — no floating")

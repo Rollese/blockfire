@@ -115,4 +115,23 @@ static func clear_in_radius(mask: int, cell: Vector3i, yaw: int, grid: int, heig
 			var edge := radius + _chunk_noise(cell, row, col) * clampf(dist / maxf(radius, 0.01), 0.0, 1.0)
 			if dist <= edge:
 				m &= ~(1 << bit)
+	return _drop_isolated(m, grid)
+
+## Drop any chunk left with NO surviving orthogonal (face) neighbour — a single brick can't hang alone
+## in a hole (playtest: "isolated empty bricks in a wall"). One simultaneous pass over the pre-drop mask
+## so it's order-independent; only fully-orphaned single chunks fall (connected remnants stay).
+static func _drop_isolated(mask: int, grid: int) -> int:
+	var m := mask
+	for row in grid:
+		for col in grid:
+			var bit := row * grid + col
+			if (mask & (1 << bit)) == 0:
+				continue
+			var neighbours := 0
+			if row > 0 and (mask & (1 << (bit - grid))) != 0: neighbours += 1
+			if row < grid - 1 and (mask & (1 << (bit + grid))) != 0: neighbours += 1
+			if col > 0 and (mask & (1 << (bit - 1))) != 0: neighbours += 1
+			if col < grid - 1 and (mask & (1 << (bit + 1))) != 0: neighbours += 1
+			if neighbours == 0:
+				m &= ~(1 << bit)
 	return m

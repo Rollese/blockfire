@@ -1695,22 +1695,29 @@ func _step_rockets() -> void:
 		var seg: Vector3 = nxt - (r["pos"] as Vector3)
 		var seg_len := seg.length()
 		var struck := false
+		var impact: Vector3 = nxt
 		if (_store.count() > 0 or _store.terrain != null) and seg_len > 0.0001:
 			var m := _store.march(r["pos"], seg / seg_len, seg_len)
 			if bool(m["hit"]):
 				struck = true
+				# Detonate AT the struck point — NOT at nxt (the end of this tick's ~5 m step). A rocket
+				# steps metres per tick, so nxt is usually well PAST the wall: the blast then carved the
+				# building INTERIOR and left the wall you actually hit intact (playtest: "the rocket flies
+				# through the wall and explodes inside"). Now the breach lands on the face you shot.
+				impact = (r["pos"] as Vector3) + (seg / seg_len) * float(m["dist"])
 		if struck or nxt.y <= 0.0:
-			if nxt.y < 0.0: nxt.y = 0.0
+			if not struck and nxt.y < 0.0:
+				impact = Vector3(nxt.x, 0.0, nxt.z)   # ground contact (no structure struck this step)
 			_stats.rockets_det += 1
-			_stats.rstruct += _store.ids_in_radius(nxt, float(rdef["struct_radius"])).size()
+			_stats.rstruct += _store.ids_in_radius(impact, float(rdef["struct_radius"])).size()
 			for vid in _sim.world.vehicles:
 				var vv: Vehicle = _sim.world.vehicles[vid]
-				if vv.alive and vv.team != int(r["team"]) and nxt.distance_to(vv.pos) <= float(rdef["pawn_radius"]):
+				if vv.alive and vv.team != int(r["team"]) and impact.distance_to(vv.pos) <= float(rdef["pawn_radius"]):
 					_stats.rkt_vs_veh += 1
-			_blast_at(nxt, int(r["owner"]), int(r["team"]),
+			_blast_at(impact, int(r["owner"]), int(r["team"]),
 				int(rdef["pawn_damage"]), float(rdef["pawn_radius"]),
 				int(rdef["struct_damage"]), float(rdef["struct_radius"]), RPG_VEHICLE_DMG)
-			_broadcast_detonation(nxt, Protocol.DET_EXPLOSION)   # blast at the TRUE impact (client culls its fly-through cosmetic rocket)
+			_broadcast_detonation(impact, Protocol.DET_EXPLOSION)   # blast at the TRUE contact point
 			continue
 		r["pos"] = nxt; r["vel"] = s["vel"]
 		still.append(r)

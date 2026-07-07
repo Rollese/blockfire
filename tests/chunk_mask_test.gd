@@ -41,6 +41,15 @@ func test_clear_is_monotonic_and_idempotent() -> void:
 	assert_eq(once, twice, "re-clearing same impact is a no-op")
 	assert_true(ChunkMask.popcount(once) <= ChunkMask.popcount(m), "bits only clear")
 
+func test_isolated_chunk_is_dropped() -> void:
+	# A single chunk with all four face-neighbours cleared can't hang alone in a hole (playtest artifact).
+	var lone := 1 << (4 * 8 + 4)
+	assert_eq(ChunkMask._drop_isolated(lone, 8), 0, "a lone floating chunk falls")
+
+func test_connected_chunks_survive_the_isolated_drop() -> void:
+	var pair := (1 << (4 * 8 + 4)) | (1 << (4 * 8 + 5))   # two horizontally adjacent chunks
+	assert_eq(ChunkMask.popcount(ChunkMask._drop_isolated(pair, 8)), 2, "a connected pair stays put")
+
 func test_is_empty() -> void:
 	assert_true(ChunkMask.is_empty(0))
 	assert_false(ChunkMask.is_empty(1))
