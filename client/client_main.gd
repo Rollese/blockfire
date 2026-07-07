@@ -1211,6 +1211,14 @@ func _on_packet(_from: ENetPacketPeer, _channel: int, bytes: PackedByteArray) ->
 		Protocol.Msg.STRUCTURE_DELTA:
 			_wv.apply_structure_delta(bytes)
 			_apply_struct_delta_to_store(bytes)
+		Protocol.Msg.COLLAPSE_WARNING:
+			# A building is about to come down (~3 s): rumble cue + a building shake that ramps toward the
+			# fall (BattleBit-style). The pieces are still standing until the COLLAPSE below fires.
+			var warn := Protocol.decode_collapse_warning(bytes)
+			if _renderer != null:
+				_renderer.begin_collapse_warning(warn["center"], _elapsed)
+			if _audio != null:
+				_audio.play_at("explosion", warn["center"])   # low boom cue (no dedicated rumble sound yet)
 		Protocol.Msg.COLLAPSE:
 			var _bid := Protocol.decode_collapse(bytes)
 			print("[client] building %d collapsed" % _bid)   # also fires on join-replay (A3 ghost-ladder fix)

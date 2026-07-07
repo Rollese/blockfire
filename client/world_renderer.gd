@@ -907,6 +907,7 @@ func update(world_view: WorldView, predictor: Prediction, now: float, fov: float
 	_update_viewmodel_locomotion(predictor.predicted, render_delta)   # eases _vm_sprint_t (camera FOV + pose read it)
 	_tick_local_footstep(predictor.predicted, render_delta, eye, now)   # local footstep audio (no dust)
 	_apply_camera(predictor, fov, look_yaw, look_pitch, eye)
+	_apply_collapse_warnings(now)   # ramping rumble while a nearby building is about to come down (R6)
 	_apply_shake(now)      # transient view jitter from collapses / nearby blasts (on top of the camera)
 	_pose_viewmodel(now)   # apply any active swing/swap animation on top of the base placement
 
@@ -2624,15 +2625,19 @@ func _promoted_material(type_idx: int) -> StandardMaterial3D:
 		return _promoted_mats[type_idx]
 	var pid: String = STRUCT_TYPE_ID[type_idx] if type_idx < STRUCT_TYPE_ID.size() else "bwall"
 	var base: Color = BuildingKit.COL_WALL
+	var tex := "concrete"
 	if pid.contains("brick"):
-		base = BuildingKit.COL_BRICK
+		base = BuildingKit.COL_BRICK; tex = "brick"
 	elif pid.contains("metal"):
-		base = BuildingKit.COL_METALW
+		base = BuildingKit.COL_METALW; tex = "metal"
 	elif pid.contains("wood"):
-		base = BuildingKit.COL_WOODW
+		base = BuildingKit.COL_WOODW; tex = "wood"
 	var mat := StandardMaterial3D.new()
-	mat.albedo_color = Color(base.r * 0.78, base.g * 0.78, base.b * 0.78)   # dirtied/damaged
-	mat.roughness = 0.95
+	# Match the intact wall exactly — no dark damage tint. The HOLE is the damage indicator now, so a
+	# holed wall shouldn't wear a darker rectangle around the gap (playtest). Same base colour + texture.
+	mat.albedo_color = base
+	mat.roughness = 0.9
+	mat.albedo_texture = BuildingTextures.tex(tex)
 	_promoted_mats[type_idx] = mat
 	return mat
 
@@ -2994,21 +2999,22 @@ func _footprint_anchor(building_id: int) -> Vector3:
 # =============================================================================
 #  M11-P4 destruction cosmetics — piece debris/dust + collapse cinematic + shake
 # =============================================================================
-const BRICK_DEBRIS_TTL := 1.1
+const BRICK_DEBRIS_TTL := 5.0   # debris tumbles, lands, and rests on the ground a while before fading out (playtest)
 const COL_DEBRIS_A := Color(0.55, 0.53, 0.49)   # broken concrete (light) — matches BuildingKit rubble
 const COL_DEBRIS_B := Color(0.47, 0.45, 0.42)   # broken concrete (mid)
 const COL_DEBRIS_BRICK := Color(0.58, 0.31, 0.25)   # brick-red shard
 const DUST_COLOR := Color(0.66, 0.63, 0.57, 0.6)    # warm concrete dust
 
-## A piece reached 0 chunks: a concrete dust puff + a fan of chunky brick/concrete debris.
+## A piece reached 0 chunks: a concrete dust puff + a big fan of chunky brick/concrete debris.
 func _play_piece_destroy_fx(pos: Vector3, now: float) -> void:
 	_fx.spawn_puff(pos, 1.6, 0.55, now, DUST_COLOR)
-	_spawn_brick_debris(pos, now, 7, 0.16, 4.5, 5.5)
+	_spawn_brick_debris(pos, now, 14, 0.20, 4.5, 6.0)
 
-## A piece took chunk damage but still stands: just a small dust kick + a couple of shards.
+## A piece took chunk damage but still stands (e.g. an RPG breach): a dust kick + a shower of the bricks
+## that were knocked out of the wall — they fly off, tumble, and settle on the ground (playtest).
 func _play_piece_damage_fx(pos: Vector3, now: float) -> void:
-	_fx.spawn_puff(pos, 0.7, 0.35, now, DUST_COLOR)
-	_spawn_brick_debris(pos, now, 3, 0.10, 2.6, 3.2)
+	_fx.spawn_puff(pos, 0.8, 0.4, now, DUST_COLOR)
+	_spawn_brick_debris(pos, now, 9, 0.16, 3.2, 4.2)
 
 ## Brick/concrete chunks flung from a damage point, integrated + settled by the shared FxPool debris pool.
 ## `box` = cube edge (m), `spread`/`lift` = horizontal/vertical launch speed.
@@ -3032,7 +3038,9 @@ func _spawn_brick_debris(pos: Vector3, now: float, count: int, box: float, sprea
 		var ang := TAU * float(i) / float(count) + float(i) * 0.7
 		var rad := spread * (0.5 + 0.5 * float((i + 1) % 3))
 		var vel := Vector3(cos(ang) * rad, lift + float(i % 3) * 1.2, sin(ang) * rad)
-		_fx.push_debris(node, vel, now + BRICK_DEBRIS_TTL)
+		# Deterministic per-shard tumble (rad/s) so each brick spins as it flies (no per-frame RNG).
+		var spin := Vector3(3.0 + 2.0 * float(i % 4), 2.0 + 3.0 * float(i % 3), 5.0 - 1.5 * float(i % 5))
+		_fx.push_debris(node, vel, now + BRICK_DEBRIS_TTL, spin)
 
 ## Whole-building collapse cinematic: a rolling ground dust cloud, a heavy debris burst, a screen
 ## shake if the player is close, then the persistent rubble mound. Public-ish so the QA demo reuses it.
@@ -3048,19 +3056,20 @@ func _play_collapse_fx(center: Vector3, now: float, mn: Vector3 = Vector3.INF, m
 		height = maxf(2.0, mx.y - mn.y)
 	var span := maxf(half_x, half_z)
 	# Ground-hugging dust cloud — offset puffs ringed at the footprint edge read as one rolling billow.
-	for i in range(6):
-		var ang := TAU * float(i) / 6.0
-		var off := Vector3(cos(ang) * span, 0.4 + 0.3 * float(i % 2), sin(ang) * span)
-		_fx.spawn_puff(center + off, span * 2.4, 1.4, now, DUST_COLOR)
-	_fx.spawn_puff(center + Vector3(0, 1.2, 0), span * 3.0, 1.6, now, DUST_COLOR)
+	# Long TTL (~3 s) so the collapse lingers as an event, not a 1 s puff (playtest R6).
+	for i in range(8):
+		var ang := TAU * float(i) / 8.0
+		var off := Vector3(cos(ang) * span, 0.4 + 0.4 * float(i % 3), sin(ang) * span)
+		_fx.spawn_puff(center + off, span * 2.4, 2.8, now, DUST_COLOR)
+	_fx.spawn_puff(center + Vector3(0, 1.2, 0), span * 3.2, 3.2, now, DUST_COLOR)
+	_fx.spawn_puff(center + Vector3(0, height * 0.5, 0), span * 2.6, 3.0, now, DUST_COLOR)   # a high billow rolling off the top
 	# Heavy debris burst flung up + out; more shards for a bigger footprint (bounded).
-	var shards := 16 + clampi(int(half_x * half_z * 0.6), 0, 28)
-	_spawn_brick_debris(center + Vector3(0, height * 0.4, 0), now, shards, 0.26, span + 3.5, 7.0)
+	var shards := 22 + clampi(int(half_x * half_z * 0.8), 0, 40)
+	_spawn_brick_debris(center + Vector3(0, height * 0.4, 0), now, shards, 0.26, span + 4.0, 8.0)
 	# R5: the persistent remnant is now REAL walkable `brubble` pieces (server-stamped, arriving via
-	# OP_PLACE), not a cosmetic mound — so this plays only the dust/debris cinematic. The half_x/height
-	# above still scale the dust to the footprint.
-	# Shake the view if the player is near enough to feel the building come down.
-	_add_shake(center, now, 0.28, 0.6)
+	# OP_PLACE), not a cosmetic mound — so this plays only the dust/debris cinematic.
+	# Strong, longer shake as the building comes down (the warning rumble preceded this).
+	_add_shake(center, now, 0.34, 1.2)
 
 ## The persistent rubble a collapsed building leaves behind — a field of mounds tiled across the
 ## footprint (center = ground centre) so a big building leaves a big, footprint-shaped pile that humps
@@ -3088,6 +3097,27 @@ func _place_rubble_field(center: Vector3, half_x: float, half_z: float, height: 
 ## Back-compat single-mound entry (join-replay path lacks live extents) — a modest 3x3 m rubble field.
 func _place_rubble_mound(center: Vector3) -> void:
 	_place_rubble_field(center, 1.5, 1.5, 4.0)
+
+## R6 — imminent-collapse rumble. A building sends a COLLAPSE_WARNING ~3 s before it actually falls;
+## rumble the view (bursts that RAMP UP toward the fall) for that window, then the collapse cinematic
+## adds its big shake. Bounded (collapses are rare); entries clear when their window elapses.
+const COLLAPSE_WARN_DURATION := 3.0
+var _collapse_warnings: Array = []   # [{center, start, end}]
+
+func begin_collapse_warning(center: Vector3, now: float) -> void:
+	_collapse_warnings.append({"center": center, "start": now, "end": now + COLLAPSE_WARN_DURATION})
+
+func _apply_collapse_warnings(now: float) -> void:
+	if _collapse_warnings.is_empty():
+		return
+	var kept: Array = []
+	for w in _collapse_warnings:
+		if now >= float(w["end"]):
+			continue
+		var t := clampf((now - float(w["start"])) / COLLAPSE_WARN_DURATION, 0.0, 1.0)
+		_add_shake(w["center"], now, 0.05 + 0.12 * t, 0.25)   # short bursts, intensity ramps toward the fall
+		kept.append(w)
+	_collapse_warnings = kept
 
 ## Arm a camera shake of `mag` metres for `dur` s if `world_pos` is within feel range of the camera.
 func _add_shake(world_pos: Vector3, now: float, mag: float, dur: float) -> void:

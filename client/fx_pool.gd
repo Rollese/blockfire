@@ -33,8 +33,8 @@ func age_all(now: float, render_delta: float) -> void:
 
 
 ## Struct-FX seam: brick debris built by the renderer joins the shared debris pool.
-func push_debris(node: Node3D, vel: Vector3, die: float) -> void:
-	_pool_push(debris, {"node": node, "vel": vel, "die": die}, MAX_DEBRIS)
+func push_debris(node: Node3D, vel: Vector3, die: float, spin: Vector3 = Vector3.ZERO) -> void:
+	_pool_push(debris, {"node": node, "vel": vel, "die": die, "spin": spin, "settled": false}, MAX_DEBRIS)
 
 
 # RPG rocket cosmetics — a launched rocket (local shooter feedback + replicated ROCKET_FX) flies the
@@ -407,17 +407,33 @@ func age_debris(now: float, delta: float) -> void:
 	var dt := clampf(delta, 0.0, 0.1)   # ignore absurd startup/stall deltas so debris can't fling to INF
 	var live: Array = []
 	for d: Dictionary in debris:
-		if now >= float(d["die"]):
+		var die: float = float(d["die"])
+		if now >= die:
 			(d["node"] as Node3D).queue_free()
 			continue
 		var node: Node3D = d["node"]
 		var vel: Vector3 = d["vel"]
+		var spin: Vector3 = d.get("spin", Vector3.ZERO)
+		var settled: bool = bool(d.get("settled", false))
 		vel.y -= DEBRIS_GRAVITY * dt
 		var npos := node.position + vel * dt
 		var d_gy := _ground_y(npos)
-		if npos.y < d_gy:
-			npos.y = d_gy; vel = Vector3.ZERO   # settle on the ground (terrain surface)
+		if npos.y <= d_gy:
+			# Land: settle on the ground with a little bounce-damped stop, and stop tumbling (rests).
+			npos.y = d_gy
+			if not settled:
+				vel = Vector3(vel.x * 0.25, absf(vel.y) * 0.28, vel.z * 0.25)   # small bounce, mostly kill it
+				if vel.length() < 0.6:
+					vel = Vector3.ZERO; settled = true; spin = Vector3.ZERO
+			else:
+				vel = Vector3.ZERO
 		node.position = npos
-		d["vel"] = vel
+		if not settled:
+			node.rotation += spin * dt   # tumble in flight (bricks flung off a wall)
+		# Shrink out over the last 0.5 s so debris fades instead of vanishing abruptly (playtest).
+		var life_left := die - now
+		if life_left < 0.5:
+			node.scale = Vector3.ONE * clampf(life_left / 0.5, 0.05, 1.0)
+		d["vel"] = vel; d["spin"] = spin; d["settled"] = settled
 		live.append(d)
 	debris = live

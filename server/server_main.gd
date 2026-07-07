@@ -131,6 +131,8 @@ var _transport_origin := {}   # id -> Vector3 boarding pos (transport-distance m
 var _pending_removes: Array = []   # [{id, cell}] removes awaiting send (degradation queue)
 var _dmg_touched := {}             # id -> true: pieces holed (alive) this tick, for end-of-tick chunk-mask resend
 var _buildings_to_cascade := {}    # building_id -> true; resolved at end of tick
+var _collapsing := {}              # building_id -> tick it actually collapses; a WARNING (rumble+shake) fires first
+const COLLAPSE_WARN_TICKS := 90    # ~3 s at 30 Hz: BattleBit-style imminent-collapse warning before it comes down
 var _building_footprint := {}      # building_id -> ORIGINAL footprint bounds (marginless) from map load; the collapse crush zone (pieces surviving the fall have shrunk, so the remnant is the wrong volume)
 var _collapsed_bids: Array = []    # building_ids fully collapsed this match — replayed to late joiners
                                    # (A3 playtest bug: a reconnecting client rebuilt every map ladder
@@ -336,6 +338,7 @@ func _reset_match_state() -> void:
 	_pending_removes.clear()
 	_dmg_touched.clear()
 	_buildings_to_cascade.clear()
+	_collapsing.clear()
 	_collapsed_bids.clear()   # map rotation rebuilds every building — don't replay stale collapses
 	_grenades.clear()
 	_rockets.clear()
@@ -366,7 +369,7 @@ func _physics_process(delta: float) -> void:
 	# COLLAPSE broadcast + late-join replay) on demand, ~5s in so early clients see it live.
 	if _collapse_test_bid > 0 and _sim.tick == 150:
 		print("[server] QA collapse-test: collapsing building %d" % _collapse_test_bid)
-		_collapse_building(_collapse_test_bid)
+		_begin_collapse(_collapse_test_bid)   # warning -> ~3 s -> actual collapse
 		_collapse_test_bid = 0
 	_step_movement()
 	for id in _sim.world.pawns:
@@ -428,6 +431,7 @@ func _physics_process(delta: float) -> void:
 	_track_and_broadcast_match_state()
 	var t_match := Time.get_ticks_usec()
 	_resolve_cascades()
+	_step_collapses()   # fire buildings whose imminent-collapse warning window has elapsed
 	_emit_structure_deltas()
 	_send_snapshots()
 	_roster_tick += 1
@@ -1895,11 +1899,52 @@ func _damage_structure(id: int, source: int, impact: Vector3, radius: float) -> 
 	else:
 		_dmg_touched[id] = true
 
+## Begin a whole-building collapse: broadcast an imminent-collapse WARNING (rumble + screen shake on
+## the client) and schedule the actual fall ~3 s later, so a collapse reads as a BattleBit-style event
+## (warning, then it comes down) and players inside get a moment to flee before the crush. Idempotent.
+func _begin_collapse(bid: int) -> void:
+	if _collapsing.has(bid) or _collapsed_bids.has(bid):
+		return
+	_collapsing[bid] = _sim.tick + COLLAPSE_WARN_TICKS
+	var bytes := Protocol.encode_collapse_warning(bid, _collapse_center(bid))
+	for cid in _clients:
+		_net.send_to(_clients[cid]["peer"], NetHost.CHANNEL_CONTROL, bytes, ENetPacketPeer.FLAG_RELIABLE)
+
+## World centre of a building (average of its live piece cell-centres; falls back to the cached
+## footprint) — used to position the client's proximity rumble/shake for the collapse warning.
+func _collapse_center(bid: int) -> Vector3:
+	var sum := Vector3.ZERO
+	var n := 0
+	for oid in _store.ids_of_building(bid):
+		var rec := _store.get_record(oid)
+		if not rec.is_empty():
+			sum += BuildGrid.cell_min(rec["cell"]) + Vector3.ONE * (BuildGrid.CELL_SIZE * 0.5)
+			n += 1
+	if n > 0:
+		return sum / float(n)
+	var fp: Dictionary = _building_footprint.get(bid, {})
+	if fp.has("min") and fp.has("max"):
+		return ((fp["min"] as Vector3) + (fp["max"] as Vector3)) * 0.5
+	return Vector3.ZERO
+
+## Fire any scheduled collapses whose warning window has elapsed (called each tick).
+func _step_collapses() -> void:
+	if _collapsing.is_empty():
+		return
+	var due: Array = []
+	for bid in _collapsing:
+		if _sim.tick >= int(_collapsing[bid]):
+			due.append(bid)
+	for bid in due:
+		_collapsing.erase(bid)
+		_collapse_building(int(bid))
+
 ## Fully collapse one building: drop every remaining piece (and any C4 stuck to them), remove its
 ## roof ladders (H1), broadcast COLLAPSE, and record the id so late joiners get the collapse
-## replayed at welcome (A3 ghost-ladder fix). Called by the cascade resolver and --collapse-test.
+## replayed at welcome (A3 ghost-ladder fix). Called (after the warning) by the cascade resolver + QA.
 const COLLAPSE_CRUSH_MARGIN := 1.5   # m: the "inside or very close" band around the footprint that a collapse crushes
 func _collapse_building(bid: int) -> void:
+	_collapsing.erase(bid)
 	if _collapsed_bids.has(bid):
 		return   # idempotent: the cascade resolver and the empty-building path can both target one bid
 	# Crush volume = the building's ORIGINAL footprint (cached at map load), expanded by the "very
@@ -1972,7 +2017,7 @@ func _resolve_cascades() -> void:
 	for bid in _buildings_to_cascade.keys():
 		var orphans := Support.orphaned_after(_store, bid, [])
 		if Support.should_collapse(orphans.size()):
-			_collapse_building(bid)
+			_begin_collapse(bid)   # rumble + shake warning; the building actually falls ~3 s later
 			continue
 		for oid in orphans:
 			var orec := _store.get_record(oid)

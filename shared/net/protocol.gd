@@ -63,6 +63,7 @@ enum Msg {
 	MELEE_FX = 42,          ## server -> human clients: a remote pawn swung melee (id) -> brief swing/lunge pose
 	VAULT_FX = 43,          ## server -> human clients: a remote pawn vaulted (id) -> brief mantle/clamber pose
 	DOWNED_LIST = 44,       ## server -> human clients: downed pawns {id, bleed_frac, halted} -> revive-marker urgency
+	COLLAPSE_WARNING = 45,  ## server -> clients: a building is about to collapse (id + centre) -> rumble + shake, then COLLAPSE fires ~3 s later
 }
 
 const OP_PLACE := 0
@@ -378,6 +379,18 @@ static func encode_collapse(building_id: int) -> PackedByteArray:
 
 static func decode_collapse(bytes: PackedByteArray) -> int:
 	return body_reader(bytes).get_u16()
+
+static func encode_collapse_warning(building_id: int, center: Vector3) -> PackedByteArray:
+	var buf := StreamPeerBuffer.new()
+	buf.put_u8(Msg.COLLAPSE_WARNING)
+	buf.put_u16(building_id)
+	put_pos10(buf, center)
+	return buf.data_array
+
+static func decode_collapse_warning(bytes: PackedByteArray) -> Dictionary:
+	var r := body_reader(bytes)
+	var bid := r.get_u16()
+	return {"building_id": bid, "center": get_pos10(r)}
 
 
 static func encode_grenade_throw(dir: Vector3, type: int, charge: float = 1.0) -> PackedByteArray:
