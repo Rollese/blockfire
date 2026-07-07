@@ -1634,8 +1634,19 @@ func _step_impact(g: Dictionary) -> bool:
 ## Generalized blast: structure damage (cell radius) + pawn splash (sphere, current positions,
 ## FF-off incl. owner). Shared by frag grenades, RPG, C4, and mines. `source` tags the kill
 ## (BLAST). Returns the number of pawns that took damage (for kill/trigger bookkeeping).
+## Horizontal face normal of structure piece `id` (perpendicular to its yaw-rotated width axis), or
+## ZERO if the piece is gone. Used to keep a rocket blast from cross-carving a perpendicular wall.
+func _piece_normal(id: int) -> Vector3:
+	if id == 0:
+		return Vector3.ZERO
+	var rec := _store.get_record(id)
+	if rec.is_empty():
+		return Vector3.ZERO
+	var a := BuildGrid.yaw_radians(int(rec["yaw"]))
+	return Vector3(-sin(a), 0.0, cos(a))
+
 func _blast_at(center: Vector3, owner: int, team: int, pawn_dmg: int, pawn_radius: float,
-		struct_dmg: int, struct_radius: float, veh_dmg: int = 0) -> int:
+		struct_dmg: int, struct_radius: float, veh_dmg: int = 0, carve_normal: Vector3 = Vector3.ZERO) -> int:
 	if struct_dmg > 0 and struct_radius > 0.0:
 		# Search a cell BEYOND the carve radius so a blast near a cell boundary carves the chunks in the
 		# NEIGHBOURING cells too — holes flow across cells instead of stopping dead at each 2 m edge
@@ -1643,6 +1654,13 @@ func _blast_at(center: Vector3, owner: int, team: int, pawn_dmg: int, pawn_radiu
 		# only clears chunks actually within `struct_radius` on each face, and its depth gate rejects the
 		# parallel walls behind, so this widens the hole without punching through the building.
 		for sid in _store.ids_in_radius(center, struct_radius + BuildGrid.CELL_SIZE):
+			# When the blast came from a struck wall (rocket), only carve pieces facing roughly the SAME
+			# way — coplanar neighbours span the hole; a PERPENDICULAR wall meeting it at a corner (whose
+			# plane the depth gate can't reject) must NOT get a mirrored hole (playtest corner bug).
+			if carve_normal != Vector3.ZERO:
+				var pn := _piece_normal(sid)
+				if pn != Vector3.ZERO and absf(pn.dot(carve_normal)) < 0.7:
+					continue
 			_damage_structure(sid, PieceCatalog.SRC_EXPLOSIVE, center, struct_radius)
 	var hits := 0
 	for pid in _sim.world.pawns:
@@ -1704,11 +1722,13 @@ func _step_rockets() -> void:
 		var seg: Vector3 = nxt - (r["pos"] as Vector3)
 		var seg_len := seg.length()
 		var struck := false
+		var struck_id := 0
 		var impact: Vector3 = nxt
 		if (_store.count() > 0 or _store.terrain != null) and seg_len > 0.0001:
 			var m := _store.march(r["pos"], seg / seg_len, seg_len)
 			if bool(m["hit"]):
 				struck = true
+				struck_id = int(m.get("id", 0))
 				# Detonate AT the struck point — NOT at nxt (the end of this tick's ~5 m step). A rocket
 				# steps metres per tick, so nxt is usually well PAST the wall: the blast then carved the
 				# building INTERIOR and left the wall you actually hit intact (playtest: "the rocket flies
@@ -1723,9 +1743,12 @@ func _step_rockets() -> void:
 				var vv: Vehicle = _sim.world.vehicles[vid]
 				if vv.alive and vv.team != int(r["team"]) and impact.distance_to(vv.pos) <= float(rdef["pawn_radius"]):
 					_stats.rkt_vs_veh += 1
+			# Corner fix: only carve walls facing the SAME way as the one the rocket struck, so a blast at a
+			# building corner doesn't paint a mirrored hole onto the perpendicular wall meeting it (playtest).
+			var carve_n := _piece_normal(struck_id)
 			_blast_at(impact, int(r["owner"]), int(r["team"]),
 				int(rdef["pawn_damage"]), float(rdef["pawn_radius"]),
-				int(rdef["struct_damage"]), float(rdef["struct_radius"]), RPG_VEHICLE_DMG)
+				int(rdef["struct_damage"]), float(rdef["struct_radius"]), RPG_VEHICLE_DMG, carve_n)
 			_broadcast_detonation(impact, Protocol.DET_EXPLOSION)   # blast at the TRUE contact point
 			continue
 		r["pos"] = nxt; r["vel"] = s["vel"]
