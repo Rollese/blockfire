@@ -28,24 +28,35 @@ static func popcount(mask: int) -> int:
 static func is_empty(mask: int) -> bool:
 	return mask == 0
 
+## Face WIDTH axis, matching the renderer's _structure_xform (Godot Basis.from_euler Y-rotation of local
+## +X = (cos a, 0, -sin a)). The sim USED (cos a, 0, +sin a) — opposite Z — so a chunk the sim carved
+## rendered MIRRORED on E/W-facing walls (yaw 2/6, sin != 0); N/S walls (sin ~ 0) happened to match.
 static func _u_axis(yaw: int) -> Vector3:
 	var a := BuildGrid.yaw_radians(yaw)
-	return Vector3(cos(a), 0.0, sin(a))
+	return Vector3(cos(a), 0.0, -sin(a))
+
+## World XZ centre of the piece's cell (the face's origin along U is the CELL CENTRE, so the face spans
+## -half..+half along U and stays inside the cell for ANY yaw — the old cmin origin put the face outside
+## the cell when u pointed in a negative world direction, yaw 4/6).
+static func _cell_centre_xz(cell: Vector3i) -> Vector3:
+	var half := BuildGrid.CELL_SIZE * 0.5
+	return BuildGrid.cell_min(cell) + Vector3(half, 0.0, half)
 
 ## World-space centre of chunk (row,col) on the piece at `cell`, oriented by `yaw`, face `height`.
 static func chunk_center(cell: Vector3i, yaw: int, row: int, col: int, grid: int, height: float) -> Vector3:
-	var origin := BuildGrid.cell_min(cell)
+	var half := BuildGrid.CELL_SIZE * 0.5
 	var u := _u_axis(yaw)
 	var ustep := BuildGrid.CELL_SIZE / float(grid)
 	var vstep := height / float(grid)
-	return origin + u * ((float(col) + 0.5) * ustep) + Vector3(0.0, (float(row) + 0.5) * vstep, 0.0)
+	return _cell_centre_xz(cell) + u * ((float(col) + 0.5) * ustep - half) \
+		+ Vector3(0.0, (float(row) + 0.5) * vstep, 0.0)
 
 ## Bit index of the chunk at world `point` on the piece face (clamped into the grid).
 static func bit_at(cell: Vector3i, yaw: int, grid: int, height: float, point: Vector3) -> int:
-	var rel := point - BuildGrid.cell_min(cell)
-	var u := _u_axis(yaw)
-	var col := clampi(int(rel.dot(u) / (BuildGrid.CELL_SIZE / float(grid))), 0, grid - 1)
-	var row := clampi(int(rel.y / (height / float(grid))), 0, grid - 1)
+	var half := BuildGrid.CELL_SIZE * 0.5
+	var uc := (point - _cell_centre_xz(cell)).dot(_u_axis(yaw)) + half   # 0..CELL along the face width
+	var col := clampi(int(uc / (BuildGrid.CELL_SIZE / float(grid))), 0, grid - 1)
+	var row := clampi(int((point.y - float(BuildGrid.cell_min(cell).y)) / (height / float(grid))), 0, grid - 1)
 	return row * grid + col
 
 static func is_alive_at(mask: int, cell: Vector3i, yaw: int, grid: int, height: float, point: Vector3) -> bool:
@@ -57,16 +68,15 @@ static func is_alive_at(mask: int, cell: Vector3i, yaw: int, grid: int, height: 
 ## the grid*grid), evaluated only when a pawn is already pressed against an occupied wall cell, so it
 ## adds no systematic tick cost. M11 Gate-B walk-through.
 static func region_clear(mask: int, cell: Vector3i, yaw: int, grid: int, height: float, p: Vector3, half_w: float, body_h: float) -> bool:
-	var origin := BuildGrid.cell_min(cell)
-	var u := _u_axis(yaw)
+	var half := BuildGrid.CELL_SIZE * 0.5
 	var ustep := BuildGrid.CELL_SIZE / float(grid)
 	var vstep := height / float(grid)
-	var rel := p - origin
-	var uc := rel.dot(u)                       # pawn centre along the face width (m from the U-min edge)
+	var uc := (p - _cell_centre_xz(cell)).dot(_u_axis(yaw)) + half   # pawn centre along the face width (0..CELL)
+	var rely := p.y - float(BuildGrid.cell_min(cell).y)
 	var cmin := clampi(int((uc - half_w) / ustep), 0, grid - 1)
 	var cmax := clampi(int((uc + half_w) / ustep), 0, grid - 1)
-	var rmin := clampi(int(rel.y / vstep), 0, grid - 1)
-	var rmax := clampi(int((rel.y + body_h) / vstep), 0, grid - 1)
+	var rmin := clampi(int(rely / vstep), 0, grid - 1)
+	var rmax := clampi(int((rely + body_h) / vstep), 0, grid - 1)
 	for row in range(rmin, rmax + 1):
 		for col in range(cmin, cmax + 1):
 			if (mask & (1 << (row * grid + col))) != 0:
@@ -109,24 +119,22 @@ const DEPTH_TOLERANCE := 1.5
 static func clear_in_radius(mask: int, cell: Vector3i, yaw: int, grid: int, height: float, impact: Vector3, radius: float) -> int:
 	var m := mask
 	var cmin := BuildGrid.cell_min(cell)
-	var a := BuildGrid.yaw_radians(yaw)
-	var u := Vector3(cos(a), 0.0, sin(a))          # face width axis
-	var n := Vector3(-sin(a), 0.0, cos(a))         # face normal (horizontal, perp to u)
 	var half := BuildGrid.CELL_SIZE * 0.5
+	var u := _u_axis(yaw)                           # face width axis (matches the renderer)
+	var n := Vector3(-u.z, 0.0, u.x)               # face normal (horizontal, perpendicular to u)
 	var centre := cmin + Vector3(half, half, half)
 	if absf((impact - centre).dot(n)) > DEPTH_TOLERANCE:
 		return m                                    # impact off this wall's plane -> don't carve it
 	var ustep := BuildGrid.CELL_SIZE / float(grid)
 	var vstep := height / float(grid)
-	var rel := impact - cmin
-	var iu := rel.dot(u)                            # impact projected onto the face: width coord
-	var iv := rel.y                                 # ... and height coord
+	var iu := (impact - _cell_centre_xz(cell)).dot(u)   # impact along the face width, from the centre (-half..+half)
+	var iv := impact.y - float(cmin.y)                  # ... and up from the cell base (0..height)
 	for row in grid:
 		for col in grid:
 			var bit := row * grid + col
 			if (m & (1 << bit)) == 0:
 				continue
-			var du := (float(col) + 0.5) * ustep - iu
+			var du := ((float(col) + 0.5) * ustep - half) - iu
 			var dv := (float(row) + 0.5) * vstep - iv
 			var dist := sqrt(du * du + dv * dv)     # in-face distance (depth dropped)
 			var edge := radius + _chunk_noise(cell, row, col) * clampf(dist / maxf(radius, 0.01), 0.0, 1.0)

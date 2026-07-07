@@ -65,6 +65,17 @@ func test_depth_gate_rejects_a_blast_off_the_wall_plane() -> void:
 	var far := ChunkMask.clear_in_radius(full, Vector3i(0, 0, 0), 0, 8, 2.0, Vector3(1.0, 1.0, 5.0), 1.3)
 	assert_eq(far, full, "a blast well off a wall's plane doesn't punch through it")
 
+func test_chunk_center_round_trips_through_bit_at_for_all_yaws() -> void:
+	# The chunk world position and the world->chunk lookup must be inverses for EVERY orientation, or a
+	# carve lands on a different chunk than the renderer draws (playtest: holes mirrored on E/W walls,
+	# yaw 2/6). This catches the old _u_axis Z-sign + cmin-origin bug that clamped yaw 4/6 to col 0.
+	var cell := Vector3i(2, 0, -3)
+	for yaw in [0, 1, 2, 3, 4, 5, 6, 7]:
+		for rc: Array in [[0, 0], [3, 5], [7, 7], [2, 6], [7, 0]]:
+			var p := ChunkMask.chunk_center(cell, yaw, rc[0], rc[1], 8, 2.0)
+			var bit := ChunkMask.bit_at(cell, yaw, 8, 2.0, p)
+			assert_eq(bit, rc[0] * 8 + rc[1], "yaw %d chunk (%d,%d) world pos round-trips to its own bit" % [yaw, rc[0], rc[1]])
+
 func test_is_empty() -> void:
 	assert_true(ChunkMask.is_empty(0))
 	assert_false(ChunkMask.is_empty(1))
