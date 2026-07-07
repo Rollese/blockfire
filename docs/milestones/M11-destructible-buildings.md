@@ -1,6 +1,6 @@
 # M11 — Destructible Buildings
 
-**Status:** P1+P2+P3 implemented & merged (2026-06-18) · **Gate A (128-bot sim) PASS ✅ 2026-06-23** · **Remaining:** Gate B (feel) + P4 client cosmetics — **blocked by M7 rendered client** · **Coordinates with:** M5.5-P3 (melee sledge/pickaxe)
+**Status:** P1+P2+P3 sim + **P4 Gate-B feel** implemented & merged · **Gate A (128-bot sim) PASS ✅ 2026-06-23** · **Gate-B feel built + owner-playtested across several live rounds (2026-07-07)** — real see-through holes / shoot-through / walk-through, balanced destruction, BattleBit collapse (warning + walkable rubble ruins), all 128-bot-gated (suite 1372/0) · **Remaining:** owner's final feel sign-off at the **joint playtest** once two new asset-based buildings land; R6 (organic collapse) + cosmetic BuildingKit tweaks deferred · **Coordinates with:** M5.5-P3 (melee sledge/pickaxe)
 
 **Objective:** BattleBit-style destructible **map buildings** — almost all walls, interiors, and stairs can be destroyed, with chain-reacting structural collapse — on the existing M4 `BuildGrid`/`StructureStore`/`PieceCatalog` substrate, networked within the M4 event/interest/cap discipline.
 
