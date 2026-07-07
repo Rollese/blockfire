@@ -13,6 +13,7 @@ var _vp: SubViewport
 var _cam: Camera3D
 var _skirt := true    # mirror the game: ground perimeter walls/columns carry a floor-skirt deck
 var _noroof := false  # omit the top bfloor slab so a top/iso view sees the interior floor
+var _debug := false   # diagnostic: unshaded, shadows off, each piece flat-coloured by facing/type
 
 func _ready() -> void:
 	var args := {}
@@ -30,6 +31,7 @@ func _ready() -> void:
 	# floor coverage (the only way to inspect the floor-to-wall gap + its skirt fix; the roof hides it).
 	_skirt = String(args.get("skirt", "true")) == "true"
 	_noroof = String(args.get("noroof", "false")) == "true"
+	_debug = String(args.get("debug", "false")) == "true"
 
 	_vp = SubViewport.new()
 	_vp.size = RES
@@ -65,7 +67,7 @@ func _setup_env() -> void:
 	var sun := DirectionalLight3D.new()
 	sun.rotation_degrees = Vector3(-50, -55, 0)
 	sun.light_energy = 1.3
-	sun.shadow_enabled = true
+	sun.shadow_enabled = not _debug   # debug: no shadows so geometry position isn't hidden by shade
 	_vp.add_child(sun)
 	var env := Environment.new()
 	env.background_mode = Environment.BG_COLOR
@@ -82,8 +84,14 @@ func _build_building(name: String) -> AABB:
 	var lo := Vector3(INF, INF, INF)
 	var hi := Vector3(-INF, -INF, -INF)
 	var maxy := 0
+	var cxmin := 1 << 30; var cxmax := -(1 << 30); var czmin := 1 << 30; var czmax := -(1 << 30)
 	for piece in data["pieces"]:
-		maxy = maxi(maxy, int(piece["offset"][1]))
+		var o = piece["offset"]
+		maxy = maxi(maxy, int(o[1]))
+		cxmin = mini(cxmin, int(o[0])); cxmax = maxi(cxmax, int(o[0]))
+		czmin = mini(czmin, int(o[2])); czmax = maxi(czmax, int(o[2]))
+	var cenx := float(cxmin + cxmax) * 0.5   # building centre in cells
+	var cenz := float(czmin + czmax) * 0.5
 	for piece in data["pieces"]:
 		var off = piece["offset"]
 		var cell := Vector3i(int(off[0]), int(off[1]), int(off[2]))
@@ -99,10 +107,42 @@ func _build_building(name: String) -> AABB:
 		node.position = wpos
 		if pid != "bwall_corner":
 			node.rotation = Vector3(0.0, BuildGrid.yaw_radians(ystep), 0.0)
+		# Edge-align straight walls to the footprint: shift OUTWARD from the building centre along the
+		# wall's thin axis (yaw can't tell N from S / E from W — opposite walls share a yaw — so direction
+		# must come from the cell's position vs centre). Corner arms are already at the exterior edge.
+		if pid.begins_with("bwall") and pid != "bwall_corner":
+			var out_amt := CELL * 0.5 - 0.15
+			if ystep % 4 == 0:   # yaw 0/4 -> thin in Z -> push along Z
+				node.position.z += signf(float(cell.z) - cenz) * out_amt
+			else:                # yaw 2/6 -> thin in X -> push along X
+				node.position.x += signf(float(cell.x) - cenx) * out_amt
+		if _debug:
+			_debug_tint(node, pid, ystep)
 		_vp.add_child(node)
 		lo = Vector3(minf(lo.x, wpos.x - CELL), minf(lo.y, wpos.y), minf(lo.z, wpos.z - CELL))
 		hi = Vector3(maxf(hi.x, wpos.x + CELL), maxf(hi.y, wpos.y + CELL), maxf(hi.z, wpos.z + CELL))
 	return AABB(lo, hi - lo)
+
+## Diagnostic: replace every mesh material with a flat UNSHADED colour keyed by piece facing/type, so
+## it's unambiguous where each piece sits (walls S/W/N/E = red/green/blue/yellow, corner = magenta,
+## floor = grey, column = cyan, props = white). No lighting -> no shadow hiding an inset/overhang.
+func _debug_tint(node: Node3D, pid: String, ystep: int) -> void:
+	var col := Color(1, 0.5, 0)   # fallback: orange
+	if pid == "bwall_corner": col = Color(1, 0, 1)
+	elif pid == "bfloor": col = Color(0.5, 0.5, 0.5)
+	elif pid == "bcolumn": col = Color(0, 0.8, 0.8)
+	elif pid.begins_with("prop_"): col = Color(1, 1, 1)
+	elif pid.begins_with("bwall"):
+		match ystep % 8:
+			0: col = Color(0.9, 0.2, 0.2)   # S
+			2: col = Color(0.2, 0.8, 0.2)   # W
+			4: col = Color(0.2, 0.4, 1.0)   # N
+			6: col = Color(0.95, 0.85, 0.1) # E
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = col
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	for mi in node.find_children("*", "MeshInstance3D", true, false):
+		(mi as MeshInstance3D).material_override = mat
 
 const _COMPASS := {
 	"n": Vector2(0, 1), "ne": Vector2(0.707, 0.707), "e": Vector2(1, 0), "se": Vector2(0.707, -0.707),

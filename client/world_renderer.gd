@@ -277,6 +277,10 @@ const _DMG_DEMO_VID := -424243                   # synthetic vid for the --vehic
 # shrunk, so a COLLAPSE anchors rubble on the ORIGINAL ground centre — not the orphaned upper-floor
 # remnant that survives to the fall (that floated the mound; playtest). Persists across rebuilds.
 var _building_footprint: Dictionary = {}
+# M11 wall edge-alignment: building_id(int) -> {cxmin,cxmax,czmin,czmax} cell footprint, from RAW cells
+# (not xforms). Used to push each building wall OUT to the footprint edge (a wall's outward direction
+# can't come from its yaw — opposite walls share a yaw). Rebuilt on each full structure rebuild.
+var _building_bounds: Dictionary = {}
 var _map: MapDef = null   # retained from setup() so a late joiner can anchor rejoin rubble on the static footprint (A3b)
 
 # viewmodel box (optional placeholder)
@@ -2451,6 +2455,22 @@ func _rebuild_structure_batches(structs: Dictionary) -> void:
 			under[id_v] = structs[id_v]
 	_sync_buildsite_ghosts(under)
 
+	# Per-building cell-footprint bounds from RAW cells (before any _structure_xform call, which now
+	# depends on these — computing from cells avoids the circular reference).
+	_building_bounds.clear()
+	for id_v: Variant in structs:
+		var r: Dictionary = structs[id_v]
+		var rbid := int(r.get("building_id", 0))
+		if rbid == 0:
+			continue
+		var rc: Vector3i = r["cell"] as Vector3i
+		if not _building_bounds.has(rbid):
+			_building_bounds[rbid] = {"cxmin": rc.x, "cxmax": rc.x, "czmin": rc.z, "czmax": rc.z}
+		else:
+			var bb: Dictionary = _building_bounds[rbid]
+			bb["cxmin"] = mini(int(bb["cxmin"]), rc.x); bb["cxmax"] = maxi(int(bb["cxmax"]), rc.x)
+			bb["czmin"] = mini(int(bb["czmin"]), rc.z); bb["czmax"] = maxi(int(bb["czmax"]), rc.z)
+
 	# Group piece ids by visual key; union each building's extents into its persistent footprint.
 	for id_v: Variant in structs:
 		var rec: Dictionary = structs[id_v]
@@ -2817,7 +2837,23 @@ func _structure_xform(rec: Dictionary) -> Transform3D:
 	var pos := Vector3(float(cell.x) * BuildGrid.CELL_SIZE + half,
 		float(cell.y) * BuildGrid.CELL_SIZE + STRUCT_LIFT,
 		float(cell.z) * BuildGrid.CELL_SIZE + half)
-	var basis := Basis.from_euler(Vector3(0.0, BuildGrid.yaw_radians(int(rec.get("yaw", 0))), 0.0))
+	# Edge-align building walls: shift OUT from the building centre to the footprint edge (matches the
+	# preview). Direction is from the cell vs the building centre (yaw can't tell N from S / E from W).
+	# Applied to the piece transform, so the pristine batched mesh AND the promoted hole chunks (which
+	# both derive from this) move together and stay aligned. Corner/floor/column/props excepted.
+	var type_idx := int(rec.get("type", 0))
+	var ys := int(rec.get("yaw", 0))
+	var bid := int(rec.get("building_id", 0))
+	if bid != 0 and _building_bounds.has(bid):
+		var pid: String = STRUCT_TYPE_ID[type_idx] if type_idx < STRUCT_TYPE_ID.size() else ""
+		if pid.begins_with("bwall") and pid != "bwall_corner":
+			var b: Dictionary = _building_bounds[bid]
+			var out_amt := BuildGrid.CELL_SIZE * 0.5 - 0.15
+			if ys % 4 == 0:   # yaw 0/4 -> thin in Z -> push along Z
+				pos.z += signf(float(cell.z) - float(int(b["czmin"]) + int(b["czmax"])) * 0.5) * out_amt
+			else:             # yaw 2/6 -> thin in X -> push along X
+				pos.x += signf(float(cell.x) - float(int(b["cxmin"]) + int(b["cxmax"])) * 0.5) * out_amt
+	var basis := Basis.from_euler(Vector3(0.0, BuildGrid.yaw_radians(ys), 0.0))
 	return Transform3D(basis, pos)
 
 

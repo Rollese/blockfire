@@ -70,20 +70,41 @@ static func build(piece_id: String, bucket: int, floor_skirt: bool = false, yaw_
 		"prop_crate":
 			root.add_child(_box("Crate", Vector3(0.9, 0.9, 0.9), Vector3(0, 0.45, 0), bucket, Color(0.45, 0.32, 0.18), "wood"))
 		"bwall_window":
-			# A ~1m square window set high on the wall: solid sill + header + side fills leave a square
-			# opening, with a thin trim frame around it.
-			root.add_child(_box("Sill", Vector3(CELL, CELL * 0.42, 0.3), Vector3(0, CELL * 0.21, 0), bucket, COL_WALL))
-			root.add_child(_box("Header", Vector3(CELL, CELL * 0.14, 0.3), Vector3(0, CELL * 0.93, 0), bucket, COL_WALL))
-			root.add_child(_box("WSideL", Vector3(CELL * 0.26, CELL * 0.52, 0.3), Vector3(-CELL * 0.37, CELL * 0.66, 0), bucket, COL_WALL))
-			root.add_child(_box("WSideR", Vector3(CELL * 0.26, CELL * 0.52, 0.3), Vector3(CELL * 0.37, CELL * 0.66, 0), bucket, COL_WALL))
-			root.add_child(_box("WTrimB", Vector3(CELL * 0.55, 0.08, 0.34), Vector3(0, CELL * 0.43, 0), bucket, COL_TRIM))
-			root.add_child(_box("WTrimT", Vector3(CELL * 0.55, 0.08, 0.34), Vector3(0, CELL * 0.89, 0), bucket, COL_TRIM))
+			# Kenney-style framed window: a large opening (1.1 x 0.95 m) left by solid sill/header/side
+			# fills (these form the CELL-wide carvable slab -> chunk-hole promotion stays seamless), a
+			# RECESSED glazing pane + mullions read as a real window, and a proud trim frame + sill ledge
+			# give the face depth. Trim/glazing are shallow relief -> they harmlessly drop when the slab carves.
+			var op_h := 0.95      # opening height
+			var op_cy := 1.325    # opening centre Y (sill at ~0.85, head at ~1.80)
+			var op_hw := 0.55     # opening half-width
+			root.add_child(_box("Sill", Vector3(CELL, 0.85, 0.3), Vector3(0, 0.425, 0), bucket, COL_WALL))
+			root.add_child(_box("Header", Vector3(CELL, 0.20, 0.3), Vector3(0, 1.90, 0), bucket, COL_WALL))
+			root.add_child(_box("WSideL", Vector3(CELL * 0.5 - op_hw, op_h, 0.3), Vector3(-(op_hw + (CELL * 0.5 - op_hw) * 0.5), op_cy, 0), bucket, COL_WALL))
+			root.add_child(_box("WSideR", Vector3(CELL * 0.5 - op_hw, op_h, 0.3), Vector3(op_hw + (CELL * 0.5 - op_hw) * 0.5, op_cy, 0), bucket, COL_WALL))
+			# Recessed glazing + a simple mullion cross (flat, slightly behind the face plane).
+			root.add_child(_box("Glaze", Vector3(op_hw * 2.0, op_h, 0.05), Vector3(0, op_cy, -0.06), 3, Color(0.22, 0.27, 0.32), ""))
+			root.add_child(_box("MullV", Vector3(0.05, op_h, 0.06), Vector3(0, op_cy, -0.02), bucket, COL_TRIM, ""))
+			root.add_child(_box("MullH", Vector3(op_hw * 2.0, 0.05, 0.06), Vector3(0, op_cy, -0.02), bucket, COL_TRIM, ""))
+			# Proud trim frame + a sill ledge for depth (face is at z=+0.15).
+			root.add_child(_box("TrimT", Vector3(op_hw * 2.0 + 0.14, 0.09, 0.10), Vector3(0, op_cy + op_h * 0.5, 0.16), bucket, COL_TRIM, ""))
+			root.add_child(_box("TrimL", Vector3(0.09, op_h + 0.18, 0.10), Vector3(-op_hw - 0.05, op_cy, 0.16), bucket, COL_TRIM, ""))
+			root.add_child(_box("TrimR", Vector3(0.09, op_h + 0.18, 0.10), Vector3(op_hw + 0.05, op_cy, 0.16), bucket, COL_TRIM, ""))
+			root.add_child(_box("SillLedge", Vector3(op_hw * 2.0 + 0.30, 0.10, 0.16), Vector3(0, op_cy - op_h * 0.5, 0.12), bucket, COL_TRIM, ""))
 		"bwall_door":
-			# Tall doorway: jambs + lintel reach ~2.3m (into the cell above) so a standing pawn clearly
-			# clears it; the wall in the cell above is the header.
-			root.add_child(_box("JambL", Vector3(CELL * 0.22, CELL * 1.15, 0.35), Vector3(-CELL * 0.39, CELL * 0.575, 0), bucket, COL_TRIM))
-			root.add_child(_box("JambR", Vector3(CELL * 0.22, CELL * 1.15, 0.35), Vector3(CELL * 0.39, CELL * 0.575, 0), bucket, COL_TRIM))
-			root.add_child(_box("Lintel", Vector3(CELL, CELL * 0.14, 0.35), Vector3(0, CELL * 1.12, 0), bucket, COL_TRIM))
+			# Framed doorway: full-height solid side fills (the carvable slab) leave a ~1 m opening; a
+			# RECESSED panelled door slab + a proud trim surround give it depth. The cell above is the header.
+			var d_hw := 0.5                      # door opening half-width
+			var side_w := CELL * 0.5 - d_hw      # solid fill each side of the opening
+			root.add_child(_box("DSideL", Vector3(side_w, CELL, 0.3), Vector3(-(d_hw + side_w * 0.5), CELL * 0.5, 0), bucket, COL_WALL))
+			root.add_child(_box("DSideR", Vector3(side_w, CELL, 0.3), Vector3(d_hw + side_w * 0.5, CELL * 0.5, 0), bucket, COL_WALL))
+			# Recessed door leaf (dark wood) + two proud panel strips so it reads as a real door.
+			root.add_child(_box("DoorLeaf", Vector3(d_hw * 2.0 - 0.08, CELL - 0.1, 0.06), Vector3(0, (CELL - 0.1) * 0.5, -0.05), 3, Color(0.32, 0.22, 0.14), ""))
+			root.add_child(_box("DPanelL", Vector3(0.06, CELL - 0.4, 0.03), Vector3(-0.22, CELL * 0.5, -0.01), 3, Color(0.26, 0.18, 0.11), ""))
+			root.add_child(_box("DPanelR", Vector3(0.06, CELL - 0.4, 0.03), Vector3(0.22, CELL * 0.5, -0.01), 3, Color(0.26, 0.18, 0.11), ""))
+			# Proud trim surround (jambs + lintel) at the face.
+			root.add_child(_box("DJambL", Vector3(0.10, CELL, 0.12), Vector3(-d_hw - 0.05, CELL * 0.5, 0.16), bucket, COL_TRIM, ""))
+			root.add_child(_box("DJambR", Vector3(0.10, CELL, 0.12), Vector3(d_hw + 0.05, CELL * 0.5, 0.16), bucket, COL_TRIM, ""))
+			root.add_child(_box("DLintel", Vector3(d_hw * 2.0 + 0.20, 0.12, 0.12), Vector3(0, CELL - 0.06, 0.16), bucket, COL_TRIM, ""))
 		"bstair":
 			for s in range(4):
 				var h := CELL * (float(s) + 1.0) / 4.0
@@ -112,12 +133,13 @@ static func build(piece_id: String, bucket: int, floor_skirt: bool = false, yaw_
 		"bwall_wood":
 			root.add_child(_box("WoodW", Vector3(CELL, CELL, 0.3), Vector3(0, CELL * 0.5, 0), bucket, COL_WOODW, "wood"))
 		"bwall_corner":
-			# Convex outer corner: two thin slabs on the exterior edges of the cell (an L), not a centred
-			# + cross — the old cross duplicated the neighbouring wall arms and read as an X sticking
-			# past the silhouette (owner feedback 2026-07-03). yaw_step 0/2/4/6 = SW/SE/NE/NW exterior.
+			# Edge-aligned L: two thin walls on the cell's two EXTERIOR edges, meeting flush at the
+			# footprint corner. This matches the straight walls (also shifted to the exterior edge below),
+			# so the corner closes on the footprint outline — no centred cross/X, no inset. yaw_step
+			# 0/2/4/6 selects which two edges are exterior (SW/SE/NE/NW).
 			var t := 0.3
-			var h := CELL * 0.5
 			var edge := CELL * 0.5 - t * 0.5
+			var h := CELL * 0.5
 			match (yaw_step % BuildGrid.YAW_STEPS) / 2:
 				0:   # exterior S + W
 					root.add_child(_box("ArmS", Vector3(CELL, CELL, t), Vector3(0, h, -edge), bucket, COL_WALL))

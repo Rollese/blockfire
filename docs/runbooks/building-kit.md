@@ -1,5 +1,10 @@
 # Runbook: building templates + the screenshot preview
 
+> **Wall geometry / corners / edge-alignment:** see `docs/sessions/2026-07-07-building-wall-overhaul.md`
+> for the root cause (a wall's outward direction can't come from its yaw — opposing walls share one) and
+> the fix, plus the `--debug=true --noroof=true` top-down diagnostic for any wall/corner bug. Read it
+> before touching wall placement or the `bwall*` pieces.
+
 The destructible map buildings are data-driven prefabs in `buildings/*.json` (a list of pieces, each
 `{type, offset:[x,y,z] in 2m cells, yaw}`), rendered by the procedural `client/art/building_kit.gd`.
 The server stamps a map's `buildings[]` at boot. Cells are 2 m; walls are 2-3 cells tall (4-6 m);
