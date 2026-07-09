@@ -136,8 +136,17 @@ func build(my_id: int, view: Dictionary, _vview: Dictionary, structs: Dictionary
 	# falls back to the AR def for unknown ids, so the division is always sane).
 	var ammo_frac := 1.0
 	if not net_self.is_empty():
-		var mag_size := maxf(1.0, float(Weapon.get_def(int(net_self.get("weapon", 0))).get("mag_size", 30)))
-		ammo_frac = clampf(float(int(net_self.get("mag", 0))) / mag_size, 0.0, 1.0)
+		var wid := int(net_self.get("weapon", 0))
+		var mag_size := maxf(1.0, float(Weapon.get_def(wid).get("mag_size", 30)))
+		var mag := float(int(net_self.get("mag", 0)))
+		# Reserve-ammo economy (M17): judge "low on ammo" by TOTAL rounds (mag + spare pool), not just the
+		# loaded mag — else a full mag over an empty reserve reads as fine until the last mag runs dry.
+		# reserve < 0 (legacy/absent) falls back to the mag-only fraction.
+		var reserve := int(net_self.get("reserve", -1))
+		if reserve < 0:
+			ammo_frac = clampf(mag / mag_size, 0.0, 1.0)
+		else:
+			ammo_frac = clampf((mag + float(reserve)) / (mag_size + maxf(0.0, float(Weapon.reserve_ammo(wid)))), 0.0, 1.0)
 	w.supply_kind = AiSupport.wants_supply(w.metadata_hp_frac, ammo_frac)
 	# The GADGET_LIST wire carries kind/pos only — no owner team and no heal-vs-ammo bag
 	# distinction (a human client gets exactly the same). Adapt fairly: every mine is treated

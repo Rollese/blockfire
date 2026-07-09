@@ -36,6 +36,17 @@ func test_perception_supply_kind_ammo_from_mag_fraction() -> void:
 	var w2 := Perception.new().build(1, view, {}, {}, [], 100, full)
 	assert_eq(w2.supply_kind, "", "full mag + full hp needs nothing")
 
+func test_perception_supply_kind_ammo_from_empty_reserve() -> void:
+	# Reserve-ammo economy (M17): a bot with a full mag but a DRAINED reserve is actually low on
+	# total ammo and should seek a bag proactively — not wait until the last mag runs dry.
+	var view := {1: _es(0, Vector3.ZERO)}
+	var dry_reserve := {"mag": 30, "weapon": Weapon.AR, "reserve": 0}   # full mag, empty spare pool
+	var w := Perception.new().build(1, view, {}, {}, [], 100, dry_reserve)
+	assert_eq(w.supply_kind, "ammo", "full mag but empty reserve → low on TOTAL ammo, seek a bag")
+	var stocked := {"mag": 30, "weapon": Weapon.AR, "reserve": Weapon.reserve_ammo(Weapon.AR)}
+	var w2 := Perception.new().build(1, view, {}, {}, [], 100, stocked)
+	assert_eq(w2.supply_kind, "", "full mag + full reserve needs nothing")
+
 func test_perception_supply_kind_heal_on_low_hp() -> void:
 	var view := {1: _es(0, Vector3.ZERO, true, false, 40)}   # hp_frac 0.4 < 0.55
 	var w := Perception.new().build(1, view, {}, {}, [], 100, {"mag": 30, "weapon": Weapon.AR})
