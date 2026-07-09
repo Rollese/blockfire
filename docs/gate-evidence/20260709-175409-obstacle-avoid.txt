@@ -1,0 +1,8 @@
+gate: obstacle-avoid
+date: 2026-07-09T17:54:09+02:00
+host: game2
+git: b3e18c3
+verdict: PASS
+summary: winner=1 elapsed=67s peak_tick=23.44ms budget=33.3ms agg=24.6Mbit/s players=128 kills=18 cap_events=1 ai_us_mean=9898.7us map=conquest_town
+srvlog: srvlog-obstacle-avoid-20260709-175408.log
+srvlog_sha256: 826bf5736e8d1c3b096621d776e5370ce43864869547bb16473c0e5a98836958

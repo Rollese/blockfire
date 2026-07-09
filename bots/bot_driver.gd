@@ -81,6 +81,57 @@ static func slope_sidestep(grid: TerrainGrid, pos: Vector3, heading: Vector3) ->
 	var sr := Terrain.slope_at(grid, right.x, right.z)
 	return left_dir if sl <= sr else right_dir
 
+## M-nav: bot-only building/wall avoidance (still NOT sim-authoritative — the server clips movement
+## regardless; this only steers the AI's commanded heading so it stops burying itself in a wall).
+## The slope sidestep above samples TERRAIN slope only, so a bot pressed flat against a building on
+## level ground reads both sides as equally walkable and blindly shuffles left into the corner. This
+## instead reads the nearby structure cells and escapes toward the CLEARER side, sliding around the
+## footprint. Pure + unit-tested; wired from _update_slope_avoid when the stall isn't a slope.
+const OBSTACLE_SCAN_RADIUS := 6.0     # m: structure cells this close count as walking obstacles
+const OBSTACLE_VERTICAL_BAND := 3.0   # m: ignore cells more than a floor above/below the feet
+const OBSTACLE_SIDESTEP_PROBE := 2.4  # m (one cell) ahead-of-lateral to sample clearance at
+const OBSTACLE_RETREAT_BLEND := 0.5   # backpedal folded into the lateral escape (< the slope sidestep's
+
+## Pick a sidestep heading around solid structures: sample clearance a probe-step down each lateral
+## (left / right off `heading`, each folded with a small retreat so a flush press still yields lateral
+## travel) and steer toward the side whose nearest obstacle is farther away. Pure. `obstacles` are
+## world-space cell centres (see nearby_obstacle_cells). Returns a unit XZ dir (heading if degenerate).
+static func obstacle_sidestep(pos: Vector3, heading: Vector3, obstacles: Array) -> Vector3:
+	var h := Vector3(heading.x, 0.0, heading.z).normalized()
+	if h == Vector3.ZERO:
+		return heading
+	var perp := Vector3(-h.z, 0.0, h.x)   # left perpendicular (XZ)
+	var left_dir := (perp - h * OBSTACLE_RETREAT_BLEND).normalized()
+	var right_dir := (-perp - h * OBSTACLE_RETREAT_BLEND).normalized()
+	var lc := _min_clearance(pos + left_dir * OBSTACLE_SIDESTEP_PROBE, obstacles)
+	var rc := _min_clearance(pos + right_dir * OBSTACLE_SIDESTEP_PROBE, obstacles)
+	return left_dir if lc >= rc else right_dir   # tie -> left (stable)
+
+## Nearest obstacle distance (XZ) to `p`, or INF when there are none. Pure helper for obstacle_sidestep.
+static func _min_clearance(p: Vector3, obstacles: Array) -> float:
+	var best := INF
+	for o in obstacles:
+		var ov: Vector3 = o
+		var d := Vector2(ov.x - p.x, ov.z - p.z).length()
+		if d < best:
+			best = d
+	return best
+
+## World-space centres of the structure cells near `pos` on the walking floor: within
+## OBSTACLE_SCAN_RADIUS horizontally and OBSTACLE_VERTICAL_BAND vertically (so upper storeys of a
+## tall building don't count as ground obstacles). `structs` is the bot's synced sid -> record map.
+## Pure + unit-tested.
+static func nearby_obstacle_cells(structs: Dictionary, pos: Vector3) -> Array:
+	var out: Array = []
+	for sid in structs:
+		var cell: Vector3i = structs[sid]["cell"]
+		var w := BuildGrid.world_of(cell)
+		if absf(w.y - pos.y) > OBSTACLE_VERTICAL_BAND:
+			continue
+		if Vector2(w.x - pos.x, w.z - pos.z).length() <= OBSTACLE_SCAN_RADIUS:
+			out.append(w)
+	return out
+
 ## True if an alive, non-downed friendly is within GIVEUP_NO_HELP_RADIUS of a downed bot — i.e. a
 ## revive is plausible, so it should wait rather than give up. `view` = pawn_id -> EntityState.
 static func _reviver_near(view: Dictionary, self_id: int, my_team: int, my_pos: Vector3) -> bool:
@@ -478,11 +529,15 @@ func _drive(bot: Dictionary, delta: float) -> void:
 	# still clips this bot's movement via Terrain.resolve_movement exactly like a human; see
 	# shared/sim/sim_loop.gd). Skipped for the CLIMB driller: its waypoints are deliberate ladder
 	# geometry, not open terrain, and overriding them would break the deterministic gate drill.
-	if _terrain != null and not is_driller:
-		var slope_dir := _update_slope_avoid(bot, me, delta, move_x, move_y)
-		if slope_dir != Vector2.ZERO:
-			move_x = slope_dir.x
-			move_y = slope_dir.y
+	# Reactive stuck-avoidance (view-only, best-effort — server stays authoritative): a too-steep
+	# slope OR a building/prop dead ahead otherwise pins the AI commanding the same blocked heading
+	# forever. _update_slope_avoid detects the stall; _pick_sidestep routes it to the terrain- or
+	# structure-aware escape. Skipped for the CLIMB driller (its ladder waypoints are deliberate).
+	if not is_driller:
+		var avoid_dir := _update_slope_avoid(bot, me, delta, move_x, move_y)
+		if avoid_dir != Vector2.ZERO:
+			move_x = avoid_dir.x
+			move_y = avoid_dir.y
 
 	# Build cover only while stationary (holding a point or firing) — so the bot drops a wall
 	# toward the contested objective without walking into its own piece, and the cover lands in
@@ -557,6 +612,16 @@ func _hunt_pos(me: EntityState, self_id: int, view: Dictionary) -> Vector3:
 ## Vector2.ZERO when no override is active (caller keeps its own move_x/move_y this tick); otherwise
 ## the {move_x, move_y} pair to send instead. View-only: never touches server/sim authority — a
 ## miss or an over-correction here does nothing worse than a normal human bump against the same hill.
+## Choose an escape heading when a march stalls: if the ground dead ahead is genuinely too steep it's
+## a slope block -> the terrain-aware slope_sidestep; otherwise the bot is jammed against a building or
+## prop on walkable ground -> obstacle_sidestep toward the clearer side of the nearby structure cells.
+func _pick_sidestep(bot: Dictionary, me: EntityState, heading: Vector3) -> Vector3:
+	if _terrain != null:
+		var ahead := me.pos + heading.normalized() * (_terrain.spacing * 1.5)
+		if Terrain.slope_at(_terrain, ahead.x, ahead.z) > Terrain.MAX_WALKABLE_SLOPE_DEG:
+			return slope_sidestep(_terrain, me.pos, heading)
+	return obstacle_sidestep(me.pos, heading, nearby_obstacle_cells(bot["structs"], me.pos))
+
 func _update_slope_avoid(bot: Dictionary, me: EntityState, delta: float, move_x: float, move_y: float) -> Vector2:
 	var tick := int(bot["tick"])
 	if int(bot["slope_window_tick"]) < 0:
@@ -571,7 +636,7 @@ func _update_slope_avoid(bot: Dictionary, me: EntityState, delta: float, move_x:
 		if is_slope_stuck(commanded, actual):
 			var heading := Vector3(move_x, 0.0, move_y)
 			if heading.length() > 0.01:
-				var sd := slope_sidestep(_terrain, me.pos, heading)
+				var sd := _pick_sidestep(bot, me, heading)
 				bot["slope_override_dir"] = Vector2(sd.x, sd.z)
 				bot["slope_override_until"] = tick + SLOPE_OVERRIDE_TICKS
 		bot["slope_window_tick"] = tick
