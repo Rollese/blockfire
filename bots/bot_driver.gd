@@ -30,6 +30,13 @@ const BotExercisers := preload("res://bots/exercisers.gd")
 const VEHICLE_FULL_HP := 600       # transport max (v1 single vehicle type); used to detect a damaged ridden vehicle
 const VEHICLE_RPG_RANGE := 120.0   # fire an RPG at an enemy vehicle within this many metres
 const RPG_FIRE_COOLDOWN := 120     # ticks between RPG fire attempts (matches server cooldown_ticks)
+# Structure-directed RPG restraint (bot-ai.md §8 balance gap): with vehicles removed from every
+# shipping map, the anti-vehicle RPG always fell through to the building fallback and rocketed the
+# nearest wall every RPG_FIRE_COOLDOWN for the whole match (~815 rockets/28 min, ~27% of the map
+# wrecked). Bots now rocket a wall only when an enemy is actually using it as cover, and on a much
+# longer cadence than the anti-vehicle path — un-BattleBit-like map demolition, tempered.
+const RPG_STRUCTURE_COOLDOWN := 600      # ticks (~20 s @30Hz) between structure-directed rockets
+const RPG_STRUCTURE_ENEMY_RADIUS := 6.0  # m: only rocket a piece with a visible enemy this close to it
 const ROCKET_SPEED := 150.0  # keep in sync with data/gadgets.json rpg.rocket_speed (bot lead math)
 const ROCKET_GRAVITY := 20.0  # matches Grenade.GRAVITY; bots aim higher by 1/2 g t^2 to counter rocket drop
 const FOB_DRILL_MAX_TICKS := 30 * 30   # M12-P3: safety deadline (~30s) a squad leader drills its FOB
@@ -207,7 +214,7 @@ func _spawn_bot(index: int) -> void:
 		"last_fob_tick": -100000, "fob_drill_start": -1,
 		"last_grenade_tick": -100000, "nades_thrown": 0, "smokes_thrown": 0,
 		"flashes_thrown": 0, "impacts_thrown": 0, "last_melee_tick": -100000,
-		"class": 0, "rpg_last_tick": -100000, "c4_placed": false, "c4_detonated": false,
+		"class": 0, "rpg_last_tick": -100000, "rpg_struct_last_tick": -100000, "c4_placed": false, "c4_detonated": false,
 		"mine_placed": false, "gave_until": 0, "give_target": 0,
 		"vview": {}, "in_vehicle": 0, "boarded_origin": Vector3.ZERO, "repairing": false,
 		"vveh_track": {},

@@ -1,0 +1,23 @@
+M11 GATE-A destruction validation for bot RPG-at-structure restraint (bot-ai.md §8) — 2026-07-09
+
+CHANGE: structure-directed RPG cadence 5x longer (RPG_STRUCTURE_COOLDOWN=600) + enemy-cover
+target preference (exercisers.rpg_structure_target) with nearest-piece fallback. Cuts the bot
+map-chewing rate ~7x (measured below) while keeping the destruction mechanic exercised.
+
+--- WITH change, MAP=conquest_town (default gameplay map; buildings AT the capture points) ---
+M11 GATE-A: PASS
+winner=1 elapsed=103s cap_events=1 peak tick=23.70ms (<33.3) peak agg=24.4Mbit/s script_errors=0
+struct=2462 dmg=22 destroyed=2 rstruct=8 collapsed=0 nades=13 rockets=7
+rocket rate: 7 / 103s ~= 114 / 28min  (vs the pre-change ~815 / 28min owner playtest -> ~7x fewer)
+srvlog sha256: f2aa991d8bffc00c708b3ff5d601ddc7efde3d2231938fe589c9291d921a96b4  (srvlog-m11-20260709-181157.log)
+
+--- CONTROL (pre-change RPG, HEAD 5891a52), MAP=conquest_proving_grounds ---
+M11 GATE-A: PASS  but destruction is at the NOISE FLOOR:
+winner=0 elapsed=242s cap_events=5 destroyed=1 rstruct=1 nades=4 rockets=1
+=> proving_grounds has 4 bunkers far from combat (reach-limited); its destruction signal is a
+   single rocket from failing even WITHOUT the change. It is NOT a suitable regression gate for an
+   RPG-*rate* change. Validate bot-combat/RPG changes on conquest_town (buildings-at-combat).
+srvlog sha256: 892dd8f54c7ce997efa7f4be1e34bbdf1e419a7ebeea1b8ef13f430cd9b6de78  (srvlog-m11-20260709-181712.log)
+
+Mechanic itself proven deterministically: tests/server_buildings_functional_test.gd, support_test.gd.
+Decision helper unit-tested: tests/bot_rpg_restraint_test.gd (5).

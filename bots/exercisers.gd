@@ -448,26 +448,53 @@ func maybe_rpg(bot: Dictionary, me: EntityState) -> void:
 	# at destructible cover near contested points. Strictly additive; does NOT alter vehicle logic.
 	maybe_rpg_building(bot, me)
 
-## Heuristic fallback for maybe_rpg: find the nearest structural building piece within
-## d.VEHICLE_RPG_RANGE, aim at its cell centre (with rocket-drop compensation), and fire.
-## Guards against null structs, empty mirrors, and non-engineer bots (caller already checks class).
-func maybe_rpg_building(bot: Dictionary, me: EntityState) -> void:
-	var now := int(bot["server_tick"])
-	if now - int(bot["rpg_last_tick"]) < d.RPG_FIRE_COOLDOWN: return
-	var structs: Dictionary = bot["structs"]
-	if structs.is_empty(): return
-	# Find the nearest structural piece (building_id != 0) within range.
-	var best_id := 0
-	var best_d: float = d.VEHICLE_RPG_RANGE
+## Which structural building piece (building_id != 0) within `rpg_range` of `my_pos` to rocket:
+## PREFER the nearest piece a visible enemy is using as cover (an enemy within `enemy_radius` of it) —
+## the tactical, BattleBit-like reason to fire — and only fall back to the nearest piece overall when
+## no enemy-occupied piece is in range. Returns its sid, or 0 when no structural piece is in range.
+## The map-chewing balance lever (bot-ai.md §8) is the CADENCE (RPG_STRUCTURE_COOLDOWN), not this
+## target pick — the fallback keeps the destruction mechanic exercised on sparse maps. Pure + tested.
+static func rpg_structure_target(structs: Dictionary, enemy_positions: Array, my_pos: Vector3, rpg_range: float, enemy_radius: float) -> int:
+	var near_id := 0            # nearest structural piece overall (fallback)
+	var near_d := rpg_range
+	var cover_id := 0           # nearest structural piece an enemy is using as cover (preferred)
+	var cover_d := rpg_range
 	for sid in structs:
 		var rec: Dictionary = structs[sid]
-		if int(rec.get("building_id", 0)) == 0: continue   # skip non-building pieces
-		var cell: Vector3i = rec["cell"]
-		var wp: Vector3 = BuildGrid.world_of(cell)
-		var d: float = me.pos.distance_to(wp)
-		if d < best_d:
-			best_d = d; best_id = sid
-	if best_id == 0: return   # no structural piece in range
+		if int(rec.get("building_id", 0)) == 0:
+			continue   # skip non-building pieces (sandbags / cover props)
+		var wp: Vector3 = BuildGrid.world_of(rec["cell"])
+		var dist := my_pos.distance_to(wp)
+		if dist >= rpg_range:
+			continue
+		if dist < near_d:
+			near_d = dist; near_id = sid
+		if dist < cover_d:
+			for ep in enemy_positions:
+				if (ep as Vector3).distance_to(wp) <= enemy_radius:
+					cover_d = dist; cover_id = sid
+					break
+	return cover_id if cover_id != 0 else near_id
+
+## Fallback for maybe_rpg: rocket a structural piece (preferring one an enemy is using as cover) with
+## rocket-drop compensation. The map-chewing fix (bot-ai.md §8) is the much longer structure cadence
+## here vs the anti-vehicle path — 5× slower than RPG_FIRE_COOLDOWN — plus the enemy-cover preference
+## so the rockets that DO fly concentrate on contested cover instead of random walls.
+func maybe_rpg_building(bot: Dictionary, me: EntityState) -> void:
+	var now := int(bot["server_tick"])
+	if now - int(bot["rpg_struct_last_tick"]) < d.RPG_STRUCTURE_COOLDOWN: return
+	var structs: Dictionary = bot["structs"]
+	if structs.is_empty(): return
+	# Visible enemy positions (other team, alive, not downed) — steers the enemy-cover preference.
+	var enemy_positions: Array = []
+	var view: Dictionary = bot["view"]
+	for id in view:
+		if int(id) == int(bot["id"]): continue
+		var e: EntityState = view[id]
+		if e != null and e.alive and not e.is_downed and e.team != me.team:
+			enemy_positions.append(e.pos)
+	var best_id := rpg_structure_target(structs, enemy_positions, me.pos, d.VEHICLE_RPG_RANGE, d.RPG_STRUCTURE_ENEMY_RADIUS)
+	if best_id == 0: return   # no enemy-occupied structural piece in range
 	var target_cell: Vector3i = structs[best_id]["cell"]
 	var target_wp: Vector3 = BuildGrid.world_of(target_cell)
 	var origin := me.pos
@@ -485,6 +512,7 @@ func maybe_rpg_building(bot: Dictionary, me: EntityState) -> void:
 	(bot["net"] as NetHost).send_to(bot["peer"], NetHost.CHANNEL_INPUT,
 		Protocol.encode_gadget_action(Protocol.GA_RPG_FIRE, Vector3.ZERO, dir.normalized(), 0), 0)
 	bot["rpg_last_tick"] = now
+	bot["rpg_struct_last_tick"] = now   # separate, longer structure cadence (map-chewing restraint)
 
 ## Engineer C4: an engineer who chose C4 (gadget_for_player → C4) places one near a structure
 ## between us and the enemy, then detonates it next pass.
