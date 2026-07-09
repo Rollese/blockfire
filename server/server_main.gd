@@ -74,7 +74,7 @@ const VEHICLES_PATH := "res://data/vehicles.json"
 const ENTER_RANGE := 3.0
 const WEAPON_SWAP_TICKS := 12   # equip lockout after a quick-swap (~0.4s @30Hz)
 # The flat per-weapon fields kept as the LIVE state of the active slot; frozen into c["slots"] on swap.
-const _SLOT_FIELDS := ["weapon", "weapon_def", "ammo", "reloading", "reload_done_tick", "last_fire_time", "shot_index", "fire_mode"]
+const _SLOT_FIELDS := ["weapon", "weapon_def", "ammo", "reserve", "reloading", "reload_done_tick", "last_fire_time", "shot_index", "fire_mode"]
 const RPG_VEHICLE_DMG := 800
 const C4_VEHICLE_DMG := 500
 const FRAG_VEHICLE_DMG := 80
@@ -511,7 +511,11 @@ func _step_movement() -> void:
 			if int(c["weapon"]) == Weapon.RPG:
 				c["rockets"] = int(_gadgets.def_of_kind(Gadget.KIND_RPG)["ammo"])
 			else:
-				c["ammo"] = Weapon.get_def(c["weapon"])["mag_size"]
+				# Reserve-ammo economy (M17): pull as many rounds as the reserve allows into the mag —
+				# no partial-mag discard (shared Weapon.reload_fill; reserve<0 legacy record = unlimited).
+				var filled: Array = Weapon.reload_fill(int(c["ammo"]), int(Weapon.get_def(c["weapon"])["mag_size"]), int(c.get("reserve", -1)))
+				c["ammo"] = int(filled[0])
+				c["reserve"] = int(filled[1])
 	_sim.step(inputs, _map.world_half)
 	_apply_fall_damage()
 
@@ -931,7 +935,7 @@ func _send_snapshots() -> void:
 		# SELF_STATE packets (lossy links) leave the client predicting phantom ammo it doesn't have.
 		var rgauge := _support.repair_gauge_for(id)
 		_net.send_to(c["peer"], NetHost.CHANNEL_CONTROL,
-			Protocol.encode_self_state(int(c["ammo"]), bool(c["reloading"]), reload_remaining, int(c["weapon"]), _throwables_for(c), _support.being_revived.has(id), self_pawn.suppression, clampi(self_pawn.blind_until_tick - _sim.tick, 0, 255), self_pawn.bandage_count, self_pawn.bleed_halted, rgauge.x, rgauge.y, self_pawn.stamina, self_pawn.velocity.y, self_pawn.grounded, self_pawn.vaulting, self_pawn.vault_tick, self_pawn._regen_cooldown, self_pawn._sprint_locked, int(c["input_buf_depth"]), self_pawn.bleeding, _support.bandage_progress_u8(id)),
+			Protocol.encode_self_state(int(c["ammo"]), bool(c["reloading"]), reload_remaining, int(c["weapon"]), _throwables_for(c), _support.being_revived.has(id), self_pawn.suppression, clampi(self_pawn.blind_until_tick - _sim.tick, 0, 255), self_pawn.bandage_count, self_pawn.bleed_halted, rgauge.x, rgauge.y, self_pawn.stamina, self_pawn.velocity.y, self_pawn.grounded, self_pawn.vaulting, self_pawn.vault_tick, self_pawn._regen_cooldown, self_pawn._sprint_locked, int(c["input_buf_depth"]), self_pawn.bleeding, _support.bandage_progress_u8(id), int(c.get("reserve", 0))),
 			ENetPacketPeer.FLAG_RELIABLE)
 		c["history"][seq] = current
 		c["history_v"][seq] = current_v
@@ -1029,6 +1033,7 @@ func _handle_hello(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
 		"team": team, "squad": squad, "class": cls, "weapon": wid, "weapon_def": weapon_def,
 		"rockets": start_rockets, "last_rocket_tick": -100000,
 		"ammo": Weapon.get_def(wid)["mag_size"],
+		"reserve": Weapon.reserve_ammo(wid),   # reserve-ammo economy (M17): finite spare-bullet pool
 		"reloading": false, "reload_done_tick": 0, "last_fire_time": -999.0,
 		"shot_index": 0, "fire_mode": Weapon.default_mode(wid), "respawn_tick": 0, "auto_deploy": auto_deploy,
 		"active_slot": 0, "swap_locked_until": 0,
@@ -1168,6 +1173,7 @@ func _build_weapon_slots(c: Dictionary) -> void:
 	var secondary := {
 		"weapon": swid, "weapon_def": sdef,
 		"ammo": int(Weapon.get_def(swid)["mag_size"]),
+		"reserve": int(Weapon.reserve_ammo(swid)),
 		"reloading": false, "reload_done_tick": 0, "last_fire_time": -999.0,
 		"shot_index": 0, "fire_mode": Weapon.default_mode(swid),
 	}
@@ -1217,6 +1223,7 @@ func _reset_weapon_loadout(c: Dictionary) -> void:
 	for slot in c["slots"]:
 		var swid: int = int(slot["weapon"])
 		slot["ammo"] = int(Weapon.get_def(swid)["mag_size"])
+		slot["reserve"] = int(Weapon.reserve_ammo(swid))   # respawn/deploy refills the spare pool (M17)
 		slot["reloading"] = false
 		slot["reload_done_tick"] = 0
 		slot["last_fire_time"] = -999.0
@@ -1948,8 +1955,10 @@ func _step_bags() -> void:
 				if not _clients.has(pid): continue
 				var tc = _clients[pid]
 				var cap: int = int(Weapon.get_def(int(tc["weapon"]))["mag_size"])
-				if int(tc["ammo"]) >= cap: continue
+				var reserve_max: int = int(Weapon.reserve_ammo(int(tc["weapon"])))
+				if int(tc["ammo"]) >= cap and int(tc.get("reserve", 0)) >= reserve_max: continue
 				tc["ammo"] = cap
+				tc["reserve"] = reserve_max   # ammo bag refills the reserve pool too (M17)
 				dispensed += 1
 				_stats.ammo_gives += 1
 		if dispensed > 0:

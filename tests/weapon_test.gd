@@ -11,6 +11,39 @@ func test_weapons_exist_with_sane_stats() -> void:
 func test_fire_interval_from_rpm() -> void:
 	assert_almost_eq(Weapon.fire_interval(Weapon.AR), 0.1, 0.001)
 
+func test_hitscan_weapons_carry_a_finite_reserve() -> void:
+	# Reserve-ammo economy: every hit-scan weapon has a spare-bullet pool separate from the loaded
+	# mag, sized as a few spare mags (BattleBit-default). RPG is gadget-managed, out of scope.
+	for wid in [Weapon.AR, Weapon.SMG, Weapon.DMR, Weapon.PISTOL]:
+		var w := Weapon.get_def(wid)
+		assert_true(w.has("reserve_ammo"), "weapon %d defines reserve_ammo" % wid)
+		var reserve: int = int(w["reserve_ammo"])
+		var mag: int = int(w["mag_size"])
+		assert_true(reserve >= mag * 3, "reserve is at least a few spare mags (w %d)" % wid)
+		assert_true(reserve <= mag * 10, "reserve is not absurdly large (w %d)" % wid)
+
+func test_reserve_ammo_helper_returns_pool() -> void:
+	assert_eq(Weapon.reserve_ammo(Weapon.AR), int(Weapon.get_def(Weapon.AR)["reserve_ammo"]))
+	# Unknown weapon falls back to the AR default like get_def.
+	assert_eq(Weapon.reserve_ammo(9999), int(Weapon.get_def(Weapon.AR)["reserve_ammo"]))
+
+func test_reload_fill_moves_missing_rounds_no_discard() -> void:
+	# 30-round mag with 20 loaded, 100 in reserve: top to 30, reserve drops by exactly the 10 loaded.
+	var r := Weapon.reload_fill(20, 30, 100)
+	assert_eq(int(r[0]), 30, "mag topped to full")
+	assert_eq(int(r[1]), 90, "reserve drops by the 10 rounds loaded, no partial-mag discard")
+
+func test_reload_fill_limited_by_reserve() -> void:
+	var r := Weapon.reload_fill(0, 30, 7)
+	assert_eq(int(r[0]), 7, "only what's in reserve loads")
+	assert_eq(int(r[1]), 0, "reserve emptied")
+
+func test_reload_fill_unlimited_reserve_sentinel() -> void:
+	# reserve < 0 = legacy "unlimited": mag tops to full, reserve untouched.
+	var r := Weapon.reload_fill(5, 30, -1)
+	assert_eq(int(r[0]), 30)
+	assert_eq(int(r[1]), -1)
+
 func test_effective_def_applies_multipliers() -> void:
 	var base := Weapon.get_def(Weapon.AR)
 	var m := {"spread_mult": 0.5, "recoil_mult": 0.5, "range_mult": 0.5,

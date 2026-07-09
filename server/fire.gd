@@ -101,7 +101,9 @@ func resolve_fires() -> void:
 		var firing: bool = (inp["buttons"] & InputCommand.BTN_FIRE) != 0
 		if not firing:
 			c["shot_index"] = 0
-			if (inp["buttons"] & InputCommand.BTN_RELOAD) and not c["reloading"] and c["ammo"] < Weapon.get_def(c["weapon"])["mag_size"]:
+			# Reserve-ammo economy (M17): no reload with an empty spare pool. reserve<0 = legacy "unlimited".
+			var _reserve: int = int(c.get("reserve", -1))
+			if (inp["buttons"] & InputCommand.BTN_RELOAD) and not c["reloading"] and c["ammo"] < Weapon.get_def(c["weapon"])["mag_size"] and _reserve != 0:
 				c["reloading"] = true
 				c["reload_done_tick"] = srv._sim.tick + int(round(Weapon.get_def(c["weapon"])["reload_secs"] * srv.TICK_RATE))
 				srv._broadcast_reload_fx(id, int(c["reload_done_tick"]) - srv._sim.tick)

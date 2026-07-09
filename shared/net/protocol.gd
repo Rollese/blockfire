@@ -16,7 +16,8 @@ extends Object
 ## tail). History: VERSION sat at 1 through M1–M12 while the wire changed dozens of times,
 ## so the check protected nothing; real from 2 onward.
 
-const VERSION := 5   # 5: M16 standing-bleed — BANDAGE_ACTION/BLEEDING_LIST msgs + SELF_STATE gains
+const VERSION := 6   # 6: M17 reserve-ammo economy — SELF_STATE gains a trailing reserve u16 (2026-07-10)
+                     # 5: M16 standing-bleed — BANDAGE_ACTION/BLEEDING_LIST msgs + SELF_STATE gains
                      # trailing bleeding-bit + bandage-progress bytes (2026-07-09)
 
 enum Msg {
@@ -797,7 +798,7 @@ static func decode_damage_event(bytes: PackedByteArray) -> Dictionary:
 	return {"bearing": Quantize.dec_angle(r.get_u16()), "amount": r.get_u8()}
 
 
-static func encode_self_state(mag: int, reloading: bool, reload_remaining: int, weapon: int, throwables: Array = [], being_revived: bool = false, suppression: float = 0.0, blind_ticks: int = 0, bandage_count: int = 0, bleed_halted: bool = false, repair_heat: float = 0.0, repair_cooldown: float = 0.0, stamina: float = 100.0, vel_y: float = 0.0, grounded: bool = true, vaulting: bool = false, vault_tick: int = 0, regen_cooldown: float = 0.0, sprint_locked: bool = false, input_buf_depth: int = 0, bleeding: bool = false, bandage_progress: int = 0) -> PackedByteArray:
+static func encode_self_state(mag: int, reloading: bool, reload_remaining: int, weapon: int, throwables: Array = [], being_revived: bool = false, suppression: float = 0.0, blind_ticks: int = 0, bandage_count: int = 0, bleed_halted: bool = false, repair_heat: float = 0.0, repair_cooldown: float = 0.0, stamina: float = 100.0, vel_y: float = 0.0, grounded: bool = true, vaulting: bool = false, vault_tick: int = 0, regen_cooldown: float = 0.0, sprint_locked: bool = false, input_buf_depth: int = 0, bleeding: bool = false, bandage_progress: int = 0, reserve: int = 0) -> PackedByteArray:
 	var buf := StreamPeerBuffer.new()
 	buf.put_u8(Msg.SELF_STATE)
 	buf.put_u8(clampi(mag, 0, 255))
@@ -862,6 +863,9 @@ static func encode_self_state(mag: int, reloading: bool, reload_remaining: int, 
 	# target of an active bandage channel, its 0..255 progress fraction (drives the bandage cast-bar).
 	buf.put_u8(1 if bleeding else 0)
 	buf.put_u8(clampi(bandage_progress, 0, 255))
+	# M17 reserve-ammo economy (owner-only, appended last so older decoders ignore it): the
+	# spare-bullet pool separate from the loaded mag. u16 — full reserves (up to ~210) exceed a byte.
+	buf.put_u16(clampi(reserve, 0, 65535))
 	return buf.data_array
 
 static func decode_self_state(bytes: PackedByteArray) -> Dictionary:
@@ -926,7 +930,10 @@ static func decode_self_state(bytes: PackedByteArray) -> Dictionary:
 		bleeding = r.get_u8() == 1
 	if r.get_available_bytes() > 0:
 		bandage_progress = r.get_u8()
-	return {"mag": mag, "reloading": reloading, "reload_remaining": reload_remaining, "weapon": weapon, "throwables": throwables, "being_revived": being_revived, "suppression": suppression, "blind_ticks": blind_ticks, "bandage_count": bandage_count, "bleed_halted": bleed_halted, "repair_heat": repair_heat, "repair_cooldown": repair_cooldown, "stamina": stamina, "vel_y": vel_y, "grounded": grounded, "vaulting": vaulting, "vault_tick": vault_tick, "regen_cooldown": regen_cooldown, "sprint_locked": sprint_locked, "input_buf_depth": input_buf_depth, "bleeding": bleeding, "bandage_progress": bandage_progress}
+	var reserve := -1   # M17: -1 sentinel when a pre-6 packet omits it → client keeps its predicted reserve
+	if r.get_available_bytes() >= 2:
+		reserve = r.get_u16()
+	return {"mag": mag, "reloading": reloading, "reload_remaining": reload_remaining, "weapon": weapon, "throwables": throwables, "being_revived": being_revived, "suppression": suppression, "blind_ticks": blind_ticks, "bandage_count": bandage_count, "bleed_halted": bleed_halted, "repair_heat": repair_heat, "repair_cooldown": repair_cooldown, "stamina": stamina, "vel_y": vel_y, "grounded": grounded, "vaulting": vaulting, "vault_tick": vault_tick, "regen_cooldown": regen_cooldown, "sprint_locked": sprint_locked, "input_buf_depth": input_buf_depth, "bleeding": bleeding, "bandage_progress": bandage_progress, "reserve": reserve}
 
 
 static func encode_roster(rows: Array) -> PackedByteArray:

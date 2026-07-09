@@ -1,0 +1,8 @@
+gate: m17-reserve-ammo
+date: 2026-07-10T00:30:52+02:00
+host: game2
+git: 46f9561
+verdict: PASS
+summary: winner=1 elapsed=78s peak_tick=24.27ms budget=33.3ms agg=24.0Mbit/s players=128 kills=25 cap_events=1 ai_us_mean=9951.1us map=conquest_town
+srvlog: srvlog-m17-reserve-ammo-20260710-003052.log
+srvlog_sha256: 8f240483cbbbc6e41d44a4be0b3f984edb07174fd08caeca458360d64bf8417d
