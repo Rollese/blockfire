@@ -269,6 +269,14 @@ func _interaction_prompt(ctx: Dictionary):
 			if float(mt["dist"]) < float(best["dist"]):
 				best = mt
 		return {"action": "revive", "target": int(best["id"])}
+	# M16: bandage a standing-bleeding mate in range (a world target, so above enter/self-bandage).
+	var bmates: Array = ctx.get("bleeding_mates", [])
+	if not bmates.is_empty():
+		var bb: Dictionary = bmates[0]
+		for bm in bmates:
+			if float(bm["dist"]) < float(bb["dist"]):
+				bb = bm
+		return {"action": "bandage", "target": int(bb["id"])}
 	var veh: Array = ctx.get("vehicles_near", [])
 	if not veh.is_empty():
 		var bv: Dictionary = veh[0]
@@ -276,6 +284,9 @@ func _interaction_prompt(ctx: Dictionary):
 			if float(v["dist"]) < float(bv["dist"]):
 				bv = v
 		return {"action": "enter_vehicle", "target": int(bv["vid"]), "seat": int(bv["seat"])}
+	# M16: no world prompt applies — offer self-bandage while you are standing-bleeding (lowest priority).
+	if bool(ctx.get("am_bleeding", false)):
+		return {"action": "self_bandage", "target": int(ctx.get("self_id", 0))}
 	return null
 
 func _squad_roster(ctx: Dictionary) -> Array:

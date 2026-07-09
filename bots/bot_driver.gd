@@ -546,6 +546,21 @@ func _drive(bot: Dictionary, delta: float) -> void:
 			move_x = avoid_dir.x
 			move_y = avoid_dir.y
 
+	# M16 self-bandage: when standing-bleeding and safe (no visible enemy), hold still and bandage
+	# instead of building/throwing/firing — any of which the server treats as a channel interrupt.
+	# Fair-play: the bot reads only its OWN SELF_STATE.bleeding, exactly like a human self-bandaging.
+	var ss_bandage = bot.get("self_state")
+	var want_bandage: bool = ss_bandage != null and bool(ss_bandage.get("bleeding", false)) \
+		and target == null and not me.is_downed
+	if want_bandage != bool(bot.get("bandaging", false)):
+		(bot["net"] as NetHost).send_to(bot["peer"], NetHost.CHANNEL_INPUT,
+			Protocol.encode_bandage_action(int(bot["id"]), want_bandage), 0)
+		bot["bandaging"] = want_bandage
+	if want_bandage:
+		# Stand still, no sprint/fire, for the channel duration; the server completes the bandage.
+		_send(bot, 0.0, 0.0, bot["yaw"], bot["pitch"], buttons & ~InputCommand.BTN_SPRINT & ~InputCommand.BTN_FIRE)
+		return
+
 	# Build cover only while stationary (holding a point or firing) — so the bot drops a wall
 	# toward the contested objective without walking into its own piece, and the cover lands in
 	# the combat zone where shots cross it. (Marching bots move, so this won't fire mid-route.)

@@ -1294,6 +1294,16 @@ func _render_interaction_prompt(prompt) -> void:
 				if _revive_bar_fill != null:
 					var bar_w: float = _revive_bar_bg.size.x if _revive_bar_bg.size.x > 0 else 160.0
 					_revive_bar_fill.size = Vector2(bar_w * _revive_progress, _revive_bar_fill.size.y if _revive_bar_fill.size.y > 0 else 14.0)
+		"bandage", "self_bandage":
+			# M16: hold-to-bandage a bleeding mate / yourself. Reuses the revive hold-bar as the
+			# cast-bar (driven by set_revive_progress from client_main via the server bandage_progress).
+			_interact_label.text = "Hold F to bandage" if action == "self_bandage" else "Hold F to bandage squadmate"
+			_interact_label.visible = true
+			if _revive_bar_bg != null:
+				_revive_bar_bg.visible = _revive_progress > 0.0
+				if _revive_bar_fill != null:
+					var bw: float = _revive_bar_bg.size.x if _revive_bar_bg.size.x > 0 else 160.0
+					_revive_bar_fill.size = Vector2(bw * _revive_progress, _revive_bar_fill.size.y if _revive_bar_fill.size.y > 0 else 14.0)
 		"enter_vehicle":
 			_interact_label.text = "F to enter vehicle"
 			_interact_label.visible = true

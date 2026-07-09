@@ -200,6 +200,10 @@ var _throw_charging: bool = false  # whether we're mid-charge on a throwable
 const THROW_CHARGE_SECS := 1.1     # hold time to reach full throw strength
 var _repair_heat_test := false     # --repair-heat-test: drive a demo heat/cooldown cycle for a QA screenshot
 var _revive_hold: float = 0.0      # seconds the interact key has been held on a revive target
+var _am_bleeding: bool = false     # M16: own standing-bleed flag from SELF_STATE (drives the bleeding cue)
+var _bandage_progress: int = 0     # M16: 0..255 server-authoritative bandage cast progress (owner as target)
+var _bleeding_ids: Dictionary = {} # M16: teammate ids currently standing-bleeding (from BLEEDING_LIST)
+var _bandage_target: int = 0       # M16: id the client is currently holding a BANDAGE_ACTION latch on (0 = none)
 
 # ---- configure (called by bootstrap before add_child) -----------------------
 func configure(args: Dictionary) -> void:
@@ -800,6 +804,8 @@ func _process(_dt: float) -> void:
 		"entities": _build_entities(),
 		"throwables": _throwables,
 		"downed_mates": _downed_mates(),
+		"bleeding_mates": _bleeding_mates(),   # M16: standing-bleeding teammates in bandage range
+		"am_bleeding": _am_bleeding,           # M16: offer self-bandage when no world prompt applies
 		"vehicles_near": _vehicles_near(),
 		"repair_heat": _repair_heat,
 		"repair_cooldown": _repair_cooldown,
@@ -955,6 +961,26 @@ func _process(_dt: float) -> void:
 				_net.send_to(_peer, NetHost.CHANNEL_CONTROL,
 					Protocol.encode_revive_action(int(ip["target"]), false), ENetPacketPeer.FLAG_RELIABLE)
 			_revive_hold = 0.0
+			if _hud_view != null:
+				_hud_view.set_revive_progress(0.0)
+
+		# ---- M16: bandage intent (hold F on a bleeding mate, or self-bandage while bleeding) ----
+		# The server owns the channel + completion; the client latches BANDAGE_ACTION while F is held
+		# and mirrors the server-authoritative bandage_progress on the (reused) revive hold-bar.
+		var bact: String = String(ip.get("action", "")) if ip != null else ""
+		if (bact == "bandage" or bact == "self_bandage") and interact_held and _peer != null:
+			var btgt: int = int(ip["target"])
+			if _bandage_target != btgt:
+				_net.send_to(_peer, NetHost.CHANNEL_CONTROL,
+					Protocol.encode_bandage_action(btgt, true), ENetPacketPeer.FLAG_RELIABLE)
+				_bandage_target = btgt
+			if _hud_view != null:
+				_hud_view.set_revive_progress(clampf(float(_bandage_progress) / 255.0, 0.0, 1.0))
+		elif _bandage_target != 0:
+			if _peer != null:
+				_net.send_to(_peer, NetHost.CHANNEL_CONTROL,
+					Protocol.encode_bandage_action(_bandage_target, false), ENetPacketPeer.FLAG_RELIABLE)
+			_bandage_target = 0
 			if _hud_view != null:
 				_hud_view.set_revive_progress(0.0)
 
@@ -1280,6 +1306,11 @@ func _on_packet(_from: ENetPacketPeer, _channel: int, bytes: PackedByteArray) ->
 				_downed_bytes = bytes   # skip the rebuild on an unchanged heartbeat
 				if _renderer != null:
 					_renderer.set_downed_urgency(Protocol.decode_downed_list(bytes))
+		Protocol.Msg.BLEEDING_LIST:
+			# M16: my team's standing-bleeding ids -> "hold F to bandage" prompt targeting.
+			_bleeding_ids = {}
+			for bid in Protocol.decode_bleeding_list(bytes):
+				_bleeding_ids[int(bid)] = true
 		Protocol.Msg.FOB_LIST:
 			# M12-P3: the team's FOBs (squad/under_construction/enabled). Refresh the deploy menu when
 			# the set changes so an enabled squad FOB appears (or vanishes) as a spawn option.
@@ -1467,7 +1498,9 @@ func _handle_self_state(bytes: PackedByteArray) -> void:
 	_being_revived = bool(d.get("being_revived", false))   # downed-screen "being revived" indicator
 	_suppression = float(d.get("suppression", 0.0))        # M5.5-P2: own suppression (M7 renders screen FX)
 	_blind_ticks = int(d.get("blind_ticks", 0))            # M5.5-P3: remaining flashbang-blind ticks (white-out)
-	_bandage_count = int(d.get("bandage_count", 0))        # bandage charges (reserved: standing-bleed cure)
+	_bandage_count = int(d.get("bandage_count", 0))        # M16 bandage charges (pouch spent by bandage/revive)
+	_am_bleeding = bool(d.get("bleeding", false))          # M16: own standing-bleed flag (bleeding cue)
+	_bandage_progress = int(d.get("bandage_progress", 0))  # M16: server bandage cast progress (owner as target)
 	_repair_heat = float(d.get("repair_heat", 0.0))        # Engineer repair-tool heat (HUD gauge)
 	_repair_cooldown = float(d.get("repair_cooldown", 0.0))# repair overheat-lockout remaining fraction
 	_self_stamina = float(d.get("stamina", Pawn.STAMINA_MAX))  # authoritative stamina for sprint reconcile
@@ -1855,6 +1888,28 @@ func _downed_mates() -> Array:
 			continue
 		var dist: float = self_pos.distance_to(e.pos)
 		if dist <= Revive.REVIVE_RANGE:
+			out.append({"id": int(rid), "dist": dist})
+	return out
+
+## M16: [{id, dist}] for alive teammates who are standing-bleeding (from BLEEDING_LIST) and within
+## bandage range — so the interaction prompt can offer "hold F to bandage squadmate".
+func _bleeding_mates() -> Array:
+	if _bleeding_ids.is_empty():
+		return []
+	var sself: EntityState = _wv.self_state()
+	if sself == null or not sself.alive or sself.is_downed:
+		return []
+	var rem: Dictionary = _wv.remotes_at(_elapsed)
+	var self_pos: Vector3 = _pred.predicted.pos
+	var out: Array = []
+	for rid in _bleeding_ids:
+		if int(rid) == my_id:
+			continue   # self-bandage is handled by the am_bleeding branch, not as a world target
+		var e: EntityState = rem.get(int(rid))
+		if e == null or not e.alive or e.is_downed:
+			continue
+		var dist: float = self_pos.distance_to(e.pos)
+		if dist <= Bandage.BANDAGE_RANGE:
 			out.append({"id": int(rid), "dist": dist})
 	return out
 
