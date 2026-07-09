@@ -1,0 +1,8 @@
+gate: netcode-bulk-channel
+date: 2026-07-10T00:39:19+02:00
+host: game2
+git: 0d7ce77
+verdict: PASS
+summary: winner=1 elapsed=71s peak_tick=25.78ms budget=33.3ms agg=24.1Mbit/s players=128 kills=27 cap_events=1 ai_us_mean=9696.7us map=conquest_town
+srvlog: srvlog-netcode-bulk-channel-20260710-003919.log
+srvlog_sha256: 3747d73e8f9e9f1b823a149d2f4bdacca2da062e3b9ce2aa0d678fdcfeae82df
