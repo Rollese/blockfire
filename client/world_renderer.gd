@@ -650,6 +650,12 @@ func setup(map: MapDef, camera: Camera3D) -> void:
 		var node := SceneryKit.build(String(sc["id"]), map.scenery_palette, String(sc.get("palette", "")), sc_seed)
 		if node == null:
 			continue
+		# Draw-call optimiser: a TreeKit tree is ~50 discrete frond/limb MeshInstances (≈5.8k draw calls
+		# for a town's worth of trees — brutal on an iGPU). Collapse each tree into one merged instance per
+		# material (byte-identical geometry, same cutout/NEAREST materials). Rocks are already one mesh;
+		# GLB props keep per-surface materials, so MeshMerge leaves both untouched.
+		if String(sc["id"]).begins_with("tree_"):
+			MeshMerge.merge_by_material(node)
 		node.position = Vector3(sc_pos.x, _terrain_y(sc_pos.x, sc_pos.z) + sc_pos.y, sc_pos.z)
 		node.rotation.y = float(sc.get("yaw", 0.0))
 		var sc_scale := float(sc.get("scale", 1.0))
