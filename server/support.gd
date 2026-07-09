@@ -11,6 +11,8 @@ var srv   # ServerMain back-ref (untyped: server_main.gd declares no class_name)
 var reviving := {}             # reviver_id -> target_id, latched by REVIVE_ACTION(active)
 var revive_ticks := {}         # target_id -> accumulated revive ticks
 var being_revived := {}        # target_id -> reviver_id this tick (drives the downed "being revived" UI)
+var bandaging := {}            # M16: healer_id -> target_id, latched by BANDAGE_ACTION(active)
+var bandage_ticks := {}        # M16: target_id -> accumulated channel ticks (all-or-nothing)
 var giving: Dictionary = {}    # giver_id -> tick the give began (latched; cleared on STOP/invalid)
 var repairing := {}            # engineer_id -> true (latched)
 var repair_heat := {}          # engineer_id -> int
@@ -26,13 +28,22 @@ func is_medic(id: int) -> bool:
 	return srv._clients.has(id) and int(srv._clients[id]["class"]) == Loadout.MEDIC
 
 
-func complete_revive(target_id: int) -> void:
+func complete_revive(target_id: int, reviver_id: int) -> void:
 	var p: Pawn = srv._sim.world.get_pawn(target_id)
 	if p == null: return
+	# M16 revive-costs-a-bandage: spend a charge (victim-first -> reviver). step_revives already
+	# gated the hold on availability, so a source exists here; guard anyway.
+	var rp: Pawn = srv._sim.world.get_pawn(reviver_id)
+	var src := Bandage.pick_source(p.bandage_count, rp.bandage_count if rp != null else 0)
+	if src == 0:
+		p.bandage_count -= 1
+	elif src == 1 and rp != null:
+		rp.bandage_count -= 1
 	p.is_downed = false
 	p.health = Revive.REVIVE_HP
 	p.bleed_health = 0
 	p.bleed_halted = false
+	p.bleeding = false   # M16: a revived pawn starts clean (no lingering standing bleed)
 	# Fresh start after a revive: clear the damage ledger so a later death's recap reflects the
 	# lethal sequence (~one health bar), not damage accumulated across the whole life.
 	if srv._clients.has(target_id):
@@ -67,10 +78,19 @@ func step_revives() -> void:
 	# Advance + complete.
 	for target_id in active_targets:
 		var reviver_id: int = active_targets[target_id]
+		# M16 revive-costs-a-bandage: only advance while a charge exists (victim-first -> reviver).
+		# When both pouches are dry the revive is impossible — drop the latch so a dry bot stops
+		# revive-looping in place and the downed pawn resolves by bleed-out.
+		var tp: Pawn = srv._sim.world.get_pawn(target_id)
+		var rp: Pawn = srv._sim.world.get_pawn(reviver_id)
+		if tp == null or rp == null or Bandage.pick_source(tp.bandage_count, rp.bandage_count) == -1:
+			revive_ticks.erase(target_id)
+			done.append(reviver_id)
+			continue
 		links_this_tick.append({"giver": reviver_id, "target": target_id, "kind": SupportLinks.REVIVE})
 		revive_ticks[target_id] = int(revive_ticks.get(target_id, 0)) + 1
 		if revive_ticks[target_id] >= Revive.revive_ticks(is_medic(reviver_id)):
-			complete_revive(target_id)
+			complete_revive(target_id, reviver_id)
 			revive_ticks.erase(target_id)
 			done.append(reviver_id)
 	for rid in done:
@@ -188,6 +208,21 @@ func pawn_bandages_full(id: int) -> bool:
 	var p: Pawn = srv._sim.world.get_pawn(id)
 	return p != null and p.bandage_count >= Revive.bandage_count_for(is_medic(id))
 
+## M16 per-tick STANDING bleed for every alive, non-downed, bleeding pawn: lose 1 HP on the drain
+## cadence; a drain to 0 routes into the down/kill decision via _bleed_out_standing. (Distinct from
+## step_downed, which drains the DOWNED halving-bleedout pool.)
+func step_bleed() -> void:
+	if not Bleed.drain_this_tick(srv._sim.tick):
+		return
+	for id in srv._clients:
+		var p: Pawn = srv._sim.world.get_pawn(id)
+		if p == null or not p.alive or p.is_downed or not p.bleeding:
+			continue
+		p.health -= 1
+		if p.health <= 0:
+			srv._bleed_out_standing(id, p)   # clears bleeding via _down_pawn or _kill_pawn
+
+
 ## Per-tick bleed for every downed pawn; bleed-out is a true death (spends a ticket).
 func step_downed() -> void:
 	for id in srv._clients:
@@ -229,3 +264,113 @@ func handle_revive_action(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
 		reviving[id] = int(d["target"])
 	else:
 		reviving.erase(id)
+
+
+# ---- M16 standing-bandage channel -------------------------------------------------------------
+
+## Latch/unlatch a hold-to-bandage from BANDAGE_ACTION. target == healer ⇒ self-bandage; else a
+## bleeding teammate. Starting or switching a channel resets progress to zero (all-or-nothing).
+func handle_bandage_action(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
+	var id = srv._peer_to_id.get(peer, 0)
+	if id == 0 or not srv._clients.has(id): return
+	var d := Protocol.decode_bandage_action(bytes)
+	if bool(d["active"]):
+		set_bandaging(id, int(d["target"]))
+	else:
+		clear_bandaging(id)
+
+
+## Bots + the wire handler both latch through here so progress resets on start/switch.
+func set_bandaging(healer_id: int, target_id: int) -> void:
+	if int(bandaging.get(healer_id, -1)) == target_id:
+		return   # already bandaging this target — keep accumulated progress
+	if bandaging.has(healer_id):
+		bandage_ticks.erase(int(bandaging[healer_id]))   # switching target drops the old progress
+	bandaging[healer_id] = target_id
+	bandage_ticks.erase(target_id)   # fresh channel starts at zero
+
+
+func clear_bandaging(healer_id: int) -> void:
+	if bandaging.has(healer_id):
+		bandage_ticks.erase(int(bandaging[healer_id]))
+		bandaging.erase(healer_id)
+
+
+## True while a channel may legally advance this tick. All-or-nothing: ANY failure hard-cancels
+## (the caller drops the latch + resets progress) — there is no hold-without-advancing state.
+func _bandage_valid(healer_id: int, target_id: int) -> bool:
+	var hp: Pawn = srv._sim.world.get_pawn(healer_id)
+	var tp: Pawn = srv._sim.world.get_pawn(target_id)
+	if hp == null or not hp.alive or hp.is_downed: return false
+	if tp == null or not tp.alive or tp.is_downed or not tp.bleeding: return false
+	if hp.team != tp.team: return false
+	if hp.pos.distance_to(tp.pos) > Bandage.BANDAGE_RANGE: return false
+	# Healer must not be sprinting or firing this tick.
+	var inp = srv._clients[healer_id].get("last_input") if srv._clients.has(healer_id) else null
+	var buttons := int(inp["buttons"]) if inp != null else 0
+	if (buttons & InputCommand.BTN_FIRE) != 0: return false
+	if (buttons & InputCommand.BTN_SPRINT) != 0 and hp.stance == Stance.STAND: return false
+	# A bandage must be available (victim-first -> helper).
+	if Bandage.pick_source(tp.bandage_count, hp.bandage_count) == -1: return false
+	return true
+
+
+## Advance every latched bandage channel; a completing channel stops the target's bleed + heals and
+## spends the victim-first pouch. Runs before step_bleed so a completion pre-empts this tick's drain.
+func step_bandage() -> void:
+	if bandaging.is_empty():
+		return
+	var done: Array = []
+	for healer_id in bandaging:
+		var target_id: int = bandaging[healer_id]
+		if not _bandage_valid(healer_id, target_id):
+			done.append(healer_id)
+			bandage_ticks.erase(target_id)
+			continue
+		links_this_tick.append({"giver": healer_id, "target": target_id, "kind": SupportLinks.HEAL})
+		bandage_ticks[target_id] = int(bandage_ticks.get(target_id, 0)) + 1
+		if bandage_ticks[target_id] >= Bandage.channel_ticks(is_medic(healer_id)):
+			var hp: Pawn = srv._sim.world.get_pawn(healer_id)
+			var tp: Pawn = srv._sim.world.get_pawn(target_id)
+			var src := Bandage.pick_source(tp.bandage_count, hp.bandage_count)
+			if src == 0:
+				tp.bandage_count -= 1
+			elif src == 1:
+				hp.bandage_count -= 1
+			tp.bleeding = false
+			tp.health = mini(100, tp.health + Bandage.BANDAGE_HEAL)
+			srv._stats.bandages += 1
+			bandage_ticks.erase(target_id)
+			done.append(healer_id)
+	for hid in done:
+		bandaging.erase(hid)
+
+
+## Drop any bandage channel this id is in — as healer OR as target — and its progress. Called from
+## _apply_pawn_damage so the healer or target taking damage hard-cancels the channel.
+func cancel_bandages_involving(id: int) -> void:
+	if bandaging.is_empty():
+		return
+	var drop: Array = []
+	for hid in bandaging:
+		if hid == id or int(bandaging[hid]) == id:
+			drop.append(hid)
+	for hid in drop:
+		bandage_ticks.erase(int(bandaging[hid]))
+		bandaging.erase(hid)
+	bandage_ticks.erase(id)
+
+
+## 0..255 channel progress for `target_id` (drives the owner's SELF_STATE bandage cast-bar). Zero
+## when the target has no active channel.
+func bandage_progress_u8(target_id: int) -> int:
+	if not bandage_ticks.has(target_id):
+		return 0
+	var total := Bandage.BANDAGE_TICKS
+	for hid in bandaging:
+		if int(bandaging[hid]) == target_id:
+			total = Bandage.channel_ticks(is_medic(hid))
+			break
+	if total <= 0:
+		return 0
+	return clampi(roundi(float(bandage_ticks[target_id]) / float(total) * 255.0), 0, 255)

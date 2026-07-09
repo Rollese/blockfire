@@ -148,6 +148,7 @@ var _rockets: Array = []      # [{owner, team, pos, vel}] — server-side, not r
 var _mines: Array = []        # [{owner, team, pos, facing, armed_after_tick}]
 var _support_rl := ReliableList.new()  # SUPPORT_LIST
 var _downed_rl := ReliableList.new()   # DOWNED_LIST
+var _bleeding_rl := ReliableList.new() # BLEEDING_LIST ({team: pkt} payload) — M16
 var _fob_rl := ReliableList.new()      # FOB_LIST ({team: pkt} payload)
 var _bags: Array = []          # [{owner, team, kind, pos, pool}]
 var _c4: Dictionary = {}      # owner_id -> Array of {pos, cell:Vector3i}
@@ -418,6 +419,8 @@ func _physics_process(delta: float) -> void:
 	_step_bags()
 	_expire_smoke_zones()
 	_support.step_revives()
+	_support.step_bandage()   # M16: advance standing-bandage channels (before step_bleed so a completing bandage stops this tick's drain)
+	_support.step_bleed()     # M16: drain standing bleeds; a drain to 0 downs/kills
 	_support.step_downed()
 	var t_supp := Time.get_ticks_usec()
 	# Build sites moved below the support steps for profiler-bucket contiguity — safe: none of
@@ -441,6 +444,7 @@ func _physics_process(delta: float) -> void:
 	_broadcast_gadget_list()
 	_broadcast_support_list()
 	_broadcast_downed_list()
+	_broadcast_bleeding_list()
 	_send_fob_lists()
 	var t_snap := Time.get_ticks_usec()
 	_phase_us["poll"] += t_poll - t0
@@ -624,8 +628,30 @@ func _down_pawn(victim: Pawn) -> void:
 	victim.bleed_health = 0
 	victim.bleed_floor = Revive.bleedout_floor(Revive.bleedout_window(victim.down_count))
 	victim.bleed_halted = false
+	victim.bleeding = false   # M16: the standing bleed is subsumed by the DBNO halving-bleedout
 	_stats.downed += 1
 	# No ticket cost and no KILL event at down — only true death spends a ticket.
+
+## M16: a standing bleed drained `health` to 0. Route it through the same down/kill decision the
+## death branch of _apply_pawn_damage uses (credit the bleed source; instant-kill when this life's
+## next window is zero-length, else DBNO), reusing the shared Revive helpers so it never diverges
+## from the halving formula. Called by ServerSupport.step_bleed.
+func _bleed_out_standing(id: int, p: Pawn) -> void:
+	p.health = 0
+	var killer_id: int = p.bleed_by
+	var weapon_id: int = p.bleed_weapon
+	_stats.bleed_downs += 1
+	if Revive.bleedout_window(p.down_count + 1) <= 0:
+		_kill_pawn(id, p, killer_id, weapon_id, false, Revive.Source.BULLET)
+	else:
+		# Credit the bleed source for the eventual bleed-out/give-up death (mirrors the down branch).
+		if _clients.has(id) and killer_id != 0:
+			var dk: Pawn = _sim.world.get_pawn(killer_id)
+			_clients[id]["downed_by"] = killer_id
+			_clients[id]["downed_by_weapon"] = weapon_id
+			_clients[id]["downed_by_hp"] = int(dk.health) if dk != null else 0
+			_clients[id]["downed_by_dist"] = p.pos.distance_to(dk.pos) if dk != null else 0.0
+		_down_pawn(p)
 
 func _kill_pawn(vid: int, victim: Pawn, killer_id: int, weapon_id: int, headshot: bool, source: int) -> void:
 	var was_downed := victim.is_downed   # true => bleed-out/give-up; recap uses the down-time snapshot
@@ -705,6 +731,8 @@ func _apply_pawn_damage(vid: int, victim: Pawn, dmg: int, headshot: bool, source
 	var pre_hp := maxi(int(victim.health), 0)   # health before this hit — caps the recap ledger credit
 	victim.health -= dmg
 	victim.combat_until_tick = _sim.tick + COMBAT_FLAG_TICKS   # taking fire flags "in combat" (blocks squad-spawn on this pawn)
+	# M16: taking damage hard-cancels any bandage channel this pawn is in (as healer OR target).
+	_support.cancel_bandages_involving(vid)
 	if _clients.has(vid):
 		var src: Pawn = _sim.world.get_pawn(killer_id)
 		var bearing: float = DamageDir.bearing(victim.pos, src.pos) if src != null else 0.0
@@ -716,6 +744,14 @@ func _apply_pawn_damage(vid: int, victim: Pawn, dmg: int, headshot: bool, source
 			# u16-max (65535) on the DEATH_INFO wire and show a nonsense "65535 damage" on the recap.
 			var led: Dictionary = _clients[vid]["dmg_ledger"]
 			led[killer_id] = int(led.get(killer_id, 0)) + mini(dmg, pre_hp)
+	# M16 standing-bleed trigger: a non-lethal bullet/blast hit that leaves the pawn below the
+	# threshold starts (or refreshes the credit on) a standing bleed that drains `health` over time.
+	if victim.health > 0 and Bleed.should_start(victim.health, source):
+		if not victim.bleeding:
+			_stats.bleeds_started += 1
+		victim.bleeding = true
+		victim.bleed_by = killer_id
+		victim.bleed_weapon = weapon_id
 	if victim.health > 0:
 		return
 	victim.health = 0
@@ -755,6 +791,9 @@ func _handle_respawns() -> void:
 			p.vaulting = false   # doesn't resume the arc/ladder at its fresh spawn (ghost-vault fix)
 			p.bleed_halted = false
 			p.bandage_count = Revive.bandage_count_for(_support.is_medic(id))
+			p.bleeding = false   # M16: fresh life clears any standing bleed + its credit
+			p.bleed_by = 0
+			p.bleed_weapon = 0
 			p.grounded = true
 			p.fall_peak_y = p.pos.y
 			p.landed_fall = 0.0
@@ -892,7 +931,7 @@ func _send_snapshots() -> void:
 		# SELF_STATE packets (lossy links) leave the client predicting phantom ammo it doesn't have.
 		var rgauge := _support.repair_gauge_for(id)
 		_net.send_to(c["peer"], NetHost.CHANNEL_CONTROL,
-			Protocol.encode_self_state(int(c["ammo"]), bool(c["reloading"]), reload_remaining, int(c["weapon"]), _throwables_for(c), _support.being_revived.has(id), self_pawn.suppression, clampi(self_pawn.blind_until_tick - _sim.tick, 0, 255), self_pawn.bandage_count, self_pawn.bleed_halted, rgauge.x, rgauge.y, self_pawn.stamina, self_pawn.velocity.y, self_pawn.grounded, self_pawn.vaulting, self_pawn.vault_tick, self_pawn._regen_cooldown, self_pawn._sprint_locked, int(c["input_buf_depth"])),
+			Protocol.encode_self_state(int(c["ammo"]), bool(c["reloading"]), reload_remaining, int(c["weapon"]), _throwables_for(c), _support.being_revived.has(id), self_pawn.suppression, clampi(self_pawn.blind_until_tick - _sim.tick, 0, 255), self_pawn.bandage_count, self_pawn.bleed_halted, rgauge.x, rgauge.y, self_pawn.stamina, self_pawn.velocity.y, self_pawn.grounded, self_pawn.vaulting, self_pawn.vault_tick, self_pawn._regen_cooldown, self_pawn._sprint_locked, int(c["input_buf_depth"]), self_pawn.bleeding, _support.bandage_progress_u8(id)),
 			ENetPacketPeer.FLAG_RELIABLE)
 		c["history"][seq] = current
 		c["history_v"][seq] = current_v
@@ -924,6 +963,7 @@ func _on_packet(peer: ENetPacketPeer, _channel: int, bytes: PackedByteArray) -> 
 		Protocol.Msg.BUILD_REMOVE: _build.handle_build_remove(peer, bytes)
 		Protocol.Msg.GRENADE_THROW: _handle_grenade_throw(peer, bytes)
 		Protocol.Msg.REVIVE_ACTION: _support.handle_revive_action(peer, bytes)
+		Protocol.Msg.BANDAGE_ACTION: _support.handle_bandage_action(peer, bytes)
 		Protocol.Msg.GIVE_UP: _support.handle_give_up(peer)
 		Protocol.Msg.GADGET_ACTION: _handle_gadget_action(peer, bytes)
 		Protocol.Msg.VEHICLE_ACTION: _handle_vehicle_action(peer, bytes)
@@ -1080,6 +1120,9 @@ func _handle_deploy_request(peer: ENetPacketPeer, bytes: PackedByteArray) -> voi
 	p.bleed_health = 0
 	p.bleed_halted = false
 	p.bandage_count = Revive.bandage_count_for(_support.is_medic(id))
+	p.bleeding = false   # M16: fresh life clears any standing bleed + its credit
+	p.bleed_by = 0
+	p.bleed_weapon = 0
 	p.combat_until_tick = 0
 	p.climbing = false
 	p.vaulting = false
@@ -1431,6 +1474,27 @@ func _broadcast_downed_list() -> void:
 	if not _downed_rl.should_send(pkt, list.size() > 0, _sim.tick):
 		return
 	_broadcast_humans(NetHost.CHANNEL_CONTROL, pkt, ENetPacketPeer.FLAG_RELIABLE)
+
+## M16: standing-bleeding teammate ids, ALLY-ONLY (each human gets only their own team's list —
+## revealing a bleeding enemy would be a wallhack). Same changed+heartbeat shape as the other lists.
+func _broadcast_bleeding_list() -> void:
+	if _human_ids.is_empty():
+		return
+	var pkts := {}
+	var total := 0
+	for team in [0, 1]:
+		var ids: Array = []
+		for id in _sim.world.pawns:
+			var p: Pawn = _sim.world.pawns[id]
+			if p.alive and not p.is_downed and p.bleeding and p.team == team:
+				ids.append(id)
+		total += ids.size()
+		pkts[team] = Protocol.encode_bleeding_list(ids)
+	if not _bleeding_rl.should_send(pkts, total > 0, _sim.tick):
+		return
+	for cid in _human_ids:
+		var c = _clients[cid]
+		_net.send_to(c["peer"], NetHost.CHANNEL_CONTROL, pkts[int(c["team"])], ENetPacketPeer.FLAG_RELIABLE)
 
 ## M12-P3: per-team FOB list (squad/structure_id/under_construction/enabled) for human clients to
 ## render. Same changed+heartbeat shape as the gadget/support/downed lists — this one used to send

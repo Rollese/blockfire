@@ -65,7 +65,7 @@ func test_medic_revives_at_double_speed() -> void:
 	assert_eq(Revive.revive_ticks(false), Revive.REVIVE_TICKS)
 
 func test_medic_carries_extra_bandages() -> void:
-	assert_eq(Revive.bandage_count_for(true), Revive.BANDAGE_COUNT + Revive.MEDIC_EXTRA_BANDAGES)
+	assert_eq(Revive.bandage_count_for(true), Revive.MEDIC_BANDAGE_COUNT)
 	assert_eq(Revive.bandage_count_for(false), Revive.BANDAGE_COUNT)
 
 func test_fall_is_instant_kill_not_downed() -> void:

@@ -16,7 +16,8 @@ extends Object
 ## tail). History: VERSION sat at 1 through M1–M12 while the wire changed dozens of times,
 ## so the check protected nothing; real from 2 onward.
 
-const VERSION := 4   # 4: SELF_STATE gains a trailing input-buf-depth byte (tick-lead netcode, 2026-07-05)
+const VERSION := 5   # 5: M16 standing-bleed — BANDAGE_ACTION/BLEEDING_LIST msgs + SELF_STATE gains
+                     # trailing bleeding-bit + bandage-progress bytes (2026-07-09)
 
 enum Msg {
 	HELLO = 1,    ## client -> server: protocol version + display name
@@ -64,6 +65,8 @@ enum Msg {
 	VAULT_FX = 43,          ## server -> human clients: a remote pawn vaulted (id) -> brief mantle/clamber pose
 	DOWNED_LIST = 44,       ## server -> human clients: downed pawns {id, bleed_frac, halted} -> revive-marker urgency
 	COLLAPSE_WARNING = 45,  ## server -> clients: a building is about to collapse (id + centre) -> rumble + shake, then COLLAPSE fires ~3 s later
+	BANDAGE_ACTION = 46,    ## client -> server (M16): hold-to-bandage a standing-bleeding self/teammate (active-bit + target id)
+	BLEEDING_LIST = 47,     ## server -> human clients (M16): standing-bleeding teammate ids -> bleed marker + "hold to bandage" prompt
 }
 
 const OP_PLACE := 0
@@ -448,6 +451,20 @@ static func decode_revive_action(bytes: PackedByteArray) -> Dictionary:
 	return {"target": r.get_u32(), "active": r.get_u8() == 1}
 
 
+## M16 hold-to-bandage: active-bit + target id. target == self ⇒ self-bandage; else a bleeding mate.
+static func encode_bandage_action(target_id: int, active: bool) -> PackedByteArray:
+	var buf := StreamPeerBuffer.new()
+	buf.put_u8(Msg.BANDAGE_ACTION)
+	buf.put_u32(target_id)
+	buf.put_u8(1 if active else 0)
+	return buf.data_array
+
+
+static func decode_bandage_action(bytes: PackedByteArray) -> Dictionary:
+	var r := body_reader(bytes)
+	return {"target": r.get_u32(), "active": r.get_u8() == 1}
+
+
 static func encode_self_bandage() -> PackedByteArray:
 	var buf := StreamPeerBuffer.new()
 	buf.put_u8(Msg.SELF_BANDAGE)
@@ -680,6 +697,25 @@ static func decode_downed_list(bytes: PackedByteArray) -> Array:
 		out.append({"id": id, "frac": frac, "halted": halted})
 	return out
 
+## M16: standing-bleeding teammate ids (ally-only, reliable — same pattern as DOWNED_LIST). Drives a
+## distinct bleeding marker + "hold interact to bandage" prompt on the client.
+static func encode_bleeding_list(ids: Array) -> PackedByteArray:
+	var buf := StreamPeerBuffer.new()
+	buf.put_u8(Msg.BLEEDING_LIST)
+	var n: int = mini(ids.size(), 255)
+	buf.put_u8(n)
+	for i in range(n):
+		buf.put_u32(int(ids[i]))
+	return buf.data_array
+
+static func decode_bleeding_list(bytes: PackedByteArray) -> Array:
+	var r := body_reader(bytes)
+	var n := r.get_u8()
+	var out: Array = []
+	for i in range(n):
+		out.append(r.get_u32())
+	return out
+
 # Bullet impact VFX kind (which cosmetic puff the client spawns at the hit point).
 const IMPACT_WALL := 0   # bullet stopped on (or punched through) a structure / wall — grey dust + chips
 const IMPACT_DIRT := 1   # bullet hit the ground — brown dirt
@@ -761,7 +797,7 @@ static func decode_damage_event(bytes: PackedByteArray) -> Dictionary:
 	return {"bearing": Quantize.dec_angle(r.get_u16()), "amount": r.get_u8()}
 
 
-static func encode_self_state(mag: int, reloading: bool, reload_remaining: int, weapon: int, throwables: Array = [], being_revived: bool = false, suppression: float = 0.0, blind_ticks: int = 0, bandage_count: int = 0, bleed_halted: bool = false, repair_heat: float = 0.0, repair_cooldown: float = 0.0, stamina: float = 100.0, vel_y: float = 0.0, grounded: bool = true, vaulting: bool = false, vault_tick: int = 0, regen_cooldown: float = 0.0, sprint_locked: bool = false, input_buf_depth: int = 0) -> PackedByteArray:
+static func encode_self_state(mag: int, reloading: bool, reload_remaining: int, weapon: int, throwables: Array = [], being_revived: bool = false, suppression: float = 0.0, blind_ticks: int = 0, bandage_count: int = 0, bleed_halted: bool = false, repair_heat: float = 0.0, repair_cooldown: float = 0.0, stamina: float = 100.0, vel_y: float = 0.0, grounded: bool = true, vaulting: bool = false, vault_tick: int = 0, regen_cooldown: float = 0.0, sprint_locked: bool = false, input_buf_depth: int = 0, bleeding: bool = false, bandage_progress: int = 0) -> PackedByteArray:
 	var buf := StreamPeerBuffer.new()
 	buf.put_u8(Msg.SELF_STATE)
 	buf.put_u8(clampi(mag, 0, 255))
@@ -821,6 +857,11 @@ static func encode_self_state(mag: int, reloading: bool, reload_remaining: int, 
 	# at TickLead.TARGET, so starvation/coalescing (the wandering reconcile-replay length -> the ~1 Hz
 	# movement micro-snap) become rare. Owner-only, appended last so older decoders ignore it.
 	buf.put_u8(clampi(input_buf_depth, 0, 255))
+	# M16 standing bleed (owner-only, appended last so older decoders ignore them): whether the owner
+	# is currently standing-bleeding (drives the red bleeding vignette) and, when the owner is the
+	# target of an active bandage channel, its 0..255 progress fraction (drives the bandage cast-bar).
+	buf.put_u8(1 if bleeding else 0)
+	buf.put_u8(clampi(bandage_progress, 0, 255))
 	return buf.data_array
 
 static func decode_self_state(bytes: PackedByteArray) -> Dictionary:
@@ -879,7 +920,13 @@ static func decode_self_state(bytes: PackedByteArray) -> Dictionary:
 	var input_buf_depth := -1   # -1 sentinel: absent -> tick-lead loop stays idle (never mis-corrects)
 	if r.get_available_bytes() > 0:
 		input_buf_depth = r.get_u8()
-	return {"mag": mag, "reloading": reloading, "reload_remaining": reload_remaining, "weapon": weapon, "throwables": throwables, "being_revived": being_revived, "suppression": suppression, "blind_ticks": blind_ticks, "bandage_count": bandage_count, "bleed_halted": bleed_halted, "repair_heat": repair_heat, "repair_cooldown": repair_cooldown, "stamina": stamina, "vel_y": vel_y, "grounded": grounded, "vaulting": vaulting, "vault_tick": vault_tick, "regen_cooldown": regen_cooldown, "sprint_locked": sprint_locked, "input_buf_depth": input_buf_depth}
+	var bleeding := false        # M16: not bleeding by default so an old/short packet never wrongly vignettes
+	var bandage_progress := 0
+	if r.get_available_bytes() > 0:
+		bleeding = r.get_u8() == 1
+	if r.get_available_bytes() > 0:
+		bandage_progress = r.get_u8()
+	return {"mag": mag, "reloading": reloading, "reload_remaining": reload_remaining, "weapon": weapon, "throwables": throwables, "being_revived": being_revived, "suppression": suppression, "blind_ticks": blind_ticks, "bandage_count": bandage_count, "bleed_halted": bleed_halted, "repair_heat": repair_heat, "repair_cooldown": repair_cooldown, "stamina": stamina, "vel_y": vel_y, "grounded": grounded, "vaulting": vaulting, "vault_tick": vault_tick, "regen_cooldown": regen_cooldown, "sprint_locked": sprint_locked, "input_buf_depth": input_buf_depth, "bleeding": bleeding, "bandage_progress": bandage_progress}
 
 
 static func encode_roster(rows: Array) -> PackedByteArray:

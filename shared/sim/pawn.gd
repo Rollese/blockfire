@@ -40,7 +40,12 @@ var down_count: int = 0            # times downed THIS life (reset on spawn); dr
 var bleed_health: int = 0          # 0 at down, drains to bleed_floor (= -Revive.bleedout_window)
 var bleed_floor: int = 0           # per-down bleed-out threshold, set when the pawn goes down
 var bleed_halted: bool = false     # RESERVED/inert: kept for the SELF_STATE wire; downed self-bandage removed 2026-07-03
-var bandage_count: int = Revive.BANDAGE_COUNT   # reserved for future standing-bleed bandaging (BattleBit)
+var bandage_count: int = Revive.BANDAGE_COUNT   # bandage pouch: spent by standing-bandage + revive (M16)
+# M16 standing bleed (distinct from the DOWNED halving-bleedout fields above): a below-threshold
+# bullet/blast hit sets `bleeding`, which drains the standing `health` pool until bandaged or bled out.
+var bleeding: bool = false         # standing bleed active
+var bleed_by: int = 0              # attacker id credited if this bleed downs the pawn (mirrors downed_by)
+var bleed_weapon: int = 0          # weapon id of the bleed source, for the down/kill recap
 var combat_until_tick: int = 0     # "in combat" until this tick (set when damaged); blocks being a squad-spawn anchor
 var last_stance_change_tick: int = -1000   # set by SimLoop when stance changes; drop-shoot gate
 var climbing: bool = false

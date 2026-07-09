@@ -5,16 +5,19 @@ This doc is the human-readable index so an agent allocating a message id or audi
 doesn't have to reverse-engineer an 850-line file. **Update this table in the same commit as any
 `Msg` enum change.**
 
-- **`Protocol.VERSION` = 4** (2026-07-05, SELF_STATE gains a trailing `input_buf_depth` byte —
-  post-drain InputBuffer depth for the tick-lead input-clock loop, `docs/specs/netcode-tick-lead.md`;
-  v3 same day added `sprint_locked` for the empty-sprint hysteresis reconcile). Policy (see
+- **`Protocol.VERSION` = 5** (2026-07-09, M16 standing-bleed: adds `BANDAGE_ACTION` (46) +
+  `BLEEDING_LIST` (47) and SELF_STATE gains trailing `bleeding` bit + `bandage_progress` byte —
+  `docs/superpowers/specs/2026-07-03-standing-bleed-bandage-design.md`. v4 (2026-07-05) added a
+  trailing SELF_STATE `input_buf_depth` byte for the tick-lead input-clock loop
+  (`docs/specs/netcode-tick-lead.md`); v3 same day added `sprint_locked` for the empty-sprint
+  hysteresis reconcile). Policy (see
   `protocol.gd` header):
   bump on ANY wire change — format *or* meaning. The HELLO handshake rejects mismatches; there is
   no other cross-build compat mechanism. Never add `get_available_bytes()` trailing-field guards
   inside repeated records (only sound at message tail).
 - **Channels** (`shared/net/net_host.gd`): `CONTROL` (reliable control traffic), `SNAPSHOT`
   (unreliable state), `INPUT` (client commands).
-- **Next free message id: 45.**
+- **Next free message id: 48.**
 
 | id | Msg | direction | purpose | since |
 |---|---|---|---|---|
@@ -39,7 +42,7 @@ doesn't have to reverse-engineer an 850-line file. **Update this table in the sa
 | 19 | VEHICLE_DESTROYED | s→c* | a vehicle was destroyed (vid) | M5 |
 | 20 | DEPLOY_REQUEST | c→s | deploy at spawn_ref (u16; see `DeploySpawn` ref spaces) | M7 |
 | 21 | DAMAGE_EVENT | s→c | damage taken: bearing + amount | M7 |
-| 22 | SELF_STATE | s→c(owner) | authoritative ammo/reload/suppression/blind/bandage/repair + trailing-optional reconcile bytes `stamina, vel_y, grounded, vaulting, vault_tick, regen_cooldown, sprint_locked, input_buf_depth` (append-only, `get_available_bytes`-guarded; regen_cooldown added 2026-07-05 for the C6 stamina reconcile; sprint_locked added 2026-07-05 for the empty-sprint hysteresis; input_buf_depth added 2026-07-05 for the tick-lead loop — decodes -1 when absent) | M7 |
+| 22 | SELF_STATE | s→c(owner) | authoritative ammo/reload/suppression/blind/bandage/repair + trailing-optional reconcile bytes `stamina, vel_y, grounded, vaulting, vault_tick, regen_cooldown, sprint_locked, input_buf_depth` (append-only, `get_available_bytes`-guarded; regen_cooldown added 2026-07-05 for the C6 stamina reconcile; sprint_locked added 2026-07-05 for the empty-sprint hysteresis; input_buf_depth added 2026-07-05 for the tick-lead loop — decodes -1 when absent; `bleeding` bit + `bandage_progress` byte added 2026-07-09 for M16 standing-bleed vignette + bandage cast-bar) | M7 |
 | 23 | HITMARKER | s→shooter | your shot hit (headshot/lethal flags) | M7 |
 | 24 | GIVE_UP | c→s | while downed, skip bleed-out and die | M7 |
 | 25 | ROSTER | s→c* | name/team/squad/K/D/score rows (1 Hz) | M7 |
@@ -62,6 +65,9 @@ doesn't have to reverse-engineer an 850-line file. **Update this table in the sa
 | 42 | MELEE_FX | s→h | remote melee swing → swing pose | M7 |
 | 43 | VAULT_FX | s→h | remote vault → mantle pose | M7 |
 | 44 | DOWNED_LIST | s→h | downed pawns {id, bleed_frac, halted} → revive urgency | M7 |
+| 45 | COLLAPSE_WARNING | s→c | building about to collapse (id + centre) → rumble/shake, COLLAPSE fires ~3 s later | M11 |
+| 46 | BANDAGE_ACTION | c→s | hold-to-bandage a standing-bleeding self/teammate (active-bit + target id) | M16 |
+| 47 | BLEEDING_LIST | s→h | standing-bleeding teammate ids → bleed marker + "hold to bandage" prompt | M16 |
 
 Direction key: `c→s` client to server · `s→c` server to one client · `s→c*` server broadcast ·
 `s→h` server to **human** clients only (cosmetic; bots skip decode).

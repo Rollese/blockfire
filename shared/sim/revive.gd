@@ -5,8 +5,9 @@ extends Object
 ## transitions, keeping the rules in shared/ (AGENTS.md §7). See docs/specs/combat-depth.md (P1).
 
 # --- constants (initial values; gate-tuned) ---
-const BANDAGE_COUNT := 3         # bandages per spawn, all classes
-const MEDIC_EXTRA_BANDAGES := 2  # extra bandage charges for Medic
+const BANDAGE_COUNT := 3         # bandages per spawn, non-medic classes
+const MEDIC_BANDAGE_COUNT := 20  # bandages per spawn, Medic (M16: the bandage item now has a consumer —
+                                 # standing-bandage + revive both spend one, so the medic carries a real pouch)
 const BLEED_RATE := 1            # HP/tick lost while DOWNED (drains bleed_health toward the floor)
 const INITIAL_BLEEDOUT_TICKS := 1800  # 60 s @30 Hz on the FIRST down of a life; halved on each further
                                  # down that life (bleedout_window). DOWNED pawns take no weapon damage
@@ -61,4 +62,4 @@ static func revive_ticks(is_medic: bool) -> int:
 
 ## Bandages a class spawns with.
 static func bandage_count_for(is_medic: bool) -> int:
-	return BANDAGE_COUNT + (MEDIC_EXTRA_BANDAGES if is_medic else 0)
+	return MEDIC_BANDAGE_COUNT if is_medic else BANDAGE_COUNT

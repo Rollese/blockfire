@@ -1,0 +1,126 @@
+[m11] building + starting server + 128-bot fleet on map=conquest_proving_grounds (destructible buildings)…
+ Image blockfire:latest Building 
+ Image blockfire:latest Building 
+#1 [internal] load local bake definitions
+#1 reading from stdin 951B done
+#1 DONE 0.0s
+
+#2 [bots internal] load build definition from Dockerfile
+#2 transferring dockerfile: 2.06kB done
+#2 DONE 0.0s
+
+#3 [bots internal] load metadata for docker.io/library/debian:bookworm-slim
+#3 DONE 0.7s
+
+#4 [server internal] load .dockerignore
+#4 transferring context: 255B done
+#4 DONE 0.0s
+
+#5 [bots 1/8] FROM docker.io/library/debian:bookworm-slim@sha256:60eac759739651111db372c07be67863818726f754804b8707c90979bda511df
+#5 resolve docker.io/library/debian:bookworm-slim@sha256:60eac759739651111db372c07be67863818726f754804b8707c90979bda511df 0.0s done
+#5 DONE 0.0s
+
+#6 [server internal] load build context
+#6 transferring context: 1.29MB 0.1s done
+#6 DONE 0.1s
+
+#7 [server 2/8] RUN apt-get update && apt-get install -y --no-install-recommends 		ca-certificates curl unzip 		libfontconfig1 libgl1 libglu1-mesa 		libxcursor1 libxinerama1 libxrandr2 libxi6 libxkbcommon0 libasound2 	&& rm -rf /var/lib/apt/lists/*
+#7 CACHED
+
+#8 [server 3/8] RUN curl -fsSL -o /tmp/godot.zip "https://github.com/godotengine/godot/releases/download/4.6-stable/Godot_v4.6-stable_linux.x86_64.zip" 	&& unzip -q /tmp/godot.zip -d /tmp/godot 	&& mv /tmp/godot/Godot_v4.6-stable_linux.x86_64 /usr/local/bin/godot 	&& chmod +x /usr/local/bin/godot 	&& rm -rf /tmp/godot.zip /tmp/godot 	&& godot --version
+#8 CACHED
+
+#9 [server 4/8] WORKDIR /app
+#9 CACHED
+
+#10 [server 5/8] COPY . /app
+#10 DONE 0.3s
+
+#11 [bots 6/8] RUN godot --headless --path /app --import > /tmp/import.log 2>&1 || true; 	tail -n 20 /tmp/import.log
+#11 3.851 [  66% ] [90m[1mfirst_scan_filesystem[22m | Initializing plugins...[39m[0m
+#11 3.851 [  83% ] [90m[1mfirst_scan_filesystem[22m | Starting file scan...[39m[0m
+#11 3.851 [92m[ DONE ][39m [1mfirst_scan_filesystem[22m
+#11 3.851 [0m
+#11 3.851 [   0% ] [90m[1mupdate_scripts_classes[22m | Started Registering global classes... (2 steps)[39m[0m
+#11 3.851 [   0% ] [90m[1mupdate_scripts_classes[22m | WorldRenderer[39m[0m
+#11 3.851 [  33% ] [90m[1mupdate_scripts_classes[22m | Terrain[39m[0m
+#11 3.851 [92m[ DONE ][39m [1mupdate_scripts_classes[22m
+#11 3.851 [0m
+#11 3.851 ERROR: Condition "!FileAccess::exists(path)" is true. Returning: ERR_FILE_NOT_FOUND
+#11 3.851    at: open_dynamic_library (drivers/unix/os_unix.cpp:1061)
+#11 3.851 ERROR: Condition "!FileAccess::exists(path)" is true. Returning: ERR_FILE_NOT_FOUND
+#11 3.851    at: open_dynamic_library (drivers/unix/os_unix.cpp:1061)
+#11 3.851 ERROR: GDExtension dynamic library not found: 'res://native/voice_opus/voice_opus.gdextension'.
+#11 3.851    at: open_library (core/extension/gdextension.cpp:740)
+#11 3.851 [   0% ] [90m[1mloading_editor_layout[22m | Started Loading editor (5 steps)[39m[0m
+#11 3.851 [   0% ] [90m[1mloading_editor_layout[22m | Loading editor layout...[39m[0m
+#11 3.851 [  16% ] [90m[1mloading_editor_layout[22m | Loading docks...[39m[0m
+#11 3.851 [92m[ DONE ][39m [1mloading_editor_layout[22m
+#11 3.851 [0m
+#11 DONE 3.9s
+
+#12 [server 7/8] COPY docker/entrypoint.sh /entrypoint.sh
+#12 DONE 0.0s
+
+#13 [server 8/8] RUN chmod +x /entrypoint.sh
+#13 DONE 0.2s
+
+#14 [server] exporting to image
+#14 exporting layers
+#14 exporting layers 1.3s done
+#14 exporting manifest sha256:08b115e0d2b359061143e768b7c57db4e9f035b7456ebebe27b0b189e9f8adf6 0.0s done
+#14 exporting config sha256:c6dbed7f4013764b54d523fd06003edd1bb91bb76238b877cd04fce6e23df672 0.0s done
+#14 exporting attestation manifest sha256:47a050111a94ac1ddcec0cd819dcf8c292ce3ffc3a36e68f380817a6f5ef41ed 0.0s done
+#14 exporting manifest list sha256:2448787711dc5744d5c13d10bfbb47d87a99303dc86f8df88a0acc986caf2f1d 0.0s done
+#14 naming to docker.io/library/blockfire:latest done
+#14 unpacking to docker.io/library/blockfire:latest
+#14 unpacking to docker.io/library/blockfire:latest 0.3s done
+#14 DONE 1.7s
+
+#15 [bots] exporting to image
+#15 exporting layers 1.3s done
+#15 exporting manifest sha256:eea1be96c2e2a31fccb8e896d03c850caa9005cc14af2aef0261c09ff48c0d1d 0.0s done
+#15 exporting config sha256:46703ad1f9f5b4041f26c83b7158c9088c0462e30f51ddc480ce098629c59dac 0.0s done
+#15 exporting attestation manifest sha256:863c4723560aa3da4a03819354917c10398d8d62c978f6866f55c2ec7738dbcc 0.0s done
+#15 exporting manifest list sha256:8445bd27cc174f22530b888fc0b5d2630c72aea982be0b8b6053888b194d2570 0.0s done
+#15 naming to docker.io/library/blockfire:latest done
+#15 unpacking to docker.io/library/blockfire:latest 0.3s done
+#15 DONE 1.7s
+
+#16 [bots] resolving provenance for metadata file
+#16 DONE 0.0s
+
+#17 [server] resolving provenance for metadata file
+#17 DONE 0.0s
+ Image blockfire:latest Built 
+ Image blockfire:latest Built 
+ Network docker_match Creating 
+ Network docker_match Created 
+ Container docker-server-1 Creating 
+ Container docker-bots-4 Creating 
+ Container docker-bots-1 Creating 
+ Container docker-bots-3 Creating 
+ Container docker-bots-2 Creating 
+ Container docker-bots-3 Created 
+ Container docker-bots-1 Created 
+ Container docker-bots-4 Created 
+ Container docker-server-1 Created 
+ Container docker-bots-2 Created 
+ Container docker-server-1 Starting 
+ Container docker-bots-3 Starting 
+ Container docker-server-1 Started 
+ Container docker-bots-3 Started 
+ Container docker-bots-4 Starting 
+ Container docker-bots-4 Started 
+ Container docker-bots-2 Starting 
+ Container docker-bots-2 Started 
+ Container docker-bots-1 Starting 
+ Container docker-bots-1 Started 
+[m11] full server log saved to /home/roland/projects/blockfire/docker/srvlog-m11-20260706-172609.log
+--- match result ---
+server-1  | [match] OVER winner=1 t0=0 t1=75 elapsed=250s cap_events=5
+[m11] map=conquest_proving_grounds winner=1 elapsed=250s cap_events=5 peak tick=16.88ms (budget 33.3) peak agg=14.8Mbit/s script_errors=0
+[m11] struct=213 dmg=13 destroyed=7 rstruct=14 collapsed=0 nades=13 rockets=1
+[m11] note: collapsed=0 (density-dependent; proven deterministically in tests/server_buildings_functional_test.gd + support_test.gd)
+M11 GATE-A: PASS
+GATE_DONE_EXIT=0
