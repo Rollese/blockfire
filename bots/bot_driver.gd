@@ -48,6 +48,7 @@ const GRENADE_LANDING_EST := 8.0   # m ahead of the throw origin — flat landin
                                    # matches well enough for avoidance (plan Task 6)
 const BAG_NEEDY_RANGE := 12.0      # m: allies this close and hurt count toward a bag deploy
 const BAG_NEEDY_HP := 60           # hp below this (0.6 frac) marks an ally as needy
+const BANDAGE_SAFE_DIST := 18.0    # m: a bleeding bot self-bandages when no enemy is closer than this (M16)
 const GIVEUP_NO_HELP_RADIUS := 20.0   # m: a downed bot with no alive friendly this close gives up (no reviver coming)
 const RECONNECT_DELAY_FRAMES := 90    # ~3s before re-dialling after a server disconnect (rotation boundary)
 const BOARD_RETRY_TICKS := 30         # min ticks between VA_ENTER attempts while the seat isn't confirmed
@@ -546,12 +547,15 @@ func _drive(bot: Dictionary, delta: float) -> void:
 			move_x = avoid_dir.x
 			move_y = avoid_dir.y
 
-	# M16 self-bandage: when standing-bleeding and safe (no visible enemy), hold still and bandage
-	# instead of building/throwing/firing — any of which the server treats as a channel interrupt.
-	# Fair-play: the bot reads only its OWN SELF_STATE.bleeding, exactly like a human self-bandaging.
+	# M16 self-bandage: a wounded (standing-bleeding) bot retreats to patch up when no enemy is a
+	# CLOSE threat — no visible enemy, or the nearest one is beyond BANDAGE_SAFE_DIST (a distant
+	# threat won't stop a human from bandaging behind cover either). It then holds still + bandages
+	# rather than building/throwing/firing, any of which the server treats as a channel interrupt.
+	# Fair-play: reads only its OWN SELF_STATE.bleeding, exactly like a human self-bandaging.
 	var ss_bandage = bot.get("self_state")
+	var enemy_close: bool = target != null and me.pos.distance_to(target.pos) <= BANDAGE_SAFE_DIST
 	var want_bandage: bool = ss_bandage != null and bool(ss_bandage.get("bleeding", false)) \
-		and target == null and not me.is_downed
+		and not enemy_close and not me.is_downed
 	if want_bandage != bool(bot.get("bandaging", false)):
 		(bot["net"] as NetHost).send_to(bot["peer"], NetHost.CHANNEL_INPUT,
 			Protocol.encode_bandage_action(int(bot["id"]), want_bandage), 0)
