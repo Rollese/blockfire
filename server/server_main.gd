@@ -1060,7 +1060,7 @@ func _handle_hello(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
 	# roof ladders (and no rubble) where buildings already fell (A3, playtest 2026-07-05). The
 	# client-side COLLAPSE path is idempotent, so joiners who lived through the event are unaffected.
 	for cbid in _collapsed_bids:
-		_net.send_to(peer, NetHost.CHANNEL_CONTROL, Protocol.encode_collapse(int(cbid)), ENetPacketPeer.FLAG_RELIABLE)
+		_net.send_to(peer, NetHost.CHANNEL_BULK, Protocol.encode_collapse(int(cbid)), ENetPacketPeer.FLAG_RELIABLE)
 	print("[server] welcomed peer %d ('%s') team=%d squad=%d class=%d — %d peers" % [id, pname, team, squad, cls, _clients.size()])
 
 func _squad_candidates(req_id: int, team: int, squad_id: int) -> Array:
@@ -2005,7 +2005,7 @@ func _begin_collapse(bid: int) -> void:
 	_collapsing[bid] = _sim.tick + COLLAPSE_WARN_TICKS
 	var bytes := Protocol.encode_collapse_warning(bid, _collapse_center(bid))
 	for cid in _clients:
-		_net.send_to(_clients[cid]["peer"], NetHost.CHANNEL_CONTROL, bytes, ENetPacketPeer.FLAG_RELIABLE)
+		_net.send_to(_clients[cid]["peer"], NetHost.CHANNEL_BULK, bytes, ENetPacketPeer.FLAG_RELIABLE)
 
 ## World centre of a building (average of its live piece cell-centres; falls back to the cached
 ## footprint) — used to position the client's proximity rumble/shake for the collapse warning.
@@ -2115,7 +2115,7 @@ func _collapse_building(bid: int) -> void:
 	_sim.ladders = kept_ladders
 	var bytes := Protocol.encode_collapse(bid)
 	for cid in _clients:
-		_net.send_to(_clients[cid]["peer"], NetHost.CHANNEL_CONTROL, bytes, ENetPacketPeer.FLAG_RELIABLE)
+		_net.send_to(_clients[cid]["peer"], NetHost.CHANNEL_BULK, bytes, ENetPacketPeer.FLAG_RELIABLE)
 	_collapsed_bids.append(bid)   # so a late joiner's welcome replays this collapse (ghost ladders)
 
 ## Collapse lethality: a building coming down crushes everything inside/very-close to its footprint —
@@ -2197,7 +2197,7 @@ func _emit_structure_delta(op: int, rec: Dictionary, cell: Vector3i) -> void:
 	var bytes := Protocol.encode_structure_delta(op, rec)
 	for cid in _clients:
 		if _clients[cid]["known_regions"].has(region):
-			_net.send_to(_clients[cid]["peer"], NetHost.CHANNEL_CONTROL, bytes, ENetPacketPeer.FLAG_RELIABLE)
+			_net.send_to(_clients[cid]["peer"], NetHost.CHANNEL_BULK, bytes, ENetPacketPeer.FLAG_RELIABLE)
 
 ## After computing a client's interest entities, send baselines for any structured regions
 ## newly covered by its interest set. known_regions caches what the client already has.
@@ -2227,7 +2227,7 @@ func _sync_structure_baselines(c: Dictionary, self_pos: Vector3) -> void:
 			recs.append(_build.site_wire_record(s))
 		known[region] = true
 		var bytes := Protocol.encode_structure_baseline(region, recs)
-		_net.send_to(c["peer"], NetHost.CHANNEL_CONTROL, bytes, ENetPacketPeer.FLAG_RELIABLE)
+		_net.send_to(c["peer"], NetHost.CHANNEL_BULK, bytes, ENetPacketPeer.FLAG_RELIABLE)
 
 ## Free the pawn's vehicle seat (shared by death and disconnect). Without it a ghost
 ## occupant id stays in v.seats forever — an undrivable vehicle and wrong free_seats.

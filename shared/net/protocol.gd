@@ -16,7 +16,9 @@ extends Object
 ## tail). History: VERSION sat at 1 through M1–M12 while the wire changed dozens of times,
 ## so the check protected nothing; real from 2 onward.
 
-const VERSION := 6   # 6: M17 reserve-ammo economy — SELF_STATE gains a trailing reserve u16 (2026-07-10)
+const VERSION := 7   # 7: reliable BULK channel (3) for structure traffic — transport-topology change,
+                     # old clients must be rejected (channel-count mismatch); no message format change (2026-07-10)
+                     # 6: M17 reserve-ammo economy — SELF_STATE gains a trailing reserve u16 (2026-07-10)
                      # 5: M16 standing-bleed — BANDAGE_ACTION/BLEEDING_LIST msgs + SELF_STATE gains
                      # trailing bleeding-bit + bandage-progress bytes (2026-07-09)
 
