@@ -6,6 +6,7 @@ extends RefCounted
 
 var weapon: int = Weapon.AR
 var mag: int = 30
+var reserve: int = 180   # spare-bullet pool (reserve-ammo economy); reconciled from SELF_STATE
 var reloading: bool = false
 var fire_mode: int = Weapon.MODE_AUTO   # selected fire mode (HUD + local-tracer gating; sent via SET_FIRE_MODE)
 var fire_mode_by_weapon: Dictionary = {}   # weapon_id -> last-selected mode; persists across swaps + respawns
@@ -17,6 +18,7 @@ var _was_firing: bool = false           # previous-tick trigger state, for press
 func set_weapon(w: int) -> void:
 	weapon = w
 	mag = int(Weapon.get_def(w)["mag_size"])
+	reserve = Weapon.reserve_ammo(w)
 	# Restore this weapon's remembered fire mode (default the first time we hold it), so swapping away
 	# and back — or respawning — keeps the selection instead of snapping back to AUTO.
 	fire_mode = int(fire_mode_by_weapon.get(w, Weapon.default_mode(w)))
@@ -39,7 +41,11 @@ func cycle_fire_mode() -> int:
 func step(tick: int, firing: bool, sprinting: bool, drop_shoot: bool) -> bool:
 	if reloading and tick >= _reload_done_tick:
 		reloading = false
-		mag = int(Weapon.get_def(weapon)["mag_size"])
+		# Move as many rounds as the reserve allows into the mag — no partial-mag discard. Shared with
+		# the server's authoritative reload-complete (Weapon.reload_fill) so the HUD never drifts.
+		var filled := Weapon.reload_fill(mag, int(Weapon.get_def(weapon)["mag_size"]), reserve)
+		mag = int(filled[0])
+		reserve = int(filled[1])
 	var rising := firing and not _was_firing
 	_was_firing = firing
 	if not firing:
@@ -61,13 +67,20 @@ func step(tick: int, firing: bool, sprinting: bool, drop_shoot: bool) -> bool:
 	return true
 
 func begin_reload(tick: int) -> void:
-	if reloading or mag >= int(Weapon.get_def(weapon)["mag_size"]):
+	if reloading or mag >= int(Weapon.get_def(weapon)["mag_size"]) or reserve <= 0:
 		return
 	reloading = true
 	_reload_done_tick = tick + int(round(float(Weapon.get_def(weapon)["reload_secs"]) / SimLoop.DT))
 
 func reload_remaining(tick: int) -> int:
 	return maxi(0, _reload_done_tick - tick) if reloading else 0
+
+## Snap the reserve pool to the authoritative SELF_STATE value. Reserve only changes on reload /
+## resupply / respawn (never per-shot), so unlike mag there's no prediction lead to preserve —
+## just take authority when it's present (a pre-6 server sends -1, which we ignore).
+func reconcile_reserve(auth_reserve: int) -> void:
+	if auth_reserve >= 0:
+		reserve = auth_reserve
 
 func reconcile(auth_mag: int, auth_reloading: bool, auth_reload_remaining: int, now_tick: int = 0) -> void:
 	reloading = auth_reloading

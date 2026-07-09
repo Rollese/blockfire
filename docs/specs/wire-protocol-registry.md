@@ -5,6 +5,8 @@ This doc is the human-readable index so an agent allocating a message id or audi
 doesn't have to reverse-engineer an 850-line file. **Update this table in the same commit as any
 `Msg` enum change.**
 
+- **`Protocol.VERSION` = 6** (2026-07-10, M17 reserve-ammo economy: SELF_STATE gains a trailing
+  `reserve` u16 — the finite spare-bullet pool separate from the loaded mag; `docs/specs/reserve-ammo.md`).
 - **`Protocol.VERSION` = 5** (2026-07-09, M16 standing-bleed: adds `BANDAGE_ACTION` (46) +
   `BLEEDING_LIST` (47) and SELF_STATE gains trailing `bleeding` bit + `bandage_progress` byte —
   `docs/superpowers/specs/2026-07-03-standing-bleed-bandage-design.md`. v4 (2026-07-05) added a
@@ -42,7 +44,7 @@ doesn't have to reverse-engineer an 850-line file. **Update this table in the sa
 | 19 | VEHICLE_DESTROYED | s→c* | a vehicle was destroyed (vid) | M5 |
 | 20 | DEPLOY_REQUEST | c→s | deploy at spawn_ref (u16; see `DeploySpawn` ref spaces) | M7 |
 | 21 | DAMAGE_EVENT | s→c | damage taken: bearing + amount | M7 |
-| 22 | SELF_STATE | s→c(owner) | authoritative ammo/reload/suppression/blind/bandage/repair + trailing-optional reconcile bytes `stamina, vel_y, grounded, vaulting, vault_tick, regen_cooldown, sprint_locked, input_buf_depth` (append-only, `get_available_bytes`-guarded; regen_cooldown added 2026-07-05 for the C6 stamina reconcile; sprint_locked added 2026-07-05 for the empty-sprint hysteresis; input_buf_depth added 2026-07-05 for the tick-lead loop — decodes -1 when absent; `bleeding` bit + `bandage_progress` byte added 2026-07-09 for M16 standing-bleed vignette + bandage cast-bar) | M7 |
+| 22 | SELF_STATE | s→c(owner) | authoritative ammo/reload/suppression/blind/bandage/repair + trailing-optional reconcile bytes `stamina, vel_y, grounded, vaulting, vault_tick, regen_cooldown, sprint_locked, input_buf_depth` (append-only, `get_available_bytes`-guarded; regen_cooldown added 2026-07-05 for the C6 stamina reconcile; sprint_locked added 2026-07-05 for the empty-sprint hysteresis; input_buf_depth added 2026-07-05 for the tick-lead loop — decodes -1 when absent; `bleeding` bit + `bandage_progress` byte added 2026-07-09 for M16 standing-bleed vignette + bandage cast-bar; `reserve` u16 added 2026-07-10 for M17 reserve-ammo economy) | M7 |
 | 23 | HITMARKER | s→shooter | your shot hit (headshot/lethal flags) | M7 |
 | 24 | GIVE_UP | c→s | while downed, skip bleed-out and die | M7 |
 | 25 | ROSTER | s→c* | name/team/squad/K/D/score rows (1 Hz) | M7 |

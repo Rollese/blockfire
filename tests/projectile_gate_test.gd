@@ -107,7 +107,7 @@ func test_per_slot_ammo_persists_across_swap() -> void:
 	var srv := _make_server()
 	var c := {
 		"weapon": Weapon.AR, "weapon_def": Weapon.effective_def(Weapon.AR, {}), "class": Loadout.ASSAULT,
-		"ammo": int(Weapon.get_def(Weapon.AR)["mag_size"]), "reloading": false, "reload_done_tick": 0,
+		"ammo": int(Weapon.get_def(Weapon.AR)["mag_size"]), "reserve": int(Weapon.reserve_ammo(Weapon.AR)), "reloading": false, "reload_done_tick": 0,
 		"last_fire_time": -999.0, "shot_index": 0, "fire_mode": Weapon.default_mode(Weapon.AR),
 		"active_slot": 0, "swap_locked_until": 0,
 	}
@@ -130,7 +130,7 @@ func test_swap_lockout_blocks_immediate_reswap() -> void:
 	var srv := _make_server()
 	var c := {
 		"weapon": Weapon.AR, "weapon_def": Weapon.effective_def(Weapon.AR, {}), "class": Loadout.ASSAULT,
-		"ammo": 30, "reloading": false, "reload_done_tick": 0, "last_fire_time": -999.0,
+		"ammo": 30, "reserve": int(Weapon.reserve_ammo(Weapon.AR)), "reloading": false, "reload_done_tick": 0, "last_fire_time": -999.0,
 		"shot_index": 0, "fire_mode": Weapon.default_mode(Weapon.AR),
 		"active_slot": 0, "swap_locked_until": 0,
 	}
@@ -147,7 +147,7 @@ func test_respawn_resets_both_slots_to_full_on_primary() -> void:
 	var srv := _make_server()
 	var c := {
 		"weapon": Weapon.AR, "weapon_def": Weapon.effective_def(Weapon.AR, {}), "class": Loadout.ASSAULT,
-		"ammo": int(Weapon.get_def(Weapon.AR)["mag_size"]), "reloading": false, "reload_done_tick": 0,
+		"ammo": int(Weapon.get_def(Weapon.AR)["mag_size"]), "reserve": int(Weapon.reserve_ammo(Weapon.AR)), "reloading": false, "reload_done_tick": 0,
 		"last_fire_time": -999.0, "shot_index": 0, "fire_mode": Weapon.default_mode(Weapon.AR),
 		"active_slot": 0, "swap_locked_until": 0,
 	}

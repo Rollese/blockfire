@@ -122,3 +122,51 @@ func test_auto_fires_continuously_at_cadence() -> void:
 			fired += 1
 		tick += 3
 	assert_eq(fired, 4, "AUTO keeps firing while held (cadence permitting)")
+
+
+# --- Reserve-ammo economy (M17) ---
+
+func test_set_weapon_loads_full_reserve() -> void:
+	var wp := WeaponPredictor.new()
+	wp.set_weapon(Weapon.AR)
+	assert_eq(wp.mag, int(Weapon.get_def(Weapon.AR)["mag_size"]))
+	assert_eq(wp.reserve, Weapon.reserve_ammo(Weapon.AR), "fresh weapon starts with full reserve")
+
+func test_reload_moves_rounds_from_reserve_no_discard() -> void:
+	var wp := _wp()   # AR: mag 30, reserve 180
+	var start_reserve := wp.reserve
+	# Fire 10 rounds (spaced beyond cadence), then reload.
+	var tick := 0
+	for _i in range(10):
+		wp.step(tick, true, false, false); tick += 4
+	assert_eq(wp.mag, 20, "10 rounds fired")
+	wp.begin_reload(tick)
+	wp.step(tick + int(round(float(Weapon.get_def(Weapon.AR)["reload_secs"]) / SimLoop.DT)) + 1, false, false, false)
+	assert_false(wp.reloading, "reload completed")
+	assert_eq(wp.mag, 30, "mag topped to full")
+	# No partial-mag discard: only the 10 missing rounds come out of reserve.
+	assert_eq(wp.reserve, start_reserve - 10, "reserve drops by exactly the rounds loaded")
+
+func test_reload_limited_by_remaining_reserve() -> void:
+	var wp := _wp()
+	wp.reserve = 5             # almost dry
+	wp.mag = 0                 # empty mag
+	wp.begin_reload(0)
+	wp.step(int(round(float(Weapon.get_def(Weapon.AR)["reload_secs"]) / SimLoop.DT)) + 1, false, false, false)
+	assert_eq(wp.mag, 5, "only what's left in reserve loads")
+	assert_eq(wp.reserve, 0, "reserve emptied")
+
+func test_reload_blocked_when_reserve_empty() -> void:
+	var wp := _wp()
+	wp.reserve = 0
+	wp.mag = 3
+	wp.begin_reload(0)
+	assert_false(wp.reloading, "cannot reload with an empty reserve")
+	assert_eq(wp.mag, 3, "mag unchanged")
+
+func test_reconcile_snaps_reserve_to_authority() -> void:
+	var wp := _wp()
+	wp.reserve = 180
+	# Authority says we actually have 90 left (e.g. a mispredicted resupply / reload).
+	wp.reconcile_reserve(90)
+	assert_eq(wp.reserve, 90, "reserve snaps to authoritative value")

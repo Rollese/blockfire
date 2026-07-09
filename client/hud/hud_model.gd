@@ -239,7 +239,7 @@ static func _self_team(ctx: Dictionary) -> int:
 func _ammo(ctx: Dictionary) -> Dictionary:
 	var wp: WeaponPredictor = ctx.get("weapon_predictor") as WeaponPredictor
 	if wp == null:
-		return {"mag": 0, "reloading": false, "low": false}
+		return {"mag": 0, "reserve": 0, "reloading": false, "low": false}
 	# RPG: the readout is the rocket pool (kind 100 in throwables), not a hit-scan magazine.
 	if int(wp.weapon) == Weapon.RPG:
 		var rockets := 0
@@ -250,6 +250,7 @@ func _ammo(ctx: Dictionary) -> Dictionary:
 	var mag_size := int(Weapon.get_def(wp.weapon)["mag_size"])
 	return {
 		"mag": wp.mag,
+		"reserve": wp.reserve,   # reserve-ammo economy (M17): spare-bullet pool shown after the mag
 		"reloading": wp.reloading,
 		"reload_remaining": wp.reload_remaining(int(ctx.get("tick", 0))),
 		"low": wp.mag <= int(ceil(mag_size * LOW_AMMO_FRAC)),

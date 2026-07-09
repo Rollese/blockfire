@@ -191,14 +191,17 @@ func give_heal(target_id: int, rate: int) -> void:
 	t.health = mini(100, t.health + rate)
 	srv._stats.heals += 1
 
-## Ammo give at 1 mag per `period` ticks (active_rate is the period). Refills ammo + a bandage.
+## Ammo give at 1 mag per `period` ticks (active_rate is the period). Tops the mag, refills the
+## reserve-ammo pool (M17), and restocks a bandage.
 func give_ammo(target_id: int, period: int) -> void:
 	if period <= 0 or srv._sim.tick % period != 0: return
 	if not srv._clients.has(target_id): return
 	var tc = srv._clients[target_id]
 	var cap: int = int(Weapon.get_def(int(tc["weapon"]))["mag_size"])
-	if int(tc["ammo"]) >= cap and pawn_bandages_full(target_id): return
+	var reserve_max: int = int(Weapon.reserve_ammo(int(tc["weapon"])))
+	if int(tc["ammo"]) >= cap and int(tc.get("reserve", 0)) >= reserve_max and pawn_bandages_full(target_id): return
 	tc["ammo"] = cap
+	tc["reserve"] = reserve_max
 	var tp: Pawn = srv._sim.world.get_pawn(target_id)
 	if tp != null:
 		tp.bandage_count = Revive.bandage_count_for(is_medic(target_id))

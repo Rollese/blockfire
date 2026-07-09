@@ -1493,6 +1493,7 @@ func _handle_self_state(bytes: PackedByteArray) -> void:
 				Protocol.encode_set_fire_mode(_wpred.fire_mode), ENetPacketPeer.FLAG_RELIABLE)
 	# Reconcile ammo from authority — no client rule logic, just snap
 	_wpred.reconcile(int(d["mag"]), bool(d["reloading"]), int(d["reload_remaining"]), _client_tick)
+	_wpred.reconcile_reserve(int(d.get("reserve", -1)))   # M17: snap the spare-ammo pool (-1 = absent, keep local)
 	# Store throwable list for HUD ctx (C3: SELF_STATE now carries per-kind counts)
 	_throwables = d.get("throwables", [])
 	_being_revived = bool(d.get("being_revived", false))   # downed-screen "being revived" indicator
