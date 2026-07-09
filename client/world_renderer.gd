@@ -689,6 +689,9 @@ func setup(map: MapDef, camera: Camera3D) -> void:
 	# onto the tall buildings' walkable roof decks; see WorldRenderer._make_ladder + tools/map_gen.py).
 	for ld: Dictionary in map.ladders:
 		var lnode := _make_ladder(ld)
+		# Each ladder is ~24 rail/rung MeshInstances that all share one material -> merge to a single
+		# instance (≈800 -> ~33 draw calls across a town's ladders). Cosmetic marker, no sim tie-in.
+		MeshMerge.merge_by_material(lnode)
 		add_child(lnode)
 		var lbid := int(ld.get("building_id", 0))   # so the building's collapse frees this ladder (H1)
 		if lbid != 0:
