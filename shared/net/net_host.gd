@@ -6,18 +6,23 @@ extends Node
 ## See docs/adr/0001-core-runtime-language.md and the M1 netcode spec.
 ##
 ## Channels (see docs/specs/wire-protocol.md when written):
-##   0 = reliable control/events (handshake, spawns)
+##   0 = reliable control/events (handshake, spawns, SELF_STATE, kills, rosters, lists)
 ##   1 = unreliable-sequenced snapshots (server -> client)
 ##   2 = unreliable-sequenced input (client -> server)
+##   3 = reliable BULK structure traffic (baselines/deltas/collapse) — a separate reliable stream so a
+##       dense-map structure-baseline flood can't head-of-line-block latency-critical SELF_STATE on
+##       channel 0 (measured ~170 ms p99 stall at 48 bots; docs/reviews/2026-07-03…§D3). App dispatch is
+##       by message id (receivers ignore the channel), so this is purely a transport-lane split.
 
 signal peer_connected(peer: ENetPacketPeer)
 signal peer_disconnected(peer: ENetPacketPeer)
 signal packet_received(peer: ENetPacketPeer, channel: int, bytes: PackedByteArray)
 
-const CHANNELS := 3
+const CHANNELS := 4
 const CHANNEL_CONTROL := 0
 const CHANNEL_SNAPSHOT := 1
 const CHANNEL_INPUT := 2
+const CHANNEL_BULK := 3   # reliable bulk structure traffic (own stream; see channel notes above)
 
 var _host: ENetConnection
 

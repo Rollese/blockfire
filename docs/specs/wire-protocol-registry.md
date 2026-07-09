@@ -5,6 +5,10 @@ This doc is the human-readable index so an agent allocating a message id or audi
 doesn't have to reverse-engineer an 850-line file. **Update this table in the same commit as any
 `Msg` enum change.**
 
+- **`Protocol.VERSION` = 7** (2026-07-10, reliable BULK channel: structure baselines/deltas/collapse
+  move to a dedicated reliable ENet channel (3) so a dense-map baseline flood can't head-of-line-block
+  latency-critical SELF_STATE on channel 0. Transport-topology change only — no message format changed;
+  bumped so a mismatched-channel-count old client is rejected. `docs/reviews/2026-07-03-fable-goals-architecture-review.md` §D3).
 - **`Protocol.VERSION` = 6** (2026-07-10, M17 reserve-ammo economy: SELF_STATE gains a trailing
   `reserve` u16 — the finite spare-bullet pool separate from the loaded mag; `docs/specs/reserve-ammo.md`).
 - **`Protocol.VERSION` = 5** (2026-07-09, M16 standing-bleed: adds `BANDAGE_ACTION` (46) +
@@ -17,8 +21,9 @@ doesn't have to reverse-engineer an 850-line file. **Update this table in the sa
   bump on ANY wire change — format *or* meaning. The HELLO handshake rejects mismatches; there is
   no other cross-build compat mechanism. Never add `get_available_bytes()` trailing-field guards
   inside repeated records (only sound at message tail).
-- **Channels** (`shared/net/net_host.gd`): `CONTROL` (reliable control traffic), `SNAPSHOT`
-  (unreliable state), `INPUT` (client commands).
+- **Channels** (`shared/net/net_host.gd`): `CONTROL` (0, reliable control traffic + SELF_STATE),
+  `SNAPSHOT` (1, unreliable state), `INPUT` (2, client commands), `BULK` (3, reliable structure
+  baselines/deltas/collapse — separate reliable stream so a baseline flood can't HOL-block SELF_STATE).
 - **Next free message id: 48.**
 
 | id | Msg | direction | purpose | since |

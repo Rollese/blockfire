@@ -62,6 +62,19 @@ Canonical source of truth for what's being worked on. Claim a task (set owner + 
 > `docs/gate-evidence/20260705-213626-ticklead.txt`). **Open:** owner feel-gate playtest (meter:
 > `[client-dbg] lead_d/holds/extras`); deadzone narrowing 0.12→? only after that validates.
 
+> **2026-07-10 — netcode: reliable BULK channel (anti-HOL).** Implements the 2026-07-03 architecture
+> review §D3. All reliable server→client traffic shared ENet channel 0, so a dense-map
+> structure-baseline flood (town = 8324 pieces) could head-of-line-block latency-critical SELF_STATE
+> (ammo/reload/stamina, reliable every stride) — a measured ~170 ms p99 stall at 48 bots. Added
+> `NetHost.CHANNEL_BULK` (3) and moved structure baselines/deltas/collapse/collapse-warning onto it;
+> everything else stays on CONTROL (0). Receivers dispatch by message id and ignore the channel, so it's
+> a pure transport-lane split (no message format change); `Protocol.VERSION` **6→7** so a
+> mismatched-channel-count old client is rejected. Suite **1455/0**; connect smoke PASS (bot synced 113
+> pieces over BULK); **128-bot gate PASS** on `conquest_town` (`winner=1 elapsed=71s peak tick=25.78ms<33.3
+> kills=27 players=128, 0 script errors`; `docs/gate-evidence/20260710-003919-netcode-bulk-channel.txt`).
+> [[blockfire-netcode-bulk-channel]]. Remaining review items (native snapshot encoder B1, instanced
+> remote players B2, infantry lag-comp D1) are larger/owner-steerable — not done here.
+
 > **2026-07-05 (pm) — M7 playtest round 6 (live, laptop .116).** Owner playtest → fixes landed on `m7-playtest-round6-fixes`, suite **1266/0**. Session log: `docs/sessions/2026-07-05-m7-playtest-round6.md`. **Fixed:** A1 no-combat-while-climbing (+ strafe-off dismount, swap kept), B3 bigger stamina bar, C3b the "65535 damage" recap overflow (credit `min(dmg, pre-hit HP)`), C4 client grenade wall-bounce (was tunneling), H1 ladders removed on building collapse, **H2 the ~1 Hz empty-sprint rubberband** (BattleBit sprint-lockout hysteresis; **`Protocol.VERSION` 2→3** for a SELF_STATE `sprint_locked` byte), C1a visible spread + a recovering visual camera-recoil kick. **Decisions:** killfeed stays OFF (BattleBit-minimal, [[blockfire-no-killfeed]]); map design / bot pathfinding / destruction-fidelity / scoreboard-stats deferred to their own milestones. **Deferred:** B4 jump-apex "second tiny jump" folded into the **tick-lead netcode** (`docs/specs/netcode-tick-lead.md`) — same feel-critical class, do it with the fleet gate.
 
 > **2026-07-06 — collapse round (tick-lead already merged; live laptop playtest).** Landed on master (`948def0`, suite **1291/0**): **collapse lethality** (a building coming down crushes players/vehicles/deployed gear in its footprint + 1.5 m, anchored on the building's *original* footprint cached at map load — `shared/sim/collapse_zone.gd`), **silent rejoin rubble** (past collapses no longer re-detonate on connect), **far-ghost-ladder fix** (a building damaged to zero pieces now collapses → frees its ladders), **grounded rubble** (client `_building_footprint` union, not the surviving remnant), **viewmodel hidden when dead**, and `--fast-nades`/`--fast-rpg` made **humans-only**. Owner-confirmed live: small/edge/interior collapses all kill, rubble on the ground. **Two follow-ups deferred to their milestones (documented, not just noted here):** (1) **connect-time loading screen** to hide the initial structure-delta streaming → [`hud-ui.md`](specs/hud-ui.md) "Connecting / loading screen (deferred)"; (2) **bot RPG-at-structure aggression** balance (bots chew the map — ~815 rockets/28 min) → [`bot-ai.md`](specs/bot-ai.md) §8 "Known balance gap".
