@@ -1,0 +1,8 @@
+gate: m16-bleed
+date: 2026-07-09T23:43:22+02:00
+host: game2
+git: b7d18f8
+verdict: PASS
+summary: winner=1 elapsed=83s peak_tick=23.54ms budget=33.3ms agg=23.9Mbit/s players=128 kills=21 cap_events=1 ai_us_mean=9909.0us map=conquest_town
+srvlog: srvlog-m16-bleed-20260709-234322.log
+srvlog_sha256: dd9ea42ebb24abb236d537047f1bceb097886bc05e5a79af777122724cc24aa7
