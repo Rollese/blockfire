@@ -48,8 +48,18 @@ routing via the shared `Revive` helpers, never reimplementing the halving formul
 mid-channel damage reset, dry-bandage no-op, dry-revive fail, revive spends a bandage). Suite **1437/0**;
 connect smoke PASS (VERSION 5 handshake clean).
 
-## Fleet gate (128-bot, conquest_town, game2)
-_TBD — running; assert bleeds>0, bandages>0, bleeddowns>0, valid winner, peak tick < budget._
+## Fleet gate (128-bot, conquest_town, game2) — PASS
+`docs/gate-evidence/20260709-234921-m16-bleed2.txt` (git `afb3880`): `winner=1 elapsed=158s peak
+tick=23.83ms<33.3 agg=23.7Mbit/s players=128 kills=23 cap_events=1`, 0 errors. Every M16 stat
+exercised emergently: **bleeds=12, bandages=2, bleeddowns=3** (+ revives=5 — the revive-costs-a-
+bandage gate still lets revives complete). No tick-budget regression (23.83ms vs the M15 ~24ms baseline).
+
+The first run (`20260709-234322-m16-bleed.txt`, TICKETS default) was an 83s steamroll: bleeds=9 /
+bleeddowns=4 but bandages=0 — a bleeding bot almost never got a 5 s window with *zero* visible
+enemies. Loosened the bot self-bandage "safe" condition to *no enemy within 18 m* (`BANDAGE_SAFE_DIST`;
+a wounded bot patches up behind cover while distant threats exist, as a human would) and re-ran at
+TICKETS=200 → bandages=2. Bandage completion was already proven deterministically
+(`server_bleed_test.gd`); this makes the fleet exercise it emergently too.
 
 ## Deferred (owner playtest / follow-up)
 - Client **feel**: dedicated red bleeding vignette, remote blood-drip VFX, final cast-bar art + keybind
