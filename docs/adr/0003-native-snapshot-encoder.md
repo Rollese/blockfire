@@ -105,6 +105,14 @@ Second native candidate, only if Phase 0 / re-profiling demands it: `InterestGri
    separate, pre-existing cost outside this ADR's scope.
 3. **Phase B perf gate:** deferred with Phase B (unchanged: encode wall-time vs worker count,
    near-linear scaling).
+   **A.5 addendum (2026-07-10, owner-ratified):** interest membership + enemy cull also moved
+   native (`encode_for_auto`), plus structure-baseline scan memoization. For this layer the
+   byte-identical contract is deliberately relaxed to **decoded-view equality** (record order =
+   column order; decode is order-independent) — verified by an oracle view-parity fuzz harness
+   (`tests/native_interest_view_test.gd`); the byte-level fuzz/golden suites still pin the codec
+   core through explicit-interest `encode_for`. E-core gate improved **28.87 → 22.70 ms**
+   (`snapq` 6.8 ms → ~10 µs; steady `snap` ≈ 2.8 ms) —
+   `docs/gate-evidence/20260710-183739-phaseA5-ecore-native.txt`.
 4. **No-regression: PASS.** Suite 1463/0 (was 1456 + new parity/columns tests), connect smoke green,
    P-core fleet gate **18.38 ms peak** vs the ~24–26 ms historical baseline
    (`…175544-phaseA-pcore-native.txt`), GitHub CI green incl. the new Rust build steps (PR #2).
