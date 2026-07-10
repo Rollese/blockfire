@@ -115,6 +115,7 @@ var _phase_us := {"poll": 0, "move": 0, "veh": 0, "lag": 0, "interest": 0, "fire
 # ADR-0003 native snapshot encoder (native/snapshot_encoder). Null → GDScript reference path.
 var _enc_native = null
 var _enc_native_failed := false   # any native failure → permanent reference fallback this process
+var _parity_audit := false        # QA (--parity-audit): run BOTH encoders, byte-compare every send (double cost)
 var _col_ids := PackedInt32Array()
 var _col_fields := PackedInt32Array()
 var _col_vids := PackedInt32Array()
@@ -201,6 +202,9 @@ func configure(args: Dictionary) -> void:
 		print("[server] snapshot encoder: NATIVE (ADR-0003)")
 	else:
 		print("[server] snapshot encoder: GDScript reference")
+	_parity_audit = args.has("parity-audit")
+	if _parity_audit:
+		print("[server] PARITY AUDIT ON — running both encoders, double encode cost")
 	if eff["degrade_high_ms"] > 0.0:
 		_degrade_high_ms = eff["degrade_high_ms"]
 	if eff["degrade_low_ms"] > 0.0:
@@ -896,6 +900,8 @@ func _send_snapshots() -> void:
 	# structure-baseline sync, SELF_STATE. `snap` (timed by the caller) stays the umbrella total.
 	var t_q := 0; var t_enc := 0; var t_send := 0; var t_struct := 0; var t_self := 0
 	var use_native := _enc_native != null and not _enc_native_failed
+	var audit := _parity_audit and use_native
+	var build_ref := (not use_native) or audit
 	var t0 := Time.get_ticks_usec()
 	var state := {}
 	var vstate := {}
@@ -909,7 +915,7 @@ func _send_snapshots() -> void:
 		if not _enc_native.begin_tick(_sim.tick, _col_ids, _col_fields, _col_vids, _col_vfields, _col_vseats, _col_vseat_off):
 			_native_encoder_fail("begin_tick")
 			return   # skip this tick's sends; next tick runs the reference path (clients tolerate a skipped stride)
-	else:
+	if build_ref:
 		state = _sim.world.state_map()
 		# Stamp the live equipped weapon (kept in the client record, not the pawn) onto each entity so it
 		# rides the snapshot ENTER record like armor_class — lets remotes render the right weapon
@@ -963,21 +969,10 @@ func _send_snapshots() -> void:
 		t0 = Time.get_ticks_usec()
 		var seq: int = c["next_seq"]
 		var bytes: PackedByteArray
+		var ref_bytes := PackedByteArray()
 		var current := {}
 		var current_v := {}
-		if use_native:
-			# Vehicle interest: same float distance test on the same Vehicle.pos the reference
-			# reads via to_state(), iterated in the same world.vehicles order.
-			var vlist := PackedInt32Array()
-			for vid in _sim.world.vehicles:
-				if self_pawn.pos.distance_to((_sim.world.vehicles[vid] as Vehicle).pos) <= INTEREST_RADIUS:
-					vlist.append(vid)
-			bytes = _enc_native.encode_for(id, seq, c["last_acked_seq"], c["last_input_tick"],
-				PackedInt32Array(ids), vlist)
-			if bytes.is_empty():
-				_native_encoder_fail("encode_for client %d" % id)
-				return
-		else:
+		if build_ref:
 			for vid in ids: current[vid] = state[vid]
 			for vid in vstate:
 				var vst: VehicleState = vstate[vid]
@@ -990,7 +985,26 @@ func _send_snapshots() -> void:
 			var baseline_v = c["history_v"].get(baseline_seq)
 			if baseline_v == null:
 				baseline_v = {}
-			bytes = Snapshot.encode(_sim.tick, seq, baseline_seq, c["last_input_tick"], current, baseline, current_v, baseline_v)
+			ref_bytes = Snapshot.encode(_sim.tick, seq, baseline_seq, c["last_input_tick"], current, baseline, current_v, baseline_v)
+		if use_native:
+			# Vehicle interest: same float distance test on the same Vehicle.pos the reference
+			# reads via to_state(), iterated in the same world.vehicles order.
+			var vlist := PackedInt32Array()
+			for vid in _sim.world.vehicles:
+				if self_pawn.pos.distance_to((_sim.world.vehicles[vid] as Vehicle).pos) <= INTEREST_RADIUS:
+					vlist.append(vid)
+			bytes = _enc_native.encode_for(id, seq, c["last_acked_seq"], c["last_input_tick"],
+				PackedInt32Array(ids), vlist)
+			if bytes.is_empty():
+				_native_encoder_fail("encode_for client %d" % id)
+				return
+			if audit and bytes != ref_bytes:
+				push_error("[parity-audit] MISMATCH client=%d seq=%d tick=%d nat=%dB ref=%dB"
+					% [id, seq, _sim.tick, bytes.size(), ref_bytes.size()])
+				_native_encoder_fail("parity-audit")
+				return
+		else:
+			bytes = ref_bytes
 		t_enc += Time.get_ticks_usec() - t0
 		t0 = Time.get_ticks_usec()
 		_net.send_to(c["peer"], NetHost.CHANNEL_SNAPSHOT, bytes, 0)
@@ -1005,8 +1019,9 @@ func _send_snapshots() -> void:
 			ENetPacketPeer.FLAG_RELIABLE)
 		t_self += Time.get_ticks_usec() - t0
 		t0 = Time.get_ticks_usec()
-		if not use_native:
+		if build_ref:
 			# Reference-path baseline bookkeeping; the native encoder stores history internally.
+			# (Audit mode maintains BOTH so the reference baselines stay valid for comparison.)
 			c["history"][seq] = current
 			c["history_v"][seq] = current_v
 			var cutoff := seq - MAX_HISTORY
