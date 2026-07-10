@@ -1,0 +1,14 @@
+gate: phaseA-ecore-subbuckets
+date: 2026-07-10T17:27:55+02:00
+host: game2
+git: 7f2e47d
+verdict: FAIL
+summary: winner=1 elapsed=62s peak_tick=34.83ms budget=33.3ms agg=24.6Mbit/s players=128 kills=22 cap_events=1 ai_us_mean=9869.8us map=conquest_town
+srvlog: srvlog-phaseA-ecore-subbuckets-20260710-172755.log
+srvlog_sha256: d4560fce7c75675b978ebc7c8d3358581c66fd936c1bb07664020e8346f766db
+note: EXPECTED FAIL — this is the ADR-0003 Task 1 sub-bucket profile (the "before"). Reproduces
+  Phase 0 (34.84ms) at 34.83ms with the snap bucket split into sub-buckets.
+peak_perf_line: poll=3337 move=4407 veh=7 lag=3 interest=211 fire=341 ordnance=701 support=106 build=424 respawn=67 conquest=371 match=21 snap=23916 snapq=5753 snapenc=13424 snapsend=114 snapstruct=3393 snapself=813 (ticks=31)
+interpretation: native-encoder-addressable share = snapenc 13.4ms (state_map clone + dict + encode + history).
+  snapq (per-client grid query + enemy cull, GDScript, stays) = 5.8ms; snapstruct = 3.4ms; send+self = 0.9ms.
+  Phase A projection: snapenc 13.4 -> ~2ms => peak tick ~23-24ms (PASS with ~10ms margin).
