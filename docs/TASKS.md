@@ -62,6 +62,20 @@ Canonical source of truth for what's being worked on. Claim a task (set owner + 
 > `docs/gate-evidence/20260705-213626-ticklead.txt`). **Open:** owner feel-gate playtest (meter:
 > `[client-dbg] lead_d/holds/extras`); deadzone narrowing 0.12→? only after that validates.
 
+> **2026-07-10 — perf track: native snapshot encoder (ADR-0003 seed + Phase 0 measured).** Opened the
+> ADR-0001 escalation gate. **Phase 0 (measurement-first) is decisive:** on a budget-CPU proxy (server
+> pinned to 14900KS **E-cores**, bots on P-cores), the 128-bot `conquest_town` gate **FAILS** — peak
+> tick 34.84 ms (p99 37.46) vs the 33.3 ms budget, with the `snap` (snapshot-encode) bucket = **24.0 ms
+> (×1.72 vs 14.0 ms on P-cores), ~69% of the tick**. `snap` is GDScript-CPU-bound (scales with
+> single-thread perf) and the `interest` query is a separate 0.2 ms bucket, so ~80–90% of `snap` is
+> addressable by a native encoder. **Conclusion: the native escalation is REQUIRED for budget hardware,
+> not optional.** Proposed decision: Rust `gdext` (voice_opus template), **two phases** — (A) native
+> columnar state-extraction + encoder behind the byte-identical `Snapshot.encode` seam (projected `snap`
+> → ~5–8 ms, restores budget at 128p); (B) parallel per-client send across a worker pool (the 256-player
+> / multicore endgame; sim stays single-threaded for determinism). Seed for the deep-planning pass:
+> `docs/adr/0003-native-snapshot-encoder.md`; evidence `docs/gate-evidence/20260710-163108-phase0-ecore-profile.txt`
+> (the FAIL is intentional — it's the "before" that Phase A must flip). [[blockfire-native-snapshot-encoder]].
+
 > **2026-07-10 — netcode: reliable BULK channel (anti-HOL).** Implements the 2026-07-03 architecture
 > review §D3. All reliable server→client traffic shared ENet channel 0, so a dense-map
 > structure-baseline flood (town = 8324 pieces) could head-of-line-block latency-critical SELF_STATE
