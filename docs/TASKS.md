@@ -85,8 +85,22 @@ Canonical source of truth for what's being worked on. Claim a task (set owner + 
 > deferred until 256p is scheduled or destruction erodes the margin). Design:
 > `docs/superpowers/specs/2026-07-10-native-snapshot-encoder-design.md`. **Build-session plan (TDD,
 > 14 Phase A tasks + deferred Phase B): `docs/plans/2026-07-10-native-snapshot-encoder.md`** — hard
-> checks are byte-parity suites + the E-core FAIL→PASS flip (`ENCODER=gd` vs native A/B). Status:
-> **todo → ready for the Opus build session**; owner of the build task claims it here per AGENTS.md §3.
+> checks are byte-parity suites + the E-core FAIL→PASS flip (`ENCODER=gd` vs native A/B).
+
+> **2026-07-10 (evening) — ADR-0003 Phase A BUILT + GATES PASS (done ✅, same-day).** Executed the
+> full 14-task plan in-session. `native/snapshot_encoder/` (Rust gdext 0.5.3, `NativeSnapshotEncoder`,
+> release .so, Linux-only) + `shared/net/snapshot_columns.gd` + `server_main.gd` native path w/
+> `--encoder=gd` fallback, ack/reenter/disconnect/rotation hooks, `--parity-audit`. **Evidence:
+> E-core A/B flip `ENCODER=gd` FAIL 35.05ms → native PASS 28.87ms** (`snapenc` 13.4ms→0.46–0.9ms,
+> ~15–29×); live parity audit **0 mismatches** over a 128-bot match; P-core no-regression **18.38ms**
+> (was ~24–26ms); suite **1463/0**; CI green w/ new Rust build steps (cargo 11/11; parity tests
+> fail-loud in CI). Task 1 sub-bucket instrumentation (`snapq/snapenc/snapsend/snapstruct/snapself`)
+> landed first and re-measured the addressable share honestly (13.4ms, not the seeded ~20ms — `snapq`
+> per-client interest queries are 5.8ms and stay GDScript). **Next perf levers if E-core margin ever
+> needs more: `snapstruct` join-flood (12.3ms peak window) and `snapq` — both outside ADR-0003
+> scope.** Phase B (parallel encode) stays deferred per the ADR trigger conditions. Servers need
+> `cargo build --release --manifest-path native/snapshot_encoder/Cargo.toml` before fleet gates
+> (stress.sh fail-fasts if the .so is missing; `ENCODER=gd` opts out).
 
 > **2026-07-10 — netcode: reliable BULK channel (anti-HOL).** Implements the 2026-07-03 architecture
 > review §D3. All reliable server→client traffic shared ENet channel 0, so a dense-map
