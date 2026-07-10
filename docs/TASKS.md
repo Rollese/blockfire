@@ -117,6 +117,17 @@ Canonical source of truth for what's being worked on. Claim a task (set owner + 
 > 3.3ms→0.7–1.4ms, steady `snap` ~2.8ms. Suite 1464/0; live audit 16-bot run 0 mismatches, 0 drift.
 > Remaining peak driver = join-time baseline flood (paced send volume) — the next lever if needed.
 
+> **2026-07-10 (night) — FULL 30 Hz SNAPSHOTS (done ✅).** `SNAPSHOT_STRIDE` 2 → 1: every client
+> now gets a snapshot + SELF_STATE every tick (was 15 Hz). The historical stride-2 is the FIRST
+> degrade-ladder step (`Degrade.LEVELS` gained a `[1,24]` level 0), so a struggling host
+> automatically falls back to the old behavior. **E-core gate: PASS 23.30ms** (vs 22.70 at 15 Hz —
+> the native encoder makes the doubled sends nearly free: snapenc 0.9→1.7ms, snapself 0.7→1.3ms).
+> **Bandwidth doubles: agg 24.2 → 47.3 Mbit/s at 128p (~370 kbit/s/client)** — packet rate
+> dominates under constant movement; fine for dev/typical dedicated uplinks, lean on the degrade
+> ladder or future send-rate LOD if a host is uplink-constrained. Suite 1464/0; no degrade steps
+> during the gate. Evidence `docs/gate-evidence/20260710-185158-30hz-ecore-native.txt`. Client
+> feel (smoother remotes, per-tick reconcile feedback) → owner playtest.
+
 > **2026-07-10 — netcode: reliable BULK channel (anti-HOL).** Implements the 2026-07-03 architecture
 > review §D3. All reliable server→client traffic shared ENet channel 0, so a dense-map
 > structure-baseline flood (town = 8324 pieces) could head-of-line-block latency-critical SELF_STATE
