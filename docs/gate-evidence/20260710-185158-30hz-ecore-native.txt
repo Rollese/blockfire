@@ -1,0 +1,16 @@
+gate: 30hz-ecore-native
+date: 2026-07-10T18:51:58+02:00
+host: game2
+git: 60e22ac
+verdict: PASS
+summary: winner=1 elapsed=66s peak_tick=23.30ms budget=33.3ms agg=47.3Mbit/s players=128 kills=17 cap_events=1 ai_us_mean=9936.2us map=conquest_town
+srvlog: srvlog-30hz-ecore-native-20260710-185158.log
+srvlog_sha256: 78215375f9bd986030ae2be0638c25aa79f4baf115ecac6c5b86240acd40fcc7
+note: FULL 30 Hz SNAPSHOTS (SNAPSHOT_STRIDE 2 -> 1; stride-2 is now degrade level 1). E-core
+  budget-proxy config: PASS 23.30ms vs the 15 Hz A.5 baseline 22.70ms — the native encoder makes
+  the doubled send count nearly free (snapenc 0.9->1.7ms, snapself 0.7->1.3ms, snapq ~25us).
+  Zero degrade-ladder steps during the match; 0 errors.
+bandwidth: agg 24.2 -> 47.3 Mbit/s (~2x, ~370 kbit/s per client at 128p) — packet rate dominates
+  because per-delta payloads barely shrink under constant bot movement. Fine for dev/LAN and
+  typical dedicated uplinks; revisit (or lean on the degrade ladder / per-entity send-rate LOD)
+  if a production host is uplink-constrained.

@@ -11,8 +11,9 @@ const HIGH_MS := 30.0   # climb a step when windowed tick_mean exceeds this (app
 const LOW_MS := 26.0     # descend a step when it recovers below this (hysteresis band 26..30ms)
 
 # Ladder rows: [snapshot_stride, max_enemy_snapshot]. Index 0 mirrors server_main's static consts
-# (SNAPSHOT_STRIDE=2, MAX_ENEMY_SNAPSHOT=24). Higher rows shed load: send less often, drop distant enemies.
-const LEVELS := [[2, 24], [3, 18], [4, 12]]
+# (SNAPSHOT_STRIDE=1, MAX_ENEMY_SNAPSHOT=24 — full 30 Hz since ADR-0003 A.5). The first degrade
+# step is the historical 15 Hz stride-2 baseline; higher rows shed further.
+const LEVELS := [[1, 24], [2, 24], [3, 18], [4, 12]]
 
 static func max_level() -> int:
 	return LEVELS.size() - 1

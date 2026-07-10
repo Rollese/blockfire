@@ -15,9 +15,10 @@ const MAX_PLAYERS := 128
 const INTEREST_RADIUS := 250.0
 const CELL_SIZE := 64.0
 const MAX_HISTORY := 32
-const SNAPSHOT_STRIDE := 2   # send each client a snapshot every Nth tick (round-robin by id),
-                             # so per-tick encode cost is ~clients/STRIDE instead of O(clients).
-                             # Client-side interpolation smooths the lower send rate (30/STRIDE Hz).
+const SNAPSHOT_STRIDE := 1   # send each client a snapshot every Nth tick (round-robin by id).
+                             # Full 30 Hz since ADR-0003 A.5 made encode+interest native (~1ms/tick
+                             # steady); the historical stride-2 mitigation is now the FIRST DEGRADE
+                             # step (server/degrade.gd LEVELS) instead of the baseline.
 const MAX_SNAPSHOT_ENTITIES := 32   # over this many entities in interest range, the relevance cull
                                     # runs: ALL teammates are kept (friendlies are never hidden — no
                                     # wallhack concern, and you must see downed squadmates to revive)
