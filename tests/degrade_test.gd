@@ -28,14 +28,17 @@ func test_injectable_thresholds() -> void:
 	assert_eq(Degrade.next_level(10.0, 0, 5.0, 3.0), 1, "custom high-water triggers a climb")
 
 func test_ladder_params_shed_load_monotonically() -> void:
-	# Level 0 must equal the server's static baseline (2, 24). Higher levels shed load: longer send
-	# stride (lower rate) and fewer distant enemies replicated.
-	assert_eq(Degrade.stride_for(0), 2)
+	# Level 0 must equal the server's static baseline (1, 24 — full 30 Hz since ADR-0003 A.5).
+	# The first degrade step is the historical stride-2 (15 Hz) baseline; higher levels keep
+	# shedding: longer send stride (lower rate) and fewer distant enemies replicated.
+	assert_eq(Degrade.stride_for(0), 1)
 	assert_eq(Degrade.enemy_cap_for(0), 24)
-	assert_true(Degrade.stride_for(1) > Degrade.stride_for(0), "stride grows with level")
-	assert_true(Degrade.enemy_cap_for(1) < Degrade.enemy_cap_for(0), "enemy cap shrinks with level")
-	assert_true(Degrade.stride_for(2) >= Degrade.stride_for(1))
-	assert_true(Degrade.enemy_cap_for(2) <= Degrade.enemy_cap_for(1))
+	assert_eq(Degrade.stride_for(1), 2, "first degrade step = the old 15 Hz baseline")
+	for lv in range(1, Degrade.max_level() + 1):
+		assert_true(Degrade.stride_for(lv) > Degrade.stride_for(lv - 1) \
+			or Degrade.enemy_cap_for(lv) < Degrade.enemy_cap_for(lv - 1), "every step sheds load")
+		assert_true(Degrade.stride_for(lv) >= Degrade.stride_for(lv - 1))
+		assert_true(Degrade.enemy_cap_for(lv) <= Degrade.enemy_cap_for(lv - 1))
 
 func test_inverted_degrade_band_from_cli_reverts_to_defaults() -> void:
 	# --degrade-high-ms/--degrade-low-ms were unvalidated: an inverted band (low >= high)
