@@ -1,0 +1,18 @@
+gate: phaseA5-ecore-native
+date: 2026-07-10T18:37:39+02:00
+host: game2
+git: b93323c
+verdict: PASS
+summary: winner=1 elapsed=70s peak_tick=22.70ms budget=33.3ms agg=24.2Mbit/s players=128 kills=9 cap_events=1 ai_us_mean=9983.1us map=conquest_town
+srvlog: srvlog-phaseA5-ecore-native-20260710-183739.log
+srvlog_sha256: 220e42effd9ad99619166276054a3343656b381bcf61c259fac75b7148cfeedf
+note: ADR-0003 A.5 (native interest+cull via encode_for_auto + struct-baseline scan memoization).
+  E-core progression on the identical config: reference 35.05ms FAIL -> Phase A 28.87ms PASS ->
+  A.5 22.70ms PASS (10.6ms margin).
+peak_perf_line: snap=15646 snapq=9 snapenc=587 snapsend=41 snapstruct=14325 snapself=521
+steady_state:   snap~2800-3400 snapq=12 snapenc~980 snapstruct=670-1390 snapself~700
+interpretation: snapq 6844us -> 9-12us (interest+cull now native); snapstruct steady 3.3ms ->
+  0.7-1.4ms (scan memoized; remainder = real paced baseline streaming). Peak window is the
+  join-time baseline flood (genuine send volume, paced) — the next lever if ever needed.
+  Parity: view-level fuzz (native_interest_view_test, oracle-replicated membership rule) +
+  byte-level fuzz/golden still pin the codec core; live audit reworked to shadow-view compare.

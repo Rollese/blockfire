@@ -102,6 +102,21 @@ Canonical source of truth for what's being worked on. Claim a task (set owner + 
 > `cargo build --release --manifest-path native/snapshot_encoder/Cargo.toml` before fleet gates
 > (stress.sh fail-fasts if the .so is missing; `ENCODER=gd` opts out).
 
+> **2026-07-10 (night) — ADR-0003 A.5: native interest+cull + struct-scan memoization (done ✅).**
+> Owner-ratified follow-up: interest membership + enemy cull moved INTO the native encoder
+> (`encode_for_auto` — exact 3D distance on the tick's quantized columns, teammates-always,
+> nearest-N enemies ties-by-id; wire record order = column order). **Parity contract deliberately
+> relaxed for this layer to decoded-VIEW equality** (owner decision — decode is order-independent):
+> new oracle harness `tests/native_interest_view_test.gd` (3 seeds × 120 ticks × 4 clients, exact
+> view equality, cull hammered); the byte-level fuzz/golden suites still pin the codec core via
+> explicit-interest `encode_for`; `--parity-audit` reworked to shadow-view comparison (field
+> mismatch on common entities hard-fails; radius-boundary membership drift tallied, telemetry-
+> reported). Plus `_sync_structure_baselines` memoization (skip the 81-region rescan unless grid
+> cell / piece+site epoch / backlog changed; 1-in-32-sends backstop). **E-core gate: PASS 22.70ms
+> (Phase A 28.87 → A.5 22.70; reference 35.05)** — `snapq` 6.8ms→~10µs, `snapstruct` steady
+> 3.3ms→0.7–1.4ms, steady `snap` ~2.8ms. Suite 1464/0; live audit 16-bot run 0 mismatches, 0 drift.
+> Remaining peak driver = join-time baseline flood (paced send volume) — the next lever if needed.
+
 > **2026-07-10 — netcode: reliable BULK channel (anti-HOL).** Implements the 2026-07-03 architecture
 > review §D3. All reliable server→client traffic shared ENet channel 0, so a dense-map
 > structure-baseline flood (town = 8324 pieces) could head-of-line-block latency-critical SELF_STATE
