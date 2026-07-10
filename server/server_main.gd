@@ -109,7 +109,8 @@ var _next_id := 1
 var _brubble_type := -1        # M11 R5: catalog index of the indestructible walkable rubble remnant
 var _tele_accum := 0.0
 # Per-phase tick profiling (mean usec/tick over the telemetry window).
-var _phase_us := {"poll": 0, "move": 0, "veh": 0, "lag": 0, "interest": 0, "fire": 0, "ordnance": 0, "support": 0, "build": 0, "respawn": 0, "conquest": 0, "match": 0, "snap": 0}
+var _phase_us := {"poll": 0, "move": 0, "veh": 0, "lag": 0, "interest": 0, "fire": 0, "ordnance": 0, "support": 0, "build": 0, "respawn": 0, "conquest": 0, "match": 0, "snap": 0,
+	"snapq": 0, "snapenc": 0, "snapsend": 0, "snapstruct": 0, "snapself": 0}
 var _phase_ticks := 0
 var _team_counts := {0: 0, 1: 0}
 # Client ids with auto_deploy=false (rendered humans). Maintained on hello/disconnect so the
@@ -870,6 +871,10 @@ func _track_and_broadcast_match_state() -> void:
 			_net.send_to(_clients[cid]["peer"], NetHost.CHANNEL_SNAPSHOT, bytes, 0)
 
 func _send_snapshots() -> void:
+	# [perf] sub-buckets of `snap` (ADR-0003): query/cull, state+encode+history, ENet send,
+	# structure-baseline sync, SELF_STATE. `snap` (timed by the caller) stays the umbrella total.
+	var t_q := 0; var t_enc := 0; var t_send := 0; var t_struct := 0; var t_self := 0
+	var t0 := Time.get_ticks_usec()
 	var state := _sim.world.state_map()
 	# Stamp the live equipped weapon (kept in the client record, not the pawn) onto each entity so it
 	# rides the snapshot ENTER record like armor_class — lets remotes render the right weapon
@@ -878,6 +883,7 @@ func _send_snapshots() -> void:
 		if _clients.has(sid):
 			(state[sid] as EntityState).weapon = int(_clients[sid].get("weapon", Weapon.AR))
 	var vstate := _sim.world.vehicle_state_map()
+	t_enc += Time.get_ticks_usec() - t0
 	for id in _clients:
 		# Stagger sends across ticks so the per-tick snapshot encode cost (the dominant tick
 		# cost at high player counts) is ~clients/SNAPSHOT_STRIDE rather than O(clients).
@@ -886,7 +892,10 @@ func _send_snapshots() -> void:
 		var c = _clients[id]
 		var self_pawn = _sim.world.get_pawn(id)
 		if self_pawn == null: continue
+		t0 = Time.get_ticks_usec()
 		_sync_structure_baselines(c, self_pawn.pos)
+		t_struct += Time.get_ticks_usec() - t0
+		t0 = Time.get_ticks_usec()
 		var ids := _grid.query(self_pawn.pos, INTEREST_RADIUS, _positions)
 		if ids.size() > MAX_SNAPSHOT_ENTITIES:
 			# Cull ENEMIES only — they are the sole wallhack concern. Every TEAMMATE in interest
@@ -913,6 +922,8 @@ func _send_snapshots() -> void:
 				kept[pair[1]] = true
 				enemy_kept += 1
 			ids = kept.keys()
+		t_q += Time.get_ticks_usec() - t0
+		t0 = Time.get_ticks_usec()
 		var current := {}
 		for vid in ids: current[vid] = state[vid]
 		var current_v := {}
@@ -929,7 +940,11 @@ func _send_snapshots() -> void:
 			baseline_v = {}
 		var seq: int = c["next_seq"]
 		var bytes := Snapshot.encode(_sim.tick, seq, baseline_seq, c["last_input_tick"], current, baseline, current_v, baseline_v)
+		t_enc += Time.get_ticks_usec() - t0
+		t0 = Time.get_ticks_usec()
 		_net.send_to(c["peer"], NetHost.CHANNEL_SNAPSHOT, bytes, 0)
+		t_send += Time.get_ticks_usec() - t0
+		t0 = Time.get_ticks_usec()
 		var reload_remaining: int = maxi(0, int(c["reload_done_tick"]) - _sim.tick) if c["reloading"] else 0
 		# Reliable so the authoritative ammo/reload always reaches the owner — otherwise dropped
 		# SELF_STATE packets (lossy links) leave the client predicting phantom ammo it doesn't have.
@@ -937,6 +952,8 @@ func _send_snapshots() -> void:
 		_net.send_to(c["peer"], NetHost.CHANNEL_CONTROL,
 			Protocol.encode_self_state(int(c["ammo"]), bool(c["reloading"]), reload_remaining, int(c["weapon"]), _throwables_for(c), _support.being_revived.has(id), self_pawn.suppression, clampi(self_pawn.blind_until_tick - _sim.tick, 0, 255), self_pawn.bandage_count, self_pawn.bleed_halted, rgauge.x, rgauge.y, self_pawn.stamina, self_pawn.velocity.y, self_pawn.grounded, self_pawn.vaulting, self_pawn.vault_tick, self_pawn._regen_cooldown, self_pawn._sprint_locked, int(c["input_buf_depth"]), self_pawn.bleeding, _support.bandage_progress_u8(id), int(c.get("reserve", 0))),
 			ENetPacketPeer.FLAG_RELIABLE)
+		t_self += Time.get_ticks_usec() - t0
+		t0 = Time.get_ticks_usec()
 		c["history"][seq] = current
 		c["history_v"][seq] = current_v
 		c["next_seq"] = seq + 1
@@ -946,6 +963,9 @@ func _send_snapshots() -> void:
 		for s in c["history_v"].keys():
 			if s < cutoff: c["history_v"].erase(s)
 		_tele.add_bytes(id, bytes.size())
+		t_enc += Time.get_ticks_usec() - t0
+	_phase_us["snapq"] += t_q; _phase_us["snapenc"] += t_enc; _phase_us["snapsend"] += t_send
+	_phase_us["snapstruct"] += t_struct; _phase_us["snapself"] += t_self
 
 func _broadcast_roster() -> void:
 	var rows: Array = []
@@ -2284,8 +2304,8 @@ func _log_telemetry() -> void:
 		pktloss, _tele.starvation, _conquest.tickets_int(0), _conquest.tickets_int(1), pts,
 		_store.count()))
 	var pt := maxi(_phase_ticks, 1)
-	print("[perf] us/tick: poll=%d move=%d veh=%d lag=%d interest=%d fire=%d ordnance=%d support=%d build=%d respawn=%d conquest=%d match=%d snap=%d (ticks=%d)"
-		% [_phase_us["poll"] / pt, _phase_us["move"] / pt, _phase_us["veh"] / pt, _phase_us["lag"] / pt, _phase_us["interest"] / pt, _phase_us["fire"] / pt, _phase_us["ordnance"] / pt, _phase_us["support"] / pt, _phase_us["build"] / pt, _phase_us["respawn"] / pt, _phase_us["conquest"] / pt, _phase_us["match"] / pt, _phase_us["snap"] / pt, _phase_ticks])
+	print("[perf] us/tick: poll=%d move=%d veh=%d lag=%d interest=%d fire=%d ordnance=%d support=%d build=%d respawn=%d conquest=%d match=%d snap=%d snapq=%d snapenc=%d snapsend=%d snapstruct=%d snapself=%d (ticks=%d)"
+		% [_phase_us["poll"] / pt, _phase_us["move"] / pt, _phase_us["veh"] / pt, _phase_us["lag"] / pt, _phase_us["interest"] / pt, _phase_us["fire"] / pt, _phase_us["ordnance"] / pt, _phase_us["support"] / pt, _phase_us["build"] / pt, _phase_us["respawn"] / pt, _phase_us["conquest"] / pt, _phase_us["match"] / pt, _phase_us["snap"] / pt, _phase_us["snapq"] / pt, _phase_us["snapenc"] / pt, _phase_us["snapsend"] / pt, _phase_us["snapstruct"] / pt, _phase_us["snapself"] / pt, _phase_ticks])
 	# M8-P3 adaptive degradation: re-evaluate the ladder off this window's mean tick (before reset).
 	var new_level := Degrade.next_level(_tele.mean_tick_ms(), _degrade_level, _degrade_high_ms, _degrade_low_ms)
 	if new_level != _degrade_level:
