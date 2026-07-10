@@ -1,0 +1,11 @@
+gate: phaseA-parity-audit
+date: 2026-07-10T17:53:56+02:00
+host: game2
+git: a79e847
+verdict: PASS
+summary: winner=1 elapsed=69s peak_tick=27.22ms budget=33.3ms agg=24.3Mbit/s players=128 kills=20 cap_events=2 ai_us_mean=4349.7us map=conquest_town
+srvlog: srvlog-phaseA-parity-audit-20260710-175355.log
+srvlog_sha256: 6083dbd974fff89beb041d1b55cf0f58e51481a6e7dc5be8635bf14385dba93a
+note: ADR-0003 live parity audit — BOTH encoders ran on every send (--parity-audit), bytes
+  compared: 0 MISMATCH lines across a full 128-bot conquest_town match. PASSed budget even at
+  double encode cost (27.22ms, P-cores).

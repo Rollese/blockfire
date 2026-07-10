@@ -1,0 +1,15 @@
+gate: phaseA-ecore-native
+date: 2026-07-10T17:49:56+02:00
+host: game2
+git: a79e847
+verdict: PASS
+summary: winner=1 elapsed=67s peak_tick=28.87ms budget=33.3ms agg=23.7Mbit/s players=128 kills=16 cap_events=1 ai_us_mean=9797.2us map=conquest_town
+srvlog: srvlog-phaseA-ecore-native-20260710-174956.log
+srvlog_sha256: 26e58c3782e6fdcbe93ac287d3968f19438fdad514e49a02d11c284ea99f0ca7
+note: ADR-0003 Phase A THE FLIP — same E-core config that fails on the GDScript reference
+  (35.05ms, 20260710-175207-phaseA-ecore-gdref.txt) PASSES with the native encoder: 28.87ms.
+peak_perf_line: snap=14783 snapq=1349 snapenc=464 snapsend=40 snapstruct=12328 snapself=463
+  (peak window = structure-baseline join flood; steady-state snap ~12000 with snapenc ~900)
+interpretation: snapenc 13424us (reference, 20260710-172755) -> 464-900us native (~15-29x).
+  encoder line confirmed: "[server] snapshot encoder: NATIVE (ADR-0003)"; 0 native-enc errors,
+  0 SCRIPT ERROR.
