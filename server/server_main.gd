@@ -940,8 +940,13 @@ func _send_snapshots() -> void:
 		_sync_structure_baselines(c, self_pawn.pos)
 		t_struct += Time.get_ticks_usec() - t0
 		t0 = Time.get_ticks_usec()
-		var ids := _grid.query(self_pawn.pos, INTEREST_RADIUS, _positions)
-		if ids.size() > MAX_SNAPSHOT_ENTITIES:
+		# Interest + enemy cull: computed NATIVELY on the native path (encode_for_auto, ADR-0003
+		# A.5 — exact distance on the tick's quantized columns). The GDScript grid query below
+		# runs only for the reference path / parity audit.
+		var ids := []
+		if build_ref:
+			ids = _grid.query(self_pawn.pos, INTEREST_RADIUS, _positions)
+		if build_ref and ids.size() > MAX_SNAPSHOT_ENTITIES:
 			# Cull ENEMIES only — they are the sole wallhack concern. Every TEAMMATE in interest
 			# range is always replicated: there is no security reason to hide friendlies, and a
 			# client must see its downed squadmates to revive them (hard count-culling hid them at
@@ -990,20 +995,14 @@ func _send_snapshots() -> void:
 				baseline_v = {}
 			ref_bytes = Snapshot.encode(_sim.tick, seq, baseline_seq, c["last_input_tick"], current, baseline, current_v, baseline_v)
 		if use_native:
-			# Vehicle interest: same float distance test on the same Vehicle.pos the reference
-			# reads via to_state(), iterated in the same world.vehicles order.
-			var vlist := PackedInt32Array()
-			for vid in _sim.world.vehicles:
-				if self_pawn.pos.distance_to((_sim.world.vehicles[vid] as Vehicle).pos) <= INTEREST_RADIUS:
-					vlist.append(vid)
-			bytes = _enc_native.encode_for(id, seq, c["last_acked_seq"], c["last_input_tick"],
-				PackedInt32Array(ids), vlist)
+			# Interest membership, enemy cull AND vehicle interest all resolve inside the
+			# native encoder from the tick columns (ADR-0003 A.5).
+			bytes = _enc_native.encode_for_auto(id, id, seq, c["last_acked_seq"], c["last_input_tick"],
+				int(INTEREST_RADIUS * 1000.0), MAX_SNAPSHOT_ENTITIES, _max_enemy_snapshot)
 			if bytes.is_empty():
-				_native_encoder_fail("encode_for client %d" % id)
+				_native_encoder_fail("encode_for_auto client %d" % id)
 				return
-			if audit and bytes != ref_bytes:
-				push_error("[parity-audit] MISMATCH client=%d seq=%d tick=%d nat=%dB ref=%dB"
-					% [id, seq, _sim.tick, bytes.size(), ref_bytes.size()])
+			if audit and not _audit_compare(id, seq, c, bytes, ref_bytes):
 				_native_encoder_fail("parity-audit")
 				return
 		else:
@@ -1045,6 +1044,55 @@ func _send_snapshots() -> void:
 func _native_encoder_fail(where: String) -> void:
 	_enc_native_failed = true
 	push_error("[native-enc] %s failed — falling back to GDScript reference encoder" % where)
+
+# --- --parity-audit (ADR-0003 A.5): decoded-VIEW comparison. ---
+# Since the native path computes interest itself (fresh quantized positions vs the reference's
+# grid query on interest-phase float positions), packet bytes and membership may legitimately
+# differ at the radius boundary. The audit therefore maintains one shadow client view per
+# encoder stream and requires exact field equality on every entity present in BOTH views;
+# membership drift is tallied (reported via telemetry), never failed.
+var _audit_drift := 0
+
+func _audit_compare(id: int, seq: int, c: Dictionary, nat_bytes: PackedByteArray, ref_bytes: PackedByteArray) -> bool:
+	if not c.has("audit_nat_view"):
+		c["audit_nat_view"] = {}; c["audit_nat_vview"] = {}
+		c["audit_ref_view"] = {}; c["audit_ref_vview"] = {}
+	var nv: Dictionary = c["audit_nat_view"]; var nvv: Dictionary = c["audit_nat_vview"]
+	var rv: Dictionary = c["audit_ref_view"]; var rvv: Dictionary = c["audit_ref_vview"]
+	Snapshot.decode_apply(nat_bytes, nv, nvv)
+	Snapshot.decode_apply(ref_bytes, rv, rvv)
+	for eid in nv:
+		if rv.has(eid):
+			if not _audit_entity_eq(nv[eid], rv[eid]):
+				push_error("[parity-audit] FIELD MISMATCH client=%d seq=%d tick=%d entity=%d"
+					% [id, seq, _sim.tick, eid])
+				return false
+		else:
+			_audit_drift += 1
+	for eid in rv:
+		if not nv.has(eid): _audit_drift += 1
+	for vid in nvv:
+		if rvv.has(vid):
+			if not _audit_vehicle_eq(nvv[vid], rvv[vid]):
+				push_error("[parity-audit] VEHICLE FIELD MISMATCH client=%d seq=%d tick=%d vid=%d"
+					% [id, seq, _sim.tick, vid])
+				return false
+		else:
+			_audit_drift += 1
+	for vid in rvv:
+		if not nvv.has(vid): _audit_drift += 1
+	return true
+
+func _audit_entity_eq(a: EntityState, b: EntityState) -> bool:
+	# Both decoded from wire ints -> identical floats iff identical wire values.
+	return a.pos == b.pos and a.yaw == b.yaw and a.pitch == b.pitch and a.stance == b.stance \
+		and a.lean == b.lean and a.team == b.team and a.alive == b.alive and a.health == b.health \
+		and a.is_downed == b.is_downed and a.climbing == b.climbing and a.squad == b.squad \
+		and a.armor_class == b.armor_class and a.weapon == b.weapon
+
+func _audit_vehicle_eq(a: VehicleState, b: VehicleState) -> bool:
+	return a.pos == b.pos and a.heading == b.heading and a.turret_yaw == b.turret_yaw \
+		and a.hp == b.hp and a.type == b.type and a.seats == b.seats
 
 func _broadcast_roster() -> void:
 	var rows: Array = []
@@ -2308,6 +2356,21 @@ func _sync_structure_baselines(c: Dictionary, self_pos: Vector3) -> void:
 	if _store.count() == 0 and _build.sites.count() == 0:
 		return
 	var center := _grid.key_of(self_pos)
+	# ADR-0003 A.5 memoization: the 81-region rescan only matters when (a) the client crossed a
+	# grid cell (new regions can enter range), (b) the world's piece/site population changed (a
+	# previously-empty unknown region may now need a baseline — the rescan is the ONLY way new
+	# construction reaches clients that don't know the region), or (c) the last scan left a
+	# paced backlog. A 1-in-32-sends unconditional rescan backstops anything missed (piece count
+	# collisions like +1/-1 in one window). Steady state (everything known, nothing changing)
+	# skips the scan entirely.
+	var epoch := _store.count() + _build.sites.count()
+	var scans: int = int(c.get("struct_scan_n", 0)) + 1
+	c["struct_scan_n"] = scans
+	if bool(c.get("struct_synced", false)) and center == c.get("struct_key", Vector2i(1 << 30, 1 << 30)) \
+			and epoch == int(c.get("struct_epoch", -1)) and scans % 32 != 0:
+		return
+	c["struct_key"] = center
+	c["struct_epoch"] = epoch
 	var span := int(ceil(INTEREST_RADIUS / CELL_SIZE))
 	var known: Dictionary = c["known_regions"]
 	# Collect the unknown, non-empty regions in interest range with their piece count + distance, then
@@ -2323,7 +2386,9 @@ func _sync_structure_baselines(c: Dictionary, self_pos: Vector3) -> void:
 				continue   # empty region: leave unknown (cheap to re-check; may gain pieces via deltas)
 			var rc := _grid.world_of_key(region)   # region centre, for nearest-first ordering
 			candidates.append({"region": region, "pieces": pieces, "dist2": self_pos.distance_squared_to(rc)})
-	for sel in BaselinePacer.pick(candidates, MAX_STRUCTURE_BASELINE_PIECES_PER_TICK):
+	var picked := BaselinePacer.pick(candidates, MAX_STRUCTURE_BASELINE_PIECES_PER_TICK)
+	c["struct_synced"] = picked.size() == candidates.size()   # backlog left → keep scanning next sends
+	for sel in picked:
 		var region: Vector2i = sel["region"]
 		var recs := _store.records_in_region(region)
 		for s in _build.sites.records_in_region(region):
@@ -2370,6 +2435,8 @@ func _on_peer_disconnected(peer: ENetPacketPeer) -> void:
 		print("[server] peer %d disconnected — %d peers" % [id, _clients.size()])
 
 func _log_telemetry() -> void:
+	if _parity_audit and _audit_drift > 0:
+		print("[parity-audit] cumulative membership drift entries: %d (radius-boundary/stale-position deltas — expected; field mismatches error out)" % _audit_drift)
 	var n := _clients.size()
 	var alive := 0
 	for id in _sim.world.pawns:

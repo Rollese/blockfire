@@ -96,10 +96,80 @@ impl EncoderCore {
         Ok(())
     }
 
+    /// Native interest + enemy cull (ADR-0003 A.5): membership from the CURRENT tick columns —
+    /// exact 3D distance on the quantized mm positions, `d2 <= radius_mm^2` (matches the
+    /// GDScript grid's inclusive exact-distance filter, on fresher positions). Over
+    /// `max_entities`, keep self + every teammate + the nearest `max_enemies` enemies
+    /// (ties broken by ascending id, mirroring the reference `[d2, id]` lexicographic sort).
+    /// Record order is canonical column (world-insertion) order — decode is order-independent;
+    /// parity for this layer is verified at the decoded-view level (see native_interest_view_test).
+    pub fn encode_for_auto(&mut self, client: i32, self_id: i32, seq: i64, want_baseline_seq: i64,
+            last_input_tick: u32, radius_mm: i64, max_entities: usize, max_enemies: usize)
+            -> Result<Vec<u8>, String> {
+        let cur = self.cur.clone().ok_or("encode_for_auto before begin_tick")?;
+        let srow = *cur.row.get(&self_id)
+            .ok_or_else(|| format!("self id {self_id} not in tick columns"))?;
+        let sf = &cur.fields[srow * PAWN_STRIDE..srow * PAWN_STRIDE + PAWN_STRIDE];
+        let (sx, sy, sz) = (sf[0] as i64, sf[1] as i64, sf[2] as i64);
+        let steam = (sf[5] >> 4) & 1;
+        let r2 = radius_mm * radius_mm;
+
+        let mut members: Vec<i32> = Vec::with_capacity(cur.ids.len().min(max_entities * 2));
+        let mut d2s: Vec<i64> = Vec::with_capacity(members.capacity());
+        for (i, &id) in cur.ids.iter().enumerate() {
+            let f = &cur.fields[i * PAWN_STRIDE..i * PAWN_STRIDE + PAWN_STRIDE];
+            let (dx, dy, dz) = (f[0] as i64 - sx, f[1] as i64 - sy, f[2] as i64 - sz);
+            let d2 = dx * dx + dy * dy + dz * dz;
+            if d2 <= r2 {
+                members.push(id);
+                d2s.push(d2);
+            }
+        }
+        if members.len() > max_entities {
+            // Enemy relevance cull: self + all teammates always; nearest max_enemies enemies.
+            let mut enemies: Vec<(i64, i32)> = Vec::new();
+            let mut kept: FxHashSet<i32> = FxHashSet::default();
+            kept.insert(self_id);
+            for (k, &id) in members.iter().enumerate() {
+                if id == self_id {
+                    continue;
+                }
+                let row = cur.row[&id];
+                let team = (cur.fields[row * PAWN_STRIDE + 5] >> 4) & 1;
+                if team == steam {
+                    kept.insert(id);
+                } else {
+                    enemies.push((d2s[k], id));
+                }
+            }
+            enemies.sort_unstable();
+            for &(_, id) in enemies.iter().take(max_enemies) {
+                kept.insert(id);
+            }
+            members.retain(|id| kept.contains(id));
+        }
+
+        let mut vmembers: Vec<i32> = Vec::new();
+        for (i, &vid) in cur.vids.iter().enumerate() {
+            let f = &cur.vfields[i * VEH_STRIDE..i * VEH_STRIDE + VEH_STRIDE];
+            let (dx, dy, dz) = (f[0] as i64 - sx, f[1] as i64 - sy, f[2] as i64 - sz);
+            if dx * dx + dy * dy + dz * dz <= r2 {
+                vmembers.push(vid);
+            }
+        }
+        self.encode_with(cur, client, seq, want_baseline_seq, last_input_tick, &members, &vmembers)
+    }
+
     pub fn encode_for(&mut self, client: i32, seq: i64, want_baseline_seq: i64,
             last_input_tick: u32, interest_ids: &[i32], interest_vids: &[i32])
             -> Result<Vec<u8>, String> {
         let cur = self.cur.clone().ok_or("encode_for before begin_tick")?;
+        self.encode_with(cur, client, seq, want_baseline_seq, last_input_tick, interest_ids, interest_vids)
+    }
+
+    fn encode_with(&mut self, cur: Arc<TickData>, client: i32, seq: i64, want_baseline_seq: i64,
+            last_input_tick: u32, interest_ids: &[i32], interest_vids: &[i32])
+            -> Result<Vec<u8>, String> {
         let baseline = self.hist.get(&client).and_then(|h| h.get(&want_baseline_seq));
         let baseline_seq: u32 = if baseline.is_some() { want_baseline_seq as u32 } else { 0 };
 
@@ -486,6 +556,88 @@ mod tests {
         assert_eq!(u16::from_le_bytes(buf[17..19].try_into().unwrap()), 1);
         assert_eq!(u32::from_le_bytes(buf[19..23].try_into().unwrap()), 2);
         assert_eq!(buf[23], FLAG_ENTER);
+    }
+
+    // --- encode_for_auto (native interest + cull) ---
+
+    fn pawn_at(id: i32, x: i32, z: i32, team: i32, health: i32) -> (i32, [i32; PAWN_STRIDE]) {
+        // q_state bit4 = team
+        (id, [x, 0, z, 0, 0, (team & 1) << 4, health, 0, 0, 0])
+    }
+
+    fn decode_record_ids(buf: &[u8]) -> Vec<u32> {
+        // walk pawn records of an ENTER-only keyframe (mask always 255 → fixed size)
+        let count = u16::from_le_bytes(buf[17..19].try_into().unwrap()) as usize;
+        let mut ids = Vec::new();
+        let mut off = 19;
+        for _ in 0..count {
+            ids.push(u32::from_le_bytes(buf[off..off + 4].try_into().unwrap()));
+            off += 4 + 1 + 1 + 12 + 4 + 3 + 2; // id flags mask pos angles state/hp/squad armor+weapon
+        }
+        ids
+    }
+
+    #[test]
+    fn auto_membership_is_inclusive_exact_distance() {
+        // radius 10m = 10000mm; entity at exactly 10000 is IN (<=), at 10001 is OUT.
+        let mut c = core_with_tick(&[
+            pawn_at(1, 0, 0, 0, 1),       // self
+            pawn_at(2, 10000, 0, 0, 1),   // exactly on the boundary
+            pawn_at(3, 10001, 0, 0, 1),   // just outside
+        ], 1);
+        let buf = c.encode_for_auto(9, 1, 1, 0, 0, 10000, 32, 8).unwrap();
+        assert_eq!(decode_record_ids(&buf), vec![1, 2]);
+    }
+
+    #[test]
+    fn auto_cull_keeps_self_teammates_and_nearest_enemies_tie_by_id() {
+        // max_entities 4, max_enemies 2: self(t0) + 2 teammates + 4 enemies in range.
+        // enemies 20 & 21 tie on distance -> lower id wins the last slot.
+        let mut c = core_with_tick(&[
+            pawn_at(1, 0, 0, 0, 1),        // self
+            pawn_at(2, 500, 0, 0, 1),      // teammate (always kept)
+            pawn_at(3, 900, 0, 0, 1),      // teammate (always kept)
+            pawn_at(10, 100, 0, 1, 1),     // enemy, nearest
+            pawn_at(21, 200, 0, 1, 1),     // enemy, tied with 20
+            pawn_at(20, 200, 0, 1, 1),     // enemy, tied with 21 (lower id -> kept)
+            pawn_at(30, 300, 0, 1, 1),     // enemy, farthest
+        ], 1);
+        let buf = c.encode_for_auto(9, 1, 1, 0, 0, 250000, 4, 2).unwrap();
+        // canonical column order, membership = {1,2,3} + enemies {10,20}
+        assert_eq!(decode_record_ids(&buf), vec![1, 2, 3, 10, 20]);
+    }
+
+    #[test]
+    fn auto_under_cap_keeps_everyone_in_range() {
+        let mut c = core_with_tick(&[
+            pawn_at(1, 0, 0, 0, 1),
+            pawn_at(10, 100, 0, 1, 1),
+            pawn_at(11, 999999, 0, 1, 1), // far outside 250m
+        ], 1);
+        let buf = c.encode_for_auto(9, 1, 1, 0, 0, 250000, 32, 8).unwrap();
+        assert_eq!(decode_record_ids(&buf), vec![1, 10]);
+    }
+
+    #[test]
+    fn auto_history_supports_delta_and_leave() {
+        let mut c = core_with_tick(&[pawn_at(1, 0, 0, 0, 1), pawn_at(2, 5000, 0, 0, 1)], 1);
+        c.encode_for_auto(9, 1, 1, 0, 0, 250000, 32, 8).unwrap();
+        // entity 2 walks out of range -> LEAVE via the auto path's stored history
+        let pawns = [pawn_at(1, 0, 0, 0, 1), pawn_at(2, 900000, 0, 0, 1)];
+        let ids: Vec<i32> = pawns.iter().map(|p| p.0).collect();
+        let fields: Vec<i32> = pawns.iter().flat_map(|p| p.1).collect();
+        c.begin_tick(2, &ids, &fields, &[], &[], &[], &[0]).unwrap();
+        let buf = c.encode_for_auto(9, 1, 2, 1, 0, 250000, 32, 8).unwrap();
+        // 1 unchanged (no record), 2 -> LEAVE; count == 1
+        assert_eq!(u16::from_le_bytes(buf[17..19].try_into().unwrap()), 1);
+        assert_eq!(u32::from_le_bytes(buf[19..23].try_into().unwrap()), 2);
+        assert_eq!(buf[23], FLAG_LEAVE);
+    }
+
+    #[test]
+    fn auto_unknown_self_errors() {
+        let mut c = core_with_tick(&[pawn_at(1, 0, 0, 0, 1)], 1);
+        assert!(c.encode_for_auto(9, 77, 1, 0, 0, 250000, 32, 8).is_err());
     }
 
     #[test]

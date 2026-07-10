@@ -62,6 +62,25 @@ impl NativeSnapshotEncoder {
         }
     }
 
+    /// ADR-0003 A.5: interest + enemy cull computed natively from the current tick columns.
+    /// Membership: exact 3D distance (quantized mm) <= radius_mm; over max_entities keep
+    /// self + all teammates + nearest max_enemies enemies (ties by ascending id).
+    /// Empty return = internal failure (caller falls back).
+    #[func]
+    fn encode_for_auto(&mut self, client_id: i64, self_entity_id: i64, seq: i64,
+            want_baseline_seq: i64, last_input_tick: i64, radius_mm: i64,
+            max_entities: i64, max_enemies: i64) -> PackedByteArray {
+        match self.core.encode_for_auto(client_id as i32, self_entity_id as i32, seq,
+                want_baseline_seq, last_input_tick as u32, radius_mm,
+                max_entities.max(0) as usize, max_enemies.max(0) as usize) {
+            Ok(v) => PackedByteArray::from(v.as_slice()),
+            Err(e) => {
+                godot_error!("[native-enc] encode_for_auto(client {client_id}): {e}");
+                PackedByteArray::new()
+            }
+        }
+    }
+
     #[func]
     fn on_ack(&mut self, client_id: i64, acked_seq: i64) {
         self.core.on_ack(client_id as i32, acked_seq);
