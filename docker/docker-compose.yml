@@ -25,7 +25,8 @@ services:
     image: blockfire:latest
     command: ["--headless", "--path", "/app", "--",
               "--server", "--port=${PORT:-27240}", "--map=${MAP:-conquest_proving_grounds}",
-              "--tickets=${TICKETS:-80}", "--time-limit=${TIME_LIMIT:-600}"]
+              "--tickets=${TICKETS:-80}", "--time-limit=${TIME_LIMIT:-600}",
+              "--encoder=${ENCODER:-native}", "--parity-audit=${PARITY_AUDIT:-0}"]
     # Give the single-threaded tick an isolated physical core. Verify topology with `lscpu -e`
     # and adjust (W-2275 = 28 logical CPUs). The bots MUST be pinned to a disjoint set.
     cpuset: "${SERVER_CPUS:-0-1}"

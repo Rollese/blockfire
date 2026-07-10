@@ -3,6 +3,10 @@ extends Object
 ## Baseline + delta snapshot codec. current/baseline are Dictionary[int id -> EntityState].
 ## A client holding `baseline` and applying the bytes arrives exactly at `current`.
 ## baseline_seq == 0 is a keyframe: the receiver resets its view to this snapshot. See M2 spec.
+##
+## PARITY CONTRACT (ADR-0003): native/snapshot_encoder/ must produce byte-identical output.
+## ANY change to this wire format must (1) update the Rust encoder, (2) regenerate the golden
+## vectors (tools/gen_snapshot_golden.gd), (3) re-run the fuzz parity suite, (4) bump VERSION.
 
 # field_mask bits
 const F_POS_X := 1

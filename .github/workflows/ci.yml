@@ -42,6 +42,24 @@ jobs:
       - name: Add Godot to PATH
         run: echo "$HOME/godot-bin" >> "$GITHUB_PATH"
 
+      - name: Rust toolchain (native snapshot encoder)
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cargo cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: native/snapshot_encoder
+
+      - name: Build + test native snapshot encoder
+        # RUST_MIN_STACK: rustc needs a bigger stack for godot-core's generated bindings.
+        # With CI=true the parity tests FAIL (not skip) if this build ever stops producing
+        # the class — the parity gate cannot silently vanish from CI.
+        env:
+          RUST_MIN_STACK: "33554432"
+        run: |
+          cargo test --release --manifest-path native/snapshot_encoder/Cargo.toml
+          cargo build --release --manifest-path native/snapshot_encoder/Cargo.toml
+
       - name: Import resources
         # First import on a fresh checkout; voice_opus GDExtension .so is absent (gitignored
         # Rust build artifact) — the engine warns and continues, so don't gate on this step.

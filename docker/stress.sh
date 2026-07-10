@@ -19,10 +19,21 @@
 # Usage:   ./stress.sh
 # Env:     MAP TIME_LIMIT TICK_BUDGET_MS MAX_WAIT PORT TICKETS BOT_COUNT BOT_REPLICAS
 #          SERVER_CPUS BOTS_CPUS BOOT_DELAY LABEL
+#          ENCODER=native|gd — snapshot encoder A/B (ADR-0003); default native
 # game2:   SERVER_CPUS=0,1,2,3 BOTS_CPUS=4-31 BOT_REPLICAS=16 BOT_COUNT=8 ./stress.sh
 set -uo pipefail
 cd "$(dirname "$0")"
 source ./_gate_lib.sh
+
+# ADR-0003: the fleet gate must exercise the shipped (native) encoder — refuse to run without
+# the built .so unless the GDScript reference path was explicitly requested (ENCODER=gd).
+export ENCODER="${ENCODER:-native}"
+if [ "$ENCODER" != "gd" ] && [ ! -f ../native/snapshot_encoder/target/release/libsnapshot_encoder.so ]; then
+	echo "FATAL: native snapshot encoder not built — run:"
+	echo "  cargo build --release --manifest-path ../native/snapshot_encoder/Cargo.toml"
+	echo "  (or set ENCODER=gd for a reference-path run)"
+	exit 1
+fi
 
 TIME_LIMIT="${TIME_LIMIT:-900}"; export TIME_LIMIT
 TICK_BUDGET_MS="${TICK_BUDGET_MS:-33.3}"

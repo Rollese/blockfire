@@ -202,7 +202,10 @@ func configure(args: Dictionary) -> void:
 		print("[server] snapshot encoder: NATIVE (ADR-0003)")
 	else:
 		print("[server] snapshot encoder: GDScript reference")
-	_parity_audit = args.has("parity-audit")
+	# Bare --parity-audit or --parity-audit=1 turn the audit on; =0 / empty (the docker-compose
+	# default passthrough) leave it off.
+	var pa = args.get("parity-audit", "0")
+	_parity_audit = (pa is bool and pa) or (pa is String and pa != "" and pa != "0")
 	if _parity_audit:
 		print("[server] PARITY AUDIT ON — running both encoders, double encode cost")
 	if eff["degrade_high_ms"] > 0.0:
