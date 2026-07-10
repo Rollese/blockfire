@@ -111,6 +111,16 @@ var _tele_accum := 0.0
 # Per-phase tick profiling (mean usec/tick over the telemetry window).
 var _phase_us := {"poll": 0, "move": 0, "veh": 0, "lag": 0, "interest": 0, "fire": 0, "ordnance": 0, "support": 0, "build": 0, "respawn": 0, "conquest": 0, "match": 0, "snap": 0,
 	"snapq": 0, "snapenc": 0, "snapsend": 0, "snapstruct": 0, "snapself": 0}
+
+# ADR-0003 native snapshot encoder (native/snapshot_encoder). Null → GDScript reference path.
+var _enc_native = null
+var _enc_native_failed := false   # any native failure → permanent reference fallback this process
+var _col_ids := PackedInt32Array()
+var _col_fields := PackedInt32Array()
+var _col_vids := PackedInt32Array()
+var _col_vfields := PackedInt32Array()
+var _col_vseats := PackedInt32Array()
+var _col_vseat_off := PackedInt32Array()
 var _phase_ticks := 0
 var _team_counts := {0: 0, 1: 0}
 # Client ids with auto_deploy=false (rendered humans). Maintained on hello/disconnect so the
@@ -183,6 +193,14 @@ func configure(args: Dictionary) -> void:
 	_collapse_test_bid = int(args["collapse-test"]) if args.has("collapse-test") else 0
 	_fast_nades = args.has("fast-nades")
 	_fast_rpg = args.has("fast-rpg")
+	# ADR-0003: --encoder=gd forces the GDScript reference encoder (A/B gate runs, debugging).
+	# Default is native when the gdext .so is present; absent .so falls back silently.
+	if String(args.get("encoder", "native")) != "gd" and ClassDB.class_exists("NativeSnapshotEncoder"):
+		_enc_native = ClassDB.instantiate("NativeSnapshotEncoder")
+		_enc_native.set_msg_id(Protocol.Msg.SNAPSHOT)
+		print("[server] snapshot encoder: NATIVE (ADR-0003)")
+	else:
+		print("[server] snapshot encoder: GDScript reference")
 	if eff["degrade_high_ms"] > 0.0:
 		_degrade_high_ms = eff["degrade_high_ms"]
 	if eff["degrade_low_ms"] > 0.0:
@@ -319,6 +337,9 @@ func _rotate_match() -> void:
 ## _start_match(). (Modules holding a `srv` back-ref dereference _sim/_store
 ## lazily, so re-instantiating them BEFORE _start_match rebuilds _store is safe.)
 func _reset_match_state() -> void:
+	if _enc_native != null:
+		_enc_native.reset()
+		_enc_native_failed = false   # fresh match, give the native path another chance
 	_sim = SimLoop.new()
 	_grid.clear()
 	_lag.clear()
@@ -874,15 +895,29 @@ func _send_snapshots() -> void:
 	# [perf] sub-buckets of `snap` (ADR-0003): query/cull, state+encode+history, ENet send,
 	# structure-baseline sync, SELF_STATE. `snap` (timed by the caller) stays the umbrella total.
 	var t_q := 0; var t_enc := 0; var t_send := 0; var t_struct := 0; var t_self := 0
+	var use_native := _enc_native != null and not _enc_native_failed
 	var t0 := Time.get_ticks_usec()
-	var state := _sim.world.state_map()
-	# Stamp the live equipped weapon (kept in the client record, not the pawn) onto each entity so it
-	# rides the snapshot ENTER record like armor_class — lets remotes render the right weapon
-	# silhouette. Once per tick (state_map is shared across all clients' sends this tick).
-	for sid in state:
-		if _clients.has(sid):
-			(state[sid] as EntityState).weapon = int(_clients[sid].get("weapon", Weapon.AR))
-	var vstate := _sim.world.vehicle_state_map()
+	var state := {}
+	var vstate := {}
+	if use_native:
+		# ADR-0003 native path: quantize once into flat columns, hand the tick to the encoder.
+		var wby := {}
+		for cid in _clients:
+			wby[cid] = int(_clients[cid].get("weapon", Weapon.AR))
+		SnapshotColumns.extract_pawns(_sim.world, wby, _col_ids, _col_fields)
+		SnapshotColumns.extract_vehicles(_sim.world, _col_vids, _col_vfields, _col_vseats, _col_vseat_off)
+		if not _enc_native.begin_tick(_sim.tick, _col_ids, _col_fields, _col_vids, _col_vfields, _col_vseats, _col_vseat_off):
+			_native_encoder_fail("begin_tick")
+			return   # skip this tick's sends; next tick runs the reference path (clients tolerate a skipped stride)
+	else:
+		state = _sim.world.state_map()
+		# Stamp the live equipped weapon (kept in the client record, not the pawn) onto each entity so it
+		# rides the snapshot ENTER record like armor_class — lets remotes render the right weapon
+		# silhouette. Once per tick (state_map is shared across all clients' sends this tick).
+		for sid in state:
+			if _clients.has(sid):
+				(state[sid] as EntityState).weapon = int(_clients[sid].get("weapon", Weapon.AR))
+		vstate = _sim.world.vehicle_state_map()
 	t_enc += Time.get_ticks_usec() - t0
 	for id in _clients:
 		# Stagger sends across ticks so the per-tick snapshot encode cost (the dominant tick
@@ -910,7 +945,9 @@ func _send_snapshots() -> void:
 			var enemies: Array = []
 			for vid in ids:
 				if vid == id: continue
-				if int(state[vid].team) == myteam:
+				# Team from the live pawn (identical to the tick's cloned state) — works on both
+				# encoder paths; the native path builds no state dict.
+				if (_sim.world.get_pawn(vid) as Pawn).team == myteam:
 					kept[vid] = true   # always replicate every teammate in range
 				else:
 					enemies.append([sp.distance_squared_to(_positions[vid]), vid])
@@ -924,22 +961,36 @@ func _send_snapshots() -> void:
 			ids = kept.keys()
 		t_q += Time.get_ticks_usec() - t0
 		t0 = Time.get_ticks_usec()
-		var current := {}
-		for vid in ids: current[vid] = state[vid]
-		var current_v := {}
-		for vid in vstate:
-			var vst: VehicleState = vstate[vid]
-			if self_pawn.pos.distance_to(vst.pos) <= INTEREST_RADIUS:
-				current_v[vid] = vst
-		var baseline_seq: int = c["last_acked_seq"]
-		var baseline = c["history"].get(baseline_seq)
-		if baseline == null:
-			baseline = {}; baseline_seq = 0
-		var baseline_v = c["history_v"].get(baseline_seq)
-		if baseline_v == null:
-			baseline_v = {}
 		var seq: int = c["next_seq"]
-		var bytes := Snapshot.encode(_sim.tick, seq, baseline_seq, c["last_input_tick"], current, baseline, current_v, baseline_v)
+		var bytes: PackedByteArray
+		var current := {}
+		var current_v := {}
+		if use_native:
+			# Vehicle interest: same float distance test on the same Vehicle.pos the reference
+			# reads via to_state(), iterated in the same world.vehicles order.
+			var vlist := PackedInt32Array()
+			for vid in _sim.world.vehicles:
+				if self_pawn.pos.distance_to((_sim.world.vehicles[vid] as Vehicle).pos) <= INTEREST_RADIUS:
+					vlist.append(vid)
+			bytes = _enc_native.encode_for(id, seq, c["last_acked_seq"], c["last_input_tick"],
+				PackedInt32Array(ids), vlist)
+			if bytes.is_empty():
+				_native_encoder_fail("encode_for client %d" % id)
+				return
+		else:
+			for vid in ids: current[vid] = state[vid]
+			for vid in vstate:
+				var vst: VehicleState = vstate[vid]
+				if self_pawn.pos.distance_to(vst.pos) <= INTEREST_RADIUS:
+					current_v[vid] = vst
+			var baseline_seq: int = c["last_acked_seq"]
+			var baseline = c["history"].get(baseline_seq)
+			if baseline == null:
+				baseline = {}; baseline_seq = 0
+			var baseline_v = c["history_v"].get(baseline_seq)
+			if baseline_v == null:
+				baseline_v = {}
+			bytes = Snapshot.encode(_sim.tick, seq, baseline_seq, c["last_input_tick"], current, baseline, current_v, baseline_v)
 		t_enc += Time.get_ticks_usec() - t0
 		t0 = Time.get_ticks_usec()
 		_net.send_to(c["peer"], NetHost.CHANNEL_SNAPSHOT, bytes, 0)
@@ -954,18 +1005,28 @@ func _send_snapshots() -> void:
 			ENetPacketPeer.FLAG_RELIABLE)
 		t_self += Time.get_ticks_usec() - t0
 		t0 = Time.get_ticks_usec()
-		c["history"][seq] = current
-		c["history_v"][seq] = current_v
+		if not use_native:
+			# Reference-path baseline bookkeeping; the native encoder stores history internally.
+			c["history"][seq] = current
+			c["history_v"][seq] = current_v
+			var cutoff := seq - MAX_HISTORY
+			for s in c["history"].keys():
+				if s < cutoff: c["history"].erase(s)
+			for s in c["history_v"].keys():
+				if s < cutoff: c["history_v"].erase(s)
 		c["next_seq"] = seq + 1
-		var cutoff := seq - MAX_HISTORY
-		for s in c["history"].keys():
-			if s < cutoff: c["history"].erase(s)
-		for s in c["history_v"].keys():
-			if s < cutoff: c["history_v"].erase(s)
 		_tele.add_bytes(id, bytes.size())
 		t_enc += Time.get_ticks_usec() - t0
 	_phase_us["snapq"] += t_q; _phase_us["snapenc"] += t_enc; _phase_us["snapsend"] += t_send
 	_phase_us["snapstruct"] += t_struct; _phase_us["snapself"] += t_self
+
+## Any native-encoder failure (ragged columns, unknown interest id) flips the server to the
+## GDScript reference path for the rest of the match (rotation resets the flag with the rest of
+## match state). The reference self-heals via the keyframe fallback — its dict history is
+## empty, so the next send per client is a keyframe.
+func _native_encoder_fail(where: String) -> void:
+	_enc_native_failed = true
+	push_error("[native-enc] %s failed — falling back to GDScript reference encoder" % where)
 
 func _broadcast_roster() -> void:
 	var rows: Array = []
@@ -1214,6 +1275,8 @@ func _load_active_slot(c: Dictionary) -> void:
 ## how a mid-life weapon change reaches remotes that never lost interest in the pawn.
 ## Cost: O(clients × MAX_HISTORY) dictionary erases; swaps are rare.
 func _force_reenter(pid: int) -> void:
+	if _enc_native != null:
+		_enc_native.drop_entity_from_baselines(pid)
 	for cid in _clients:
 		var c: Dictionary = _clients[cid]
 		if not c.has("history"):
@@ -1270,6 +1333,8 @@ func _handle_input(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
 	var ack: int = d["ack_seq"]
 	if ack > c["last_acked_seq"]:
 		c["last_acked_seq"] = ack
+		if _enc_native != null:
+			_enc_native.on_ack(id, ack)
 		for s in c["history"].keys():
 			if s < ack: c["history"].erase(s)
 		for s in c["history_v"].keys():
@@ -2263,6 +2328,8 @@ func _vacate_seat(p: Pawn) -> void:
 func _on_peer_disconnected(peer: ENetPacketPeer) -> void:
 	var id = _peer_to_id.get(peer, 0)
 	_peer_to_id.erase(peer)
+	if id != 0 and _enc_native != null:
+		_enc_native.remove_client(id)
 	if id != 0 and _clients.has(id):
 		var team: int = _clients[id]["team"]
 		_team_counts[team] -= 1
