@@ -1,0 +1,10 @@
+gate: phaseA-ecore-gdref
+date: 2026-07-10T17:52:07+02:00
+host: game2
+git: a79e847
+verdict: FAIL
+summary: winner=1 elapsed=79s peak_tick=35.05ms budget=33.3ms agg=23.7Mbit/s players=128 kills=19 cap_events=1 ai_us_mean=9846.3us map=conquest_town
+srvlog: srvlog-phaseA-ecore-gdref-20260710-175207.log
+srvlog_sha256: 6d647cfe5ba7aa0a5ef9418b2871b38e18111b387795fbf723acbfcb904a2d19
+note: EXPECTED FAIL — ADR-0003 Phase A "before" leg of the A/B pair (ENCODER=gd on the final
+  branch build). Native leg PASSES at 28.87ms (20260710-174956-phaseA-ecore-native.txt).

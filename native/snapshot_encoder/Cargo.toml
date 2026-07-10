@@ -1,0 +1,12 @@
+[package]
+name = "snapshot_encoder"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "rlib"]   # rlib so `cargo test` can link the core
+
+[dependencies]
+# Same pin as native/voice_opus (ADR-0006 toolchain precedent).
+godot = { version = "0.5.3", features = ["api-4-6"] }
+rustc-hash = "2"

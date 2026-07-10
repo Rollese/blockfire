@@ -1,0 +1,10 @@
+gate: phaseA-pcore-native
+date: 2026-07-10T17:55:44+02:00
+host: game2
+git: a79e847
+verdict: PASS
+summary: winner=1 elapsed=70s peak_tick=18.38ms budget=33.3ms agg=24.3Mbit/s players=128 kills=22 cap_events=1 ai_us_mean=9981.9us map=conquest_town
+srvlog: srvlog-phaseA-pcore-native-20260710-175544.log
+srvlog_sha256: dfb72617c67ae6d0bd07eb81c7f10dda8ea0faa0c507725556488a51b9180d4c
+note: ADR-0003 P-core no-regression — 18.38ms peak vs the ~24-26ms historical P-core baseline
+  on conquest_town. snapenc 543us at peak. 0 errors.

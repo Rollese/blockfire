@@ -90,16 +90,24 @@ Second native candidate, only if Phase 0 / re-profiling demands it: `InterestGri
 - If a platform binary is missing, the GDScript reference path is the fallback (no hard dependency for
   dev/test on Godot-only).
 
-## Verification / gates
+## Verification / gates — Phase A MEASURED RESULTS (2026-07-10, implementation landed)
 
-1. **Parity:** Rust encoder output == GDScript encoder output, byte-for-byte, across the existing
-   roundtrip suite + golden vectors (hard automated check).
-2. **Phase A perf gate:** 128-bot fleet gate on `conquest_town`, **run E-core-pinned (the Phase 0
-   config that FAILED at 34.84 ms)** — target `snap` ≈ 5–8 ms (from ~24 ms) and peak tick back under
-   33.3 ms with margin. This exact config failing today and passing after is the proof.
-3. **Phase B perf gate:** scaling test — encode wall-time vs worker count; push player count upward and
-   confirm near-linear send scaling with cores.
-4. **No-regression:** full deterministic suite green; connect smoke; telemetry parity.
+1. **Parity: PASS.** Differential fuzz (3 seeds × 120 ticks × 4 clients, byte-equal every packet:
+   `tests/native_parity_fuzz_test.gd`), golden vectors pinning both encoders
+   (`tests/snapshot_golden_test.gd` + `tests/fixtures/`), smoke keyframe test, and a **live
+   `--parity-audit` 128-bot fleet run: 0 mismatches** across a full `conquest_town` match
+   (`docs/gate-evidence/20260710-175356-phaseA-parity-audit.txt`).
+2. **Phase A perf gate: PASS — the flip happened.** Same branch build, same E-core-pinned config:
+   `ENCODER=gd` **FAIL 35.05 ms** (`…175207-phaseA-ecore-gdref.txt`) vs native **PASS 28.87 ms**
+   (`…174956-phaseA-ecore-native.txt`). `snapenc` (the addressable sub-bucket, measured by the new
+   Task 1 instrumentation at 13.4 ms of `snap`=23.9 ms) dropped to **0.46–0.9 ms (~15–29×)**. The
+   residual E-core peak window is the structure-baseline join flood (`snapstruct` 12.3 ms) — a
+   separate, pre-existing cost outside this ADR's scope.
+3. **Phase B perf gate:** deferred with Phase B (unchanged: encode wall-time vs worker count,
+   near-linear scaling).
+4. **No-regression: PASS.** Suite 1463/0 (was 1456 + new parity/columns tests), connect smoke green,
+   P-core fleet gate **18.38 ms peak** vs the ~24–26 ms historical baseline
+   (`…175544-phaseA-pcore-native.txt`), GitHub CI green incl. the new Rust build steps (PR #2).
 
 ## Phase 0 evidence (measurement-first, this seed)
 

@@ -1,0 +1,10 @@
+[configuration]
+entry_symbol = "gdext_rust_init"
+compatibility_minimum = "4.6"
+reloadable = true
+
+[libraries]
+; Both entries point at the RELEASE build: the encoder is perf-critical and the dedicated
+; server runs the stock (editor-class) Godot binary, which resolves the debug entry.
+linux.debug.x86_64 = "res://native/snapshot_encoder/target/release/libsnapshot_encoder.so"
+linux.release.x86_64 = "res://native/snapshot_encoder/target/release/libsnapshot_encoder.so"
