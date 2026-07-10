@@ -76,6 +76,18 @@ Canonical source of truth for what's being worked on. Claim a task (set owner + 
 > `docs/adr/0003-native-snapshot-encoder.md`; evidence `docs/gate-evidence/20260710-163108-phase0-ecore-profile.txt`
 > (the FAIL is intentional — it's the "before" that Phase A must flip). [[blockfire-native-snapshot-encoder]].
 
+> **2026-07-10 (later) — ADR-0003 RATIFIED + implementation plan ready (planning pass done).**
+> Brainstorm → design → plan completed: **ADR-0003 → Accepted** with all open questions decided
+> (columnar schema w/ GDScript-side quantization; native-owned baselines as Arc-shared tick columns +
+> per-client ordered sent-id history; `begin_tick`/`encode_for` FFI; parity = differential fuzz +
+> golden vectors + `--parity-audit` fleet run; interest stays GDScript; Linux-x86_64-only build;
+> committed target = **128p on budget hardware via Phase A**, Phase B parallel-encode designed but
+> deferred until 256p is scheduled or destruction erodes the margin). Design:
+> `docs/superpowers/specs/2026-07-10-native-snapshot-encoder-design.md`. **Build-session plan (TDD,
+> 14 Phase A tasks + deferred Phase B): `docs/plans/2026-07-10-native-snapshot-encoder.md`** — hard
+> checks are byte-parity suites + the E-core FAIL→PASS flip (`ENCODER=gd` vs native A/B). Status:
+> **todo → ready for the Opus build session**; owner of the build task claims it here per AGENTS.md §3.
+
 > **2026-07-10 — netcode: reliable BULK channel (anti-HOL).** Implements the 2026-07-03 architecture
 > review §D3. All reliable server→client traffic shared ENet channel 0, so a dense-map
 > structure-baseline flood (town = 8324 pieces) could head-of-line-block latency-critical SELF_STATE

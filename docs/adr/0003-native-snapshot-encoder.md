@@ -1,15 +1,13 @@
 # ADR-0003: Native (Rust) snapshot encoder + parallel send
 
-- **Status:** Proposed (seed — for a deep-planning/brainstorming pass; not yet ratified)
+- **Status:** Accepted (2026-07-10 — ratified by the deep-planning pass; design in
+  [docs/superpowers/specs/2026-07-10-native-snapshot-encoder-design.md](../superpowers/specs/2026-07-10-native-snapshot-encoder-design.md),
+  plan in [docs/plans/2026-07-10-native-snapshot-encoder.md](../plans/2026-07-10-native-snapshot-encoder.md))
 - **Date:** 2026-07-10
 - **Context milestone:** post-M16 perf track
 - **Supersedes/enacts:** the escalation clause in [ADR-0001](0001-core-runtime-language.md)
   ("if GDScript misses the budget, open **ADR-0003** to escalate the identified hot path to
   GDExtension"). Precedent: [ADR-0006](0006-gdextension-voice-codec.md) (first Rust `gdext` module).
-
-> **This is a seed, not a finished decision.** It captures the analysis + measurements so a
-> deep-reasoning planning pass (brainstorming → `writing-plans`) can produce the ratified ADR and a
-> phased implementation plan. Sections marked _(fill)_ are pending Phase 0 evidence.
 
 ## Context
 
@@ -42,7 +40,7 @@ dict + `StreamPeerBuffer` allocation and the interpreted diff/field-write loop i
 encode −52% in pure GDScript; the remaining cost is the **interpretation tax + per-tick allocation**,
 which only an execution-model change removes.
 
-## Decision (proposed)
+## Decision
 
 Escalate the snapshot encode path to a native **Rust `gdext`** module (matching `native/voice_opus/`),
 in **two phases**, behind the existing `Snapshot.encode` interface, with **byte-identical output** as
@@ -132,10 +130,50 @@ gate):** cutting the addressable ~20 ms of the E-core `snap` by ~3–5× → `sn
 to restore budget at 128p on budget hardware; Phase B (parallel send) is for the 256-player / extra-
 margin endgame, not for merely hitting 33.3 ms at 128p.**
 
-## Open questions for the planning pass
+## Ratified decisions (2026-07-10 planning pass)
 
-- Column schema + how baselines are stored natively (packed-array copies vs native handles).
-- FFI boundary shape: pass `PackedByteArray`/`PackedInt32Array` columns in, get `PackedByteArray` out?
-- Phase B worker-pool ownership, buffer pooling, and the parallel-encode → serial-send handoff.
-- Whether `InterestGrid.query()` must also go native to hit budget on slow hosts (Phase 0 decides).
-- Windows/Linux/macOS build matrix for the binary; CI artifact strategy.
+Full rationale + alternatives in the
+[design doc](../superpowers/specs/2026-07-10-native-snapshot-encoder-design.md); summary:
+
+- **Ambition.** The committed, hard-gated target is **128p on budget hardware via Phase A**.
+  256p is the designed-for endgame: Phase A is built Phase-B-ready (immutable tick columns,
+  native-owned baselines, batch-shaped API), but **Phase B implementation is deferred** until a
+  256p milestone is scheduled or destruction work erodes Phase A's margin. True 256p also needs
+  rate/precision LOD netcode that is out of this ADR's scope.
+- **Column schema.** Quantization stays in GDScript (`shared/net/snapshot_columns.gd`, same
+  `Quantize`/`bake()` math — zero quantization-parity risk). Per tick: pawn `ids` +
+  stride-10 `PackedInt32Array` `[q_px q_py q_pz q_yaw q_pitch q_state health squad armor weapon]`
+  (health/squad **raw**; clamp/mask at write time, matching `_put_fields`); vehicles stride-7 +
+  flattened seats with offsets.
+- **Baselines stored natively.** `NativeSnapshotEncoder` owns a refcounted **tick-column ring** +
+  per-client history of `(seq → tick ref + ordered sent-id list)`, mirroring
+  `c["history"]`/MAX_HISTORY/ack-prune semantics exactly (including `_drop_from_history` for the
+  weapon-swap re-ENTER). GDScript keeps seq allocation, stride/degrade, interest, SELF_STATE,
+  structure sync.
+- **FFI shape.** `begin_tick(columns)` once per tick; `encode_for(client_id, seq,
+  want_baseline_seq, last_input_tick, interest_ids, interest_vids) -> PackedByteArray` per due
+  client (keyframe fallback resolved natively); `on_ack` / `remove_client` /
+  `drop_entity_from_baselines` / `reset`. Packed arrays in, one packet buffer out — no per-field
+  crossings. Record order = `interest_ids` order; LEAVE order = stored sent order; no hash-map
+  iteration ever reaches the wire.
+- **Parity strategy (hard gate).** (1) existing roundtrip suite over native bytes; (2) a
+  seeded **differential fuzz harness** running reference + native side-by-side over multi-tick
+  enter/leave/ack-churn scenarios asserting byte equality of every packet — the primary gate;
+  (3) committed **golden vectors** pinning both encoders; plus a one-off `--parity-audit` fleet
+  run comparing both live. Native errors return an empty buffer → logged + permanent in-process
+  fallback to the reference path.
+- **Interest query stays GDScript.** Phase 0 measured it at 0.2 ms on E-cores — no escalation. A
+  new `snap_*` sub-bucket instrumentation pass lands **before** Rust to measure the addressable
+  share precisely and attribute the win.
+- **Phase B handoff.** GDScript precomputes all due clients' interest lists, one
+  `encode_batch(requests) -> Array[PackedByteArray]` call fans encode over a rayon pool
+  (`min(4, cores)` workers, `--encode-workers=N`), workers touch only immutable columns + their
+  own client's history, buffers pooled in Rust; **send stays serial on the main thread** (ENet is
+  not thread-safe). Batch output must byte-equal per-client `encode_for` output.
+- **Build/CI matrix: Linux x86_64 only.** The encoder is server-side and every server host
+  (game2, docker fleet, Unraid, CI) is Linux x86_64; the client never encodes. Crate
+  `native/snapshot_encoder/` mirrors `voice_opus` (gdext 0.5.3 `api-4-6`, source committed,
+  binary gitignored). Docker `COPY . /app` picks up the host-built `.so` (gate scripts fail fast
+  if missing); GitHub CI gains rustup + cargo-cache + build steps, and parity tests **fail** (not
+  skip) in CI when the class is missing. Binary absent elsewhere → reference path (ADR-0001
+  Godot-only contributor story preserved).
