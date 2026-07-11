@@ -1,6 +1,6 @@
-# Spec: Class Select & Player Loadouts (M18)
+# Spec: Class Select & Player Loadouts (M19)
 
-**Status:** approved (design) · **Date:** 2026-07-11 · **Milestone:** M18 · **Supersedes part of:** M12-P1 class-refit (`shared/sim/loadout.gd` derivation), M5.5-P2 armor (class-derived → player-picked).
+**Status:** approved (design) · **Date:** 2026-07-11 · **Milestone:** M19 · **Supersedes part of:** M12-P1 class-refit (`shared/sim/loadout.gd` derivation), M5.5-P2 armor (class-derived → player-picked).
 
 Turns the deterministic, class-derived loadout into a **player-chosen, server-validated, session-persistent loadout** with a client class-select screen. Removes the "humans never pick Engineer" restriction and the random class roll for humans. All rules live in `shared/` so client prediction and server authority cannot diverge (AGENTS.md §5, §7). Bot-fleet-gated + deterministically proven (AGENTS.md §10).
 
@@ -57,7 +57,7 @@ One plain `Dictionary`, the single loadout representation for humans **and** bot
 ```
 LoadoutConfig := {
     "class":     int,     # Loadout.ASSAULT..SUPPORT
-    "primary":   int,     # Weapon id (class-gated)
+    "primary":   int,     # weapon VARIANT id (see "Weapon variants" below), gated by its archetype
     "secondary": int,     # Weapon.PISTOL (v1)
     "gadget":    int,     # a Loadout.GADGET_* value from the class's option set
     "armor":     int,     # Armor.LIGHT..HEAVY
@@ -66,10 +66,37 @@ LoadoutConfig := {
 }
 ```
 
+### Weapon variants integration (coordinated with the weapon-variants track)
+The weapon roster is a named-variant registry (`data/weapons.json`, ~17 guns) layered over the
+category sim: each variant is its own `weapon_id ≥ 16` tagged to an **archetype** (AR/SMG/DMR/LMG/…).
+`LoadoutConfig.primary` therefore carries a **variant id**, not an archetype enum value, and **class
+gating resolves on the archetype**:
+- `Weapon.archetype_of(id)` → archetype enum (a base/archetype id maps to itself); `Weapon.variants_of(a)`
+  → ordered variant ids (index 0 = category default); `Weapon.default_variant(a)`, `Weapon.is_variant(id)`,
+  `Weapon.display_name(id)`. `Weapon.get_def(id)` resolves a variant id to its stat block.
+- `Loadout.allowed_archetypes(cls)` is the **stable** archetype allow-list gating is expressed against;
+  `Loadout.primary_options(cls)` = concat of `Weapon.variants_of(a)` for each allowed archetype (the
+  picker lists named guns); `default_primary(cls)` = `Weapon.default_variant(allowed_archetypes(cls)[0])`.
+- `is_primary_allowed(cls, id)` ⇔ `Weapon.is_variant(id)` **and** `Weapon.archetype_of(id)` is class-allowed
+  **and** `can_equip` (whose locks — DMR⇒Assault, LMG⇒Support, RPG⇒Engineer — are resolved on the archetype).
+
+**Ownership / merge sequencing:** the weapon-variants track owns `data/weapons.json`, the registry loader,
+the helper API above, and the variant branch of `get_def`; this milestone owns the archetype layer (the
+`LMG` archetype + `suppression_mult` + `can_equip`). variants_of(LMG) is empty (degrades to the archetype
+default) until the weapon-variants track adds LMG variants, which sequences **after** this milestone's LMG
+archetype lands. `primary` stays a `u8` on the wire (variant ids fit 0–255). Full contract:
+`docs/superpowers/specs/2026-07-11-weapon-variants-design.md` §3–§4.
+
+**P1a status (already built):** the loadout code routes all gating through a `Loadout._archetype_of(id)`
+**seam** that is identity today (pre-registry, where each primary id is its own archetype) and flips to
+`Weapon.archetype_of` in a ~3-line change once the registry API is on master. `primary_options`/`default_primary`
+expand to the variant lists in that same integration step. This wiring is a **P1b task, blocked on the
+weapon-variants registry API merging to master** (only its design doc is on master today).
+
 ### `Loadout.sanitize(cfg, attach_catalog) -> LoadoutConfig`
 The single authority (called by **both** client and server):
 - clamp `class` to `[0,3]`; unknown → `ASSAULT`.
-- `primary`: if `not primary_allowed(class, primary)` → `default_primary(class)`. (`primary_allowed` folds `can_equip` + the per-class option lists below.)
+- `primary`: if `not is_primary_allowed(class, primary)` → `default_primary(class)`. (`is_primary_allowed` folds the archetype allow-list + `can_equip`; post-registry it also requires `Weapon.is_variant(primary)`.)
 - `secondary` → `Weapon.PISTOL` (v1 fixed).
 - `gadget`: if `gadget not in gadget_options(class)` → `gadget_options(class)[0]`.
 - `armor`: clamp to `[0,2]`; unknown → `MEDIUM`.
@@ -79,7 +106,8 @@ The single authority (called by **both** client and server):
 Sanitize is **idempotent** and **total** (never returns an invalid config), so a malicious/older client can never inject an illegal loadout — the server always re-sanitizes.
 
 ### Option tables (`shared/sim/loadout.gd`)
-- `primary_options(cls) -> Array[int]`: Assault `[AR,SMG,DMR]`, Medic `[AR,SMG]`, Engineer `[AR,SMG]`, Support `[AR,SMG,LMG]`.
+- `allowed_archetypes(cls) -> Array[int]` (the stable gating matrix): Assault `[AR,SMG,DMR]`, Medic `[AR,SMG]`, Engineer `[AR,SMG]`, Support `[AR,SMG,LMG]`.
+- `primary_options(cls) -> Array[int]` = the selectable weapon ids: today one per archetype (== `allowed_archetypes`); post-registry, the concatenated `Weapon.variants_of(a)` (named guns) per allowed archetype. See "Weapon variants integration" above.
 - `gadget_options(cls) -> Array[int]` (the **target** 3-per-class roster): Assault `[GADGET_C4, GADGET_GRAPPLE, GADGET_BREACH]`, Medic `[GADGET_MEDKIT, GADGET_STIM, GADGET_SMOKE_WALL]`, Engineer `[GADGET_RPG, GADGET_C4, GADGET_REPAIR]`, Support `[GADGET_AMMO, GADGET_RIOT_SHIELD, GADGET_LMG_NEST]`.
 - **Phased availability:** `Loadout.IMPLEMENTED_GADGETS` is the set of gadgets actually built so far; it **grows per phase** (§D/§L). `sanitize` treats an option that is not yet in `IMPLEMENTED_GADGETS` as invalid → falls back to the class default, and the client screen hides/greys unbuilt options. So `gadget_options` can name the full vision while only the built gadgets are selectable. Each class's `gadget_options[0]` is an already-built gadget (C4 / Medkit / RPG / Ammo), so every class has a working default from P1.
 - `default_primary(cls)`, `default_gadget(cls)` = first of each list. `default_armor(cls)` = `MEDIUM`. `default_loadout(cls)` assembles a full valid config (used for the initial per-connection loadout and the bot path).

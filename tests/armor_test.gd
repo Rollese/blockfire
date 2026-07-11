@@ -7,7 +7,7 @@ func test_body_mult_decreases_with_tier() -> void:
 	assert_almost_eq(Armor.body_mult(Armor.HEAVY), 0.7)
 
 func test_speed_mult_decreases_with_tier() -> void:
-	assert_almost_eq(Armor.speed_mult(Armor.LIGHT), 1.0)
+	assert_almost_eq(Armor.speed_mult(Armor.LIGHT), 1.2)
 	assert_true(Armor.speed_mult(Armor.HEAVY) < Armor.speed_mult(Armor.MEDIUM))
 	assert_true(Armor.speed_mult(Armor.MEDIUM) < Armor.speed_mult(Armor.LIGHT))
 

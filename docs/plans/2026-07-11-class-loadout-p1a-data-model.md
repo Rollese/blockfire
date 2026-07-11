@@ -57,7 +57,7 @@ Expected: FAIL — `assert_almost_eq: 1 vs 1.2` (impl still returns 1.0 for LIGH
 In `shared/sim/armor.gd`, replace the `_SPEED_MULT` line (currently `const _SPEED_MULT := {LIGHT: 1.0, MEDIUM: 0.95, HEAVY: 0.9}`):
 
 ```gdscript
-# Move-speed multiplier by armor tier (M18: player-picked armor is a real trade-off — widened from
+# Move-speed multiplier by armor tier (M19: player-picked armor is a real trade-off — widened from
 # the M5.5 1.0/0.95/0.9 so Light is a genuine speed pick and Heavy a genuine tank pick).
 const _SPEED_MULT := {LIGHT: 1.2, MEDIUM: 1.0, HEAVY: 0.8}
 ```
@@ -73,7 +73,7 @@ Expected: PASS for all `armor_test` methods.
 
 ```bash
 git add shared/sim/armor.gd tests/armor_test.gd
-git commit -m "feat(loadout): widen armor move-speed to 1.2/1.0/0.8 (M18 P1a)"
+git commit -m "feat(loadout): widen armor move-speed to 1.2/1.0/0.8 (M19 P1a)"
 ```
 
 ---
@@ -130,7 +130,7 @@ enum { AR = 0, SMG = 1, DMR = 2, RPG = 3, PISTOL = 4, LMG = 5 }
 In `shared/sim/weapon.gd`, inside `const _DEFS := { ... }`, add this row after the `PISTOL:` line (note the new `suppression_mult` field; AR-ish damage, ~100 mag, harder to control, auto-only):
 
 ```gdscript
-	# M18: Support-only LMG. Very large mag + higher suppression, but heavier spread/recoil so it's a
+	# M19: Support-only LMG. Very large mag + higher suppression, but heavier spread/recoil so it's a
 	# hold-the-lane weapon, not a run-and-gun. Bipod attachment (prone_spread_zero) pairs naturally.
 	LMG:    {"name": "LMG",    "damage_body": 24, "headshot_mult": 1.8, "rpm": 700, "mag_size": 100, "reserve_ammo": 300, "reload_secs": 4.5, "spread_base_deg": 1.2, "spread_bloom_deg": 0.9, "recoil_pitch_deg": 0.6, "range_m": 250.0, "muzzle_velocity": 750.0, "gravity_scale": 0.5, "fire_modes": [MODE_AUTO], "burst_count": 3, "suppression_mult": 1.6},
 ```
@@ -140,7 +140,7 @@ In `shared/sim/weapon.gd`, inside `const _DEFS := { ... }`, add this row after t
 In `shared/sim/weapon.gd`, add after `reserve_ammo()` (near line 28):
 
 ```gdscript
-## Per-weapon suppression multiplier (M18): how much more/less this weapon suppresses vs the
+## Per-weapon suppression multiplier (M19): how much more/less this weapon suppresses vs the
 ## baseline. Defaults to 1.0 for weapons that don't specify it (all but the LMG today).
 static func suppression_mult(weapon_id: int) -> float:
 	return float(get_def(weapon_id).get("suppression_mult", 1.0))
@@ -160,7 +160,7 @@ Expected: PASS (the new field/enum entry is additive).
 
 ```bash
 git add shared/sim/weapon.gd tests/weapon_lmg_test.gd
-git commit -m "feat(loadout): add Support-only LMG weapon + suppression_mult (M18 P1a)"
+git commit -m "feat(loadout): add Support-only LMG weapon + suppression_mult (M19 P1a)"
 ```
 
 ---
@@ -223,7 +223,7 @@ Expected: PASS.
 
 ```bash
 git add shared/sim/attachment.gd tests/attachment_slot_test.gd
-git commit -m "feat(loadout): Attachment.slot_of/has_id accessors (M18 P1a)"
+git commit -m "feat(loadout): Attachment.slot_of/has_id accessors (M19 P1a)"
 ```
 
 ---
@@ -302,8 +302,8 @@ Expected: FAIL — `primary_options`/`GADGET_GRAPPLE`/etc. nonexistent.
 In `shared/sim/loadout.gd`, after the existing gadget-kind constants (the `GADGET_C4/MINE/HEAL/AMMO` block near line 10-14), add:
 
 ```gdscript
-# M18 gadget ids. The 0-5 values mirror Gadget.KIND_* so a loadout gadget maps 1:1 to a gadget
-# entity; the 6+ ids are M18-new gadgets whose entities land in later phases. GADGET_MEDKIT is a
+# M19 gadget ids. The 0-5 values mirror Gadget.KIND_* so a loadout gadget maps 1:1 to a gadget
+# entity; the 6+ ids are M19-new gadgets whose entities land in later phases. GADGET_MEDKIT is a
 # display alias of HEAL.
 const GADGET_RPG := 2          # mirrors Gadget.KIND_RPG (RPG is a gadget now, not a primary)
 const GADGET_REPAIR := 5       # mirrors Gadget.KIND_REPAIR
@@ -357,7 +357,7 @@ static func default_armor(_cls: int) -> int:
 	return Armor.MEDIUM
 ```
 
-- [ ] **Step 5: Repurpose `gadget_options` + `is_valid_gadget` to the M18 roster**
+- [ ] **Step 5: Repurpose `gadget_options` + `is_valid_gadget` to the M19 roster**
 
 In `shared/sim/loadout.gd`, replace the existing `gadget_options` and `is_valid_gadget` bodies (the claymore-era versions — they have no non-test callers) with:
 
@@ -393,7 +393,7 @@ static func can_equip(cls: int, weapon_id: int) -> bool:
 
 - [ ] **Step 7: Fix the one existing loadout_test that asserted old gadget_options**
 
-In `tests/loadout_test.gd`, replace `test_engineer_gadget_options_c4_or_mine` with the M18 roster (the other `loadout_test` methods still pass — `gadget_for`/`gadget_for_player` are unchanged):
+In `tests/loadout_test.gd`, replace `test_engineer_gadget_options_c4_or_mine` with the M19 roster (the other `loadout_test` methods still pass — `gadget_for`/`gadget_for_player` are unchanged):
 
 ```gdscript
 func test_engineer_gadget_options_are_rpg_c4_repair() -> void:
@@ -413,7 +413,7 @@ Expected: PASS for all `loadout_test` methods.
 
 ```bash
 git add shared/sim/loadout.gd tests/loadout_config_test.gd tests/loadout_test.gd
-git commit -m "feat(loadout): M18 gadget ids, option tables, defaults, LMG lock (P1a)"
+git commit -m "feat(loadout): M19 gadget ids, option tables, defaults, LMG lock (P1a)"
 ```
 
 ---
@@ -494,7 +494,7 @@ Expected: PASS.
 
 ```bash
 git add shared/sim/loadout.gd tests/loadout_config_test.gd
-git commit -m "feat(loadout): centralized class_traits perk table (M18 P1a)"
+git commit -m "feat(loadout): centralized class_traits perk table (M19 P1a)"
 ```
 
 ---
@@ -587,7 +587,7 @@ Expected: PASS.
 
 ```bash
 git add shared/sim/loadout.gd tests/loadout_config_test.gd
-git commit -m "feat(loadout): trait_blurbs — self-documenting perks from class_traits (M18 P1a)"
+git commit -m "feat(loadout): trait_blurbs — self-documenting perks from class_traits (M19 P1a)"
 ```
 
 ---
@@ -732,7 +732,7 @@ Expected: PASS for all `loadout_config` methods.
 
 ```bash
 git add shared/sim/loadout.gd tests/loadout_config_test.gd
-git commit -m "feat(loadout): sanitize (validation authority) + default_loadout (M18 P1a)"
+git commit -m "feat(loadout): sanitize (validation authority) + default_loadout (M19 P1a)"
 ```
 
 ---
@@ -763,10 +763,13 @@ git add -A && git commit -m "test(loadout): P1a full suite green" || echo "nothi
 
 P1a delivers the validated loadout **data model** — options, traits, blurbs, LMG, armor speed — unit-tested end to end. Nothing is wired to the running game yet (by design); the 13 existing `Loadout` callers are untouched.
 
+**Weapon-variants integration (P1b, BLOCKED on the weapon-variants registry API landing on master):**
+- P1a already added the `Loadout._archetype_of(id)` seam (identity today) + `allowed_archetypes(cls)`. When `Weapon.archetype_of/variants_of/default_variant/is_variant` land (owned by the weapon-variants track; only its design doc is on master today), flip `_archetype_of` to `Weapon.archetype_of`, expand `primary_options` to `concat(Weapon.variants_of(a) for a in allowed_archetypes(cls))`, set `default_primary = Weapon.default_variant(allowed_archetypes(cls)[0])`, and add `Weapon.is_variant(primary)` to `is_primary_allowed`. Update the `primary_options`/`default_primary` tests (they currently assert archetype ids) to variant ids. `primary` stays `u8` on the wire. Contract: `docs/superpowers/specs/2026-07-11-weapon-variants-design.md` §3–§4 + §A "Weapon variants integration" of this milestone's spec.
+
 **P1b (next plan) builds on this:**
 - `Msg.SET_LOADOUT` (VERSION 7→8) encode/decode + client send + server handler (`shared/net/protocol.gd`, `client/client_main.gd`, `server/server_main.gd`).
 - Per-connection `_clients[id]["loadout"]` storage; server applies the sanitized config at spawn (weapon/ammo/reserve/armor/grenade/bandages + `class_traits`).
-- **RPG-as-gadget** rework (add `GADGET_RPG` to `IMPLEMENTED_GADGETS`; seed the rocket pool from the gadget, not the primary; delete the `random_class_no_engineer` human-exclusion).
+- **RPG-as-gadget** rework (add `GADGET_RPG` to `IMPLEMENTED_GADGETS`; seed the rocket pool from the gadget, not the primary; delete the `random_class_no_engineer` human-exclusion). NOTE: the server's authoritative **primary-slot** validation must switch from raw `can_equip` to `Loadout.is_primary_allowed` — `can_equip(ENGINEER, RPG)` stays `true` (legacy weapon-gate) but RPG is not in `allowed_archetypes`, so only `is_primary_allowed` rejects RPG-as-primary once it becomes gadget-only.
 - `bot_loadout(id)` on the unified path + `--loadout=` headless debug arg.
 - 128-bot fleet gate on `conquest_town` (tick < 33.3 ms, bandwidth unchanged, winner declared).
 

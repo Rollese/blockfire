@@ -48,10 +48,9 @@ func test_dmr_only_assault_can_equip() -> void:
 	assert_false(Loadout.can_equip(Loadout.ENGINEER, Weapon.DMR), "Engineer may not")
 	assert_false(Loadout.can_equip(Loadout.SUPPORT, Weapon.DMR), "Support may not")
 
-func test_engineer_gadget_options_c4_or_mine() -> void:
-	assert_eq(Loadout.gadget_options(Loadout.ENGINEER), [Loadout.GADGET_C4, Loadout.GADGET_MINE])
+func test_engineer_gadget_options_are_rpg_c4_repair() -> void:
+	assert_eq(Loadout.gadget_options(Loadout.ENGINEER), [Loadout.GADGET_RPG, Loadout.GADGET_C4, Loadout.GADGET_REPAIR])
 	assert_true(Loadout.is_valid_gadget(Loadout.ENGINEER, Loadout.GADGET_C4))
-	assert_true(Loadout.is_valid_gadget(Loadout.ENGINEER, Loadout.GADGET_MINE))
 	assert_false(Loadout.is_valid_gadget(Loadout.ENGINEER, Loadout.GADGET_HEAL), "engineer can't pick heal")
 
 func test_single_gadget_classes_validate() -> void:

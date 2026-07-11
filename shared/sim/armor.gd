@@ -10,7 +10,9 @@ const MEDIUM := 1
 const HEAVY := 2
 
 const _BODY_MULT := {LIGHT: 1.0, MEDIUM: 0.85, HEAVY: 0.7}
-const _SPEED_MULT := {LIGHT: 1.0, MEDIUM: 0.95, HEAVY: 0.9}
+# Move-speed multiplier by armor tier (M19: player-picked armor is a real trade-off — widened from
+# the M5.5 1.0/0.95/0.9 so Light is a genuine speed pick and Heavy a genuine tank pick).
+const _SPEED_MULT := {LIGHT: 1.2, MEDIUM: 1.0, HEAVY: 0.8}
 
 ## Fraction of body damage that lands (lower tier = tougher). Default LIGHT for unknown ids.
 static func body_mult(cls: int) -> float:
