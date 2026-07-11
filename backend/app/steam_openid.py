@@ -26,7 +26,7 @@ _SALT = "session"
 _STEAM_LOGIN_URL = "https://steamcommunity.com/openid/login"
 _OPENID_NS = "http://specs.openid.net/auth/2.0"
 _IDENTIFIER_SELECT = "http://specs.openid.net/auth/2.0/identifier_select"
-_CLAIMED_ID_RE = re.compile(r"https://steamcommunity\.com/openid/id/(\d+)$")
+_CLAIMED_ID_RE = re.compile(r"\Ahttps://steamcommunity\.com/openid/id/(\d+)\Z")
 
 
 def _serializer(secret: str) -> URLSafeSerializer:
@@ -90,7 +90,11 @@ def register_auth_routes(app: FastAPI) -> None:
         secret = request.app.state.settings.session_secret
         cookie = _serializer(secret).dumps({"steam_id": steam_id})
         resp = RedirectResponse(f"/players/steam:{steam_id}", status_code=302)
-        resp.set_cookie(COOKIE_NAME, cookie, httponly=True, samesite="lax")
+        # secure cookie whenever the site is served over HTTPS (prod); the
+        # http://localhost dev default stays non-secure so login works locally.
+        secure = request.app.state.settings.site_base_url.lower().startswith("https")
+        resp.set_cookie(COOKIE_NAME, cookie, httponly=True, samesite="lax",
+                        secure=secure)
         return resp
 
     @app.get("/logout")
