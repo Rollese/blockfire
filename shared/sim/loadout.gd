@@ -64,38 +64,42 @@ static func is_valid_gadget(cls: int, gadget: int) -> bool:
 
 ## Weapon ARCHETYPES (AR/SMG/DMR/LMG…) a class may field — the stable, loadout-owned matrix that
 ## class gating is expressed against (spec §A). Distinct from the concrete selectable weapon *ids*
-## returned by primary_options(): with the weapon-variants registry, one archetype fans out to many
-## named variant ids. This function does NOT change when variants land — only primary_options() does.
+## returned by primary_options(): with the weapon-variants registry live, one archetype fans out to
+## many named variant ids. This function is the stable allow-list — only primary_options() expands it.
 static func allowed_archetypes(cls: int) -> Array:
 	match cls:
 		ASSAULT: return [Weapon.AR, Weapon.SMG, Weapon.DMR]
 		SUPPORT: return [Weapon.AR, Weapon.SMG, Weapon.LMG]
 		_: return [Weapon.AR, Weapon.SMG]   # medic, engineer
 
-## WEAPON-VARIANTS SEAM — the archetype an equippable weapon id belongs to. Today every primary id
-## IS its own archetype (0-5), so this is identity. When the weapon-variants registry lands (variant
-## ids ≥16, owned by the weapon-variants track — see docs/superpowers/specs/2026-07-11-weapon-variants-design.md),
-## change ONLY this body to `return Weapon.archetype_of(weapon_id)`. Everything below routes through
-## it, so class gating stays correct for both archetype and variant ids with no other edits.
+## WEAPON-VARIANTS SEAM (LIVE) — the archetype an equippable weapon id belongs to. Now routes through
+## the named-variant registry: a variant id (≥16) resolves to its archetype, and a base archetype id
+## (0-5) resolves to itself. Everything below routes through it, so class gating stays correct for
+## both archetype and variant ids with no other edits.
 static func _archetype_of(weapon_id: int) -> int:
-	return weapon_id
+	return Weapon.archetype_of(weapon_id)
 
-## The concrete primary weapon ids a class may select (what the class-select "primary picker" lists).
-## Today == allowed_archetypes(cls) (one id per archetype). WHEN VARIANTS LAND: this becomes the
-## concatenation of Weapon.variants_of(a) for each a in allowed_archetypes(cls) — the picker then
-## lists named guns (variant ids) via Weapon.display_name(). Nothing else in this file needs editing.
+## The concrete primary weapon ids a class may select (what the class-select "primary picker" lists):
+## the concatenation of Weapon.variants_of(a) for each a in allowed_archetypes(cls) — the picker lists
+## named guns (variant ids ≥16) via Weapon.display_name().
 static func primary_options(cls: int) -> Array:
-	return allowed_archetypes(cls)
+	var out: Array = []
+	for a in allowed_archetypes(cls):
+		out.append_array(Weapon.variants_of(a))
+	return out
 
 ## True if a class may take this primary weapon id: its ARCHETYPE is class-allowed AND passes
-## can_equip. Archetype-based so it accepts any variant of an allowed archetype once variants exist.
+## can_equip. Archetype-based, so it accepts any variant of an allowed archetype (variant ids ≥16
+## resolve through _archetype_of).
 static func is_primary_allowed(cls: int, weapon_id: int) -> bool:
 	return (_archetype_of(weapon_id) in allowed_archetypes(cls)) and can_equip(cls, weapon_id)
 
-## Default primary weapon id for a class (AR for every class today). WHEN VARIANTS LAND: change to
-## `Weapon.default_variant(allowed_archetypes(cls)[0])` so the default is the category's stock gun.
+## Default primary weapon id for a class: the stock (first) variant of the class's first allowed
+## archetype (an AR variant for every class today). Assumes the variant registry is loaded (server
+## and client load it at boot; tests load it in setup()); with an unloaded registry it degrades to
+## the base archetype id.
 static func default_primary(cls: int) -> int:
-	return primary_options(cls)[0]
+	return Weapon.default_variant(allowed_archetypes(cls)[0])
 
 ## The first gadget option that is actually built (in IMPLEMENTED_GADGETS). Guarantees a working
 ## default even while later options are still unimplemented.
@@ -195,10 +199,10 @@ static func trait_blurbs(cls: int) -> Array:
 		out.append("Ammo Hauler — carries %d grenades" % int(t["grenade_count"]))
 	if float(t["reserve_mult"]) > 1.0:
 		out.append("Extra reserve ammo")
-	# Weapon-access lines (derived from the primary list so they track the matrix).
-	if Weapon.DMR in primary_options(cls):
+	# Weapon-access lines (derived from the archetype matrix, allowed_archetypes, so they track it).
+	if Weapon.DMR in allowed_archetypes(cls):
 		out.append("Can equip the DMR (marksman)")
-	if Weapon.LMG in primary_options(cls):
+	if Weapon.LMG in allowed_archetypes(cls):
 		out.append("Can equip the LMG (heavy suppression)")
 	return out
 
@@ -221,7 +225,7 @@ static func sanitize(cfg: Dictionary, attach: Attachment) -> Dictionary:
 	if not (cls in [ASSAULT, MEDIC, ENGINEER, SUPPORT]):
 		cls = ASSAULT
 	var primary: int = int(cfg.get("primary", default_primary(cls)))
-	if not is_primary_allowed(cls, primary):
+	if not (Weapon.is_variant(primary) and is_primary_allowed(cls, primary)):
 		primary = default_primary(cls)
 	var gadget: int = int(cfg.get("gadget", default_gadget(cls)))
 	if not ((gadget in gadget_options(cls)) and (gadget in IMPLEMENTED_GADGETS)):
