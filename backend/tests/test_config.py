@@ -72,6 +72,26 @@ def test_admin_steam_id_set_tolerates_whitespace_and_trailing_comma():
     assert s.admin_steam_id_set() == frozenset({76561190000000001})
 
 
+def test_admin_steam_id_set_skips_non_numeric_tokens():
+    s = Settings(
+        database_url="postgresql+asyncpg://u:p@h:5432/d",
+        ingest_token="secret",
+        admin_steam_ids="76561190000000001, garbage, 76561190000000002",
+    )
+    assert s.admin_steam_id_set() == frozenset(
+        {76561190000000001, 76561190000000002}
+    )
+
+
+def test_admin_steam_id_set_all_garbage_returns_empty_no_raise():
+    s = Settings(
+        database_url="postgresql+asyncpg://u:p@h:5432/d",
+        ingest_token="secret",
+        admin_steam_ids="nope, ---",
+    )
+    assert s.admin_steam_id_set() == frozenset()
+
+
 def test_admin_dev_open_defaults_false():
     s = Settings(
         database_url="postgresql+asyncpg://u:p@h:5432/d",

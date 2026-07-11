@@ -22,7 +22,11 @@ class Settings(BaseSettings):
 
     def admin_steam_id_set(self) -> frozenset[int]:
         tokens = self.admin_steam_ids.replace(",", " ").split()
-        return frozenset(int(token) for token in tokens if token)
+        # SteamID64s are always positive integers, so isdigit() is a clean,
+        # correct filter. Skip (rather than raise on) any non-numeric token
+        # so a deploy-time typo in ADMIN_STEAM_IDS can't 500 the public
+        # homepage (is_admin() is evaluated there to gate the Admin nav link).
+        return frozenset(int(token) for token in tokens if token.isdigit())
 
 
 def get_settings() -> Settings:
