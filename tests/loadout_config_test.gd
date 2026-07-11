@@ -45,7 +45,7 @@ func test_default_gadget_is_always_implemented() -> void:
 		assert_contains(Loadout.IMPLEMENTED_GADGETS, Loadout.default_gadget(c))
 
 func test_default_gadget_picks_first_implemented_option() -> void:
-	assert_eq(Loadout.default_gadget(Loadout.ENGINEER), Loadout.GADGET_C4)
+	assert_eq(Loadout.default_gadget(Loadout.ENGINEER), Loadout.GADGET_RPG)
 	assert_eq(Loadout.default_gadget(Loadout.ASSAULT), Loadout.GADGET_C4)
 	assert_eq(Loadout.default_gadget(Loadout.MEDIC), Loadout.GADGET_HEAL)
 	assert_eq(Loadout.default_gadget(Loadout.SUPPORT), Loadout.GADGET_AMMO)

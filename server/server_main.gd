@@ -542,14 +542,12 @@ func _step_movement() -> void:
 			c["last_input_tick"] = inp["client_tick"]
 		if c["reloading"] and _sim.tick >= c["reload_done_tick"]:
 			c["reloading"] = false
-			if int(c["weapon"]) == Weapon.RPG:
-				c["rockets"] = int(_gadgets.def_of_kind(Gadget.KIND_RPG)["ammo"])
-			else:
-				# Reserve-ammo economy (M17): pull as many rounds as the reserve allows into the mag —
-				# no partial-mag discard (shared Weapon.reload_fill; reserve<0 legacy record = unlimited).
-				var filled: Array = Weapon.reload_fill(int(c["ammo"]), int(Weapon.get_def(c["weapon"])["mag_size"]), int(c.get("reserve", -1)))
-				c["ammo"] = int(filled[0])
-				c["reserve"] = int(filled[1])
+			# Reserve-ammo economy (M17): pull as many rounds as the reserve allows into the mag —
+			# no partial-mag discard (shared Weapon.reload_fill; reserve<0 legacy record = unlimited).
+			# (RPG is a gadget now, never a held weapon — no rocket special-case here. M19.)
+			var filled: Array = Weapon.reload_fill(int(c["ammo"]), int(Weapon.get_def(c["weapon"])["mag_size"]), int(c.get("reserve", -1)))
+			c["ammo"] = int(filled[0])
+			c["reserve"] = int(filled[1])
 	_sim.step(inputs, _map.world_half)
 	_apply_fall_damage()
 
@@ -838,9 +836,9 @@ func _handle_respawns() -> void:
 			p.suppression = 0.0       # fresh life: no residual spread penalty
 			p.blind_until_tick = 0    # a flashbang taken last life doesn't white-out the respawn
 			c["respawn_tick"] = 0
-			_reset_weapon_loadout(c)   # both slots full, fire-mode defaults, back on primary
+			_apply_loadout_to_client(c, p)   # re-derive weapon/armor/class from the stored loadout, both slots full
 			_force_reenter(id)         # a swapper who died holding secondary respawns on primary
-			c["rockets"] = int(_gadgets.def_of_kind(Gadget.KIND_RPG)["ammo"]) if int(c["weapon"]) == Weapon.RPG else 0
+			c["rockets"] = int(_gadgets.def_of_kind(Gadget.KIND_RPG)["ammo"]) if int(c["loadout"]["gadget"]) == Loadout.GADGET_RPG else 0
 			c["dmg_ledger"] = {}
 
 func _select_spawn(id: int) -> Vector3:
@@ -1127,6 +1125,7 @@ func _on_packet(peer: ENetPacketPeer, _channel: int, bytes: PackedByteArray) -> 
 		Protocol.Msg.SET_SQUAD: _handle_set_squad(peer, bytes)
 		Protocol.Msg.SET_FIRE_MODE: _handle_set_fire_mode(peer, bytes)
 		Protocol.Msg.SWAP_WEAPON: _handle_swap_weapon(peer, bytes)
+		Protocol.Msg.SET_LOADOUT: _handle_set_loadout(peer, bytes)
 		Protocol.Msg.MELEE: _handle_melee(peer, bytes)
 		_: pass
 
@@ -1155,27 +1154,19 @@ func _handle_hello(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
 	_next_id += 1
 	var team: int = 0 if _team_counts[0] <= _team_counts[1] else 1
 	_team_counts[team] += 1
-	# Humans never roll ENGINEER (its RPG-primary loadout has no click-fire gun); bots still do.
-	var cls := Loadout.random_class() if auto_deploy else Loadout.random_class_no_engineer()
-	var wid: int = Loadout.weapon_for(cls)
-	# RPG-primary is a bot-fleet thing (1/3 of engineers carry it so the fleet exercises
-	# anti-vehicle fire). A human handed an RPG-only loadout has no click-fire gun, which reads
-	# as "my weapon is broken" — so humans always keep their class's hit-scan primary.
-	if cls == Loadout.ENGINEER and id % 3 == 0 and auto_deploy:
-		wid = Weapon.RPG
-	# Hand a third of Assault bots the DMR so the fleet exercises the Assault-only marksman path.
-	if cls == Loadout.ASSAULT and id % 3 == 0 and auto_deploy:
-		wid = Weapon.DMR
-	# Destruction-testing convenience (--human-rpg): humans spawn Engineer + RPG so the owner can
-	# blow up buildings/structures with the rocket. Overrides the no-engineer-for-humans default.
+	var loadout := Loadout.bot_loadout(id, _attachments) if auto_deploy else Loadout.default_loadout(Loadout.ASSAULT)
+	# Destruction-testing convenience (--human-rpg): the human spawns as an Engineer holding the RPG
+	# gadget so the owner can blow up structures. (Now a gadget, not a primary — M19.)
 	if _human_rpg and not auto_deploy:
-		cls = Loadout.ENGINEER
-		wid = Weapon.RPG
-	if not Loadout.can_equip(cls, wid):   # authoritative guard (RPG -> Engineer, DMR -> Assault)
-		wid = Loadout.weapon_for(cls)
-	var attachments := Loadout.default_attachments()
+		loadout = Loadout.sanitize({"class": Loadout.ENGINEER, "gadget": Loadout.GADGET_RPG}, _attachments)
+	var cls := int(loadout["class"])
+	var wid := int(loadout["primary"])
+	if not Loadout.can_equip(cls, wid):   # defensive; sanitize already guarantees a class-legal primary
+		wid = Loadout.default_primary(cls)
+	var attachments: Dictionary = loadout["attachments"]
 	var weapon_def := Weapon.effective_def(wid, _attachments.multipliers(attachments))
-	var start_rockets := int(_gadgets.def_of_kind(Gadget.KIND_RPG)["ammo"]) if wid == Weapon.RPG else 0
+	# RPG rockets exist only when the RPG gadget is equipped (M19: RPG is an Engineer gadget).
+	var start_rockets := int(_gadgets.def_of_kind(Gadget.KIND_RPG)["ammo"]) if int(loadout["gadget"]) == Loadout.GADGET_RPG else 0
 	var squad := _squads.assign(id, team)
 	_peer_to_id[peer] = id
 	_clients[id] = {
@@ -1191,8 +1182,8 @@ func _handle_hello(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
 		"active_slot": 0, "swap_locked_until": 0,
 		"last_build_tick": -100000, "last_grenade_tick": -100000, "known_regions": {},
 		"name": pname, "kills": 0, "deaths": 0, "score": 0, "dmg_ledger": {},
+		"loadout": loadout,   # M19: player/bot loadout (sanitized). Stored now; spawn reads it from Task 4 on.
 	}
-	_build_weapon_slots(_clients[id])
 	if not auto_deploy:
 		_human_ids.append(id)   # rendered client: joins the cosmetic/list broadcast fan-out
 	var p := _sim.world.spawn(id)
@@ -1200,8 +1191,9 @@ func _handle_hello(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
 	p.squad = squad
 	p.auto_vault = bool(auto_deploy)   # bots (auto_deploy) vault on contact; humans press jump to vault (BattleBit)
 	p.pos = _select_spawn(id)
-	p.armor_class = Loadout.armor_for(cls)   # M5.5-P2: tier is class-derived, immutable per life
-	p.bandage_count = Revive.bandage_count_for(cls == Loadout.MEDIC)
+	# Derive weapon slots + armor + bandages from the stored loadout (identical to the record literal's
+	# loadout-derived values; now routed through the shared per-spawn helper so deploy/respawn match).
+	_apply_loadout_to_client(_clients[id], p)
 	if not auto_deploy:
 		p.alive = false   # held un-deployed until DEPLOY_REQUEST (respawn_tick stays 0)
 	# Tell the client which map to render (its roads/points/bases come from its local MapDef) so it
@@ -1244,8 +1236,8 @@ func _grenade_cooldown_ticks(c: Dictionary) -> int:
 func _throwables_for(c: Dictionary) -> Array:
 	var ready := 1 if _sim.tick - int(c["last_grenade_tick"]) >= _grenade_cooldown_ticks(c) else 0
 	var list: Array = [{"kind": Grenade.FRAG, "count": ready}, {"kind": Grenade.SMOKE, "count": ready}]
-	if int(c["weapon"]) == Weapon.RPG:
-		list.append({"kind": 100, "count": int(c["rockets"])})   # kind 100 = RPG (UI-only tag; M5.5 formalizes)
+	if int(c["loadout"]["gadget"]) == Loadout.GADGET_RPG:
+		list.append({"kind": 100, "count": int(c["rockets"])})   # kind 100 = RPG (UI-only tag; M5.5 formalizes) — RPG is an Engineer gadget now (M19)
 	return list
 
 func _handle_deploy_request(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
@@ -1290,9 +1282,9 @@ func _handle_deploy_request(peer: ENetPacketPeer, bytes: PackedByteArray) -> voi
 	p.landed_fall = 0.0
 	p.suppression = 0.0       # fresh life: no residual spread penalty (same as _handle_respawns)
 	p.blind_until_tick = 0    # a flashbang taken last life doesn't white-out the fresh deploy
-	_reset_weapon_loadout(c)   # both slots full, fire-mode defaults, back on primary
+	_apply_loadout_to_client(c, p)   # re-derive weapon/armor/class from the stored loadout, both slots full
 	_force_reenter(id)         # weapon rides ENTER-only — refresh remote silhouettes after reset
-	c["rockets"] = int(_gadgets.def_of_kind(Gadget.KIND_RPG)["ammo"]) if int(c["weapon"]) == Weapon.RPG else 0   # refill rockets on (re)deploy, not just respawn (reads restored primary weapon)
+	c["rockets"] = int(_gadgets.def_of_kind(Gadget.KIND_RPG)["ammo"]) if int(c["loadout"]["gadget"]) == Loadout.GADGET_RPG else 0   # refill rockets on (re)deploy, not just respawn (RPG is now a gadget — M19)
 	c["respawn_tick"] = 0
 	c["dmg_ledger"] = {}
 
@@ -1314,6 +1306,15 @@ func _handle_set_fire_mode(peer: ENetPacketPeer, bytes: PackedByteArray) -> void
 	var m := Protocol.decode_set_fire_mode(bytes)
 	if Weapon.mode_allowed(int(_clients[id]["weapon"]), m):
 		_clients[id]["fire_mode"] = m
+
+## M19 SET_LOADOUT: store the player's chosen loadout (re-sanitized server-side — the client is
+## never trusted). Store-and-apply-at-spawn: the LIVE pawn is NOT mutated here; the next spawn
+## reads _clients[id]["loadout"] (Task 4). Always accepted (no reject path).
+func _handle_set_loadout(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
+	var id = _peer_to_id.get(peer, 0)
+	if id == 0 or not _clients.has(id): return
+	var cfg := Loadout.sanitize(Protocol.decode_set_loadout(bytes), _attachments)
+	_clients[id]["loadout"] = cfg
 
 ## Build the two weapon slots. Slot 0 = snapshot of the current (primary) flat fields.
 ## Slot 1 = a fresh secondary (sidearm) at full ammo, default fire-mode.
@@ -1368,6 +1369,40 @@ func _swap_weapon(id: int, target: int) -> void:
 	c["swap_locked_until"] = _sim.tick + WEAPON_SWAP_TICKS
 	_force_reenter(id)                 # weapon rides ENTER-only — refresh remote silhouettes
 	_stats.swaps += 1
+
+## Re-derive a client's live weapon / ammo / reserve / fire-mode / armor / bandages from its stored
+## (already-sanitized) loadout and rebuild both weapon slots. Called on EVERY spawn — HELLO connect,
+## deploy, and respawn — so a loadout set or changed via SET_LOADOUT takes effect on the next spawn
+## (store-and-apply, spec §F). In P1b the loadout is immutable per connection, so this reproduces the
+## connect-time values exactly (a no-op re-derivation); it becomes load-bearing when P3 lets the
+## client change the loadout mid-session. Rockets depend on the gadget and are refilled by the caller.
+## last_fire_time/swap_locked_until are reset here too (matching _reset_weapon_loadout and the HELLO
+## record literal) so _build_weapon_slots snapshots a fresh -999.0/0 into slot 0.
+func _apply_loadout_to_client(c: Dictionary, p: Pawn) -> void:
+	var lo: Dictionary = c["loadout"]
+	var cls := int(lo["class"])
+	var wid := int(lo["primary"])
+	if not Loadout.can_equip(cls, wid):
+		wid = Loadout.default_primary(cls)
+	c["class"] = cls
+	c["weapon"] = wid
+	# _attachments is always loaded before any spawn in production (_ready); the null-guard only
+	# covers minimal test fixtures that drive the deploy path without an attachment catalog.
+	var mults: Dictionary = _attachments.multipliers(lo["attachments"]) if _attachments != null else {}
+	c["weapon_def"] = Weapon.effective_def(wid, mults)
+	c["ammo"] = int(Weapon.get_def(wid)["mag_size"])
+	c["reserve"] = int(Weapon.reserve_ammo(wid))
+	c["reloading"] = false
+	c["reload_done_tick"] = 0
+	c["last_fire_time"] = -999.0
+	c["shot_index"] = 0
+	c["fire_mode"] = Weapon.default_mode(wid)
+	c["active_slot"] = 0
+	c["swap_locked_until"] = 0
+	_build_weapon_slots(c)
+	if p != null:
+		p.armor_class = int(lo["armor"])
+		p.bandage_count = Revive.bandage_count_for(cls == Loadout.MEDIC)
 
 ## On (re)spawn/deploy: restore a fresh weapon loadout — both slots full ammo, fire-mode defaults,
 ## back on the primary. Preserves each slot's weapon identity (set at connect; never changes after).
@@ -1574,10 +1609,11 @@ func _track_transport_distance() -> void:
 				var dist: float = (_transport_origin[occ] as Vector3).distance_to(v.pos)
 				_stats.transport_max = maxf(_stats.transport_max, dist)
 
-## Launch an RPG rocket if the player has the RPG equipped, rockets remaining, and is off cooldown.
+## Launch an RPG rocket if the player has the RPG gadget equipped, rockets remaining, and is off
+## cooldown. (M19: RPG is an Engineer gadget, not a held primary — gate on the loadout gadget.)
 func _fire_rocket(id: int, p: Pawn, dir: Vector3) -> void:
 	var c = _clients[id]
-	if int(c["weapon"]) != Weapon.RPG: return
+	if int(c["loadout"]["gadget"]) != Loadout.GADGET_RPG: return
 	if int(c["rockets"]) <= 0: return
 	var rdef: Dictionary = _gadgets.def_of_kind(Gadget.KIND_RPG)
 	var fast_rpg := _fast_rpg and not bool(c["auto_deploy"])   # HUMANS ONLY — never let bots' RPGs go on infinite fire
@@ -1694,7 +1730,7 @@ func _broadcast_grenade_fx(thrower_id: int, origin: Vector3, dir: Vector3, kind:
 	_broadcast_all(NetHost.CHANNEL_SNAPSHOT, Protocol.encode_grenade_fx(origin, dir, kind, team, charge), 0, thrower_id)
 
 func _place_c4(id: int, p: Pawn, pos: Vector3) -> void:
-	if Loadout.gadget_for_player(int(_clients[id]["class"]), id) != Loadout.GADGET_C4: return
+	if int(_clients[id]["loadout"]["gadget"]) != Loadout.GADGET_C4: return
 	var cdef: Dictionary = _gadgets.def_of_kind(Gadget.KIND_C4)
 	var owned: Array = _c4.get(id, [])
 	if owned.size() >= int(cdef["max_active"]): return
@@ -1705,7 +1741,7 @@ func _place_c4(id: int, p: Pawn, pos: Vector3) -> void:
 	_c4[id] = owned
 
 func _place_mine(id: int, p: Pawn, pos: Vector3, facing: Vector3) -> void:
-	if Loadout.gadget_for_player(int(_clients[id]["class"]), id) != Loadout.GADGET_MINE: return
+	if int(_clients[id]["loadout"]["gadget"]) != Loadout.GADGET_MINE: return
 	var mdef: Dictionary = _gadgets.def_of_kind(Gadget.KIND_MINE)
 	var mine_count := 0
 	for m in _mines:

@@ -89,15 +89,8 @@ func resolve_fires() -> void:
 		if inp == null: continue
 		var shooter: Pawn = srv._sim.world.get_pawn(id)
 		if shooter == null or not shooter.alive or shooter.is_downed or shooter.climbing: continue   # downed/climbing = can't fire (also drops ADS accuracy, read below)
-		if c["weapon"] == Weapon.RPG:
-			c["shot_index"] = 0
-			# RPG fires via GADGET_ACTION(GA_RPG_FIRE), not the hit-scan path. RELOAD refills the rocket pool.
-			var rpg_max := int(srv._gadgets.def_of_kind(Gadget.KIND_RPG)["ammo"])
-			if (inp["buttons"] & InputCommand.BTN_RELOAD) and not c["reloading"] and int(c["rockets"]) < rpg_max:
-				c["reloading"] = true
-				c["reload_done_tick"] = srv._sim.tick + int(round(srv.RPG_RELOAD_SECS * srv.TICK_RATE))
-				srv._broadcast_reload_fx(id, int(c["reload_done_tick"]) - srv._sim.tick)
-			continue
+		# (M19: RPG is an Engineer gadget, never a held weapon — no rocket-reload branch here. Rockets
+		# refill on spawn/deploy/respawn; mid-life resupply via ammo bag is a P2 follow-up.)
 		var firing: bool = (inp["buttons"] & InputCommand.BTN_FIRE) != 0
 		if not firing:
 			c["shot_index"] = 0

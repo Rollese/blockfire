@@ -16,7 +16,8 @@ extends Object
 ## tail). History: VERSION sat at 1 through M1–M12 while the wire changed dozens of times,
 ## so the check protected nothing; real from 2 onward.
 
-const VERSION := 7   # 7: reliable BULK channel (3) for structure traffic — transport-topology change,
+const VERSION := 8   # 8: M19 SET_LOADOUT (48) client->server player loadout; store-and-apply-at-spawn (2026-07-11)
+                     # 7: reliable BULK channel (3) for structure traffic — transport-topology change,
                      # old clients must be rejected (channel-count mismatch); no message format change (2026-07-10)
                      # 6: M17 reserve-ammo economy — SELF_STATE gains a trailing reserve u16 (2026-07-10)
                      # 5: M16 standing-bleed — BANDAGE_ACTION/BLEEDING_LIST msgs + SELF_STATE gains
@@ -70,6 +71,7 @@ enum Msg {
 	COLLAPSE_WARNING = 45,  ## server -> clients: a building is about to collapse (id + centre) -> rumble + shake, then COLLAPSE fires ~3 s later
 	BANDAGE_ACTION = 46,    ## client -> server (M16): hold-to-bandage a standing-bleeding self/teammate (active-bit + target id)
 	BLEEDING_LIST = 47,     ## server -> human clients (M16): standing-bleeding teammate ids -> bleed marker + "hold to bandage" prompt
+	SET_LOADOUT = 48,       ## client -> server (M19): player-picked loadout (class/primary/secondary/gadget/armor/grenade + attachment ids); stored, applied at next spawn
 }
 
 const OP_PLACE := 0
@@ -466,6 +468,43 @@ static func encode_bandage_action(target_id: int, active: bool) -> PackedByteArr
 static func decode_bandage_action(bytes: PackedByteArray) -> Dictionary:
 	var r := body_reader(bytes)
 	return {"target": r.get_u32(), "active": r.get_u8() == 1}
+
+
+## M19 loadout select: six small ints (u8) + three attachment ids (u32-length-prefixed strings).
+## `primary` is a weapon-variant id (≤ 32 today; u8 has headroom). Stored server-side and applied
+## at the next spawn; attachment-id VALIDITY is enforced downstream by Loadout.sanitize (unknown ids
+## dropped) — the wire only encodes/decodes them safely.
+static func encode_set_loadout(cfg: Dictionary) -> PackedByteArray:
+	var buf := StreamPeerBuffer.new()
+	buf.put_u8(Msg.SET_LOADOUT)
+	buf.put_u8(int(cfg.get("class", 0)))
+	buf.put_u8(int(cfg.get("primary", 0)))
+	buf.put_u8(int(cfg.get("secondary", 0)))
+	buf.put_u8(int(cfg.get("gadget", 0)))
+	buf.put_u8(int(cfg.get("armor", 0)))
+	buf.put_u8(int(cfg.get("grenade", 0)))
+	var att: Dictionary = cfg.get("attachments", {})
+	for slot in ["optic", "barrel", "underbarrel"]:
+		buf.put_utf8_string(String(att.get(slot, "")))
+	return buf.data_array
+
+
+static func decode_set_loadout(bytes: PackedByteArray) -> Dictionary:
+	var r := body_reader(bytes)
+	# Guard the six fixed bytes: a truncated packet must decode to safe defaults, never error-spam
+	# or crash (Loadout.sanitize normalizes the result downstream).
+	if r.get_available_bytes() < 6:
+		return {"class": 0, "primary": 0, "secondary": 0, "gadget": 0, "armor": 0, "grenade": 0,
+			"attachments": {"optic": "", "barrel": "", "underbarrel": ""}}
+	var cfg := {
+		"class": r.get_u8(), "primary": r.get_u8(), "secondary": r.get_u8(),
+		"gadget": r.get_u8(), "armor": r.get_u8(), "grenade": r.get_u8(),
+	}
+	var att := {}
+	for slot in ["optic", "barrel", "underbarrel"]:
+		att[slot] = get_string_bounded(r)   # "" if absent/truncated
+	cfg["attachments"] = att
+	return cfg
 
 
 static func encode_self_bandage() -> PackedByteArray:

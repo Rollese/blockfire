@@ -29,13 +29,13 @@ const GADGET_RIOT_SHIELD := 10
 const GADGET_SANDBAG := 11
 const GADGET_LMG_NEST := 12
 
-# Gadgets whose selection is actually supported so far. GROWS PER PHASE (spec §D/§L): P1b adds RPG;
-# P2 adds STIM/BREACH/SMOKE_WALL/REPAIR; P4 adds LMG_NEST; later GRAPPLE/RIOT_SHIELD. An unbuilt
-# gadget is not selectable (sanitize + client hide it) and its class falls back to the first BUILT
-# option (default_gadget). GADGET_SANDBAG is a RESERVED interim filler: it is intentionally NOT in
-# any class's gadget_options yet, so adding it here alone would not surface it — a later phase wires
-# it into specific class slots first.
-const IMPLEMENTED_GADGETS := [GADGET_C4, GADGET_HEAL, GADGET_AMMO]
+# Gadgets whose selection is actually supported so far. GROWS PER PHASE (spec §D/§L): RPG is built
+# (P1b); P2 adds STIM/BREACH/SMOKE_WALL/REPAIR; P4 adds LMG_NEST; later GRAPPLE/RIOT_SHIELD. An
+# unbuilt gadget is not selectable (sanitize + client hide it) and its class falls back to the first
+# BUILT option (default_gadget). GADGET_SANDBAG is a RESERVED interim filler: it is intentionally NOT
+# in any class's gadget_options yet, so adding it here alone would not surface it — a later phase
+# wires it into specific class slots first.
+const IMPLEMENTED_GADGETS := [GADGET_C4, GADGET_HEAL, GADGET_AMMO, GADGET_RPG]
 
 static func weapon_for(cls: int) -> int:
 	match cls:
@@ -130,11 +130,11 @@ static func secondary_for(_cls: int) -> int:
 	return Weapon.PISTOL   # v1: universal sidearm
 
 ## Class weapon locks, resolved on the ARCHETYPE (so a variant of a locked archetype is gated the
-## same as its base): RPG⇒Engineer, DMR⇒Assault, LMG⇒Support; everything else unrestricted.
+## same as its base): DMR⇒Assault, LMG⇒Support; everything else unrestricted. RPG is gadget-only
+## now (M19) — no weapon-slot gate; it can never be a primary because it isn't in any class's
+## allowed_archetypes and isn't a variant (is_primary_allowed/sanitize block it).
 static func can_equip(cls: int, weapon_id: int) -> bool:
 	var arch := _archetype_of(weapon_id)
-	if arch == Weapon.RPG:
-		return cls == ENGINEER
 	if arch == Weapon.DMR:
 		return cls == ASSAULT
 	if arch == Weapon.LMG:
@@ -270,3 +270,34 @@ static func random_class() -> int:
 static func random_class_no_engineer() -> int:
 	var pool := [ASSAULT, MEDIC, SUPPORT]
 	return pool[randi() % pool.size()]
+
+## The deterministic gadget a bot of (id, cls) carries — the SINGLE source both the server's
+## bot_loadout(id) and the bot AI (exercisers) read, so the AI's gadget decisions can never drift
+## from the loadout the server actually stored. Engineers alternate RPG/C4 by an id bit; every other
+## class takes its default gadget.
+static func bot_gadget(id: int, cls: int) -> int:
+	if cls == ENGINEER:
+		return GADGET_RPG if ((id / 4) % 2 == 0) else GADGET_C4
+	return default_gadget(cls)
+
+## Deterministic per-id bot loadout — exercises every class × armor tier × built gadget so the
+## fleet gate covers the full matrix without replication. Requires the variant registry loaded
+## (variant primaries). Always returns a sanitize-stable config (built via default_loadout + sanitize).
+static func bot_loadout(id: int, attach: Attachment) -> Dictionary:
+	var cls := id % 4
+	# Class is id % 4, so id % 2 is fully determined by the class — a useless within-class bit.
+	# Use an INDEPENDENT parity (the next id bit up) so each class still alternates its variant.
+	var bit := (id / 4) % 2
+	var cfg := default_loadout(cls)
+	cfg["armor"] = [Armor.LIGHT, Armor.MEDIUM, Armor.HEAVY][id % 3]
+	cfg["gadget"] = bot_gadget(id, cls)
+	if cls == SUPPORT and (bit == 0):
+		var lmgs := Weapon.variants_of(Weapon.LMG)
+		if not lmgs.is_empty():
+			cfg["primary"] = int(lmgs[id % lmgs.size()])
+	if cls == ASSAULT and (bit == 1):
+		# Hand alternating Assault bots a DMR so the fleet exercises the Assault-only marksman path.
+		var dmrs := Weapon.variants_of(Weapon.DMR)
+		if not dmrs.is_empty():
+			cfg["primary"] = int(dmrs[id % dmrs.size()])
+	return sanitize(cfg, attach)
