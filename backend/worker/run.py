@@ -8,7 +8,6 @@ from app.steam_api import enrich_profiles
 
 # Prune is idempotent + cheap, so we fold it into the shorter rollup cadence
 # rather than gating it on a separate longer interval.
-PRUNE_INTERVAL_S = 3600
 ROLLUP_INTERVAL_S = 30
 
 
