@@ -110,3 +110,56 @@ func test_trait_blurbs_cover_every_active_trait() -> void:
 		if float(t["reserve_mult"]) > 1.0: active += 1
 		assert_true(Loadout.trait_blurbs(c).size() >= active,
 			"class %d: %d blurbs >= %d active traits" % [c, Loadout.trait_blurbs(c).size(), active])
+
+func _attach() -> Attachment:
+	var res := Attachment.from_dict({"attachments": [
+		{"id": "iron", "slot": "optic"},
+		{"id": "reddot", "slot": "optic"},
+		{"id": "standard", "slot": "barrel"},
+		{"id": "none_ub", "slot": "underbarrel"},
+	]})
+	return res["catalog"]
+
+func test_default_loadout_is_self_consistent() -> void:
+	for c in ALL_CLASSES:
+		var d := Loadout.default_loadout(c)
+		assert_eq(Loadout.sanitize(d, _attach()), d, "default_loadout(%d) stable under sanitize" % c)
+
+func test_sanitize_is_idempotent() -> void:
+	var raw := {"class": Loadout.SUPPORT, "primary": Weapon.LMG, "secondary": Weapon.PISTOL,
+		"gadget": Loadout.GADGET_AMMO, "armor": Armor.HEAVY, "grenade": Grenade.SMOKE,
+		"attachments": {"optic": "reddot", "barrel": "standard", "underbarrel": "none_ub"}}
+	var once := Loadout.sanitize(raw, _attach())
+	assert_eq(Loadout.sanitize(once, _attach()), once, "sanitize twice == once")
+
+func test_sanitize_rejects_illegal_primary() -> void:
+	var out := Loadout.sanitize({"class": Loadout.MEDIC, "primary": Weapon.DMR}, _attach())
+	assert_eq(int(out["primary"]), Weapon.AR)
+
+func test_sanitize_rpg_never_a_primary() -> void:
+	var out := Loadout.sanitize({"class": Loadout.ENGINEER, "primary": Weapon.RPG}, _attach())
+	assert_ne(int(out["primary"]), Weapon.RPG)
+
+func test_sanitize_unbuilt_gadget_falls_to_default() -> void:
+	var out := Loadout.sanitize({"class": Loadout.SUPPORT, "gadget": Loadout.GADGET_RIOT_SHIELD}, _attach())
+	assert_eq(int(out["gadget"]), Loadout.GADGET_AMMO)
+
+func test_sanitize_out_of_set_gadget_falls_to_default() -> void:
+	var out := Loadout.sanitize({"class": Loadout.SUPPORT, "gadget": Loadout.GADGET_HEAL}, _attach())
+	assert_eq(int(out["gadget"]), Loadout.GADGET_AMMO)
+
+func test_sanitize_clamps_class_armor_grenade() -> void:
+	var out := Loadout.sanitize({"class": 99, "armor": 99, "grenade": 99}, _attach())
+	assert_eq(int(out["class"]), Loadout.ASSAULT)
+	assert_eq(int(out["armor"]), Armor.MEDIUM)
+	assert_eq(int(out["grenade"]), Grenade.FRAG)
+
+func test_sanitize_drops_bad_attachment_ids() -> void:
+	var out := Loadout.sanitize({"class": Loadout.ASSAULT,
+		"attachments": {"optic": "not_a_real_id", "barrel": "none_ub", "underbarrel": "none_ub"}}, _attach())
+	assert_eq(String(out["attachments"]["optic"]), String(Loadout.default_attachments()["optic"]))
+	assert_eq(String(out["attachments"]["barrel"]), String(Loadout.default_attachments()["barrel"]))
+
+func test_sanitize_secondary_is_always_pistol() -> void:
+	var out := Loadout.sanitize({"class": Loadout.ASSAULT, "secondary": Weapon.AR}, _attach())
+	assert_eq(int(out["secondary"]), Weapon.PISTOL)

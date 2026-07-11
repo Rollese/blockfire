@@ -179,6 +179,61 @@ static func trait_blurbs(cls: int) -> Array:
 		out.append("Can equip the LMG (heavy suppression)")
 	return out
 
+## A full, valid starting loadout for a class (server per-connection default + client screen seed).
+static func default_loadout(cls: int) -> Dictionary:
+	return {
+		"class": cls,
+		"primary": default_primary(cls),
+		"secondary": Weapon.PISTOL,
+		"gadget": default_gadget(cls),
+		"armor": default_armor(cls),
+		"grenade": Grenade.FRAG,
+		"attachments": default_attachments(),
+	}
+
+## THE loadout validation authority — called by BOTH client (grey-out) and server (authoritative).
+## Total (never returns an invalid config) and idempotent. `attach` is the Attachment catalog.
+static func sanitize(cfg: Dictionary, attach: Attachment) -> Dictionary:
+	var cls: int = int(cfg.get("class", ASSAULT))
+	if not (cls in [ASSAULT, MEDIC, ENGINEER, SUPPORT]):
+		cls = ASSAULT
+	var primary: int = int(cfg.get("primary", default_primary(cls)))
+	if not is_primary_allowed(cls, primary):
+		primary = default_primary(cls)
+	var gadget: int = int(cfg.get("gadget", default_gadget(cls)))
+	if not ((gadget in gadget_options(cls)) and (gadget in IMPLEMENTED_GADGETS)):
+		gadget = default_gadget(cls)
+	var armor: int = int(cfg.get("armor", Armor.MEDIUM))
+	if not (armor in [Armor.LIGHT, Armor.MEDIUM, Armor.HEAVY]):
+		armor = Armor.MEDIUM
+	var grenade: int = int(cfg.get("grenade", Grenade.FRAG))
+	if not (grenade in [Grenade.FRAG, Grenade.SMOKE, Grenade.FLASHBANG]):
+		grenade = Grenade.FRAG
+	return {
+		"class": cls,
+		"primary": primary,
+		"secondary": Weapon.PISTOL,   # v1: universal sidearm, never client-chosen
+		"gadget": gadget,
+		"armor": armor,
+		"grenade": grenade,
+		"attachments": _sanitize_attachments(cfg.get("attachments", {}), attach),
+	}
+
+## Per-slot: keep a chosen attachment only if the catalog knows it AND it belongs to that slot;
+## otherwise fall back to the slot default. Guarantees all three slots present + valid.
+static func _sanitize_attachments(raw, attach: Attachment) -> Dictionary:
+	var defaults := default_attachments()
+	var out := {}
+	if not (raw is Dictionary):
+		raw = {}
+	for slot in Attachment.SLOTS:
+		var chosen := String((raw as Dictionary).get(slot, ""))
+		if chosen != "" and attach != null and attach.slot_of(chosen) == slot:
+			out[slot] = chosen
+		else:
+			out[slot] = String(defaults[slot])
+	return out
+
 static func random_class() -> int:
 	return randi() % 4
 
