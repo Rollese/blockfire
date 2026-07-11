@@ -176,6 +176,7 @@ func step_repairs() -> void:
 ## within `rng`. Empty if nothing was hit — repair_chunks() is a safe no-op on an already-full
 ## mask, so no extra "needs repair" check is required here.
 func aimed_damaged_structure(ep: Pawn, rng: float) -> Dictionary:
+	if srv._store == null: return {}
 	var dir := Combat._forward(ep.yaw, ep.pitch)
 	var m: Dictionary = srv._store.march(ep.eye_position(), dir, rng)
 	if not bool(m["hit"]):

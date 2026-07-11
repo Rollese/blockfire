@@ -81,9 +81,14 @@ func test_engineer_without_repair_gadget_does_nothing() -> void:
 	var dir := Combat._forward(p.yaw, p.pitch)
 	var m: Dictionary = srv._store.march(p.eye_position(), dir, 4.0)
 	assert_true(bool(m["hit"]), "aim ray hits the front wall")
-	var impact: Vector3 = p.eye_position() + dir * float(m["dist"])
-	srv._store.damage_chunks(wid, PieceCatalog.SRC_EXPLOSIVE, impact, 1.2)
+	# Punch a hole OFFSET from the exact aim point (not through it — a cleared chunk at the ray's
+	# own contact point would make march() pass through the hole instead of registering a hit, so
+	# aimed_damaged_structure would return {} and "heal nothing" regardless of the gadget gate,
+	# proving nothing). Mirrors the offset carve in the positive test above.
+	var impact: Vector3 = p.eye_position() + dir * float(m["dist"]) + Vector3(1.05, 0, 0)
+	srv._store.damage_chunks(wid, PieceCatalog.SRC_EXPLOSIVE, impact, 0.6)
 	var mask_before: int = srv._store.get_record(wid)["chunks"]
+	assert_true(_popcount(mask_before) < 64, "carve actually holed the wall")
 	srv._support.repairing[1] = true
 	for _i in 30:
 		srv._sim.tick += 1

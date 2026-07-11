@@ -1793,6 +1793,7 @@ func _place_breach(id: int, p: Pawn, pos: Vector3, facing: Vector3) -> void:
 	var dir := facing.normalized() if facing.length() > 0.001 else Vector3(sin(p.yaw), 0.0, cos(p.yaw))
 	var m := _store.march(p.eye_position(), dir, float(bdef["place_range"]))
 	if not bool(m["hit"]): return
+	if int(m["id"]) == 0: return   # terrain hit, not a structure — don't place
 	var impact: Vector3 = p.eye_position() + dir * float(m["dist"])
 	_breaches.append({"owner": id, "pos": impact, "id": int(m["id"]),
 		"detonate_tick": _sim.tick + int(bdef["arm_delay_ticks"])})
