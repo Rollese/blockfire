@@ -1911,6 +1911,13 @@ func _piece_normal(id: int) -> Vector3:
 
 func _blast_at(center: Vector3, owner: int, team: int, pawn_dmg: int, pawn_radius: float,
 		struct_dmg: int, struct_radius: float, veh_dmg: int = 0, carve_normal: Vector3 = Vector3.ZERO) -> int:
+	# M19: an Engineer's explosives get +20% blast radius (class_traits.blast_mult); everyone else ×1.0.
+	# One multiply here covers C4/RPG/frag (all route through _blast_at); the scaled radius also widens
+	# the distance-falloff (spec §B). Guard: a blast can be owned by a since-disconnected id.
+	if _clients.has(owner):
+		var bm := float(Loadout.class_traits(int(_clients[owner]["class"]))["blast_mult"])
+		pawn_radius *= bm
+		struct_radius *= bm
 	if struct_dmg > 0 and struct_radius > 0.0:
 		# Search a cell BEYOND the carve radius so a blast near a cell boundary carves the chunks in the
 		# NEIGHBOURING cells too — holes flow across cells instead of stopping dead at each 2 m edge
