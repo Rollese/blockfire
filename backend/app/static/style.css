@@ -1,0 +1,74 @@
+:root {
+  --bg: #14171c;
+  --panel: #1d222b;
+  --line: #2c3440;
+  --text: #e6e9ef;
+  --subtle: #8b95a6;
+  --accent: #ff7a3c;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 15px/1.5 system-ui, "Segoe UI", Roboto, sans-serif;
+}
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+.nav {
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+  padding: 0.9rem 1.5rem;
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+}
+.nav .brand { font-weight: 700; color: var(--text); }
+.nav nav { display: flex; gap: 1rem; }
+
+.content { max-width: 960px; margin: 0 auto; padding: 1.5rem; }
+h1 { margin-top: 0; }
+h2 { margin-top: 2rem; border-bottom: 1px solid var(--line); padding-bottom: 0.3rem; }
+.empty, .subtle { color: var(--subtle); }
+
+table.stats {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 0.5rem;
+}
+table.stats th, table.stats td {
+  padding: 0.5rem 0.6rem;
+  text-align: right;
+  border-bottom: 1px solid var(--line);
+}
+table.stats th:nth-child(2), table.stats td:nth-child(2),
+table.stats th:first-child, table.stats td:first-child { text-align: left; }
+table.stats thead th { color: var(--subtle); font-weight: 600; }
+table.stats tbody tr:hover { background: var(--panel); }
+
+.profile-header {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+.avatar { width: 72px; height: 72px; border-radius: 8px; object-fit: cover; }
+.avatar.placeholder { background: var(--line); }
+
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 0.75rem;
+}
+.stat {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  padding: 0.75rem;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.stat .label { color: var(--subtle); font-size: 0.8rem; }
+.stat .value { font-size: 1.3rem; font-weight: 700; }

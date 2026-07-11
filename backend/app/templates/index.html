@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}Leaderboard — Blockfire Stats{% endblock %}
+{% block content %}
+<h1>Leaderboard</h1>
+{% if players %}
+<table class="stats">
+  <thead>
+    <tr>
+      <th>#</th><th>Player</th><th>Kills</th><th>Deaths</th>
+      <th>K/D</th><th>Hit&nbsp;%</th><th>Wins</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for p in players %}
+    <tr>
+      <td>{{ loop.index }}</td>
+      <td><a href="/players/{{ p.player_key }}">{{ p.display_name or p.player_key }}</a></td>
+      <td>{{ p.total_kills }}</td>
+      <td>{{ p.total_deaths }}</td>
+      <td>{{ "%.2f"|format(p.kd_ratio or 0.0) }}</td>
+      <td>{{ "%.1f"|format((p.overall_hit_rate or 0.0) * 100) }}</td>
+      <td>{{ p.wins }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="empty">No players yet.</p>
+{% endif %}
+{% endblock %}

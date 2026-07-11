@@ -27,9 +27,11 @@ def create_app(settings: Settings | None = None,
         return {"status": "ok"}
 
     from app.routes import register_ingest_routes  # local import avoids cycle
+    from app.web import register_web_routes
     from app.web_api import register_api_routes
     register_ingest_routes(app)
     register_api_routes(app)
+    register_web_routes(app)
     return app
 
 
