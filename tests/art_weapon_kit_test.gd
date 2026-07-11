@@ -23,3 +23,14 @@ func test_unknown_weapon_falls_back_to_ar() -> void:
 	var fallback := WeaponKit.aabb(autofree(WeaponKit.build(999))).size
 	var ar := WeaponKit.aabb(autofree(WeaponKit.build(Weapon.AR))).size
 	assert_almost_eq(fallback.z, ar.z, 0.001, "unknown id renders as AR")
+
+func teardown() -> void:
+	Weapon.reset_registry()
+
+func test_variant_uses_archetype_viewmodel() -> void:
+	Weapon.load_from_file("res://data/weapons.json")
+	var svdk_len := WeaponKit.aabb(autofree(WeaponKit.build(22))).size.z   # DMR variant (SVD-K)
+	var dmr_len := WeaponKit.aabb(autofree(WeaponKit.build(Weapon.DMR))).size.z
+	var ar_len := WeaponKit.aabb(autofree(WeaponKit.build(Weapon.AR))).size.z
+	assert_almost_eq(svdk_len, dmr_len, 0.001, "DMR variant builds the DMR viewmodel")
+	assert_true(absf(svdk_len - ar_len) > 0.001, "DMR variant is NOT the AR fallback")

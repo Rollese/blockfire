@@ -12,7 +12,7 @@ const _SPEC := {
 }
 
 static func build(weapon_id: int) -> Node3D:
-	var spec: Dictionary = _SPEC.get(weapon_id, _SPEC[Weapon.AR])
+	var spec: Dictionary = _SPEC.get(Weapon.archetype_of(weapon_id), _SPEC[Weapon.AR])
 	var root := Node3D.new()
 	var metal := ArtPalette.gun_material()
 	var receiver_len: float = spec["receiver"]
