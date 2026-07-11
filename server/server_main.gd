@@ -1180,7 +1180,7 @@ func _handle_hello(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
 		"reloading": false, "reload_done_tick": 0, "last_fire_time": -999.0,
 		"shot_index": 0, "fire_mode": Weapon.default_mode(wid), "respawn_tick": 0, "auto_deploy": auto_deploy,
 		"active_slot": 0, "swap_locked_until": 0,
-		"last_build_tick": -100000, "last_grenade_tick": -100000, "known_regions": {},
+		"last_build_tick": -100000, "last_grenade_tick": -100000, "grenades": 3, "known_regions": {},
 		"name": pname, "kills": 0, "deaths": 0, "score": 0, "dmg_ledger": {},
 		"loadout": loadout,   # M19: player/bot loadout (sanitized). Stored now; spawn reads it from Task 4 on.
 	}
@@ -1234,7 +1234,8 @@ func _grenade_cooldown_ticks(c: Dictionary) -> int:
 	return 1 if _fast_nades and not bool(c["auto_deploy"]) else GRENADE_COOLDOWN_TICKS
 
 func _throwables_for(c: Dictionary) -> Array:
-	var ready := 1 if _sim.tick - int(c["last_grenade_tick"]) >= _grenade_cooldown_ticks(c) else 0
+	var pool := int(c.get("grenades", 0))
+	var ready := 1 if (_sim.tick - int(c["last_grenade_tick"]) >= _grenade_cooldown_ticks(c) and pool > 0) else 0
 	var list: Array = [{"kind": Grenade.FRAG, "count": ready}, {"kind": Grenade.SMOKE, "count": ready}]
 	if int(c["loadout"]["gadget"]) == Loadout.GADGET_RPG:
 		list.append({"kind": 100, "count": int(c["rockets"])})   # kind 100 = RPG (UI-only tag; M5.5 formalizes) — RPG is an Engineer gadget now (M19)
@@ -1391,6 +1392,7 @@ func _apply_loadout_to_client(c: Dictionary, p: Pawn) -> void:
 	if not Loadout.can_equip(cls, wid):
 		wid = Loadout.default_primary(cls)
 	c["class"] = cls
+	c["grenades"] = int(Loadout.class_traits(cls)["grenade_count"])   # M19: finite per-life throwable pool
 	c["weapon"] = wid
 	# _attachments is always loaded before any spawn in production (_ready); the null-guard only
 	# covers minimal test fixtures that drive the deploy path without an attachment catalog.
@@ -1459,10 +1461,12 @@ func _handle_grenade_throw(peer: ENetPacketPeer, bytes: PackedByteArray) -> void
 	var p: Pawn = _sim.world.get_pawn(id)
 	if p == null or not p.alive or p.is_downed or p.climbing: return   # downed/climbing = incapacitated (same gate as fire/melee/gadgets)
 	if _sim.tick - int(c["last_grenade_tick"]) < _grenade_cooldown_ticks(c): return
+	if int(c.get("grenades", 0)) <= 0: return   # M19: finite grenade pool exhausted this life
 	var d := Protocol.decode_grenade_throw(bytes)
 	var dir: Vector3 = d["dir"]
 	if dir.length() < 0.001: return
 	c["last_grenade_tick"] = _sim.tick
+	c["grenades"] = int(c["grenades"]) - 1   # spend one from the pool
 	var gtype := int(d["type"])
 	if gtype < Grenade.FRAG or gtype > Grenade.IMPACT:
 		gtype = Grenade.FRAG   # reject unknown throwable ids (default to frag)

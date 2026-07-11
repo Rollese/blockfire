@@ -36,6 +36,7 @@ func test_duplicate_hello_does_not_mint_second_client() -> void:
 func _client_with_pawn(srv, id: int, human: bool) -> Pawn:
 	var c: Dictionary = F.add_client(srv, id, 0, human)
 	c["last_grenade_tick"] = -100000
+	c["grenades"] = 3   # M19: finite per-life throwable pool — seed so real handler's pool gate passes
 	srv._peer_to_id[null] = id
 	return F.add_pawn(srv, id, 0)
 
