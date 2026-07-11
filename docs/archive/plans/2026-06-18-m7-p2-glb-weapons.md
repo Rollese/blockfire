@@ -1,6 +1,6 @@
 # M7-P2 Art Pipeline — Imported GLB Weapons (record)
 
-**Milestone:** [M7-art-ux.md](../milestones/M7-art-ux.md) (P2). **Spec:** [art-pipeline.md](../specs/art-pipeline.md) §2 (GLB import flow), §5. Built 2026-06-18 in an isolated worktree (per [worktree-isolation] discipline), implemented directly (small, contained client-art + asset increment) with TDD.
+**Milestone:** [M7-art-ux.md](../../milestones/M7-art-ux.md) (P2). **Spec:** [art-pipeline.md](../../specs/art-pipeline.md) §2 (GLB import flow), §5. Built 2026-06-18 in an isolated worktree (per [worktree-isolation] discipline), implemented directly (small, contained client-art + asset increment) with TDD.
 
 **Goal:** Replace the procedural `WeaponKit` rendering with imported low-poly GLB weapons (owner-supplied Quaternius "Ultimate Guns Pack", CC0), mirroring how the Kenney character GLB superseded the procedural `CharacterKit`.
 

@@ -1,6 +1,6 @@
 # Spec: M2 Core FPS Loop
 
-**Status:** approved-pending-review · **Date:** 2026-06-13 · **Milestone:** [M2](../milestones/M2-core-fps-loop.md)
+**Status:** approved-pending-review · **Date:** 2026-06-13 · **Milestone:** [M2](../../milestones/M2-core-fps-loop.md)
 
 Builds the recognizable shooter loop on top of the M1 authoritative netcode core: full movement, hit-scan gunplay with lag-compensated hit registration, health/death/respawn, minimal classes, teams, and combat-capable bots. Stays server-authoritative; all gameplay rules live in `shared/` so client prediction can't diverge from server authority (AGENTS.md §7).
 

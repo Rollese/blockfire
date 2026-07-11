@@ -1,6 +1,6 @@
 # Spec: M1 Netcode Core
 
-**Status:** approved-pending-review · **Date:** 2026-06-13 · **Milestone:** [M1](../milestones/M1-netcode-core.md)
+**Status:** approved-pending-review · **Date:** 2026-06-13 · **Milestone:** [M1](../../milestones/M1-netcode-core.md)
 
 Covers the three M1 specs in one document: **wire protocol**, **replication** (snapshots + prediction/reconciliation/interpolation), and **interest management**. This is the highest-risk milestone; everything after it is "just gameplay" on top of this core.
 

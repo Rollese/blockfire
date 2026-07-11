@@ -63,7 +63,7 @@ Expected: the three milestone-index rows (table starting at line 11, header `| #
 Add this table row immediately after the `| M14 | … |` line (same 4-column format):
 
 ```markdown
-| M15 | [Heightmap terrain](specs/heightmap-terrain.md) | **in-progress** | Heightmap-based terrain (hills/valleys/cliffs + tunnels-via-cutout): walkable, real bullet/LOS cover, driveable, composes with buildings; server-authoritative, client-mirrored, deterministic, **no wire change**. Gate = deterministic terrain-query unit tests + 128-bot fleet gate on retrofitted `conquest_proving_grounds` (mean tick < 33.3 ms, no new `[perf]` bottleneck) + human feel playtest (hills block sightlines, no floating/clipping buildings or vehicles, tunnel reads as subterranean). Plan: `docs/superpowers/plans/2026-07-06-m15-heightmap-terrain.md`. |
+| M15 | [Heightmap terrain](../../specs/heightmap-terrain.md) | **in-progress** | Heightmap-based terrain (hills/valleys/cliffs + tunnels-via-cutout): walkable, real bullet/LOS cover, driveable, composes with buildings; server-authoritative, client-mirrored, deterministic, **no wire change**. Gate = deterministic terrain-query unit tests + 128-bot fleet gate on retrofitted `conquest_proving_grounds` (mean tick < 33.3 ms, no new `[perf]` bottleneck) + human feel playtest (hills block sightlines, no floating/clipping buildings or vehicles, tunnel reads as subterranean). Plan: `docs/superpowers/plans/2026-07-06-m15-heightmap-terrain.md`. |
 ```
 
 - [ ] **Step 3: Commit**

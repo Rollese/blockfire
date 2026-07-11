@@ -4,7 +4,7 @@
 
 **Goal:** Turn the headless client stub into a *rendered, predicted first-person infantry client* you can deploy, move, shoot/reload (predicted ammo), die/respawn, and capture with — against bots on game2, on placeholder primitives, with the core HUD.
 
-**Architecture:** The client stays a **view + predictor + intent-sender, never authority** (AGENTS.md §7). It predicts the local pawn/ammo by re-running the **shared** sim, interpolates remotes from snapshots, renders placeholder primitives behind swappable node interfaces, and sends intent. New netcode is added at the client/server edge only: `DEPLOY_REQUEST`, `DAMAGE_EVENT`, `SELF_STATE`, and a `HELLO.auto_deploy` flag. Spec: [`docs/specs/client-prediction.md`](../specs/client-prediction.md), [`docs/specs/hud-ui.md`](../specs/hud-ui.md). Renderer: [ADR-0005](../adr/0005-client-renderer.md).
+**Architecture:** The client stays a **view + predictor + intent-sender, never authority** (AGENTS.md §7). It predicts the local pawn/ammo by re-running the **shared** sim, interpolates remotes from snapshots, renders placeholder primitives behind swappable node interfaces, and sends intent. New netcode is added at the client/server edge only: `DEPLOY_REQUEST`, `DAMAGE_EVENT`, `SELF_STATE`, and a `HELLO.auto_deploy` flag. Spec: [`docs/specs/client-prediction.md`](../../specs/client-prediction.md), [`docs/specs/hud-ui.md`](../../specs/hud-ui.md). Renderer: [ADR-0005](../../adr/0005-client-renderer.md).
 
 **Tech Stack:** Godot 4.6 / GDScript. Forward+ (Vulkan) renderer with GL Compatibility fallback. Tests: `godot --headless --path . -- --test [--filter=<substr>]`, classes extend global `TestCase` (tests/*_test.gd).
 

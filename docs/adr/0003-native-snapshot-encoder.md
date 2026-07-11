@@ -1,8 +1,8 @@
 # ADR-0003: Native (Rust) snapshot encoder + parallel send
 
 - **Status:** Accepted (2026-07-10 — ratified by the deep-planning pass; design in
-  [docs/superpowers/specs/2026-07-10-native-snapshot-encoder-design.md](../superpowers/specs/2026-07-10-native-snapshot-encoder-design.md),
-  plan in [docs/plans/2026-07-10-native-snapshot-encoder.md](../plans/2026-07-10-native-snapshot-encoder.md))
+  [docs/superpowers/specs/2026-07-10-native-snapshot-encoder-design.md](../archive/superpowers-specs/2026-07-10-native-snapshot-encoder-design.md),
+  plan in [docs/plans/2026-07-10-native-snapshot-encoder.md](../archive/plans/2026-07-10-native-snapshot-encoder.md))
 - **Date:** 2026-07-10
 - **Context milestone:** post-M16 perf track
 - **Supersedes/enacts:** the escalation clause in [ADR-0001](0001-core-runtime-language.md)
@@ -149,7 +149,7 @@ margin endgame, not for merely hitting 33.3 ms at 128p.**
 ## Ratified decisions (2026-07-10 planning pass)
 
 Full rationale + alternatives in the
-[design doc](../superpowers/specs/2026-07-10-native-snapshot-encoder-design.md); summary:
+[design doc](../archive/superpowers-specs/2026-07-10-native-snapshot-encoder-design.md); summary:
 
 - **Ambition.** The committed, hard-gated target is **128p on budget hardware via Phase A**.
   256p is the designed-for endgame: Phase A is built Phase-B-ready (immutable tick columns,

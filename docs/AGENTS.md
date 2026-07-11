@@ -104,8 +104,9 @@ Milestone numbers (and shared identifiers — wire message ids, `Protocol.VERSIO
 
 ## Quick map
 
-- Plan of record: the milestone index in `docs/TASKS.md` (an external plan file previously named here no longer exists)
-- Board: `docs/TASKS.md` · Roadmap: `docs/milestones/` · Decisions: `docs/adr/` · Specs: `docs/specs/` · Ops: `docs/runbooks/` · Session logs: `docs/sessions/` · Reviews: `docs/reviews/` · Superpowers specs: `docs/superpowers/specs/`
+- **Start here for current state: `docs/STATUS.md`** (one-screen summary), then the milestone index in `docs/TASKS.md` (the authoritative board / plan of record).
+- Board: `docs/TASKS.md` · Roadmap: `docs/milestones/` · Decisions: `docs/adr/` · Specs: `docs/specs/` · Ops: `docs/runbooks/` · Gate logs: `docs/gate-evidence/`
+- **History (NOT current state): `docs/archive/`** — shipped-milestone plans, playtest session logs, and point-in-time reviews live here. Do **not** read them as the state of the code; they are provenance only.
 
 ## `backend/` — stats & analytics service (out of scope for game work)
 

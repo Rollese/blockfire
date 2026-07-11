@@ -8,7 +8,7 @@
 
 **Tech Stack:** Godot 4.6 / GDScript. Tests: `godot --headless --path . -- --test [--filter=<substr>]`, classes extend the global `TestCase` (`tests/*_test.gd`).
 
-**Spec:** [`docs/specs/art-pipeline.md`](../specs/art-pipeline.md) §4.1 (buildable-now VFX). **Milestone:** [`M7-art-ux.md`](../milestones/M7-art-ux.md) (P2).
+**Spec:** [`docs/specs/art-pipeline.md`](../../specs/art-pipeline.md) §4.1 (buildable-now VFX). **Milestone:** [`M7-art-ux.md`](../../milestones/M7-art-ux.md) (P2).
 
 ---
 
@@ -253,7 +253,7 @@ git commit -m "feat(m7-p2): pooled muzzle flash at the tracer spawn seam
 Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 ```
 
-- [ ] **Step 9 (owner playtest gate):** Owner runs a live match (client on the home laptop → server+bots on `game2`, per [`docs/runbooks/running-client.md`](../runbooks/running-client.md)) and confirms: own gunfire and other players' fire show a brief muzzle flash at the barrel that reads well and is not distracting/too large/too persistent. Tune `MuzzleFlashKit.SIZE` / `TTL` / `COLOR` per feel — playtest knobs, not blockers. Record sign-off on [`M7-art-ux.md`](../milestones/M7-art-ux.md).
+- [ ] **Step 9 (owner playtest gate):** Owner runs a live match (client on the home laptop → server+bots on `game2`, per [`docs/runbooks/running-client.md`](../../runbooks/running-client.md)) and confirms: own gunfire and other players' fire show a brief muzzle flash at the barrel that reads well and is not distracting/too large/too persistent. Tune `MuzzleFlashKit.SIZE` / `TTL` / `COLOR` per feel — playtest knobs, not blockers. Record sign-off on [`M7-art-ux.md`](../../milestones/M7-art-ux.md).
 
 ---
 

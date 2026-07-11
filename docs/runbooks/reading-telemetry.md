@@ -2,7 +2,7 @@
 
 The dedicated server prints one `[telemetry]` line per **1-second window** to stdout (captured in
 `docker/srvlog-*.log` for fleet runs). It is the primary observability surface — there is no
-metrics stack (see [`docs/specs/m8-hardening-ops.md`](../specs/m8-hardening-ops.md)). This runbook
+metrics stack (see [`docs/specs/m8-hardening-ops.md`](../archive/specs/m8-hardening-ops.md)). This runbook
 is the field glossary and how to read health from it.
 
 Emit site: `server/server_main.gd` `_log_telemetry`. Format: space-separated `key=value`.

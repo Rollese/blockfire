@@ -8,7 +8,7 @@
 
 **Tech Stack:** Godot 4.6 GDScript; headless test runner (`godot --headless --path . -- --test`), auto-discovers `tests/**/*_test.gd`, runs each `test_*` method on a `TestCase` subclass.
 
-> **Scope:** This is M12 **Phase 1** only (per [`docs/specs/squad-fob-class-refit.md`](../specs/squad-fob-class-refit.md) §A and [`M12`](../milestones/M12-squad-fob-class-refit.md)). P2 (shovel construction) and P3 (FOB) are separate plans, sequenced after the M11 merge. P1 has **no shovel** and **no protocol change**.
+> **Scope:** This is M12 **Phase 1** only (per [`docs/specs/squad-fob-class-refit.md`](../../specs/squad-fob-class-refit.md) §A and [`M12`](../../milestones/M12-squad-fob-class-refit.md)). P2 (shovel construction) and P3 (FOB) are separate plans, sequenced after the M11 merge. P1 has **no shovel** and **no protocol change**.
 
 **Godot binary:** examples below use `godot`; if the project's wrapper differs, use the same binary the `ci/*.sh` scripts invoke as `$GODOT` (Godot 4.6).
 
@@ -319,7 +319,7 @@ cd docker && docker build -t blockfire:latest -f Dockerfile ..
 SERVER_CPUS=0,1,2,3 BOTS_CPUS=4-31 BOT_REPLICAS=16 BOT_COUNT=8 ./run-gate.sh   # or the current run-*-gate.sh
 ```
 
-Gate assertions (per [M12 §Gate, P1](../milestones/M12-squad-fob-class-refit.md#gate)): a winner is declared; **no Recon class** exists (4-class roster); the unit suite's `can_equip` tests prove DMR is Assault-only and the claymore is Engineer-selectable; mines + C4 both fire at 128-bot density (`mines≥1`, `c4≥1`); peak-window mean tick < 33.3 ms. Record the log path + numbers in the milestone doc as the P1 close evidence.
+Gate assertions (per [M12 §Gate, P1](../../milestones/M12-squad-fob-class-refit.md#gate)): a winner is declared; **no Recon class** exists (4-class roster); the unit suite's `can_equip` tests prove DMR is Assault-only and the claymore is Engineer-selectable; mines + C4 both fire at 128-bot density (`mines≥1`, `c4≥1`); peak-window mean tick < 33.3 ms. Record the log path + numbers in the milestone doc as the P1 close evidence.
 
 ---
 
