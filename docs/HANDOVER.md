@@ -3,7 +3,7 @@
 Read this first if you're picking up the project in a fresh context. It points to the canonical docs rather than duplicating them. **Status lives in [`docs/TASKS.md`](TASKS.md) — this file deliberately does not restate per-milestone evidence** (a previous version did, went 16 days stale, and taught fresh agents wrong facts).
 
 ## What this is
-Internal codename for a lightweight, 128-player, low-poly FPS in **Godot 4.6** inspired by *BattleBit Remastered*. v1 game mode: **Conquest**. Three runtime roles in one Godot project (client / dedicated server / bot driver) over a shared core. Repo on GitHub at **Rollese/blockfire** (SSH remote `origin`, default branch `master`). The plan of record is the milestone index in [`docs/TASKS.md`](TASKS.md).
+Internal codename for a lightweight, 128-player, low-poly FPS in **Godot 4.7** inspired by *BattleBit Remastered*. v1 game mode: **Conquest**. Three runtime roles in one Godot project (client / dedicated server / bot driver) over a shared core. Repo on GitHub at **Rollese/blockfire** (SSH remote `origin`, default branch `master`). The plan of record is the milestone index in [`docs/TASKS.md`](TASKS.md).
 
 ## Status (pointer, correct as of 2026-07-03)
 The game is a **playable rendered LAN game**: full infantry loop, vehicles, building/destruction, destructible buildings, ballistics/suppression/melee, squads/FOBs, tactical bot AI, HUD, audio, procedural art. See the milestone index in [`docs/TASKS.md`](TASKS.md) for the authoritative per-milestone state. One-line orientation:
@@ -31,7 +31,7 @@ The working agreement is `docs/AGENTS.md`. In short:
 ### GDScript / Godot gotchas (tell every implementer)
 - Run `godot --headless --path . --import` once after adding any `class_name` script, before tests.
 - **Do NOT pipe `godot` through `tail`/`head`** — it can hang; redirect to a file.
-- GDScript 4.6 rejects `var x := <Dictionary access>` (Variant) — annotate the type explicitly.
+- GDScript rejects `var x := <Dictionary access>` (Variant) — annotate the type explicitly.
 - Tests live in `tests/*_test.gd` extending global `TestCase`; run `godot --headless --path . -- --test [--filter=<substr>]`. The harness fails a test on: assertion failure, **zero assertions**, a **runtime SCRIPT ERROR mid-test** (opt out with `tolerate_runtime_errors()` when the error path is the point), or a test file that fails to parse. Per-test `setup()`/`teardown()` hooks and `autofree(node)` exist — use `autofree` for any Node you create.
 - `git add -A` to include Godot `.uid` sidecars. Commit trailer: co-author as the model doing the work.
 
