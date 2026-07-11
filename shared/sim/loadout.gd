@@ -134,6 +134,25 @@ static func armor_for(cls: int) -> int:
 		ENGINEER, SUPPORT: return Armor.HEAVY
 		_: return Armor.MEDIUM   # assault (and any unknown)
 
+## Centralized passive class traits ("perks") — the single source the server reads (P1b) and the
+## class-select screen displays (P3) so what you see equals what you get. Keys:
+##   revive_fast(bool) bandages(int) sledgehammer(bool) blast_mult(float)
+##   regen_fast(bool)  grenade_count(int) reserve_mult(float)
+static func class_traits(cls: int) -> Dictionary:
+	match cls:
+		MEDIC:
+			return {"revive_fast": true, "bandages": Revive.MEDIC_BANDAGE_COUNT, "sledgehammer": false,
+				"blast_mult": 1.0, "regen_fast": false, "grenade_count": 3, "reserve_mult": 1.0}
+		ENGINEER:
+			return {"revive_fast": false, "bandages": Revive.BANDAGE_COUNT, "sledgehammer": true,
+				"blast_mult": 1.2, "regen_fast": false, "grenade_count": 3, "reserve_mult": 1.0}
+		SUPPORT:
+			return {"revive_fast": false, "bandages": Revive.BANDAGE_COUNT, "sledgehammer": false,
+				"blast_mult": 1.0, "regen_fast": false, "grenade_count": 5, "reserve_mult": 1.25}
+		_:  # ASSAULT (and unknown)
+			return {"revive_fast": false, "bandages": Revive.BANDAGE_COUNT, "sledgehammer": false,
+				"blast_mult": 1.0, "regen_fast": true, "grenade_count": 3, "reserve_mult": 1.0}
+
 static func random_class() -> int:
 	return randi() % 4
 

@@ -53,3 +53,30 @@ func test_lmg_can_equip_support_only() -> void:
 	assert_true(Loadout.can_equip(Loadout.SUPPORT, Weapon.LMG))
 	assert_false(Loadout.can_equip(Loadout.ASSAULT, Weapon.LMG))
 	assert_false(Loadout.can_equip(Loadout.MEDIC, Weapon.LMG))
+
+func test_class_traits_blast_engineer_only() -> void:
+	assert_almost_eq(float(Loadout.class_traits(Loadout.ENGINEER)["blast_mult"]), 1.2)
+	for c in [Loadout.ASSAULT, Loadout.MEDIC, Loadout.SUPPORT]:
+		assert_almost_eq(float(Loadout.class_traits(c)["blast_mult"]), 1.0)
+
+func test_class_traits_grenades_support_five_others_three() -> void:
+	assert_eq(int(Loadout.class_traits(Loadout.SUPPORT)["grenade_count"]), 5)
+	for c in [Loadout.ASSAULT, Loadout.MEDIC, Loadout.ENGINEER]:
+		assert_eq(int(Loadout.class_traits(c)["grenade_count"]), 3)
+
+func test_class_traits_regen_fast_assault_only() -> void:
+	assert_true(bool(Loadout.class_traits(Loadout.ASSAULT)["regen_fast"]))
+	for c in [Loadout.MEDIC, Loadout.ENGINEER, Loadout.SUPPORT]:
+		assert_false(bool(Loadout.class_traits(c)["regen_fast"]))
+
+func test_class_traits_reserve_bonus_support_only() -> void:
+	assert_gt(float(Loadout.class_traits(Loadout.SUPPORT)["reserve_mult"]), 1.0)
+	for c in [Loadout.ASSAULT, Loadout.MEDIC, Loadout.ENGINEER]:
+		assert_almost_eq(float(Loadout.class_traits(c)["reserve_mult"]), 1.0)
+
+func test_class_traits_medic_and_engineer_signatures() -> void:
+	assert_true(bool(Loadout.class_traits(Loadout.MEDIC)["revive_fast"]))
+	assert_eq(int(Loadout.class_traits(Loadout.MEDIC)["bandages"]), Revive.MEDIC_BANDAGE_COUNT)
+	assert_eq(int(Loadout.class_traits(Loadout.ASSAULT)["bandages"]), Revive.BANDAGE_COUNT)
+	assert_true(bool(Loadout.class_traits(Loadout.ENGINEER)["sledgehammer"]))
+	assert_false(bool(Loadout.class_traits(Loadout.ASSAULT)["sledgehammer"]))
