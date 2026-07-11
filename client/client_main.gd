@@ -198,6 +198,7 @@ var _my_class: int = 0             # own class from WELCOME (medic revive-rate f
 var _throw_charge: float = 0.0     # C3: current grenade hold-charge 0..1 (grows while "throw" is held)
 var _throw_charging: bool = false  # whether we're mid-charge on a throwable
 const THROW_CHARGE_SECS := 1.1     # hold time to reach full throw strength
+var _repair_holding: bool = false  # M19 P2b: whether we've latched GA_REPAIR_START (matches server hold-state)
 var _repair_heat_test := false     # --repair-heat-test: drive a demo heat/cooldown cycle for a QA screenshot
 var _revive_hold: float = 0.0      # seconds the interact key has been held on a revive target
 var _am_bleeding: bool = false     # M16: own standing-bleed flag from SELF_STATE (drives the bleeding cue)
@@ -995,6 +996,13 @@ func _process(_dt: float) -> void:
 		# reset at its tail and the throw/charge indicator would freeze on the HUD (playtest bug).
 		_throw_charging = false
 		_throw_charge = 0.0
+		# Same reasoning for a latched REPAIR hold: without this, a player downed mid-repair would
+		# leave the server-side latch (and our local flag) stuck on past the point the input block
+		# below stops running (it's gated on alive_and_deployed).
+		if _repair_holding and _peer != null:
+			_net.send_to(_peer, NetHost.CHANNEL_CONTROL,
+				Protocol.encode_gadget_action(Protocol.GA_REPAIR_STOP, Vector3.ZERO, Vector3.ZERO, 0), ENetPacketPeer.FLAG_RELIABLE)
+		_repair_holding = false
 	if alive_and_deployed and _peer != null:
 		# Build tool out = no combat: while build mode is active (or a menu is open) the combat
 		# one-shots below are locked, so a place-click / habitual keypress can't also fire, throw,
@@ -1136,13 +1144,36 @@ func _process(_dt: float) -> void:
 				# Instant shooter feedback (muzzle flash + flying rocket); the server replays it to others.
 				_renderer.fire_rocket(_pred.predicted.eye_position(), rad, _elapsed)
 
-		# Gadget: non-throwable gadget action. Defaulting to C4 detonate; owner must verify
-		# if their class uses a different primary gadget (e.g. repair, bag throw).
-		if Input.is_action_just_pressed("gadget") and not combat_locked:
+		# Gadget: non-throwable gadget action, branched on the local player's EQUIPPED gadget. There's
+		# no class-select UI yet (M19 P3) — a human connection never sends SET_LOADOUT, so it always
+		# carries whatever the server assigned a fresh connection (server_main._handle_hello ->
+		# Loadout.default_loadout(ASSAULT)). Loadout.default_gadget(_my_class) is the same call the
+		# server used to pick that default, so this stays correct today and is the right seam for P3
+		# to plug a real stored-loadout gadget into once players can choose one.
+		var equipped_gadget: int = Loadout.default_gadget(_my_class)
+		if Input.is_action_just_pressed("gadget") and not combat_locked and equipped_gadget != Loadout.GADGET_REPAIR:
+			var gadget_action: int = Protocol.GA_C4_DETONATE
+			var gdir := Vector3.ZERO
+			if equipped_gadget == Loadout.GADGET_BREACH:
+				gadget_action = Protocol.GA_BREACH_PLACE
+				gdir = -Vector3(sin(_input_ctrl.yaw), 0.0, cos(_input_ctrl.yaw)).normalized()
+				var gpitch: float = _input_ctrl.pitch
+				gdir = Vector3(gdir.x * cos(gpitch), sin(gpitch), gdir.z * cos(gpitch)).normalized()
 			_net.send_to(_peer, NetHost.CHANNEL_CONTROL,
-				Protocol.encode_gadget_action(Protocol.GA_C4_DETONATE,
-					_pred.predicted.pos, Vector3.ZERO, 0), ENetPacketPeer.FLAG_RELIABLE)
-			# OWNER VERIFY: GA_C4_DETONATE is the default; adapt to class loadout (repair/bag/etc.)
+				Protocol.encode_gadget_action(gadget_action, _pred.predicted.pos, gdir, 0), ENetPacketPeer.FLAG_RELIABLE)
+
+		# REPAIR is latched (hold to repair, like the bots' struct/vehicle repair): press starts it,
+		# release — or losing combat eligibility, or switching off REPAIR — stops it. Gated on the
+		# equipped gadget so a C4/RPG/BREACH engineer or any other class never sends REPAIR_START.
+		if equipped_gadget == Loadout.GADGET_REPAIR and Input.is_action_pressed("gadget") and not combat_locked:
+			if not _repair_holding:
+				_net.send_to(_peer, NetHost.CHANNEL_CONTROL,
+					Protocol.encode_gadget_action(Protocol.GA_REPAIR_START, Vector3.ZERO, Vector3.ZERO, 0), ENetPacketPeer.FLAG_RELIABLE)
+				_repair_holding = true
+		elif _repair_holding:
+			_net.send_to(_peer, NetHost.CHANNEL_CONTROL,
+				Protocol.encode_gadget_action(Protocol.GA_REPAIR_STOP, Vector3.ZERO, Vector3.ZERO, 0), ENetPacketPeer.FLAG_RELIABLE)
+			_repair_holding = false
 
 		# Squad menu (U): toggle the standalone squad-select overlay while alive.
 		if Input.is_action_just_pressed("squad_menu") and _hud_view != null and sss != null and sss.alive:
