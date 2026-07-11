@@ -94,6 +94,7 @@ const RESPAWN_COOLDOWN_S := 5.0             # mirrors server RESPAWN_DELAY_TICKS
 var _match_state: Dictionary = {}
 var _prev_point_owners: Array = []   # capture-point owners last broadcast; diffed for capture banners
 var _piece_cat: PieceCatalog        # client mirror of the server piece catalog (for prediction collision)
+var _attachments: Attachment        # client mirror of the server attachment catalog; needed by Loadout.sanitize before SET_LOADOUT send
 var _struct_store: StructureStore   # client mirror of the server StructureStore; feeds prediction wall collision
 var _terrain_grid: TerrainGrid = null   # M15: heightmap grid the client derives (null = flat map); shared by prediction+mirror+render
 var _auto_deploy_ref: int = -1    # --deploy=N arg; -1 = not set
@@ -197,6 +198,7 @@ var _conn_lost_overlay: CanvasLayer = null
 var _match_end_overlay: CanvasLayer = null   # victory/defeat end-of-match screen (from MATCH_STATE match_over)
 var _reject_reason: String = ""    # last REJECT text — shown on the menu when the disconnect lands
 var _my_class: int = 0             # own class from WELCOME (medic revive-rate for the HUD bar)
+var _loadout: Dictionary = {}      # M19 P3: client-stored loadout, seeded from WELCOME's class and sent via SET_LOADOUT; source of truth for equipped-gadget reads (class-select UI edits it in Tasks 2-3)
 var _throw_charge: float = 0.0     # C3: current grenade hold-charge 0..1 (grows while "throw" is held)
 var _throw_charging: bool = false  # whether we're mid-charge on a throwable
 const THROW_CHARGE_SECS := 1.1     # hold time to reach full throw strength
@@ -260,6 +262,11 @@ func _ready() -> void:
 	var wres := Weapon.load_from_file("res://data/weapons.json")
 	if not wres["ok"]:
 		push_error("[client] failed to load weapons: %s" % wres["error"])
+	# M19 P3: attachment catalog, loaded before WELCOME can ever arrive (network isn't up yet), so
+	# _send_loadout()'s sanitize() call always has a real catalog to validate against.
+	_attachments = Attachment.load_file("res://data/attachments.json")
+	if _attachments == null:
+		push_error("[client] failed to load attachments — SET_LOADOUT will send un-sanitized")
 	_build_ctrl = BuildController.new(_piece_cat)   # M12: build-tool state machine
 	_wpred = WeaponPredictor.new()
 	_hud_model = HudModel.new()
@@ -1153,13 +1160,12 @@ func _process(_dt: float) -> void:
 				# Instant shooter feedback (muzzle flash + flying rocket); the server replays it to others.
 				_renderer.fire_rocket(_pred.predicted.eye_position(), rad, _elapsed)
 
-		# Gadget: non-throwable gadget action, branched on the local player's EQUIPPED gadget. There's
-		# no class-select UI yet (M19 P3) — a human connection never sends SET_LOADOUT, so it always
-		# carries whatever the server assigned a fresh connection (server_main._handle_hello ->
-		# Loadout.default_loadout(ASSAULT)). Loadout.default_gadget(_my_class) is the same call the
-		# server used to pick that default, so this stays correct today and is the right seam for P3
-		# to plug a real stored-loadout gadget into once players can choose one.
-		var equipped_gadget: int = Loadout.default_gadget(_my_class)
+		# Gadget: non-throwable gadget action, branched on the local player's EQUIPPED gadget. The
+		# client now sends SET_LOADOUT on join (M19 P3 in progress) and _loadout is the source of
+		# truth for what's equipped; default_gadget(_my_class) is only a fallback for the brief window
+		# before WELCOME seeds _loadout. The class-select UI (Tasks 2-3) will let a player edit
+		# _loadout's gadget choice before this read ever sees anything but the class default.
+		var equipped_gadget: int = int(_loadout.get("gadget", Loadout.default_gadget(_my_class)))
 		if Input.is_action_just_pressed("gadget") and not combat_locked and equipped_gadget != Loadout.GADGET_REPAIR:
 			var gadget_action: int = Protocol.GA_C4_DETONATE
 			var gdir := Vector3.ZERO
@@ -1417,6 +1423,12 @@ func _handle_welcome(bytes: PackedByteArray) -> void:
 	var tick_rate: int = int(w["tick_rate"])
 	var cls: int = int(w["class"])
 	_my_class = cls   # own class (e.g. medic revives at double rate — the HUD revive bar matches)
+	# M19 P3: seed a real stored loadout from the class WELCOME assigned, then tell the server about
+	# it via SET_LOADOUT. Today this is identical to the server's own fresh-connection default
+	# (Loadout.default_loadout(ASSAULT)), but it establishes the send path the class-select screen
+	# (Tasks 2-3) will drive by mutating _loadout before calling _send_loadout() again.
+	_loadout = Loadout.default_loadout(cls)
+	_send_loadout()
 	# Connected for real — the (hidden) pre-game menu has served its purpose.
 	if _main_menu != null:
 		_main_menu.queue_free()
@@ -1450,6 +1462,16 @@ func _handle_welcome(bytes: PackedByteArray) -> void:
 
 	# Build the 3D scene
 	_build_scene()
+
+## M19 P3: sanitize _loadout against the client's attachment catalog (never trust an unsanitized
+## config over the wire — mirrors the server's own authoritative sanitize) and send it RELIABLY.
+## Called once on WELCOME (seeded from the assigned class) and again whenever the class-select
+## screen (Tasks 2-3) changes _loadout.
+func _send_loadout() -> void:
+	_loadout = Loadout.sanitize(_loadout, _attachments)
+	if _peer != null:
+		_net.send_to(_peer, NetHost.CHANNEL_CONTROL,
+			Protocol.encode_set_loadout(_loadout), ENetPacketPeer.FLAG_RELIABLE)
 
 # ---- SNAPSHOT ---------------------------------------------------------------
 func _handle_snapshot(bytes: PackedByteArray) -> void:
