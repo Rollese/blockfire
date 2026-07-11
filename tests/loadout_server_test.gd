@@ -71,6 +71,26 @@ func test_loadout_persists_across_redeploy() -> void:
 	assert_gt(int(srv._clients[1]["rockets"]), 0, "stored loadout re-applies rockets on redeploy")
 
 
+func test_changed_loadout_applies_new_primary_and_armor_on_redeploy() -> void:
+	var srv := _srv_with_awaiting_pawn()
+	# Start Assault, deploy once.
+	srv._clients[1]["loadout"] = Loadout.default_loadout(Loadout.ASSAULT)
+	_deploy(srv)
+	assert_true((srv._sim.world.get_pawn(1) as Pawn).alive, "assault deploys")
+	# Change the STORED loadout to Support/LMG/HEAVY (as a mid-session SET_LOADOUT would), then redeploy.
+	srv._clients[1]["loadout"] = Loadout.sanitize({"class": Loadout.SUPPORT,
+		"primary": int(Weapon.variants_of(Weapon.LMG)[0]), "gadget": Loadout.GADGET_AMMO,
+		"armor": Armor.HEAVY}, _attach)
+	# kill + clear any deploy cooldown, then deploy again
+	(srv._sim.world.get_pawn(1) as Pawn).alive = false
+	srv._clients[1]["deploy_ready_tick"] = 0
+	srv._handle_deploy_request(null, Protocol.encode_deploy_request(0))
+	var p := srv._sim.world.get_pawn(1) as Pawn
+	assert_eq(Weapon.archetype_of(int(srv._clients[1]["weapon"])), Weapon.LMG, "redeploy applies the new LMG primary")
+	assert_eq(int(p.armor_class), Armor.HEAVY, "redeploy applies the new armor tier")
+	assert_eq(int(srv._clients[1]["class"]), Loadout.SUPPORT, "redeploy applies the new class")
+
+
 func test_set_loadout_stores_resanitized_config() -> void:
 	var srv := _srv_with_awaiting_pawn()
 	var lmg_v := int(Weapon.variants_of(Weapon.LMG)[0])
@@ -110,4 +130,4 @@ func test_set_loadout_rejects_garbage() -> void:
 	assert_true(Weapon.is_variant(int(stored["primary"])), "sanitized primary is a real variant, never the RPG base id")
 	assert_contains(Loadout.IMPLEMENTED_GADGETS, int(stored["gadget"]))
 	assert_contains([Armor.LIGHT, Armor.MEDIUM, Armor.HEAVY], int(stored["armor"]))
-	assert_contains([Grenade.FRAG, Grenade.SMOKE, Grenade.FLASHBANG, Grenade.IMPACT], int(stored["grenade"]))
+	assert_contains([Grenade.FRAG, Grenade.SMOKE, Grenade.FLASHBANG], int(stored["grenade"]))

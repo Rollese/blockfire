@@ -836,7 +836,7 @@ func _handle_respawns() -> void:
 			p.suppression = 0.0       # fresh life: no residual spread penalty
 			p.blind_until_tick = 0    # a flashbang taken last life doesn't white-out the respawn
 			c["respawn_tick"] = 0
-			_reset_weapon_loadout(c)   # both slots full, fire-mode defaults, back on primary
+			_apply_loadout_to_client(c, p)   # re-derive weapon/armor/class from the stored loadout, both slots full
 			_force_reenter(id)         # a swapper who died holding secondary respawns on primary
 			c["rockets"] = int(_gadgets.def_of_kind(Gadget.KIND_RPG)["ammo"]) if int(c["loadout"]["gadget"]) == Loadout.GADGET_RPG else 0
 			c["dmg_ledger"] = {}
@@ -1184,7 +1184,6 @@ func _handle_hello(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
 		"name": pname, "kills": 0, "deaths": 0, "score": 0, "dmg_ledger": {},
 		"loadout": loadout,   # M19: player/bot loadout (sanitized). Stored now; spawn reads it from Task 4 on.
 	}
-	_build_weapon_slots(_clients[id])
 	if not auto_deploy:
 		_human_ids.append(id)   # rendered client: joins the cosmetic/list broadcast fan-out
 	var p := _sim.world.spawn(id)
@@ -1192,8 +1191,9 @@ func _handle_hello(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
 	p.squad = squad
 	p.auto_vault = bool(auto_deploy)   # bots (auto_deploy) vault on contact; humans press jump to vault (BattleBit)
 	p.pos = _select_spawn(id)
-	p.armor_class = int(loadout["armor"])   # M19: armor is player-picked in the loadout, no longer class-derived
-	p.bandage_count = Revive.bandage_count_for(cls == Loadout.MEDIC)
+	# Derive weapon slots + armor + bandages from the stored loadout (identical to the record literal's
+	# loadout-derived values; now routed through the shared per-spawn helper so deploy/respawn match).
+	_apply_loadout_to_client(_clients[id], p)
 	if not auto_deploy:
 		p.alive = false   # held un-deployed until DEPLOY_REQUEST (respawn_tick stays 0)
 	# Tell the client which map to render (its roads/points/bases come from its local MapDef) so it
@@ -1282,7 +1282,7 @@ func _handle_deploy_request(peer: ENetPacketPeer, bytes: PackedByteArray) -> voi
 	p.landed_fall = 0.0
 	p.suppression = 0.0       # fresh life: no residual spread penalty (same as _handle_respawns)
 	p.blind_until_tick = 0    # a flashbang taken last life doesn't white-out the fresh deploy
-	_reset_weapon_loadout(c)   # both slots full, fire-mode defaults, back on primary
+	_apply_loadout_to_client(c, p)   # re-derive weapon/armor/class from the stored loadout, both slots full
 	_force_reenter(id)         # weapon rides ENTER-only — refresh remote silhouettes after reset
 	c["rockets"] = int(_gadgets.def_of_kind(Gadget.KIND_RPG)["ammo"]) if int(c["loadout"]["gadget"]) == Loadout.GADGET_RPG else 0   # refill rockets on (re)deploy, not just respawn (RPG is now a gadget — M19)
 	c["respawn_tick"] = 0
@@ -1369,6 +1369,40 @@ func _swap_weapon(id: int, target: int) -> void:
 	c["swap_locked_until"] = _sim.tick + WEAPON_SWAP_TICKS
 	_force_reenter(id)                 # weapon rides ENTER-only — refresh remote silhouettes
 	_stats.swaps += 1
+
+## Re-derive a client's live weapon / ammo / reserve / fire-mode / armor / bandages from its stored
+## (already-sanitized) loadout and rebuild both weapon slots. Called on EVERY spawn — HELLO connect,
+## deploy, and respawn — so a loadout set or changed via SET_LOADOUT takes effect on the next spawn
+## (store-and-apply, spec §F). In P1b the loadout is immutable per connection, so this reproduces the
+## connect-time values exactly (a no-op re-derivation); it becomes load-bearing when P3 lets the
+## client change the loadout mid-session. Rockets depend on the gadget and are refilled by the caller.
+## last_fire_time/swap_locked_until are reset here too (matching _reset_weapon_loadout and the HELLO
+## record literal) so _build_weapon_slots snapshots a fresh -999.0/0 into slot 0.
+func _apply_loadout_to_client(c: Dictionary, p: Pawn) -> void:
+	var lo: Dictionary = c["loadout"]
+	var cls := int(lo["class"])
+	var wid := int(lo["primary"])
+	if not Loadout.can_equip(cls, wid):
+		wid = Loadout.default_primary(cls)
+	c["class"] = cls
+	c["weapon"] = wid
+	# _attachments is always loaded before any spawn in production (_ready); the null-guard only
+	# covers minimal test fixtures that drive the deploy path without an attachment catalog.
+	var mults: Dictionary = _attachments.multipliers(lo["attachments"]) if _attachments != null else {}
+	c["weapon_def"] = Weapon.effective_def(wid, mults)
+	c["ammo"] = int(Weapon.get_def(wid)["mag_size"])
+	c["reserve"] = int(Weapon.reserve_ammo(wid))
+	c["reloading"] = false
+	c["reload_done_tick"] = 0
+	c["last_fire_time"] = -999.0
+	c["shot_index"] = 0
+	c["fire_mode"] = Weapon.default_mode(wid)
+	c["active_slot"] = 0
+	c["swap_locked_until"] = 0
+	_build_weapon_slots(c)
+	if p != null:
+		p.armor_class = int(lo["armor"])
+		p.bandage_count = Revive.bandage_count_for(cls == Loadout.MEDIC)
 
 ## On (re)spawn/deploy: restore a fresh weapon loadout — both slots full ammo, fire-mode defaults,
 ## back on the primary. Preserves each slot's weapon identity (set at connect; never changes after).
