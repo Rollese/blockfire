@@ -36,6 +36,10 @@ var _degrade_high_ms := Degrade.HIGH_MS   # --degrade-high-ms override (lower it
 var _degrade_low_ms := Degrade.LOW_MS     # --degrade-low-ms override
 const RESPAWN_DELAY_TICKS := 150   # 5s @30Hz
 const COMBAT_FLAG_TICKS := 300     # 10s @30Hz — a pawn that took fire can't be a squad-spawn anchor (BattleBit "in combat")
+const HEALTH_REGEN_DELAY_TICKS := 150     # 5s @30Hz out-of-combat before health regen begins (BattleBit-ish)
+const HEALTH_REGEN_RATE := 10.0           # HP/sec once regen is active (baseline; gate-tunable)
+const ASSAULT_REGEN_DELAY_SCALE := 0.5    # Combat Vigor: half the regen delay (spec §I)
+const ASSAULT_REGEN_RATE_SCALE := 1.6     # Combat Vigor: 60% faster regen (spec §I)
 const FIRE_CONE_DOT := 0.985       # broad-phase: target within ~10deg of ray
 const FIRE_CONE_SKIP_RANGE := 8.0  # below this, skip the cone cull — feet/chest parallax exceeds the half-angle at point blank
 const RPG_RELOAD_SECS := 3.0       # reload refills the rocket pool (RPG has no hit-scan mag)
@@ -442,6 +446,7 @@ func _physics_process(delta: float) -> void:
 		var sp: Pawn = _sim.world.pawns[sid]
 		if sp.suppression > 0.0:
 			sp.suppression = Suppress.decay(sp.suppression)
+	_step_health_regen()   # M19 Combat Vigor / out-of-combat health regen (after suppression decay)
 	var t_fire := Time.get_ticks_usec()
 	_step_grenades()
 	_step_rockets()
@@ -770,6 +775,10 @@ func _apply_pawn_damage(vid: int, victim: Pawn, dmg: int, headshot: bool, source
 	# M16: taking damage hard-cancels any bandage channel this pawn is in (as healer OR target).
 	_support.cancel_bandages_involving(vid)
 	if _clients.has(vid):
+		var vc: Dictionary = _clients[vid]
+		var vfast := bool(Loadout.class_traits(int(vc["class"]))["regen_fast"])
+		vc["regen_block_until"] = _sim.tick + int(round(HEALTH_REGEN_DELAY_TICKS * (ASSAULT_REGEN_DELAY_SCALE if vfast else 1.0)))
+		vc["regen_accum"] = 0.0   # a hit interrupts any in-progress fractional heal
 		var src: Pawn = _sim.world.get_pawn(killer_id)
 		var bearing: float = DamageDir.bearing(victim.pos, src.pos) if src != null else 0.0
 		_net.send_to(_clients[vid]["peer"], NetHost.CHANNEL_CONTROL,
@@ -1393,6 +1402,8 @@ func _apply_loadout_to_client(c: Dictionary, p: Pawn) -> void:
 		wid = Loadout.default_primary(cls)
 	c["class"] = cls
 	c["grenades"] = int(Loadout.class_traits(cls)["grenade_count"])   # M19: finite per-life throwable pool
+	c["regen_block_until"] = 0
+	c["regen_accum"] = 0.0
 	c["weapon"] = wid
 	# _attachments is always loaded before any spawn in production (_ready); the null-guard only
 	# covers minimal test fixtures that drive the deploy path without an attachment catalog.
@@ -2135,6 +2146,26 @@ func _expire_smoke_zones() -> void:
 		if _sim.tick < int(z["expire_tick"]):
 			live.append(z)
 	_smoke_zones = live
+
+## M19 Combat Vigor / baseline out-of-combat health regen. Server-authoritative (health is not
+## client-predicted): once a pawn has been out of combat for its class regen delay, restore health at
+## its class rate up to 100. Assault (regen_fast) has a shorter delay + higher rate. A fractional
+## accumulator on the client record avoids int-truncation at low rates. O(pawns)/tick.
+func _step_health_regen() -> void:
+	for sid in _sim.world.pawns:
+		if not _clients.has(sid): continue
+		var sp: Pawn = _sim.world.pawns[sid]
+		if not sp.alive or sp.is_downed or sp.health >= 100: continue
+		var c: Dictionary = _clients[sid]
+		if _sim.tick < int(c.get("regen_block_until", 0)): continue
+		var fast := bool(Loadout.class_traits(int(c["class"]))["regen_fast"])
+		var rate := HEALTH_REGEN_RATE * (ASSAULT_REGEN_RATE_SCALE if fast else 1.0)
+		var acc := float(c.get("regen_accum", 0.0)) + rate * SimLoop.DT
+		var whole := int(floor(acc))
+		if whole > 0:
+			sp.health = mini(100, sp.health + whole)
+			acc -= float(whole)
+		c["regen_accum"] = acc
 
 ## Thrown bags dispense to every teammate in radius at 25% of the active rate, drawing from a
 ## finite pool; a bag vanishes when its pool hits 0 (spec §"Medic heal tool & Support ammo tool").
