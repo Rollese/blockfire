@@ -2,7 +2,7 @@ class_name Weapon
 extends Object
 ## Data-driven hit-scan weapon registry. M2: flat damage to range, then 0.
 
-enum { AR = 0, SMG = 1, DMR = 2, RPG = 3, PISTOL = 4 }
+enum { AR = 0, SMG = 1, DMR = 2, RPG = 3, PISTOL = 4, LMG = 5 }
 
 const MODE_AUTO := 0
 const MODE_SEMI := 1
@@ -20,12 +20,20 @@ const _DEFS := {
 	SMG:    {"name": "SMG",    "damage_body": 18, "headshot_mult": 1.8, "rpm": 900, "mag_size": 35, "reserve_ammo": 210, "reload_secs": 2.0, "spread_base_deg": 1.0, "spread_bloom_deg": 0.6, "recoil_pitch_deg": 0.3, "range_m": 150.0, "muzzle_velocity": 420.0, "gravity_scale": 0.7,  "fire_modes": [MODE_AUTO, MODE_SEMI], "burst_count": 3},
 	DMR:    {"name": "DMR",    "damage_body": 45, "headshot_mult": 2.0, "rpm": 260, "mag_size": 20, "reserve_ammo": 140, "reload_secs": 2.6, "spread_base_deg": 0.2, "spread_bloom_deg": 0.3, "recoil_pitch_deg": 0.9, "range_m": 500.0, "muzzle_velocity": 850.0, "gravity_scale": 0.35, "fire_modes": [MODE_SEMI], "burst_count": 1},
 	PISTOL: {"name": "PISTOL", "damage_body": 16, "headshot_mult": 1.9, "rpm": 450, "mag_size": 15, "reserve_ammo": 60,  "reload_secs": 1.6, "spread_base_deg": 0.8, "spread_bloom_deg": 0.5, "recoil_pitch_deg": 0.5, "range_m": 80.0,  "muzzle_velocity": 380.0, "gravity_scale": 0.8,  "fire_modes": [MODE_SEMI], "burst_count": 1},
+	# M18: Support-only LMG. Very large mag + higher suppression, but heavier spread/recoil so it's a
+	# hold-the-lane weapon, not a run-and-gun. Bipod attachment (prone_spread_zero) pairs naturally.
+	LMG:    {"name": "LMG",    "damage_body": 24, "headshot_mult": 1.8, "rpm": 700, "mag_size": 100, "reserve_ammo": 300, "reload_secs": 4.5, "spread_base_deg": 1.2, "spread_bloom_deg": 0.9, "recoil_pitch_deg": 0.6, "range_m": 250.0, "muzzle_velocity": 750.0, "gravity_scale": 0.5, "fire_modes": [MODE_AUTO], "burst_count": 3, "suppression_mult": 1.6},
 }
 
 ## Spare-bullet reserve pool for a hit-scan weapon (0 for weapons without a mag, e.g. RPG). Falls
 ## back to the AR default for unknown ids, matching get_def.
 static func reserve_ammo(weapon_id: int) -> int:
 	return int(get_def(weapon_id).get("reserve_ammo", 0))
+
+## Per-weapon suppression multiplier (M18): how much more/less this weapon suppresses vs the
+## baseline. Defaults to 1.0 for weapons that don't specify it (all but the LMG today).
+static func suppression_mult(weapon_id: int) -> float:
+	return float(get_def(weapon_id).get("suppression_mult", 1.0))
 
 ## Reload transfer (reserve-ammo economy, M17): move as many rounds as the reserve allows into the
 ## mag — no partial-mag discard. `reserve < 0` means "unlimited" (legacy record with no reserve
