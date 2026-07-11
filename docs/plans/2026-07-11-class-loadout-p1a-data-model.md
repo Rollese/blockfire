@@ -763,6 +763,9 @@ git add -A && git commit -m "test(loadout): P1a full suite green" || echo "nothi
 
 P1a delivers the validated loadout **data model** — options, traits, blurbs, LMG, armor speed — unit-tested end to end. Nothing is wired to the running game yet (by design); the 13 existing `Loadout` callers are untouched.
 
+**Weapon-variants integration (P1b, BLOCKED on the weapon-variants registry API landing on master):**
+- P1a already added the `Loadout._archetype_of(id)` seam (identity today) + `allowed_archetypes(cls)`. When `Weapon.archetype_of/variants_of/default_variant/is_variant` land (owned by the weapon-variants track; only its design doc is on master today), flip `_archetype_of` to `Weapon.archetype_of`, expand `primary_options` to `concat(Weapon.variants_of(a) for a in allowed_archetypes(cls))`, set `default_primary = Weapon.default_variant(allowed_archetypes(cls)[0])`, and add `Weapon.is_variant(primary)` to `is_primary_allowed`. Update the `primary_options`/`default_primary` tests (they currently assert archetype ids) to variant ids. `primary` stays `u8` on the wire. Contract: `docs/superpowers/specs/2026-07-11-weapon-variants-design.md` §3–§4 + §A "Weapon variants integration" of this milestone's spec.
+
 **P1b (next plan) builds on this:**
 - `Msg.SET_LOADOUT` (VERSION 7→8) encode/decode + client send + server handler (`shared/net/protocol.gd`, `client/client_main.gd`, `server/server_main.gd`).
 - Per-connection `_clients[id]["loadout"]` storage; server applies the sanitized config at spawn (weapon/ammo/reserve/armor/grenade/bandages + `class_traits`).
