@@ -41,3 +41,11 @@ func test_self_state_old_packet_defaults_bleed_fields() -> void:
 	var d := Protocol.decode_self_state(buf.data_array)
 	assert_false(bool(d["bleeding"]))
 	assert_eq(int(d["bandage_progress"]), 0)
+
+func test_self_state_carries_stim_fields() -> void:
+	# M19 P2b-medic: stim charges/ticks are appended last (owner-only), after reserve.
+	var b := Protocol.encode_self_state(10, false, 0, Weapon.AR, [], false, 0.0, 0, 3, false,
+		0.0, 0.0, 100.0, 0.0, true, false, 0, 0.0, false, 0, true, 128, 0, 2, 144)
+	var d := Protocol.decode_self_state(b)
+	assert_eq(int(d["stim_charges"]), 2)
+	assert_eq(int(d["stim_ticks"]), 144)
