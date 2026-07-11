@@ -2,11 +2,26 @@ extends TestCase
 
 const ALL_CLASSES := [Loadout.ASSAULT, Loadout.MEDIC, Loadout.ENGINEER, Loadout.SUPPORT]
 
-func test_primary_options_match_matrix() -> void:
-	assert_eq(Loadout.primary_options(Loadout.ASSAULT), [Weapon.AR, Weapon.SMG, Weapon.DMR])
-	assert_eq(Loadout.primary_options(Loadout.MEDIC), [Weapon.AR, Weapon.SMG])
-	assert_eq(Loadout.primary_options(Loadout.ENGINEER), [Weapon.AR, Weapon.SMG])
-	assert_eq(Loadout.primary_options(Loadout.SUPPORT), [Weapon.AR, Weapon.SMG, Weapon.LMG])
+func setup() -> void:
+	Weapon.reset_registry()
+	var res := Weapon.load_from_file("res://data/weapons.json")
+	assert_true(res["ok"], "weapons.json loads: %s" % res.get("error", ""))
+
+func teardown() -> void:
+	Weapon.reset_registry()
+
+func test_primary_options_are_variants_of_allowed_archetypes() -> void:
+	for c in ALL_CLASSES:
+		var expected: Array = []
+		for a in Loadout.allowed_archetypes(c):
+			expected.append_array(Weapon.variants_of(a))
+		assert_eq(Loadout.primary_options(c), expected, "class %d primary_options == concatenated variants" % c)
+		assert_gt(Loadout.primary_options(c).size(), 0, "class %d has selectable variants" % c)
+	# independent spot-check: Assault's picker lists AR+DMR variants but no LMG variant
+	var assault := Loadout.primary_options(Loadout.ASSAULT)
+	assert_contains(assault, Weapon.default_variant(Weapon.AR))
+	assert_contains(assault, Weapon.variants_of(Weapon.DMR)[0])
+	assert_true(not (Weapon.variants_of(Weapon.LMG)[0] in assault), "Assault picker excludes LMG variants")
 
 func test_allowed_archetypes_match_matrix() -> void:
 	# The archetype allow-list that class gating is expressed against (stable across the
@@ -14,11 +29,6 @@ func test_allowed_archetypes_match_matrix() -> void:
 	assert_eq(Loadout.allowed_archetypes(Loadout.ASSAULT), [Weapon.AR, Weapon.SMG, Weapon.DMR])
 	assert_eq(Loadout.allowed_archetypes(Loadout.SUPPORT), [Weapon.AR, Weapon.SMG, Weapon.LMG])
 	assert_eq(Loadout.allowed_archetypes(Loadout.MEDIC), [Weapon.AR, Weapon.SMG])
-
-func test_primary_options_equal_archetypes_pre_variants() -> void:
-	# Seam invariant: until the variant registry lands, one selectable id per archetype.
-	for c in ALL_CLASSES:
-		assert_eq(Loadout.primary_options(c), Loadout.allowed_archetypes(c))
 
 func test_gadget_options_match_matrix() -> void:
 	assert_eq(Loadout.gadget_options(Loadout.ASSAULT), [Loadout.GADGET_C4, Loadout.GADGET_GRAPPLE, Loadout.GADGET_BREACH])
@@ -40,9 +50,10 @@ func test_default_gadget_picks_first_implemented_option() -> void:
 	assert_eq(Loadout.default_gadget(Loadout.MEDIC), Loadout.GADGET_HEAL)
 	assert_eq(Loadout.default_gadget(Loadout.SUPPORT), Loadout.GADGET_AMMO)
 
-func test_default_primary_is_ar_for_all() -> void:
+func test_default_primary_is_ar_variant_for_all() -> void:
 	for c in ALL_CLASSES:
-		assert_eq(Loadout.default_primary(c), Weapon.AR)
+		assert_eq(Loadout.default_primary(c), Weapon.default_variant(Weapon.AR))
+		assert_eq(Weapon.archetype_of(Loadout.default_primary(c)), Weapon.AR)
 
 func test_default_armor_is_medium() -> void:
 	for c in ALL_CLASSES:
@@ -54,6 +65,12 @@ func test_is_primary_allowed_enforces_locks() -> void:
 	assert_true(Loadout.is_primary_allowed(Loadout.SUPPORT, Weapon.LMG), "Support may take LMG")
 	assert_false(Loadout.is_primary_allowed(Loadout.ASSAULT, Weapon.LMG), "only Support takes LMG")
 	assert_false(Loadout.is_primary_allowed(Loadout.ENGINEER, Weapon.RPG), "RPG is never a primary")
+	var dmr_v := int(Weapon.variants_of(Weapon.DMR)[0])   # SVD-K
+	var lmg_v := int(Weapon.variants_of(Weapon.LMG)[0])   # PKP
+	assert_true(Loadout.is_primary_allowed(Loadout.ASSAULT, dmr_v), "Assault may take SVD-K (DMR variant)")
+	assert_false(Loadout.is_primary_allowed(Loadout.MEDIC, dmr_v), "Medic may not take a DMR variant")
+	assert_true(Loadout.is_primary_allowed(Loadout.SUPPORT, lmg_v), "Support may take PKP (LMG variant)")
+	assert_false(Loadout.is_primary_allowed(Loadout.ASSAULT, lmg_v), "only Support takes an LMG variant")
 
 func test_every_primary_option_passes_can_equip() -> void:
 	# primary_options (the menu) and can_equip (the authority) must never disagree.
@@ -138,15 +155,22 @@ func test_default_loadout_is_self_consistent() -> void:
 		assert_eq(Loadout.sanitize(d, _attach()), d, "default_loadout(%d) stable under sanitize" % c)
 
 func test_sanitize_is_idempotent() -> void:
-	var raw := {"class": Loadout.SUPPORT, "primary": Weapon.LMG, "secondary": Weapon.PISTOL,
+	var raw := {"class": Loadout.SUPPORT, "primary": int(Weapon.variants_of(Weapon.LMG)[0]), "secondary": Weapon.PISTOL,
 		"gadget": Loadout.GADGET_AMMO, "armor": Armor.HEAVY, "grenade": Grenade.SMOKE,
 		"attachments": {"optic": "reddot", "barrel": "standard", "underbarrel": "none_ub"}}
 	var once := Loadout.sanitize(raw, _attach())
 	assert_eq(Loadout.sanitize(once, _attach()), once, "sanitize twice == once")
 
 func test_sanitize_rejects_illegal_primary() -> void:
-	var out := Loadout.sanitize({"class": Loadout.MEDIC, "primary": Weapon.DMR}, _attach())
-	assert_eq(int(out["primary"]), Weapon.AR)
+	var dmr_v := int(Weapon.variants_of(Weapon.DMR)[0])   # SVD-K
+	var out := Loadout.sanitize({"class": Loadout.MEDIC, "primary": dmr_v}, _attach())
+	assert_eq(int(out["primary"]), Loadout.default_primary(Loadout.MEDIC))
+	assert_eq(Weapon.archetype_of(int(out["primary"])), Weapon.AR)
+
+func test_sanitize_rejects_bare_archetype_primary() -> void:
+	var out := Loadout.sanitize({"class": Loadout.SUPPORT, "primary": Weapon.LMG}, _attach())
+	assert_eq(int(out["primary"]), Loadout.default_primary(Loadout.SUPPORT))
+	assert_true(Weapon.is_variant(int(out["primary"])), "sanitized primary is always a real variant")
 
 func test_sanitize_rpg_never_a_primary() -> void:
 	var out := Loadout.sanitize({"class": Loadout.ENGINEER, "primary": Weapon.RPG}, _attach())
