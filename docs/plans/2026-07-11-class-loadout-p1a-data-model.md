@@ -769,7 +769,7 @@ P1a delivers the validated loadout **data model** — options, traits, blurbs, L
 **P1b (next plan) builds on this:**
 - `Msg.SET_LOADOUT` (VERSION 7→8) encode/decode + client send + server handler (`shared/net/protocol.gd`, `client/client_main.gd`, `server/server_main.gd`).
 - Per-connection `_clients[id]["loadout"]` storage; server applies the sanitized config at spawn (weapon/ammo/reserve/armor/grenade/bandages + `class_traits`).
-- **RPG-as-gadget** rework (add `GADGET_RPG` to `IMPLEMENTED_GADGETS`; seed the rocket pool from the gadget, not the primary; delete the `random_class_no_engineer` human-exclusion).
+- **RPG-as-gadget** rework (add `GADGET_RPG` to `IMPLEMENTED_GADGETS`; seed the rocket pool from the gadget, not the primary; delete the `random_class_no_engineer` human-exclusion). NOTE: the server's authoritative **primary-slot** validation must switch from raw `can_equip` to `Loadout.is_primary_allowed` — `can_equip(ENGINEER, RPG)` stays `true` (legacy weapon-gate) but RPG is not in `allowed_archetypes`, so only `is_primary_allowed` rejects RPG-as-primary once it becomes gadget-only.
 - `bot_loadout(id)` on the unified path + `--loadout=` headless debug arg.
 - 128-bot fleet gate on `conquest_town` (tick < 33.3 ms, bandwidth unchanged, winner declared).
 
