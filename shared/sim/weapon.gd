@@ -166,3 +166,25 @@ static func load_from_file(path := "res://data/weapons.json") -> Dictionary:
 static func reset_registry() -> void:
 	_VARIANTS = {}
 	_BY_ARCHETYPE = {}
+
+static func is_variant(id: int) -> bool:
+	return _VARIANTS.has(id)
+
+static func archetype_of(id: int) -> int:
+	if _VARIANTS.has(id):
+		return int(_VARIANTS[id]["archetype"])
+	if _DEFS.has(id):
+		return id
+	return AR
+
+static func variants_of(archetype: int) -> Array:
+	return _BY_ARCHETYPE.get(archetype, [])
+
+static func default_variant(archetype: int) -> int:
+	var v: Array = _BY_ARCHETYPE.get(archetype, [])
+	return int(v[0]) if not v.is_empty() else archetype
+
+static func display_name(id: int) -> String:
+	if _VARIANTS.has(id):
+		return String(_VARIANTS[id]["name"])
+	return String(_DEFS.get(id, _DEFS[AR]).get("name", "?"))

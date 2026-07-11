@@ -55,3 +55,26 @@ func test_reject_duplicate_key() -> void:
 	var a := (_FIX["weapons"][0] as Dictionary).duplicate()
 	var b := (_FIX["weapons"][0] as Dictionary).duplicate(); b["id"] = 18
 	assert_false(Weapon.load_from_dict({"weapons": [a, b]})["ok"], "duplicate key rejected")
+
+func test_archetype_of() -> void:
+	Weapon.load_from_dict(_FIX)
+	assert_eq(Weapon.archetype_of(16), Weapon.AR, "variant -> its archetype")
+	assert_eq(Weapon.archetype_of(Weapon.DMR), Weapon.DMR, "base id maps to itself")
+
+func test_variants_of_default_first() -> void:
+	Weapon.load_from_dict(_FIX)
+	var ar := Weapon.variants_of(Weapon.AR)
+	assert_eq(ar[0], 16, "catalog order: default (M4A2) first")
+	assert_eq(Weapon.default_variant(Weapon.AR), 16, "default_variant == variants_of[0]")
+
+func test_default_variant_degrades_when_empty() -> void:
+	Weapon.load_from_dict(_FIX)
+	# SMG has no variants in the fixture -> degrade to the archetype id.
+	assert_true(Weapon.variants_of(Weapon.SMG).is_empty(), "no SMG variants loaded")
+	assert_eq(Weapon.default_variant(Weapon.SMG), Weapon.SMG, "degrades to archetype default")
+
+func test_is_variant_and_display_name() -> void:
+	Weapon.load_from_dict(_FIX)
+	assert_true(Weapon.is_variant(16), "16 is a variant")
+	assert_false(Weapon.is_variant(Weapon.AR), "base id is not a variant")
+	assert_eq(Weapon.display_name(17), "AKM-74", "variant display name")
