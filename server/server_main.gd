@@ -1326,7 +1326,7 @@ func _build_weapon_slots(c: Dictionary) -> void:
 	var secondary := {
 		"weapon": swid, "weapon_def": sdef,
 		"ammo": int(Weapon.get_def(swid)["mag_size"]),
-		"reserve": int(Weapon.reserve_ammo(swid)),
+		"reserve": _spawn_reserve(swid, int(c["class"])),
 		"reloading": false, "reload_done_tick": 0, "last_fire_time": -999.0,
 		"shot_index": 0, "fire_mode": Weapon.default_mode(swid),
 	}
@@ -1378,6 +1378,12 @@ func _swap_weapon(id: int, target: int) -> void:
 ## client change the loadout mid-session. Rockets depend on the gadget and are refilled by the caller.
 ## last_fire_time/swap_locked_until are reset here too (matching _reset_weapon_loadout and the HELLO
 ## record literal) so _build_weapon_slots snapshots a fresh -999.0/0 into slot 0.
+## Spawn/resupply reserve pool for weapon `wid` held by class `cls`, scaled by the class reserve_mult
+## trait (Support carries extra spare ammo; every other class ×1.0). M19 P2a — used at every point a
+## fresh reserve pool or a resupply cap is set, so the Support bonus is consistent across spawn + refill.
+func _spawn_reserve(wid: int, cls: int) -> int:
+	return int(round(float(Weapon.reserve_ammo(wid)) * float(Loadout.class_traits(cls)["reserve_mult"])))
+
 func _apply_loadout_to_client(c: Dictionary, p: Pawn) -> void:
 	var lo: Dictionary = c["loadout"]
 	var cls := int(lo["class"])
@@ -1391,7 +1397,7 @@ func _apply_loadout_to_client(c: Dictionary, p: Pawn) -> void:
 	var mults: Dictionary = _attachments.multipliers(lo["attachments"]) if _attachments != null else {}
 	c["weapon_def"] = Weapon.effective_def(wid, mults)
 	c["ammo"] = int(Weapon.get_def(wid)["mag_size"])
-	c["reserve"] = int(Weapon.reserve_ammo(wid))
+	c["reserve"] = _spawn_reserve(wid, cls)
 	c["reloading"] = false
 	c["reload_done_tick"] = 0
 	c["last_fire_time"] = -999.0
@@ -1412,7 +1418,7 @@ func _reset_weapon_loadout(c: Dictionary) -> void:
 	for slot in c["slots"]:
 		var swid: int = int(slot["weapon"])
 		slot["ammo"] = int(Weapon.get_def(swid)["mag_size"])
-		slot["reserve"] = int(Weapon.reserve_ammo(swid))   # respawn/deploy refills the spare pool (M17)
+		slot["reserve"] = _spawn_reserve(swid, int(c["class"]))   # respawn/deploy refills the spare pool (M17), scaled by class reserve_mult (M19 P2a)
 		slot["reloading"] = false
 		slot["reload_done_tick"] = 0
 		slot["last_fire_time"] = -999.0
@@ -2154,7 +2160,7 @@ func _step_bags() -> void:
 				if not _clients.has(pid): continue
 				var tc = _clients[pid]
 				var cap: int = int(Weapon.get_def(int(tc["weapon"]))["mag_size"])
-				var reserve_max: int = int(Weapon.reserve_ammo(int(tc["weapon"])))
+				var reserve_max: int = _spawn_reserve(int(tc["weapon"]), int(tc["class"]))
 				if int(tc["ammo"]) >= cap and int(tc.get("reserve", 0)) >= reserve_max: continue
 				tc["ammo"] = cap
 				tc["reserve"] = reserve_max   # ammo bag refills the reserve pool too (M17)
