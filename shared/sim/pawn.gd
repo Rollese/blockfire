@@ -15,6 +15,8 @@ const STAMINA_REGEN := 12.0
 const STAMINA_REGEN_DELAY := 1.0
 const STAMINA_MAX := 100.0
 const SPRINT_RESUME := 20.0   # once stamina bottoms out, can't sprint again until it regens past this (BattleBit hysteresis)
+const STIM_SPEED_MULT := 1.15   # M19: Combat Stim move-speed multiplier
+const STIM_STAMINA_MULT := 2.0  # M19: Combat Stim stamina-regen multiplier
 const WORLD_HALF := 1000.0
 const MAX_PITCH := 1.4835  # ~85 degrees
 const PRONE_TRANSITION_TICKS := 10  # fire blocked for this many ticks after entering prone (drop-shoot fix)
@@ -61,6 +63,7 @@ var seat: int = -1         # seat index when in_vehicle != 0
 var armor_class: int = Armor.LIGHT   # M5.5-P2: body-damage + move-speed tier (set from class at spawn)
 var suppression: float = 0.0         # M5.5-P2: 0..1 incoming-fire scalar; widens own spread, decays per tick
 var blind_until_tick: int = 0        # M5.5-P3: flashbang white-out persists until this tick (0 = not blinded)
+var stim_until_tick: int = 0         # M19: Combat Stim buff active until this tick (server-set; mirrors blind_until_tick)
 
 func _init(p_id: int = 0) -> void:
 	id = p_id
@@ -98,7 +101,8 @@ func step(dt: float, cmd: Dictionary, world_half: float = WORLD_HALF) -> void:
 	var has_move := move.length() > 0.01
 
 	var sprinting := bool(buttons & InputCommand.BTN_SPRINT) and stance == Stance.STAND and stamina > 0.0 and has_move and not _sprint_locked
-	var speed := Stance.speed(stance) * (SPRINT_MULT if sprinting else 1.0) * Armor.speed_mult(armor_class)
+	var stimmed := bool(cmd.get("stimmed", false))
+	var speed := Stance.speed(stance) * (SPRINT_MULT if sprinting else 1.0) * Armor.speed_mult(armor_class) * (STIM_SPEED_MULT if stimmed else 1.0)
 	velocity.x = move.x * speed
 	velocity.z = move.z * speed
 
@@ -125,7 +129,7 @@ func step(dt: float, cmd: Dictionary, world_half: float = WORLD_HALF) -> void:
 	else:
 		_regen_cooldown = maxf(0.0, _regen_cooldown - dt)
 		if _regen_cooldown <= 0.0:
-			stamina += STAMINA_REGEN * dt
+			stamina += STAMINA_REGEN * (STIM_STAMINA_MULT if stimmed else 1.0) * dt
 	stamina = clampf(stamina, 0.0, STAMINA_MAX)
 	# BattleBit sprint-lockout hysteresis: once stamina bottoms out you cannot sprint again until it
 	# regens past SPRINT_RESUME. This removes the pathological 1-tick empty-sprint burst that ran at
