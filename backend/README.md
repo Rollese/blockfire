@@ -62,3 +62,42 @@ docker compose up --build
 open http://localhost:8000/          # leaderboard
 open http://localhost:8000/api/leaderboard
 ```
+
+## P3 — Admin dashboards
+
+Server-rendered, read-only analytics dashboards for weapon balance, combat
+distance/hitzone breakdowns, and a filterable kill-event explorer. Gated
+behind an admin auth check; not part of the public site nav unless you're
+an admin.
+
+### Routes
+- `GET /admin` — overview: weapon balance table + usage distribution +
+  headline totals (matches, kill events, ...).
+- `GET /admin/combat` — kill-distance histogram, hitzone breakdown, longest
+  kills.
+- `GET /admin/events` — filterable kill-event explorer
+  (`?weapon_id=`, `?min_distance_m=`, `?hitzone=`, `?order=`, `?limit=`).
+- `GET /admin/api/*` — the same data as the pages above, as JSON
+  (`app/admin_api.py`); useful for scripting or a future SPA.
+
+All `/admin*` routes require `require_admin` (see `app/admin_auth.py`) and
+403 for non-admin callers.
+
+### Auth model
+Two ways to be recognized as an admin, checked by `is_admin()`:
+- **SteamID allowlist**: sign in through Steam (see P2 login above), and
+  have your SteamID64 listed in `ADMIN_STEAM_IDS` (comma/space-separated).
+- **`ADMIN_DEV_OPEN=1`**: bypasses Steam auth entirely — every caller is
+  treated as an admin. **dev/LAN only — this MUST stay false (or unset) in
+  any internet-facing deployment**, since it removes all access control from
+  `/admin*`.
+
+When signed in (or `ADMIN_DEV_OPEN=1`), the site nav shows an "Admin" link
+to `/admin`; it's hidden for everyone else.
+
+### Reach `/admin` locally
+```bash
+cd backend
+ADMIN_DEV_OPEN=1 docker compose up --build
+open http://localhost:8000/admin
+```

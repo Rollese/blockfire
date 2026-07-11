@@ -170,3 +170,21 @@ async def test_admin_events_page_empty_db(app_and_sessionmaker):
         r = await c.get("/admin/events")
     assert r.status_code == 200
     assert "No matching kill events." in r.text
+
+
+async def test_index_page_shows_admin_link_for_admin(app_and_sessionmaker):
+    """The public leaderboard nav shows an Admin link once the caller passes
+    is_admin() -- here via admin_dev_open=True on a second app sharing the
+    same sessionmaker, per the module docstring's technique."""
+    _, sm = app_and_sessionmaker
+    async with await _admin_client(sm) as c:
+        r = await c.get("/")
+    assert r.status_code == 200
+    assert 'href="/admin"' in r.text
+
+
+async def test_index_page_hides_admin_link_for_non_admin(client):
+    """Default client fixture: admin_dev_open=False, no session cookie."""
+    r = await client.get("/")
+    assert r.status_code == 200
+    assert 'href="/admin"' not in r.text

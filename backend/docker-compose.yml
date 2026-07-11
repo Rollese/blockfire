@@ -25,6 +25,8 @@ services:
       STEAM_WEB_API_KEY: ${STEAM_WEB_API_KEY:-}
       SESSION_SECRET: ${SESSION_SECRET:-dev-insecure-change-me}
       SITE_BASE_URL: ${SITE_BASE_URL:-http://localhost:8000}
+      ADMIN_STEAM_IDS: ${ADMIN_STEAM_IDS:-}
+      ADMIN_DEV_OPEN: ${ADMIN_DEV_OPEN:-false}
     ports:
       - "8000:8000"
     depends_on:

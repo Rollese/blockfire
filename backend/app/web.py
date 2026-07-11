@@ -15,6 +15,7 @@ _HERE = pathlib.Path(__file__).parent
 
 
 def register_web_routes(app: FastAPI) -> None:
+    from app.admin_auth import is_admin
     from app.profiles import (  # local import avoids import cycle
         get_profile, get_recent_matches, get_weapon_totals, list_leaderboard,
     )
@@ -32,7 +33,8 @@ def register_web_routes(app: FastAPI) -> None:
         return templates.TemplateResponse(
             request, "index.html",
             {"players": players,
-             "current_steam_id": current_steam_id(request)},
+             "current_steam_id": current_steam_id(request),
+             "is_admin": is_admin(request)},
         )
 
     @app.get("/players/{player_key:path}")
@@ -47,5 +49,6 @@ def register_web_routes(app: FastAPI) -> None:
         return templates.TemplateResponse(
             request, "profile.html",
             {"profile": prof, "weapons": weapons, "recent_matches": recent,
-             "current_steam_id": current_steam_id(request)},
+             "current_steam_id": current_steam_id(request),
+             "is_admin": is_admin(request)},
         )
