@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% block title %}{{ profile.display_name or profile.player_key }} — Blockfire Stats{% endblock %}
+{% block content %}
+<section class="profile-header">
+  {% if profile.avatar_url %}
+  <img class="avatar" src="{{ profile.avatar_url }}" alt="avatar">
+  {% else %}
+  <div class="avatar placeholder"></div>
+  {% endif %}
+  <div>
+    <h1>{{ profile.display_name or profile.player_key }}</h1>
+    <p class="subtle">{{ profile.player_key }}</p>
+  </div>
+</section>
+
+<section class="stat-grid">
+  <div class="stat"><span class="label">Kills</span><span class="value">{{ profile.total_kills }}</span></div>
+  <div class="stat"><span class="label">Deaths</span><span class="value">{{ profile.total_deaths }}</span></div>
+  <div class="stat"><span class="label">K/D</span><span class="value">{{ "%.2f"|format(profile.kd_ratio or 0.0) }}</span></div>
+  <div class="stat"><span class="label">Hit rate</span><span class="value">{{ "%.1f"|format((profile.overall_hit_rate or 0.0) * 100) }}%</span></div>
+  <div class="stat"><span class="label">Wins</span><span class="value">{{ profile.wins }}</span></div>
+  <div class="stat"><span class="label">Losses</span><span class="value">{{ profile.losses }}</span></div>
+  <div class="stat"><span class="label">Matches</span><span class="value">{{ profile.matches_played }}</span></div>
+  <div class="stat"><span class="label">Longest kill</span><span class="value">{{ "%.0f"|format(profile.longest_kill_m or 0.0) }} m</span></div>
+  <div class="stat"><span class="label">Favorite weapon</span><span class="value">{{ profile.favorite_weapon_id or "—" }}</span></div>
+</section>
+
+<h2>Weapons</h2>
+{% if weapons %}
+<table class="stats">
+  <thead>
+    <tr><th>Weapon</th><th>Shots</th><th>Hits</th><th>Hit&nbsp;%</th><th>Kills</th><th>Headshots</th></tr>
+  </thead>
+  <tbody>
+    {% for w in weapons %}
+    <tr>
+      <td>{{ w.weapon_id }}</td>
+      <td>{{ w.shots }}</td>
+      <td>{{ w.hits }}</td>
+      <td>{{ "%.1f"|format((w.hit_rate or 0.0) * 100) }}</td>
+      <td>{{ w.kills }}</td>
+      <td>{{ w.headshots }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="empty">No weapon data.</p>
+{% endif %}
+
+<h2>Recent matches</h2>
+{% if recent_matches %}
+<table class="stats">
+  <thead>
+    <tr><th>Map</th><th>Mode</th><th>Result</th><th>Kills</th><th>Deaths</th><th>Ended</th></tr>
+  </thead>
+  <tbody>
+    {% for m in recent_matches %}
+    <tr>
+      <td>{{ m.map }}</td>
+      <td>{{ m.mode }}</td>
+      <td>{{ m.result or "—" }}</td>
+      <td>{{ m.kills }}</td>
+      <td>{{ m.deaths }}</td>
+      <td>{{ m.ended_at or "—" }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="empty">No recent matches.</p>
+{% endif %}
+{% endblock %}

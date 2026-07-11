@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Blockfire Stats{% endblock %}</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header class="nav">
+    <a href="/" class="brand">Blockfire Stats</a>
+    <nav>
+      <a href="/">Leaderboard</a>
+      {% block nav_extra %}
+      {% if current_steam_id %}
+      <a href="/players/steam:{{ current_steam_id }}">You (steam:{{ current_steam_id }})</a>
+      <a href="/logout">Logout</a>
+      {% else %}
+      <a href="/login">Sign in through Steam</a>
+      {% endif %}
+      {% endblock %}
+    </nav>
+  </header>
+  <main class="content">
+    {% block content %}{% endblock %}
+  </main>
+</body>
+</html>
