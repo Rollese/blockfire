@@ -154,6 +154,9 @@ var _collapsed_bids: Array = []    # building_ids fully collapsed this match —
                                    # from the static MapDef and showed ghost ladders on dead buildings)
 var _collapse_test_bid := 0        # QA (--collapse-test=<bid>): force-collapse that building ~5s in.
 var _fast_nades := false           # QA (--fast-nades): drop the grenade throw cooldown to ~1 tick so a playtester can level a building fast (destruction/ladder testing).
+var _stats_endpoint: String = ""
+var _stats_token: String = ""
+var _stats_reporter: StatsReporter = null
 var _fast_rpg := false             # QA (--fast-rpg): RPG fires with no cooldown and never depletes rockets (pairs with --human-rpg for fast destruction testing).
                                    # Whole-building collapse is rare in bot-only runs, so this is the
                                    # on-demand exerciser for the collapse/ladder/rubble/join-replay path.
@@ -195,6 +198,8 @@ func configure(args: Dictionary) -> void:
 	_human_rpg = args.has("human-rpg")
 	_collapse_test_bid = int(args["collapse-test"]) if args.has("collapse-test") else 0
 	_fast_nades = args.has("fast-nades")
+	_stats_endpoint = String(args.get("stats-endpoint", ""))
+	_stats_token = String(args.get("stats-token", ""))
 	_fast_rpg = args.has("fast-rpg")
 	# ADR-0003: --encoder=gd forces the GDScript reference encoder (A/B gate runs, debugging).
 	# Default is native when the gdext .so is present; absent .so falls back silently.
