@@ -52,3 +52,15 @@ func test_no_regen_when_dead_or_downed() -> void:
 	s[2].alive = true; s[2].is_downed = true
 	_advance(s[0], 60)
 	assert_eq(int(s[2].health), 30, "downed pawns don't regen")
+
+func test_no_regen_while_bleeding() -> void:
+	var s = _spawned(Loadout.SUPPORT, 40)
+	var srv = s[0]; var c = s[1]; var p = s[2]
+	c["regen_block_until"] = 0
+	p.bleeding = true
+	_advance(srv, 60)
+	assert_eq(int(p.health), 40, "a bleeding pawn does not regen (must bandage / bleed out)")
+	# after bandaging, regen resumes
+	p.bleeding = false
+	_advance(srv, 60)
+	assert_true(int(p.health) > 40, "regen resumes once the bleed is bandaged")

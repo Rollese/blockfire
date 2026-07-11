@@ -2155,7 +2155,7 @@ func _step_health_regen() -> void:
 	for sid in _sim.world.pawns:
 		if not _clients.has(sid): continue
 		var sp: Pawn = _sim.world.pawns[sid]
-		if not sp.alive or sp.is_downed or sp.health >= 100: continue
+		if not sp.alive or sp.is_downed or sp.bleeding or sp.health >= 100: continue   # M16 standing bleed must bandage/bleed out, not self-heal
 		var c: Dictionary = _clients[sid]
 		if _sim.tick < int(c.get("regen_block_until", 0)): continue
 		var fast := bool(Loadout.class_traits(int(c["class"]))["regen_fast"])
