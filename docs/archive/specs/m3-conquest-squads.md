@@ -1,6 +1,6 @@
 # Spec: M3 Conquest + Deploy/Respawn + Squads
 
-**Status:** approved (implemented; gameplay gate passed — see milestone doc) · **Date:** 2026-06-14 · **Milestone:** [M3](../milestones/M3-conquest-squads.md)
+**Status:** approved (implemented; gameplay gate passed — see milestone doc) · **Date:** 2026-06-14 · **Milestone:** [M3](../../milestones/M3-conquest-squads.md)
 
 Builds the complete, winnable match loop on top of the M2 FPS core: a data-driven **Conquest** mode (capture points, ticket bleed, win condition), squads, server-authoritative deploy/respawn with point/squad spawns, and bots that path to objectives and capture them. Stays server-authoritative; all match rules live in `shared/` so client and server can't diverge (AGENTS.md §5, §7). The gate is **bot-only**: a full 128-player Conquest match must run start → win.
 

@@ -8,7 +8,7 @@
 
 **Tech Stack:** Godot 4.6 / GDScript. Tests: `godot --headless --path . -- --test [--filter=<substr>]`, classes extend the global `TestCase` (`tests/*_test.gd`).
 
-**Spec:** [`docs/specs/art-pipeline.md`](../specs/art-pipeline.md) §5 (Track C, animation/character). **Milestone:** [`M7-art-ux.md`](../milestones/M7-art-ux.md) (P2 — GLB character increment follow-ups).
+**Spec:** [`docs/specs/art-pipeline.md`](../../specs/art-pipeline.md) §5 (Track C, animation/character). **Milestone:** [`M7-art-ux.md`](../../milestones/M7-art-ux.md) (P2 — GLB character increment follow-ups).
 
 ---
 
@@ -195,7 +195,7 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 
 - [ ] **Step 2: Headless scene smoke** — `godot --headless --path . client/art/preview/kit_preview.tscn --quit-after 2 2>&1 | tee /tmp/preview.log`. Expected: clean, no `SCRIPT ERROR`/`Parse Error` (pre-existing leaked-instance warnings are fine).
 
-- [ ] **Step 3 (owner playtest gate):** Owner runs a live match with **GLB characters enabled** (client on the home laptop → server+bots on `game2`, per [`docs/runbooks/running-client.md`](../runbooks/running-client.md)) and confirms soldiers visibly carry a rifle that sits in the hand and points forward, and the stationary hold reads well. **Tune the placement knobs** in `GlbCharacterKit` — `WEAPON_OFFSET` / `WEAPON_ROT` / `WEAPON_SCALE` — until the gun sits right (expect iteration here; the headless tests only guarantee it's attached, not aimed). Record sign-off on [`M7-art-ux.md`](../milestones/M7-art-ux.md).
+- [ ] **Step 3 (owner playtest gate):** Owner runs a live match with **GLB characters enabled** (client on the home laptop → server+bots on `game2`, per [`docs/runbooks/running-client.md`](../../runbooks/running-client.md)) and confirms soldiers visibly carry a rifle that sits in the hand and points forward, and the stationary hold reads well. **Tune the placement knobs** in `GlbCharacterKit` — `WEAPON_OFFSET` / `WEAPON_ROT` / `WEAPON_SCALE` — until the gun sits right (expect iteration here; the headless tests only guarantee it's attached, not aimed). Record sign-off on [`M7-art-ux.md`](../../milestones/M7-art-ux.md).
 
 ---
 

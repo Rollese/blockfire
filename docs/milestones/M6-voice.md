@@ -1,6 +1,6 @@
 # M6 — Voice (Proximity + Squad)
 
-**Status:** in-progress — pure logic core + Opus GDExtension **merged to master 2026-06-18** (see TASKS.md M6 section); remaining relay/client wiring + gate **blocked by:** **M7 rendered client** (gate is human-validated in a live match → needs the client; reordered after M7 on 2026-06-16)
+**Status:** in-progress — pure logic core + Opus GDExtension **merged to master 2026-06-18** (see TASKS.md M6 section). The M7-client blocker is **now cleared** (M7 gate PASS 2026-07-05), so the remaining **relay-thread/`server_main` wiring + client capture/playback + live human-validated gate** are **unblocked but not yet started**.
 
 **Objective:** Positional proximity voice and squad voice channels.
 

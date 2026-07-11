@@ -28,7 +28,7 @@ _Last refreshed: 2026-07-11 (documentation compaction). If this disagrees with `
 - **M20 — Stats & Analytics backend** — design [`superpowers/specs/2026-07-11-stats-analytics-backend-design.md`](superpowers/specs/2026-07-11-stats-analytics-backend-design.md). P1 ingest API + StatsReporter.
 
 ## Partial / blocked
-- **M6 — Voice** — pure logic core + Opus GDExtension merged; relay-thread + client capture/playback wiring + live gate remain (needs the client).
+- **M6 — Voice** — pure logic core + Opus GDExtension merged; relay-thread + client capture/playback wiring + live gate remain. The M7-client blocker is now cleared (M7 done) — unblocked but not started.
 
 ## Deferred (do not start until the core is signed off)
 - **M13 Assault mode** · **M18 Battle Royale** — planned, rules-variants over the shared sim (ADR-0009). Specs exist.

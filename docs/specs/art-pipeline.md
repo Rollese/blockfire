@@ -2,7 +2,7 @@
 
 **Milestone:** [M7 — Art pass + UX polish](../milestones/M7-art-ux.md) (P2) · **Status:** drafted (brainstormed 2026-06-18) · **Branch:** `m7-p2-art-pipeline-spec` · **Reserved by:** `M7-art-ux.md` §Specs ("`art-pipeline.md` — **P2**, written when reached").
 
-This spec is the **design-of-record for M7-P2 presentation**. Unlike the [procedural art-kit plan](../plans/2026-06-17-m7-p2-art-kit-procedural.md) (an implementation plan, now largely built + merged) and the [GLB-character increment](../plans/2026-06-18-m7-p2-glb-characters.md), this document does two things: it **records the established pipeline** as the contract going forward, and it **specs the still-open P2 art tracks** (LOD, animation beyond GLB v1, combat/feedback VFX) so each can get its own implementation plan.
+This spec is the **design-of-record for M7-P2 presentation**. Unlike the [procedural art-kit plan](../archive/plans/2026-06-17-m7-p2-art-kit-procedural.md) (an implementation plan, now largely built + merged) and the [GLB-character increment](../archive/plans/2026-06-18-m7-p2-glb-characters.md), this document does two things: it **records the established pipeline** as the contract going forward, and it **specs the still-open P2 art tracks** (LOD, animation beyond GLB v1, combat/feedback VFX) so each can get its own implementation plan.
 
 Everything here is **client-only, presentation-only (AGENTS.md §7)**. No art code decides any gameplay outcome, sends intent, or lives in `shared/sim/` or `server/`. Where a visual depends on a gameplay value (damage bucket, suppression scalar, fire-mode, team), that value comes **from server-replicated state or an event the sim already emits** — never from a client-local decision. The client is view-only.
 

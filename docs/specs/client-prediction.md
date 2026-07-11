@@ -1,6 +1,6 @@
 # Spec: Rendered Client — Prediction, Reconciliation & Netcode (M7 P1)
 
-**Status:** approved (design) · **Date:** 2026-06-16 · **Milestone:** [M7](../milestones/M7-art-ux.md) Phase 1 · **ADR:** [0005 renderer](../adr/0005-client-renderer.md) · **Related:** [hud-ui](hud-ui.md), [netcode-replication](m1-netcode-core.md), [anti-cheat-matchmaking](anti-cheat-matchmaking.md)
+**Status:** approved (design) · **Date:** 2026-06-16 · **Milestone:** [M7](../milestones/M7-art-ux.md) Phase 1 · **ADR:** [0005 renderer](../adr/0005-client-renderer.md) · **Related:** [hud-ui](hud-ui.md), [netcode-replication](../archive/specs/m1-netcode-core.md), [anti-cheat-matchmaking](anti-cheat-matchmaking.md)
 
 Turns the headless client **stub** (`client/client_main.gd` — connects, sends *zeroed* input, applies snapshots, reconciles its own pawn) into a **rendered, predicted first-person client**. The simulation already lives in `shared/sim/`; this spec is about **predicting, interpolating, rendering, and sending intent** — never about re-deciding gameplay.
 

@@ -1,6 +1,6 @@
 # M8 — Hardening & Ops — Spec (brainstorm-of-record)
 
-Status: **active** · Milestone: [`M8-hardening-ops.md`](../milestones/M8-hardening-ops.md) · Authored 2026-07-01
+Status: **active** · Milestone: [`M8-hardening-ops.md`](../../milestones/M8-hardening-ops.md) · Authored 2026-07-01
 
 Make the dedicated server and bot fleet **operable, observable, and repeatably
 stress-testable**. This is largely consolidation + hardening of infrastructure that already
@@ -55,7 +55,7 @@ exists piecemeal (rich `[telemetry]` log line; a parametrized Docker `docker-com
   current CLI/const defaults (back-compatible). Map rotation advances between matches.
   **[DONE 2026-07-03** — `server/config.gd` + persistent multi-match rotation loop; `tick_rate`
   deliberately excluded (SimLoop.DT is a compile-time sim constant, YAGNI). See
-  [`server-ops.md`](server-ops.md).**]**
+  [`server-ops.md`](../../specs/server-ops.md).**]**
 - **Graceful shutdown**: SIGTERM → stop accepting joins, end/abort the current match cleanly,
   disconnect peers with a reason, flush telemetry, exit 0. **[2026-07-01: investigated — NOT
   feasible in pure GDScript on headless Godot 4.6.** POSIX signals are not delivered as

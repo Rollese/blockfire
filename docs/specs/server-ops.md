@@ -1,7 +1,7 @@
 # Spec — Server Ops: Config File + Map Rotation (spec-of-record)
 
 Status: **active** (M8-P3, landed 2026-07-03) · Milestone: [`M8-hardening-ops.md`](../milestones/M8-hardening-ops.md) ·
-Brainstorm: [`m8-hardening-ops.md`](m8-hardening-ops.md) §P3 · Plan: [`2026-07-03-m8-p3-config-map-rotation.md`](../plans/2026-07-03-m8-p3-config-map-rotation.md)
+Brainstorm: [`m8-hardening-ops.md`](../archive/specs/m8-hardening-ops.md) §P3 · Plan: [`2026-07-03-m8-p3-config-map-rotation.md`](../archive/plans/2026-07-03-m8-p3-config-map-rotation.md)
 
 Make the dedicated server operable without editing code or shell scripts: an optional JSON config
 file for match settings, and a **map-rotation mode** that turns the single-match-then-exit server
@@ -65,7 +65,7 @@ today a human relaunches/reconnects manually (bots reconnect via their driver lo
 - **Hot reload** — the config is read once at boot. Restart to apply (a LAN server; restarts are cheap).
 - **SIGTERM graceful shutdown** — investigated 2026-07-01, **not feasible in pure GDScript** on
   headless Godot 4.6 (no POSIX signal delivery); needs a GDExtension signal handler or an admin
-  control-channel command. Deferred — see [`m8-hardening-ops.md`](m8-hardening-ops.md) §P3.
+  control-channel command. Deferred — see [`m8-hardening-ops.md`](../archive/specs/m8-hardening-ops.md) §P3.
 
 ## Evidence
 

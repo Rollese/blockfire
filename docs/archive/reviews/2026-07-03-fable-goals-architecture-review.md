@@ -142,7 +142,7 @@ determinism this project is built on and would be a separate subsystem, not an i
 `StructureStore`. If the owner's "high fidelity" ambition is the former, the roadmap above
 covers it; if the latter, that must be planned as its own track — decide explicitly rather
 than discovering it mid-milestone. *(Decided 2026-07-03: see
-[ADR-0008](../adr/0008-destruction-fidelity-target.md) — "BattleBit-plus" hybrid; Teardown-class
+[ADR-0008](../../adr/0008-destruction-fidelity-target.md) — "BattleBit-plus" hybrid; Teardown-class
 authoritative physics ruled out.)*
 
 Smaller destruction-layer notes for whoever picks this up: `OP_CHUNK` sends the full u64 mask
@@ -189,7 +189,7 @@ Current tuning is explicitly LAN-first (ADR-0005 context). Before any public/hig
 | 5 | Infantry lag comp + vehicle driver prediction (pre-internet-play) | D1, D2 |
 | 6 | Reliable-channel split | D3 |
 | 7 | Headroom re-validation on a non-pinned host | B1 |
-| 8 | ADR ratifying the destruction fidelity target (Enlisted-class vs separate physics track) — **done: [ADR-0008](../adr/0008-destruction-fidelity-target.md)** | C |
+| 8 | ADR ratifying the destruction fidelity target (Enlisted-class vs separate physics track) — **done: [ADR-0008](../../adr/0008-destruction-fidelity-target.md)** | C |
 
 Items 1–4 serve the owner's three goals directly; none block the current in-flight work
 (M7 playtest gate, M7.5 P3/P4, M6 wiring). Items 5–6 gate any move beyond LAN. Sequencing

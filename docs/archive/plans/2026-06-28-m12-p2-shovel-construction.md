@@ -8,7 +8,7 @@
 
 **Tech Stack:** Godot 4.6 GDScript; `class_name` sim classes in `shared/sim/`; custom binary wire in `shared/net/protocol.gd`; `TestCase` headless tests (`godot --headless --path . -- --test`); Docker bot-fleet gate.
 
-**Spec:** [`docs/specs/squad-fob-class-refit.md`](../specs/squad-fob-class-refit.md) §B. **ADR:** [ADR-0007](../adr/0007-battlebit-divergences.md) §2. Supersedes M4 instant placement; reuses M4 grid/catalog/collision + M4 Phase-2 destruction. The FOB (§C) is **M12-P3**, out of scope here.
+**Spec:** [`docs/specs/squad-fob-class-refit.md`](../../specs/squad-fob-class-refit.md) §B. **ADR:** [ADR-0007](../../adr/0007-battlebit-divergences.md) §2. Supersedes M4 instant placement; reuses M4 grid/catalog/collision + M4 Phase-2 destruction. The FOB (§C) is **M12-P3**, out of scope here.
 
 ---
 

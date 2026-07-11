@@ -10,7 +10,7 @@
 
 **Scope (C3):** the combat-depth UI listed above. **Out of C3:** the art kit + LOD + VFX/audio polish — tracers, suppression blur/shake, flashbang white-out, armor visual diffs (P2); full client-side **build placement UI** (C3 does render + build/destroy *feedback* only — bots/server still place pieces; owner-directed 2026-06-17); the M5.5 sim systems themselves (projectiles, fire-mode, secondary, armor, suppression, melee, flashbang/impact) — C3 only leaves seams so they slot in without a rewrite.
 
-## M5.5 seams (build-don't-preclude — see [combat-depth-2](../specs/combat-depth-2.md) §1 + M7 ⚡ callout)
+## M5.5 seams (build-don't-preclude — see [combat-depth-2](../../specs/combat-depth-2.md) §1 + M7 ⚡ callout)
 - **Throwable selector is a variable, data-driven list** (`SELF_STATE.throwables` carries `[{kind, count}]`), never hardcoded to exactly frag+smoke — M5.5 adds flashbang/impact by adding list entries, no UI rewrite.
 - **Weapon/ammo HUD reads from data** (already `WeaponPredictor.weapon` + `Weapon.get_def`), so a later weapon-swap + fire-mode indicator slots in beside it.
 - **Recap distance/killer data ride the server-confirmed model** (`DEATH_INFO`), which is projectile-compatible — no hit-scan assumption is baked in.

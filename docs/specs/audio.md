@@ -2,7 +2,7 @@
 
 **Milestone:** [M7 — Art pass + UX polish](../milestones/M7-art-ux.md) (P2) · **Status:** drafted (brainstormed 2026-06-17, autonomous audio agent) · **Branch:** `m7-p2-audio` · **Reserved by:** `docs/specs/combat-depth-2.md` §"Explicitly deferred → M7-P2 (`docs/specs/audio.md`, reserved)".
 
-This spec is the contract for the M7-P2 **audio system**: distance-attenuated, occluded, directional combat audio for the rendered client, with finite-voice management for 128-player matches. It is the audio counterpart to the [art-kit plan](../plans/2026-06-17-m7-p2-art-kit-procedural.md): everything new lives in a fresh `client/audio/*` namespace + `data/sounds.json` and is built to run **concurrently with the in-flight M7-C3 (combat-depth UI) work without touching any file C3 owns**. The single edit that touches C3-owned code — wiring the director into `client_main.gd` and adding the audio-bus config to `project.godot` — is a **deferred post-C3 integration task** (documented here and in the plan; **not executed** on this branch).
+This spec is the contract for the M7-P2 **audio system**: distance-attenuated, occluded, directional combat audio for the rendered client, with finite-voice management for 128-player matches. It is the audio counterpart to the [art-kit plan](../archive/plans/2026-06-17-m7-p2-art-kit-procedural.md): everything new lives in a fresh `client/audio/*` namespace + `data/sounds.json` and is built to run **concurrently with the in-flight M7-C3 (combat-depth UI) work without touching any file C3 owns**. The single edit that touches C3-owned code — wiring the director into `client_main.gd` and adding the audio-bus config to `project.godot` — is a **deferred post-C3 integration task** (documented here and in the plan; **not executed** on this branch).
 
 The audio engine is **presentation-only** (AGENTS.md §7). The client is **view-only**: audio is rendered from replicated state and one-shot events that the sim already emits/derives. **No audio code decides any gameplay outcome**, sends intent, or lives in `shared/sim/`. Audio never feeds back into authority (it is not lag-comp, not a hit signal). Where a cue depends on a gameplay value (suppression scalar, fire-mode, suppressor attachment), that value comes **from the server-replicated state**, not from a client-local decision.
 
@@ -340,4 +340,4 @@ config, owner-playtested.
 
 ## Specs
 
-- This spec is the brainstorm-of-record for the M7-P2 audio system. Implementation plan: [`docs/plans/2026-06-17-m7-p2-audio.md`](../plans/2026-06-17-m7-p2-audio.md) (`writing-plans`), executed with `test-driven-development`. Reserved by `docs/specs/combat-depth-2.md`.
+- This spec is the brainstorm-of-record for the M7-P2 audio system. Implementation plan: [`docs/plans/2026-06-17-m7-p2-audio.md`](../archive/plans/2026-06-17-m7-p2-audio.md) (`writing-plans`), executed with `test-driven-development`. Reserved by `docs/specs/combat-depth-2.md`.

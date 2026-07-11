@@ -1,7 +1,7 @@
 # Session — M15 Heightmap Terrain (2026-07-06)
 
-Spec: [`docs/specs/heightmap-terrain.md`](../specs/heightmap-terrain.md) (ratified 2026-07-03).
-Plan: [`docs/superpowers/plans/2026-07-06-m15-heightmap-terrain.md`](../superpowers/plans/2026-07-06-m15-heightmap-terrain.md).
+Spec: [`docs/specs/heightmap-terrain.md`](../../specs/heightmap-terrain.md) (ratified 2026-07-03).
+Plan: [`docs/superpowers/plans/2026-07-06-m15-heightmap-terrain.md`](2026-07-06-m15-heightmap-terrain.md).
 Branch: `m15-heightmap-terrain` (subagent-driven TDD, 14 tasks + housekeeping).
 
 ## What landed
