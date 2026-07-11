@@ -179,6 +179,8 @@ var _throwables: Array = []        # latest throwable list from SELF_STATE
 var _being_revived: bool = false   # latest "a teammate is reviving me" flag from SELF_STATE
 var _suppression: float = 0.0      # latest own-suppression scalar from SELF_STATE (M5.5-P2; M7 screen FX)
 var _blind_ticks: int = 0          # latest remaining flashbang-blind ticks from SELF_STATE (M5.5-P3 white-out)
+var _stim_charges: int = 0         # latest Medic Combat Stim charges remaining from SELF_STATE (M19 P2b HUD)
+var _stim_ticks: int = 0           # latest remaining stim-buff ticks from SELF_STATE (M19 P2b; drives predicted stim_until_tick)
 var _bandage_count: int = 0        # latest bandage charges from SELF_STATE (reserved: standing-bleed cure)
 var _life_down_count: int = 0      # times downed this life (client mirror; drives the halving bleedout timer)
 var _repair_heat: float = 0.0      # latest Engineer repair-tool heat fraction from SELF_STATE (HUD gauge)
@@ -551,6 +553,13 @@ func _produce_input_frame(ss: EntityState, cmd: Dictionary) -> void:
 					and ((Input.is_action_pressed("fire") and not _input_paused_by_menu()) or _build_test):
 				bb |= InputCommand.BTN_SHOVEL   # _build_test forces the shovel so the QA shot shows it rise
 			cmd["buttons"] = bb
+	# M19 P2b: mirror the server's _step_movement stim inject (server_main.gd) — only set the key when
+	# active so the common (unstimmed) tick doesn't pay a Dictionary-mutation cost on every frame.
+	# stim_until_tick is re-anchored to _client_tick from SELF_STATE's remaining-ticks field (above,
+	# _handle_self_state) each time it arrives; between updates this compares against the same clock the
+	# rest of prediction advances on, so the buff window lines up with the server's tick-relative window.
+	if _client_tick < _pred.predicted.stim_until_tick:
+		cmd["stimmed"] = true
 	_pred.record_cmd(_client_tick, cmd)
 
 	var buttons: int = int(cmd["buttons"])
@@ -1159,6 +1168,16 @@ func _process(_dt: float) -> void:
 				gdir = -Vector3(sin(_input_ctrl.yaw), 0.0, cos(_input_ctrl.yaw)).normalized()
 				var gpitch: float = _input_ctrl.pitch
 				gdir = Vector3(gdir.x * cos(gpitch), sin(gpitch), gdir.z * cos(gpitch)).normalized()
+			elif equipped_gadget == Loadout.GADGET_STIM:
+				gadget_action = Protocol.GA_STIM_USE
+				gdir = -Vector3(sin(_input_ctrl.yaw), 0.0, cos(_input_ctrl.yaw)).normalized()
+				var spitch: float = _input_ctrl.pitch
+				gdir = Vector3(gdir.x * cos(spitch), sin(spitch), gdir.z * cos(spitch)).normalized()
+			elif equipped_gadget == Loadout.GADGET_SMOKE_WALL:
+				gadget_action = Protocol.GA_SMOKE_WALL_PLACE
+				gdir = -Vector3(sin(_input_ctrl.yaw), 0.0, cos(_input_ctrl.yaw)).normalized()
+				var wpitch: float = _input_ctrl.pitch
+				gdir = Vector3(gdir.x * cos(wpitch), sin(wpitch), gdir.z * cos(wpitch)).normalized()
 			_net.send_to(_peer, NetHost.CHANNEL_CONTROL,
 				Protocol.encode_gadget_action(gadget_action, _pred.predicted.pos, gdir, 0), ENetPacketPeer.FLAG_RELIABLE)
 
@@ -1533,6 +1552,14 @@ func _handle_self_state(bytes: PackedByteArray) -> void:
 	_being_revived = bool(d.get("being_revived", false))   # downed-screen "being revived" indicator
 	_suppression = float(d.get("suppression", 0.0))        # M5.5-P2: own suppression (M7 renders screen FX)
 	_blind_ticks = int(d.get("blind_ticks", 0))            # M5.5-P3: remaining flashbang-blind ticks (white-out)
+	_stim_charges = int(d.get("stim_charges", 0))          # M19 P2b: remaining Medic Combat Stim charges (HUD)
+	_stim_ticks = int(d.get("stim_ticks", 0))               # M19 P2b: remaining stim-buff ticks (server-authoritative)
+	# Mirror the buff onto the predicted pawn (like blind_ticks mirrors onto HUD white-out): the server
+	# reports REMAINING ticks from ITS tick, so re-anchor to the client's own tick to get an absolute
+	# stim_until_tick the predicted cmd-build (below, _produce_input_frame) can compare _client_tick
+	# against — without this, a human with GADGET_STIM equipped would predict no speed/stamina buff and
+	# rubber-band forward every time the server applied one.
+	_pred.predicted.stim_until_tick = _client_tick + _stim_ticks
 	_bandage_count = int(d.get("bandage_count", 0))        # M16 bandage charges (pouch spent by bandage/revive)
 	_am_bleeding = bool(d.get("bleeding", false))          # M16: own standing-bleed flag (bleeding cue)
 	_bandage_progress = int(d.get("bandage_progress", 0))  # M16: server bandage cast progress (owner as target)
