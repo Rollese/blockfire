@@ -1,7 +1,7 @@
 import datetime as dt
 
-from app.admin_stats import weapon_balance
-from app.models import Match, MatchPlayerWeapon, Player
+from app.admin_stats import hitzone_breakdown, kill_distance_stats, longest_kills, weapon_balance
+from app.models import Event, Match, MatchPlayerWeapon, Player
 
 NOW = dt.datetime(2026, 7, 11, 12, 0, 0, tzinfo=dt.timezone.utc)
 
@@ -178,4 +178,124 @@ async def test_weapon_balance_empty_db_returns_empty_list(app_and_sessionmaker):
     _, sm = app_and_sessionmaker
     async with sm() as s:
         rows = await weapon_balance(s)
+    assert rows == []
+
+
+def _kill_event(mid, tick, actor, target, wid, distance, hitzone, created_at=NOW):
+    return Event(match_id=mid, tick=tick, type="kill", actor_key=actor, target_key=target,
+                 weapon_id=wid,
+                 payload={"distance_m": distance, "hitzone": hitzone,
+                          "actor_pos": [0, 0, 0], "target_pos": [0, 0, 0]},
+                 created_at=created_at)
+
+
+async def _seed_kills(sm):
+    """5 kill events with hand-checkable distances [5, 12, 40, 150, 300] m,
+    hitzones head/body/head/body/head -> head=3, body=2, headshot_rate=0.6,
+    plus 1 non-kill "damage" event (distance=999) to prove the `type=="kill"`
+    filter excludes it from every helper.
+    """
+    async with sm() as s:
+        s.add(_kill_event("m1", 10, "name:P1", "name:P2", "smg", 5.0, "head"))
+        s.add(_kill_event("m1", 20, "name:P2", "name:P1", "ar", 12.0, "body"))
+        s.add(_kill_event("m1", 30, "name:P1", "name:P3", "ar", 40.0, "head"))
+        s.add(_kill_event("m2", 40, "name:P3", "name:P1", "dmr", 150.0, "body"))
+        s.add(_kill_event("m2", 50, "name:P1", "name:P2", "dmr", 300.0, "head"))
+        s.add(Event(match_id="m1", tick=99, type="damage", actor_key="name:P1",
+                     target_key="name:P2", weapon_id="ar",
+                     payload={"distance_m": 999.0, "hitzone": "head"}, created_at=NOW))
+        await s.commit()
+
+
+async def test_kill_distance_stats_basic(app_and_sessionmaker):
+    _, sm = app_and_sessionmaker
+    await _seed_kills(sm)
+    async with sm() as s:
+        stats = await kill_distance_stats(s)
+
+    assert stats["count"] == 5
+    assert stats["avg_m"] == round((5 + 12 + 40 + 150 + 300) / 5, 1)
+    assert stats["min_m"] == 5.0
+    assert stats["max_m"] == 300.0
+    # nearest-rank on sorted [5, 12, 40, 150, 300] (n=5):
+    # p50 -> rank=ceil(2.5)=3 -> 40.0; p90 -> rank=ceil(4.5)=5 -> 300.0;
+    # p99 -> rank=ceil(4.95)=5 -> 300.0
+    assert stats["p50_m"] == 40.0
+    assert stats["p90_m"] == 300.0
+    assert stats["p99_m"] == 300.0
+
+    hist = {b["bucket"]: b["count"] for b in stats["histogram"]}
+    assert hist == {
+        "0-10": 1, "10-25": 1, "25-50": 1, "50-100": 0, "100-200": 1, "200+": 1,
+    }
+    assert [b["bucket"] for b in stats["histogram"]] == [
+        "0-10", "10-25", "25-50", "50-100", "100-200", "200+",
+    ]
+
+
+async def test_kill_distance_stats_empty_returns_zeroed_dict(app_and_sessionmaker):
+    _, sm = app_and_sessionmaker
+    async with sm() as s:
+        stats = await kill_distance_stats(s)
+    assert stats == {
+        "count": 0, "avg_m": 0.0, "min_m": 0.0, "max_m": 0.0,
+        "p50_m": 0.0, "p90_m": 0.0, "p99_m": 0.0, "histogram": [],
+    }
+
+
+async def test_hitzone_breakdown_basic(app_and_sessionmaker):
+    _, sm = app_and_sessionmaker
+    await _seed_kills(sm)
+    async with sm() as s:
+        hz = await hitzone_breakdown(s)
+    assert hz == {"total": 5, "head": 3, "body": 2, "headshot_rate": round(3 / 5, 4)}
+
+
+async def test_hitzone_breakdown_empty_db(app_and_sessionmaker):
+    _, sm = app_and_sessionmaker
+    async with sm() as s:
+        hz = await hitzone_breakdown(s)
+    assert hz == {"total": 0, "head": 0, "body": 0, "headshot_rate": 0.0}
+
+
+async def test_longest_kills_ordering_and_shape(app_and_sessionmaker):
+    _, sm = app_and_sessionmaker
+    await _seed_kills(sm)
+    async with sm() as s:
+        rows = await longest_kills(s, limit=20)
+
+    assert [r["distance_m"] for r in rows] == [300.0, 150.0, 40.0, 12.0, 5.0]
+    assert rows[0] == {
+        "match_id": "m2", "weapon_id": "dmr", "actor_key": "name:P1",
+        "target_key": "name:P2", "distance_m": 300.0, "hitzone": "head", "tick": 50,
+    }
+
+
+async def test_longest_kills_limit_clamp(app_and_sessionmaker):
+    _, sm = app_and_sessionmaker
+    await _seed_kills(sm)
+    async with sm() as s:
+        top1 = await longest_kills(s, limit=1)
+        many = await longest_kills(s, limit=999)
+    assert len(top1) == 1
+    assert top1[0]["distance_m"] == 300.0
+    assert len(many) == 5  # limit clamps to 100, but only 5 kill rows exist
+
+
+async def test_longest_kills_tiebreak_by_event_id_asc(app_and_sessionmaker):
+    _, sm = app_and_sessionmaker
+    async with sm() as s:
+        s.add(_kill_event("m1", 1, "name:P1", "name:P2", "ar", 77.0, "head"))
+        s.add(_kill_event("m1", 2, "name:P2", "name:P1", "ar", 77.0, "body"))
+        await s.commit()
+    async with sm() as s:
+        rows = await longest_kills(s, limit=20)
+    # equal distance -> tiebreak by event_id ASC (insertion order): tick=1 first
+    assert [r["tick"] for r in rows] == [1, 2]
+
+
+async def test_longest_kills_empty_db_returns_empty_list(app_and_sessionmaker):
+    _, sm = app_and_sessionmaker
+    async with sm() as s:
+        rows = await longest_kills(s)
     assert rows == []
