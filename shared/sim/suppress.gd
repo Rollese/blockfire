@@ -10,12 +10,13 @@ const SUPPRESS_DECAY := 0.04          # per-tick decay toward 0
 const SUPPRESS_THRESHOLD := 0.25      # below this, no spread penalty
 const MAX_SPREAD_DEG := 2.5           # spread penalty at full (1.0) suppression
 
-## Add suppression for a near-miss at `dist` metres (closer = more), clamped to [0,1].
-static func accrue(current: float, dist: float) -> float:
+## Add suppression for a near-miss at `dist` metres (closer = more), clamped to [0,1]. `mult` scales
+## the per-shot increment (M19: a Support LMG suppresses harder — Weapon.suppression_mult); default 1.0.
+static func accrue(current: float, dist: float, mult: float = 1.0) -> float:
 	if dist >= SUPPRESS_RADIUS:
 		return current
 	var closeness := 1.0 - (dist / SUPPRESS_RADIUS)
-	return clampf(current + SUPPRESS_PER_NEARMISS * closeness, 0.0, 1.0)
+	return clampf(current + SUPPRESS_PER_NEARMISS * closeness * mult, 0.0, 1.0)
 
 ## Decay one tick toward zero (floored at 0).
 static func decay(current: float) -> float:

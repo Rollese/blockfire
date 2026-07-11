@@ -240,7 +240,7 @@ func step_projectiles() -> void:
 			# the segment (point-to-segment distance) so a fast bullet still suppresses across one tick.
 			var miss := point_seg_dist(tpos, old_pos, nxt)
 			if miss < Suppress.SUPPRESS_RADIUS:
-				tgt.suppression = Suppress.accrue(tgt.suppression, miss)
+				tgt.suppression = Suppress.accrue(tgt.suppression, miss, Weapon.suppression_mult(wid))
 				srv._stats.suppress_events += 1
 			var hit := Hitbox.raycast_pawn(old_pos, seg_dir, tpos, tstance, seg_len)
 			if hit["hit"] and hit["t"] < best_t:
