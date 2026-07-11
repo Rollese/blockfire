@@ -1,5 +1,13 @@
 # Weapon Variants Implementation Plan
 
+> **STATUS: ✅ COMPLETE (2026-07-11, on `origin/master`).** All 8 tasks implemented via
+> subagent-driven development (spec + quality review per task, final holistic review). Task 7 (LMG
+> variants) unblocked once the M19 loadout track merged its LMG archetype; integrated cleanly (zero
+> conflicts — disjoint `weapon.gd` edits). Result: 17 named variants (ids 16–32), wire unchanged
+> (`weapon` stays `u8`), full suite green modulo the pre-existing unbuilt-native-lib failures.
+> One in-flight fix during Task 5: `Weapon.archetype_of` now maps base ids by enum membership (RPG
+> had no `_DEFS` row). Integration smoke + fleet gate fold into the loadout track's P1 gate per spec §5.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Turn each weapon category into a set of named, mechanically-distinct variants (17 guns), selectable as ordinary weapon ids, driven by a new `data/weapons.json` catalog.

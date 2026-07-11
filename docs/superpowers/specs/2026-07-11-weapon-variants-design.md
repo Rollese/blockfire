@@ -1,7 +1,10 @@
 # Weapon variants — named roster over the category sim — design
 
 - **Date:** 2026-07-11
-- **Status:** approved (design)
+- **Status:** **IMPLEMENTED & SHIPPED** (2026-07-11, `origin/master`) — all 17 variants (AR×3, SMG×3,
+  DMR×3, Pistol×4, LMG×4; ids 16–32) + registry + boot/art/HUD wiring. Integrated cleanly with the
+  M19 loadout track (their LMG archetype merged first; my LMG variants sit on it). Full suite green
+  (only pre-existing native-lib failures). See plan `docs/superpowers/plans/2026-07-11-weapon-variants.md`.
 - **Depends on / coordinates with:** the parallel **Class Select & Player Loadouts (M18)** spec
   (`~/class-select-loadout.md`, being planned concurrently). That spec owns the class/loadout system,
   the new **LMG archetype**, and turns `LoadoutConfig.primary` into a player-picked weapon id. This
