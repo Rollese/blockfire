@@ -173,9 +173,7 @@ static func is_variant(id: int) -> bool:
 static func archetype_of(id: int) -> int:
 	if _VARIANTS.has(id):
 		return int(_VARIANTS[id]["archetype"])
-	if _DEFS.has(id):
-		return id
-	return AR
+	return id if _ARCH.values().has(id) else AR
 
 static func variants_of(archetype: int) -> Array:
 	return _BY_ARCHETYPE.get(archetype, [])

@@ -61,6 +61,12 @@ func test_archetype_of() -> void:
 	assert_eq(Weapon.archetype_of(16), Weapon.AR, "variant -> its archetype")
 	assert_eq(Weapon.archetype_of(Weapon.DMR), Weapon.DMR, "base id maps to itself")
 
+func test_archetype_of_base_ids_incl_rpg() -> void:
+	# _DEFS has no RPG row (launcher, no hit-scan stats); archetype_of must still map RPG -> RPG.
+	assert_eq(Weapon.archetype_of(Weapon.RPG), Weapon.RPG, "RPG base id maps to itself")
+	assert_eq(Weapon.archetype_of(Weapon.PISTOL), Weapon.PISTOL, "PISTOL base id maps to itself")
+	assert_eq(Weapon.archetype_of(9999), Weapon.AR, "unknown id falls back to AR")
+
 func test_variants_of_default_first() -> void:
 	Weapon.load_from_dict(_FIX)
 	var ar := Weapon.variants_of(Weapon.AR)
