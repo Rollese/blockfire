@@ -38,6 +38,8 @@ static func reload_fill(mag: int, mag_size: int, reserve: int) -> Array:
 	return [mag + take, reserve - take]
 
 static func get_def(weapon_id: int) -> Dictionary:
+	if _VARIANTS.has(weapon_id):
+		return _VARIANTS[weapon_id]
 	return _DEFS.get(weapon_id, _DEFS[AR])
 
 ## Per-weapon projectile lifetime in ticks: enough to cover range at muzzle speed, capped.
@@ -83,3 +85,84 @@ static func effective_def(weapon_id: int, mult: Dictionary) -> Dictionary:
 	d["move_spread_mult"] = float(mult.get("move_spread_mult", 1.0))
 	d["prone_spread_zero"] = bool(mult.get("prone_spread_zero", false))
 	return d
+
+# --- Named-variant registry (data/weapons.json). Ids >= 16 so they never collide with the
+# archetype enum (0..5). Loaded once at boot by server + client; tests load a fixture dict. ---
+static var _VARIANTS: Dictionary = {}       # id(int) -> resolved def (fire_modes+archetype as ints)
+static var _BY_ARCHETYPE: Dictionary = {}   # archetype(int) -> ordered Array[int] of variant ids
+
+# "LMG" maps to 5 as a LITERAL on purpose: the LMG enum entry is owned by the parallel loadout
+# agent (spec §4). Referencing a not-yet-existent Weapon.LMG here would create a merge collision;
+# the literal 5 is the agreed value and stays correct once their `LMG = 5` enum lands.
+const _ARCH := {"AR": AR, "SMG": SMG, "DMR": DMR, "RPG": RPG, "PISTOL": PISTOL, "LMG": 5}
+const _MODE := {"AUTO": MODE_AUTO, "SEMI": MODE_SEMI, "BURST": MODE_BURST}
+const _FLOAT_FIELDS := ["headshot_mult", "reload_secs", "spread_base_deg", "spread_bloom_deg",
+	"recoil_pitch_deg", "range_m", "muzzle_velocity", "gravity_scale"]
+
+static func load_from_dict(data: Dictionary) -> Dictionary:
+	var raw = data.get("weapons", [])
+	if typeof(raw) != TYPE_ARRAY or raw.is_empty():
+		return {"ok": false, "error": "weapons must be a non-empty array"}
+	var variants := {}
+	var keys := {}
+	var by_arch := {}
+	for w in raw:
+		if not (w is Dictionary):
+			return {"ok": false, "error": "each weapon must be an object"}
+		var id := int(w.get("id", -1))
+		if id < 16:
+			return {"ok": false, "error": "weapon id must be an int >= 16 (got %d)" % id}
+		if variants.has(id):
+			return {"ok": false, "error": "duplicate weapon id %d" % id}
+		var key := String(w.get("key", ""))
+		if key == "":
+			return {"ok": false, "error": "weapon %d missing key" % id}
+		if keys.has(key):
+			return {"ok": false, "error": "duplicate weapon key '%s'" % key}
+		keys[key] = true
+		var arch_s := String(w.get("archetype", ""))
+		if not _ARCH.has(arch_s):
+			return {"ok": false, "error": "weapon %s: unknown archetype '%s'" % [key, arch_s]}
+		var modes := []
+		if typeof(w.get("fire_modes", [])) != TYPE_ARRAY:
+			return {"ok": false, "error": "weapon %s: fire_modes must be an array" % key}
+		for m in w.get("fire_modes", []):
+			if not _MODE.has(String(m)):
+				return {"ok": false, "error": "weapon %s: bad fire mode '%s'" % [key, m]}
+			modes.append(_MODE[String(m)])
+		if modes.is_empty():
+			return {"ok": false, "error": "weapon %s: fire_modes empty" % key}
+		if int(w.get("damage_body", 0)) <= 0 or int(w.get("mag_size", 0)) <= 0 or int(w.get("rpm", 0)) <= 0 \
+				or float(w.get("range_m", 0.0)) <= 0.0 or float(w.get("muzzle_velocity", 0.0)) <= 0.0:
+			return {"ok": false, "error": "weapon %s: damage/mag/rpm/range/muzzle must be > 0" % key}
+		var def := {
+			"key": key, "name": String(w.get("name", key)), "archetype": int(_ARCH[arch_s]),
+			"damage_body": int(w.get("damage_body", 0)), "rpm": int(w.get("rpm", 0)),
+			"mag_size": int(w.get("mag_size", 0)), "reserve_ammo": int(w.get("reserve_ammo", 0)),
+			"fire_modes": modes, "burst_count": int(w.get("burst_count", DEFAULT_BURST)),
+			"suppression_mult": float(w.get("suppression_mult", 1.0)),
+		}
+		for f in _FLOAT_FIELDS:
+			def[f] = float(w.get(f, 0.0))
+		variants[id] = def
+		var a := int(_ARCH[arch_s])
+		if not by_arch.has(a):
+			by_arch[a] = []
+		by_arch[a].append(id)
+	_VARIANTS = variants
+	_BY_ARCHETYPE = by_arch
+	return {"ok": true, "error": ""}
+
+static func load_from_file(path := "res://data/weapons.json") -> Dictionary:
+	var text := FileAccess.get_file_as_string(path)
+	if text == "":
+		return {"ok": false, "error": "cannot read %s" % path}
+	var data = JSON.parse_string(text)
+	if typeof(data) != TYPE_DICTIONARY:
+		return {"ok": false, "error": "root of %s is not an object" % path}
+	return load_from_dict(data)
+
+## Test-only: clear the loaded variant registry so a test starts from a known-empty state.
+static func reset_registry() -> void:
+	_VARIANTS = {}
+	_BY_ARCHETYPE = {}
