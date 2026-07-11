@@ -78,6 +78,49 @@ class Event(Base):
     created_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), index=True)
 
 
+class PlayerProfile(Base):
+    __tablename__ = "player_profiles"
+    # Derived rollup table: no FK to players, kept decoupled like `events`.
+    player_key: Mapped[str] = mapped_column(String, primary_key=True)
+    steam_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    display_name: Mapped[str | None] = mapped_column(String, nullable=True)
+    avatar_url: Mapped[str | None] = mapped_column(String, nullable=True)
+    total_kills: Mapped[int] = mapped_column(Integer, default=0)
+    total_deaths: Mapped[int] = mapped_column(Integer, default=0)
+    total_assists: Mapped[int] = mapped_column(Integer, default=0)
+    total_downs: Mapped[int] = mapped_column(Integer, default=0)
+    total_revives: Mapped[int] = mapped_column(Integer, default=0)
+    total_captures: Mapped[int] = mapped_column(Integer, default=0)
+    total_neutralizes: Mapped[int] = mapped_column(Integer, default=0)
+    wins: Mapped[int] = mapped_column(Integer, default=0)
+    losses: Mapped[int] = mapped_column(Integer, default=0)
+    matches_played: Mapped[int] = mapped_column(Integer, default=0)
+    xp_total: Mapped[int] = mapped_column(Integer, default=0)
+    kd_ratio: Mapped[float] = mapped_column(Float, default=0.0)
+    total_shots: Mapped[int] = mapped_column(Integer, default=0)
+    total_hits: Mapped[int] = mapped_column(Integer, default=0)
+    total_headshots: Mapped[int] = mapped_column(Integer, default=0)
+    overall_hit_rate: Mapped[float] = mapped_column(Float, default=0.0)
+    longest_kill_m: Mapped[float] = mapped_column(Float, default=0.0)
+    favorite_weapon_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    total_playtime_s: Mapped[int] = mapped_column(Integer, default=0)
+    updated_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True))
+
+
+class PlayerWeaponTotal(Base):
+    __tablename__ = "player_weapon_totals"
+    # Derived rollup table: no FK, decoupled like `events`.
+    player_key: Mapped[str] = mapped_column(String, primary_key=True)
+    weapon_id: Mapped[str] = mapped_column(String, primary_key=True)
+    shots: Mapped[int] = mapped_column(Integer, default=0)
+    hits: Mapped[int] = mapped_column(Integer, default=0)
+    kills: Mapped[int] = mapped_column(Integer, default=0)
+    headshots: Mapped[int] = mapped_column(Integer, default=0)
+    damage: Mapped[int] = mapped_column(Integer, default=0)
+    time_used_s: Mapped[int] = mapped_column(Integer, default=0)
+    matches_used: Mapped[int] = mapped_column(Integer, default=0)
+
+
 class IngestedBatch(Base):
     __tablename__ = "ingested_batches"
     # Plain String, no FK to matches.match_id: batch rows are recorded during
