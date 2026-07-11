@@ -90,7 +90,7 @@ Sanitize is **idempotent** and **total** (never returns an invalid config), so a
 
 ## B. Class traits — centralize the "perks" (`shared/sim/loadout.gd`)
 
-`Loadout.class_traits(cls) -> Dictionary` is the single source the server reads **and** the class-select screen displays (what you see = what you get). Folds in the currently-scattered logic and the new perks:
+`Loadout.class_traits(cls) -> Dictionary` is the single source the server reads **and** the class-select screen displays (what you see = what you get); a companion `Loadout.trait_blurbs(cls) -> Array[String]` turns it into the plain-language perk list the screen shows (§G). Folds in the currently-scattered logic and the new perks:
 
 | Trait key | Assault | Medic | Engineer | Support | Read by |
 |---|---|---|---|---|---|
@@ -174,9 +174,16 @@ A **manned static emplacement** — a built structure the occupant enters to fir
 ## G. Client class-select screen (`client/menus/`, integrates with `deploy_menu.gd`)
 
 - New `ClassSelectPanel` (own file) shown as part of the deploy flow — resolves the `deploy_menu.gd` TODO ("move to a class-select screen when that exists").
-- Layout: **class column** (4 classes, each showing its passive-trait blurb from `class_traits`), **primary picker** (class-allowed archetypes), **attachment pickers** (3 slots), **armor picker** (L/M/H with the speed/dmg trade-off shown), **grenade picker** (Frag/Smoke/Flash), **gadget picker** (2 options). Pre-filled from the persisted loadout.
+- Layout: **class column** (4 classes), **primary picker** (class-allowed archetypes), **attachment pickers** (3 slots), **armor picker** (L/M/H with the speed/dmg trade-off shown), **grenade picker** (Frag/Smoke/Flash), **gadget picker** (built options for the class). Pre-filled from the persisted loadout.
+- **Passive perks are always visible on the screen (no tutorial required).** Selecting a class shows a **passive-perk panel** listing that class's inherent traits in plain language, generated **directly from `Loadout.class_traits(cls)`** so the text can never drift from the sim. Every non-neutral trait is spelled out with its concrete effect, e.g.:
+  - Assault → "**Combat Vigor** — heals faster after taking damage", "Can equip the DMR".
+  - Medic → "**Field Medic** — revives teammates faster", "Carries 20 bandages".
+  - Engineer → "**Demolitions** — +20% explosive blast radius", "Sledgehammer melee (breaks structures)".
+  - Support → "**Ammo Hauler** — extra reserve ammo & 5 grenades", "**Suppressor** — LMG suppresses harder".
+
+  `Loadout.class_traits` gains a companion `Loadout.trait_blurbs(cls) -> Array[String]` (the single source of the display strings) so the panel, tooltips, and any tests read the same list. The **armor picker** likewise shows its live numbers ("Light: +20% speed, least protection" … "Heavy: −20% speed, most protection"), and the **gadget/weapon pickers** show a one-line effect per option — the whole screen is self-documenting.
 - On any change → `client_main` builds a `LoadoutConfig`, runs `Loadout.sanitize` locally (grey-out illegal combos), sends `Msg.SET_LOADOUT`. Spawn buttons unchanged; deploying uses the last-sent loadout.
-- Real-GPU screenshot QA on `.116` / `.194` (llvmpipe unreliable for UI colour — memory).
+- Real-GPU screenshot QA on `.116` / `.194` (llvmpipe unreliable for UI colour — memory), verifying the perk panel renders every class's traits legibly.
 
 ## H. Bot AI (`bots/bot_driver.gd`, `bots/exercisers.gd`)
 
@@ -209,6 +216,7 @@ A **manned static emplacement** — a built structure the occupant enters to fir
 - `loadout_sanitize`: sanitize is total + idempotent; rejects DMR for non-Assault, LMG for non-Support; snaps an out-of-set gadget to the class default; clamps armor/class/grenade; drops unknown/mismatched attachment ids; RPG never appears as a `primary`.
 - `loadout_options`: `primary_options`/`gadget_options` per class match the matrix (3 gadgets each); each class's `gadget_options[0]` is in `IMPLEMENTED_GADGETS`; an unbuilt gadget id is rejected by sanitize → class default; `default_loadout` is self-consistent (passes sanitize unchanged).
 - `class_traits`: blast_mult=1.2 Engineer only; grenade_count=5 Support only; regen fast Assault only; reserve bonus Support only.
+- `trait_blurbs`: every class returns a non-empty blurb list; each non-neutral trait in `class_traits(cls)` has a corresponding blurb string (the display list can't drift from the sim) and vice-versa.
 - `armor`: speed_mult 1.2/1.0/0.8; body_mult unchanged; heavy-only headshot save unchanged.
 - `weapon_lmg`: LMG def present; big mag; suppression_mult>1; AUTO-only; `can_equip` Support-only.
 - `rpg_gadget`: an Engineer with `GADGET_RPG` seeds the rocket pool + can fire rockets; an Engineer without it has no rockets; RPG is never a sanitized primary.
