@@ -15,7 +15,7 @@
 Bots can move and shoot each other, kills register correctly, and **128 bots stay stable** at 30 Hz.
 
 ## Spec (approved-pending-review)
-- [`docs/specs/m2-core-fps-loop.md`](../specs/m2-core-fps-loop.md) — one consolidated doc: full movement, hit-scan gunplay, lag-compensated hit-reg (head+body hitboxes), health/death/respawn, teams (FF off), minimal classes, combat bot AI.
+- [`docs/specs/m2-core-fps-loop.md`](../archive/specs/m2-core-fps-loop.md) — one consolidated doc: full movement, hit-scan gunplay, lag-compensated hit-reg (head+body hitboxes), health/death/respawn, teams (FF off), minimal classes, combat bot AI.
 
 ## Decisions (ratified)
 - Lag comp: client fire-tick rewind, clamped (`MAX_REWIND`≈12 ticks) + server-validated.

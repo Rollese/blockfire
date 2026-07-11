@@ -39,7 +39,7 @@ Bot fleet sustains **128 connected pawns** moving randomly at a stable **30 Hz**
 - Owner: claude (M1 final task)
 
 ## Spec (approved-pending-review)
-- [`docs/specs/m1-netcode-core.md`](../specs/m1-netcode-core.md) — one consolidated doc covering wire protocol, replication (snapshots + prediction/reconciliation/interpolation), and interest management.
+- [`docs/specs/m1-netcode-core.md`](../archive/specs/m1-netcode-core.md) — one consolidated doc covering wire protocol, replication (snapshots + prediction/reconciliation/interpolation), and interest management.
 
 ## Budgets (gate pass/fail)
 - Server tick: mean step **< 33.3 ms** at 128 players (log p99).

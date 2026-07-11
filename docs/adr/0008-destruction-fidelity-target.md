@@ -3,7 +3,7 @@
 - **Status:** Accepted (owner-directed, 2026-07-03)
 - **Date:** 2026-07-03
 - **Context milestones:** M4/M11 (existing destruction), future destruction milestones
-- **Relates to:** [ADR-0001](0001-core-runtime-language.md) (escalation sequencing), [ADR-0007](0007-battlebit-divergences.md) (deliberate departures from BattleBit), [reviews/2026-07-03-fable-goals-architecture-review.md](../reviews/2026-07-03-fable-goals-architecture-review.md) §C/§E, [specs/destructible-buildings.md](../specs/destructible-buildings.md), [specs/building-overhaul-proposal.md](../specs/building-overhaul-proposal.md)
+- **Relates to:** [ADR-0001](0001-core-runtime-language.md) (escalation sequencing), [ADR-0007](0007-battlebit-divergences.md) (deliberate departures from BattleBit), [reviews/2026-07-03-fable-goals-architecture-review.md](../archive/reviews/2026-07-03-fable-goals-architecture-review.md) §C/§E, [specs/destructible-buildings.md](../specs/destructible-buildings.md), [specs/building-overhaul-proposal.md](../archive/specs/building-overhaul-proposal.md)
 
 ## Context
 
