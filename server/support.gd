@@ -133,7 +133,10 @@ func step_active_give() -> void:
 		giving.erase(gid)
 
 ## Latched repair (like active-give): each held engineer near a friendly damaged vehicle restores
-## REPAIR_RATE/tick. Unlimited but overheat-gated (no pool). See docs/specs/vehicles.md §6.
+## REPAIR_RATE/tick, OR (M19 P2b) heals chunks on a STRUCTURE the engineer aims at when no vehicle
+## target is in range. Unlimited but overheat-gated (no pool). Gated on the engineer's SELECTED
+## gadget actually being REPAIR — the latch alone (GA_REPAIR_START) no longer implies it, since a
+## client could switch loadout gadget mid-hold. See docs/specs/vehicles.md §6.
 func step_repairs() -> void:
 	if repairing.is_empty():
 		return
@@ -145,20 +148,39 @@ func step_repairs() -> void:
 		var ep: Pawn = srv._sim.world.get_pawn(eid)
 		if ep == null or not ep.alive or ep.is_downed:
 			done.append(eid); continue
+		if not srv._clients.has(eid) or int(srv._clients[eid]["loadout"]["gadget"]) != Loadout.GADGET_REPAIR:
+			done.append(eid); continue
 		var v := nearest_friendly_damaged_vehicle(ep, rng)
-		var want := v != null
+		var struct := aimed_damaged_structure(ep, rng) if v == null else {}
+		var want := v != null or not struct.is_empty()
 		var st := Gadget.repair_heat_step(int(repair_heat.get(eid, 0)), int(repair_cd.get(eid, 0)),
 			srv._sim.tick, want, overheat, cool)
 		repair_heat[eid] = int(st["heat"]); repair_cd[eid] = int(st["cooldown_until"])
 		if int(st["cooldown_until"]) > 0 and want:
 			srv._stats.repair_overheats += 1
-		if bool(st["repairing"]) and v != null:
-			var before := v.hp
-			v.hp = mini(v.max_hp, v.hp + rate)
-			srv._stats.repairs += v.hp - before
-			links_this_tick.append({"giver": eid, "target": v.id, "kind": SupportLinks.REPAIR})
+		if bool(st["repairing"]):
+			if v != null:
+				var before := v.hp
+				v.hp = mini(v.max_hp, v.hp + rate)
+				srv._stats.repairs += v.hp - before
+				links_this_tick.append({"giver": eid, "target": v.id, "kind": SupportLinks.REPAIR})
+			elif not struct.is_empty():
+				var res: Dictionary = srv._store.repair_chunks(int(struct["id"]), struct["impact"], rng * 0.35)
+				if res["changed"]:
+					srv._stats.repairs += 1
+					links_this_tick.append({"giver": eid, "target": int(struct["id"]), "kind": SupportLinks.REPAIR})
 	for eid in done:
 		repairing.erase(eid)
+
+## Aim-ray target for structure repair: the first structure piece the engineer's eye-ray hits
+## within `rng`. Empty if nothing was hit — repair_chunks() is a safe no-op on an already-full
+## mask, so no extra "needs repair" check is required here.
+func aimed_damaged_structure(ep: Pawn, rng: float) -> Dictionary:
+	var dir := Combat._forward(ep.yaw, ep.pitch)
+	var m: Dictionary = srv._store.march(ep.eye_position(), dir, rng)
+	if not bool(m["hit"]):
+		return {}
+	return {"id": int(m["id"]), "impact": ep.eye_position() + dir * float(m["dist"])}
 
 ## Owner-facing repair-tool gauge fractions for pawn `id`: (heat 0..1 toward overheat, cooldown 0..1
 ## of the lockout remaining). Zero for non-engineers / not repairing (early-out skips the def lookup
