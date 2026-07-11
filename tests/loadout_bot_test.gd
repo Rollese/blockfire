@@ -53,3 +53,10 @@ func test_bot_loadout_every_gadget_implemented() -> void:
 	var attach := _attach()
 	for id in range(0, 64):
 		assert_contains(Loadout.IMPLEMENTED_GADGETS, int(Loadout.bot_loadout(id, attach)["gadget"]))
+
+func test_bot_gadget_matches_bot_loadout() -> void:
+	var attach := _attach()
+	for id in range(0, 64):
+		var lo := Loadout.bot_loadout(id, attach)
+		assert_eq(Loadout.bot_gadget(id, int(lo["class"])), int(lo["gadget"]),
+			"bot_gadget(%d) equals the gadget bot_loadout stored" % id)
