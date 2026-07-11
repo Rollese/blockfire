@@ -18,6 +18,9 @@
       {% else %}
       <a href="/login">Sign in through Steam</a>
       {% endif %}
+      {% if is_admin %}
+      <a href="/admin">Admin</a>
+      {% endif %}
       {% endblock %}
     </nav>
   </header>

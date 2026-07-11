@@ -1,0 +1,62 @@
+{% extends "admin_base.html" %}
+{% block title %}Admin Combat — Blockfire Stats{% endblock %}
+{% block admin_content %}
+<h1>Combat Analytics</h1>
+
+<h2>Kill distance</h2>
+<section class="stat-grid">
+  <div class="stat"><span class="label">Count</span><span class="value">{{ kill_distance.count }}</span></div>
+  <div class="stat"><span class="label">Average</span><span class="value">{{ "%.1f"|format(kill_distance.avg_m or 0.0) }} m</span></div>
+  <div class="stat"><span class="label">Min</span><span class="value">{{ "%.1f"|format(kill_distance.min_m or 0.0) }} m</span></div>
+  <div class="stat"><span class="label">Max</span><span class="value">{{ "%.1f"|format(kill_distance.max_m or 0.0) }} m</span></div>
+  <div class="stat"><span class="label">p50</span><span class="value">{{ "%.1f"|format(kill_distance.p50_m or 0.0) }} m</span></div>
+  <div class="stat"><span class="label">p90</span><span class="value">{{ "%.1f"|format(kill_distance.p90_m or 0.0) }} m</span></div>
+  <div class="stat"><span class="label">p99</span><span class="value">{{ "%.1f"|format(kill_distance.p99_m or 0.0) }} m</span></div>
+</section>
+
+{% if kill_distance.histogram %}
+<div class="bar-list">
+  {% for b in kill_distance.histogram %}
+  <div class="bar-row">
+    <span class="bar-label">{{ b.bucket }}</span>
+    <div class="bar-track"><div class="bar" style="width: {{ (b.count / max_bucket * 100) if max_bucket else 0 }}%"></div></div>
+    <span class="bar-value">{{ b.count }}</span>
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<p class="empty">No kill-distance data yet.</p>
+{% endif %}
+
+<h2>Hitzone breakdown</h2>
+<section class="stat-grid">
+  <div class="stat"><span class="label">Total kills</span><span class="value">{{ hitzone.total }}</span></div>
+  <div class="stat"><span class="label">Headshots</span><span class="value">{{ hitzone.head }}</span></div>
+  <div class="stat"><span class="label">Bodyshots</span><span class="value">{{ hitzone.body }}</span></div>
+  <div class="stat"><span class="label">Headshot rate</span><span class="value">{{ "%.1f"|format((hitzone.headshot_rate or 0.0) * 100) }}%</span></div>
+</section>
+
+<h2>Longest kills</h2>
+{% if longest_kills %}
+<table class="stats">
+  <thead>
+    <tr><th>Match</th><th>Weapon</th><th>Killer</th><th>Victim</th><th>Distance</th><th>Hitzone</th><th>Tick</th></tr>
+  </thead>
+  <tbody>
+    {% for k in longest_kills %}
+    <tr>
+      <td>{{ k.match_id }}</td>
+      <td>{{ k.weapon_id }}</td>
+      <td>{{ k.actor_key or "—" }}</td>
+      <td>{{ k.target_key or "—" }}</td>
+      <td>{{ "%.1f"|format(k.distance_m) if k.distance_m is not none else "—" }} m</td>
+      <td>{{ k.hitzone or "—" }}</td>
+      <td>{{ k.tick }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="empty">No kills yet.</p>
+{% endif %}
+{% endblock %}
