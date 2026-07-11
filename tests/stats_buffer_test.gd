@@ -65,6 +65,18 @@ func test_take_event_batch_increments_seq_and_clears() -> void:
 	var batch1 := b.take_event_batch()
 	assert_eq(batch1["batch_seq"], 1, "second batch seq 1")
 
+func test_end_match_sets_win_loss_by_team() -> void:
+	var b := _seed()  # Bot_A team 0, Bot_B team 1
+	b.record_down(2)
+	b.record_revive(1)
+	b.set_results(0)  # team 0 wins
+	var report := b.build_match_report("s", "e")
+	assert_eq(report["match"]["winner"], "team_0", "winner serialized")
+	assert_eq(_player(report, "name:Bot_A")["result"], "win", "team 0 win")
+	assert_eq(_player(report, "name:Bot_B")["result"], "loss", "team 1 loss")
+	assert_eq(_player(report, "name:Bot_B")["downs"], 1, "down counted")
+	assert_eq(_player(report, "name:Bot_A")["revives"], 1, "revive counted")
+
 # --- helpers ---
 func _player(report: Dictionary, key: String) -> Dictionary:
 	for p in report["players"]:

@@ -94,6 +94,20 @@ func record_damage(attacker_id: int, wkey: String, dmg: int) -> void:
 	var w := _wslot(attacker_id, wkey)
 	w["damage"] = int(w["damage"]) + dmg
 
+func record_down(victim_id: int) -> void:
+	var p := _ensure(victim_id)
+	p["downs"] = int(p["downs"]) + 1
+
+func record_revive(rescuer_id: int) -> void:
+	var p := _ensure(rescuer_id)
+	p["revives"] = int(p["revives"]) + 1
+
+func set_results(winner_team: int) -> void:
+	_winner_team = winner_team
+	for id in _players:
+		var p: Dictionary = _players[id]
+		p["result"] = "win" if int(p["team"]) == winner_team else "loss"
+
 func take_event_batch() -> Dictionary:
 	if _events.is_empty():
 		return {}
