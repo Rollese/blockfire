@@ -70,3 +70,13 @@ func test_bot_matrix_covers_breach_and_repair() -> void:
 		seen[int(Loadout.bot_loadout(id, attach)["gadget"])] = true
 	assert_true(seen.has(Loadout.GADGET_BREACH), "some bot fields BREACH")
 	assert_true(seen.has(Loadout.GADGET_REPAIR), "some bot fields REPAIR")
+
+## M19 P2b Task 7: the 128-bot fleet matrix must also cover the two Medic gadgets so the fleet
+## gate exercises their server paths (GA_STIM_USE / GA_SMOKE_WALL_PLACE).
+func test_bot_matrix_covers_stim_and_smokewall() -> void:
+	var attach := _attach()
+	var seen := {}
+	for id in range(0, 128):
+		seen[int(Loadout.bot_loadout(id, attach)["gadget"])] = true
+	assert_true(seen.has(Loadout.GADGET_STIM), "some bot fields STIM")
+	assert_true(seen.has(Loadout.GADGET_SMOKE_WALL), "some bot fields SMOKE_WALL")
