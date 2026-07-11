@@ -93,6 +93,15 @@ This applies to **every** deliverable, **including spec/plan-only branches** —
 
 Owner-directed 2026-07-05: the near-term priority is, in order, **infantry combat → proper real maps → destruction**. Get those complete and playtested before starting anything else. **All remaining and future vehicle work is deferred to a dedicated post-core milestone** — see the "🚧 VEHICLES DEFERRED" banner at the top of `docs/TASKS.md`. The existing M5 land-vehicle sim stays on master (prediction-ready, gate-proven) but gets no further investment; do not pick up manual turret, client vehicle riding/exit polish, vehicle combat AI, or M10 air vehicles until the core is signed off. This does not require reverting any landed vehicle code — it's a *don't-start-new-vehicle-work* rule.
 
+## 13. Push planning checkpoints immediately; allocate milestone numbers against `origin`
+
+Milestone numbers (and shared identifiers — wire message ids, `Protocol.VERSION`, ADR numbers) are a **shared namespace across all agents**. They collide silently when an agent reserves one off a stale local `master` and doesn't publish it. Two hard rules:
+
+1. **Before reserving a milestone number (or any shared id), `git fetch origin` and read the LIVE list on `origin/master`** — `docs/TASKS.md` + `docs/milestones/` — not your local checkout, which may be many commits behind. Pick the next free number from what `origin` actually shows.
+2. **Push at every major checkpoint, not only when the whole feature is done.** Finishing **brainstorming (a committed spec)** or **planning (a committed plan)** is a checkpoint: immediately `git fetch origin` → reconcile → merge to `master` → `git push origin master`. A spec/plan that reserves a milestone number is exactly the thing other agents must be able to pull *before* they pick their own number. Don't sit on it locally while you move on to implementation.
+
+**Cautionary tale (2026-07-11):** the stats/analytics spec was assigned **M19** off a stale local `master`; meanwhile `origin/master` had already shipped **M15–M17** (heightmap / bleed / reserve-ammo) and taken **M19** for Class Loadouts. Because the reservation was never pushed, nothing warned either side. Caught only by a manual re-grep; the milestone was renumbered to **M20** and the local branch rebased onto `origin/master`. Fetch-before-allocate and push-the-checkpoint would have prevented it. (This complements §11, which governs landing *completed* work — §13 says the spec/plan checkpoints count too.)
+
 ## Quick map
 
 - Plan of record: the milestone index in `docs/TASKS.md` (an external plan file previously named here no longer exists)
