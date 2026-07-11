@@ -1252,6 +1252,7 @@ func _handle_hello(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
 		"name": pname, "kills": 0, "deaths": 0, "score": 0, "dmg_ledger": {},
 		"loadout": loadout,   # M19: player/bot loadout (sanitized). Stored now; spawn reads it from Task 4 on.
 		"stim_charges": 0, "stim_ready_tick": 0,   # M19 P2b: Combat Stim pool, seeded properly in _apply_loadout_to_client
+		"smokewall_ready_tick": 0,   # M19 P2b: Medic SMOKE_WALL gadget cooldown gate
 	}
 	if _stats_reporter != null:
 		_stats_reporter.buffer.register_player(id, pname, int(_clients[id].get("steam_id", 0)), team)
@@ -1634,6 +1635,7 @@ func _handle_gadget_action(peer: ENetPacketPeer, bytes: PackedByteArray) -> void
 		Protocol.GA_REPAIR_START: _support.repairing[id] = true
 		Protocol.GA_REPAIR_STOP: _support.repairing.erase(id)
 		Protocol.GA_STIM_USE: _use_stim(id)
+		Protocol.GA_SMOKE_WALL_PLACE: _place_smoke_wall(id, p, d["pos"])
 		_: pass
 
 func _handle_vehicle_action(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
@@ -2258,6 +2260,24 @@ func _begin_smoke(g: Dictionary) -> void:
 	var bytes := Protocol.encode_smoke_deployed(g["pos"], SMOKE_RADIUS, int(g["smoke_until"]), g["vel"])
 	for cid in _clients:
 		_net.send_to(_clients[cid]["peer"], NetHost.CHANNEL_CONTROL, bytes, ENetPacketPeer.FLAG_RELIABLE)
+
+## M19 P2b Medic SMOKE_WALL: a placed, larger/longer-lasting smoke cloud on a per-player cooldown.
+## Reuses the existing _smoke_zones system (LOS culling + expiry) and the same SMOKE_DEPLOYED wire
+## message as grenade smoke (_begin_smoke) — a placed wall has no canister velocity, so vel defaults
+## to ZERO and the client renders it stationary from the start.
+func _place_smoke_wall(id: int, p: Pawn, pos: Vector3) -> void:
+	if int(_clients[id]["loadout"]["gadget"]) != Loadout.GADGET_SMOKE_WALL: return
+	var c: Dictionary = _clients[id]
+	if _sim.tick < int(c.get("smokewall_ready_tick", 0)): return
+	var wdef: Dictionary = _gadgets.def_of_kind(Gadget.KIND_SMOKE_WALL)
+	if p.pos.distance_to(pos) > float(wdef["place_range"]): return
+	var zone := {"pos": pos, "radius": float(wdef["radius"]), "expire_tick": _sim.tick + int(wdef["duration_ticks"])}
+	_smoke_zones.append(zone)
+	_stats.smokes += 1
+	var bytes := Protocol.encode_smoke_deployed(pos, float(wdef["radius"]), int(zone["expire_tick"]))
+	for cid in _clients:
+		_net.send_to(_clients[cid]["peer"], NetHost.CHANNEL_CONTROL, bytes, ENetPacketPeer.FLAG_RELIABLE)
+	c["smokewall_ready_tick"] = _sim.tick + int(wdef["cooldown_ticks"])
 
 ## Drop expired smoke zones (O(zones); negligible). Keeps _smoke_zones bounded for the M7 reader.
 func _expire_smoke_zones() -> void:
