@@ -1,6 +1,6 @@
 # Spec: M4 Destruction (Phase 2 of M4 — Building & Destruction)
 
-**Status:** approved (brainstorm complete; not yet implemented) · **Date:** 2026-06-15 · **Milestone:** [M4](../milestones/M4-building-destruction.md)
+**Status:** implemented (M4 Phase 2 shipped; gate PASS 2026-06-15) · **Date:** 2026-06-15 · **Milestone:** [M4](../milestones/M4-building-destruction.md)
 
 Phase 2 makes Phase-1 fortifications **destructible** and adds **explosives** (area damage to
 structures *and* pawns). Built directly on the Phase-1 substrate (`BuildGrid`, `PieceCatalog`,

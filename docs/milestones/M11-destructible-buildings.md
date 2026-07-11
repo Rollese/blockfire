@@ -1,6 +1,6 @@
 # M11 — Destructible Buildings
 
-**Status:** P1+P2+P3 sim + **P4 Gate-B feel** implemented & merged · **Gate A (128-bot sim) PASS ✅ 2026-06-23** · **Gate-B feel built + owner-playtested across several live rounds (2026-07-07)** — real see-through holes / shoot-through / walk-through, balanced destruction, BattleBit collapse (warning + walkable rubble ruins), all 128-bot-gated (suite 1372/0) · **Remaining:** owner's final feel sign-off at the **joint playtest** once two new asset-based buildings land; R6 (organic collapse) + cosmetic BuildingKit tweaks deferred · **Coordinates with:** M5.5-P3 (melee sledge/pickaxe)
+**Status:** P1+P2+P3 sim + **P4 Gate-B feel** implemented & merged · **Gate A (128-bot sim) PASS ✅ 2026-06-23** · **Gate-B feel built + owner-playtested across several live rounds (2026-07-07)** — real see-through holes / shoot-through / walk-through, balanced destruction, BattleBit collapse (warning + walkable rubble ruins), all 128-bot-gated (suite 1372/0) · **Remaining:** owner's final feel sign-off at the **joint playtest** (the two new gate buildings it waited on have landed — procedural, see below); R6 (organic collapse) + cosmetic BuildingKit tweaks deferred · **Coordinates with:** M5.5-P3 (melee sledge/pickaxe)
 
 **Objective:** BattleBit-style destructible **map buildings** — almost all walls, interiors, and stairs can be destroyed, with chain-reacting structural collapse — on the existing M4 `BuildGrid`/`StructureStore`/`PieceCatalog` substrate, networked within the M4 event/interest/cap discipline.
 
@@ -170,9 +170,9 @@ to master unless noted):
   debris = more/bigger bricks that tumble, land, rest ~5 s, and inherit the wall's colour.
 - **Client:** no combat input from the frozen F8 free-fly pawn.
 
-Suite 1372/0. Owner sign-off on the destruction feel is pending a **joint playtest** once a parallel workstream
-integrates two new asset-based buildings onto the map. **Still deferred:** R6 (a long organic/non-scripted
-collapse) + the cosmetic BuildingKit geometry tweaks.
+Suite 1372/0. The two new gate buildings the sign-off waited on **have since landed** (procedural, not
+asset-based — see next section). **Remaining:** owner's final destruction-feel sign-off at the joint playtest.
+**Still deferred:** R6 (a long organic/non-scripted collapse) + the cosmetic BuildingKit geometry tweaks.
 
 ### Two new gate buildings + 2.4 m cell overhaul — landed (building-overhaul session, 2026-07-07)
 

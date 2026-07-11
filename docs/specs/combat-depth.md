@@ -266,7 +266,6 @@ shared/sim/
   pawn.gd        (mod) DOWNED state, is_downed, bleed_health, bandage_count, bleed_halted,
                        last_stance_change_tick; crawl speed when DOWNED
   combat.gd      (mod) penetration in march(); instant-kill bypass (headshot/blast → dead);
-                       finishing (headshot kills downed, body fire accelerates bleed);
                        drop-shoot fire gate; apply attachment multipliers pre-resolution
   structure.gd   (mod) material tag lookup from catalog (penetration path)
   gadget.gd      NEW   gadget type enum + pure helpers: C4 / mine / medic-tool / ammo-tool / RPG
@@ -345,7 +344,7 @@ Run on the unraid W-2275 Docker fleet (`docker/`, server pinned to isolated core
 
 TDD per task (AGENTS.md §2; tests in `tests/*_test.gd` extending `TestCase`). Unit coverage, by phase:
 
-- **P1:** `revive.gd` state machine (down → bleed → halt-on-bandage → revive vs bleed-out → death); instant-kill bypass routing (headshot/blast vs body); finishing (headshot kills downed, body fire accelerates bleed); ticket hook fires only at true death.
+- **P1:** `revive.gd` state machine (down → bleed → halt-on-bandage → revive vs bleed-out → death); instant-kill bypass routing (headshot/blast vs body); downed pawns immune to further weapon damage (no finishing); ticket hook fires only at true death.
 - **P2:** active-give raycast (teammate-only, range, LOS); bag pool decrement + disappear-at-0; 25%-rate relation; C4 place/detonate/remove-on-cell-destroy; mine arm-delay + enemy-only trigger; RPG Engineer-only loadout gate; penetration absorption/transmit + 1-pen cap + lag-comp invariance; attachment multiplier application.
 - **P3:** ladder climb helper (anchor snap, no-gravity mode); vault arc + crouch/prone block; drop-shoot fire gate.
 - **Integration:** the per-phase fleet gate is the real integration test.

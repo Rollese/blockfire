@@ -1,6 +1,6 @@
 # Spec: M4 Building (Phase 1 of M4 — Building & Destruction)
 
-**Status:** approved (brainstorm complete; not yet implemented) · **Date:** 2026-06-15 · **Milestone:** [M4](../milestones/M4-building-destruction.md)
+**Status:** implemented (M4 Phase 1 shipped; gate PASS 2026-06-15) · **Date:** 2026-06-15 · **Milestone:** [M4](../milestones/M4-building-destruction.md)
 
 BattleBit-style fortification building on top of the M3 Conquest core: server-authoritative placement of snap-to-grid fortification pieces, event-based replication within the interest set, and coarse cover/collision (pieces block bullets and movement). Stays server-authoritative; all rules live in `shared/` so client and server can't diverge (AGENTS.md §5, §7). The gate is **bot-only**: building under 128-bot load must hold the tick + bandwidth budget.
 
