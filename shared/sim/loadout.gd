@@ -1,7 +1,7 @@
 class_name Loadout
 extends Object
 ## Class -> weapon + gadget + default attachments mapping. Gadget identity per spec
-## §"Class gadget assignment". M18 transition: Weapon.RPG is still the Engineer-only weapon-slot
+## §"Class gadget assignment". M19 transition: Weapon.RPG is still the Engineer-only weapon-slot
 ## choice (can_equip/secondary_for gate) today, while the new GADGET_RPG gadget-slot id coexists
 ## with it; RPG becomes gadget-only in P1b.
 
@@ -15,8 +15,8 @@ const GADGET_MINE := 1
 const GADGET_HEAL := 3
 const GADGET_AMMO := 4
 
-# M18 gadget ids. The 0-5 values mirror Gadget.KIND_* so a loadout gadget maps 1:1 to a gadget
-# entity; the 6+ ids are M18-new gadgets whose entities land in later phases. GADGET_MEDKIT is a
+# M19 gadget ids. The 0-5 values mirror Gadget.KIND_* so a loadout gadget maps 1:1 to a gadget
+# entity; the 6+ ids are M19-new gadgets whose entities land in later phases. GADGET_MEDKIT is a
 # display alias of HEAL.
 const GADGET_RPG := 2          # mirrors Gadget.KIND_RPG (RPG is a gadget now, not a primary)
 const GADGET_REPAIR := 5       # mirrors Gadget.KIND_REPAIR
@@ -105,9 +105,9 @@ static func default_gadget(cls: int) -> int:
 			return g
 	return GADGET_C4   # unreachable given every class has an implemented option; safe fallback
 
-## M18 deploy-screen STARTING armor tier (MEDIUM for every class); the player overrides it via the
+## M19 deploy-screen STARTING armor tier (MEDIUM for every class); the player overrides it via the
 ## loadout. Intentionally differs from the legacy per-class armor_for() below (e.g. MEDIC starts
-## MEDIUM here but armor_for(MEDIC)==LIGHT) — see armor_for for why both exist during M18.
+## MEDIUM here but armor_for(MEDIC)==LIGHT) — see armor_for for why both exist during M19.
 static func default_armor(_cls: int) -> int:
 	return Armor.MEDIUM
 
@@ -149,8 +149,8 @@ static func default_attachments() -> Dictionary:
 ## player-picked armor from the loadout. Recon was removed (M12-P1), so the four live classes
 ## span all three tiers: the mobile Medic runs LIGHT to reach downed teammates, frontline Assault
 ## takes MEDIUM, and the durable Engineer/Support take HEAVY. This intentionally differs from the
-## M18 default_armor() (which starts every class at MEDIUM as a deploy-screen default the player
-## then overrides); both coexist during M18.
+## M19 default_armor() (which starts every class at MEDIUM as a deploy-screen default the player
+## then overrides); both coexist during M19.
 static func armor_for(cls: int) -> int:
 	match cls:
 		MEDIC: return Armor.LIGHT

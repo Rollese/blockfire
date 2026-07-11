@@ -1,6 +1,6 @@
-# Spec: Class Select & Player Loadouts (M18)
+# Spec: Class Select & Player Loadouts (M19)
 
-**Status:** approved (design) · **Date:** 2026-07-11 · **Milestone:** M18 · **Supersedes part of:** M12-P1 class-refit (`shared/sim/loadout.gd` derivation), M5.5-P2 armor (class-derived → player-picked).
+**Status:** approved (design) · **Date:** 2026-07-11 · **Milestone:** M19 · **Supersedes part of:** M12-P1 class-refit (`shared/sim/loadout.gd` derivation), M5.5-P2 armor (class-derived → player-picked).
 
 Turns the deterministic, class-derived loadout into a **player-chosen, server-validated, session-persistent loadout** with a client class-select screen. Removes the "humans never pick Engineer" restriction and the random class roll for humans. All rules live in `shared/` so client prediction and server authority cannot diverge (AGENTS.md §5, §7). Bot-fleet-gated + deterministically proven (AGENTS.md §10).
 
