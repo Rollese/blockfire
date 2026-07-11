@@ -1456,11 +1456,14 @@ func _build_death_recap() -> void:
 
 
 static func _weapon_label(weapon_id: int) -> String:
+	if Weapon.is_variant(weapon_id):
+		return Weapon.display_name(weapon_id)
 	match weapon_id:
 		0: return "AR"
 		1: return "SMG"
 		2: return "DMR"
 		3: return "RPG"
+		4: return "PISTOL"
 		_: return "#%d" % weapon_id
 
 
