@@ -36,6 +36,10 @@ var _degrade_high_ms := Degrade.HIGH_MS   # --degrade-high-ms override (lower it
 var _degrade_low_ms := Degrade.LOW_MS     # --degrade-low-ms override
 const RESPAWN_DELAY_TICKS := 150   # 5s @30Hz
 const COMBAT_FLAG_TICKS := 300     # 10s @30Hz — a pawn that took fire can't be a squad-spawn anchor (BattleBit "in combat")
+const HEALTH_REGEN_DELAY_TICKS := 150     # 5s @30Hz out-of-combat before health regen begins (BattleBit-ish)
+const HEALTH_REGEN_RATE := 10.0           # HP/sec once regen is active (baseline; gate-tunable)
+const ASSAULT_REGEN_DELAY_SCALE := 0.5    # Combat Vigor: half the regen delay (spec §I)
+const ASSAULT_REGEN_RATE_SCALE := 1.6     # Combat Vigor: 60% faster regen (spec §I)
 const FIRE_CONE_DOT := 0.985       # broad-phase: target within ~10deg of ray
 const FIRE_CONE_SKIP_RANGE := 8.0  # below this, skip the cone cull — feet/chest parallax exceeds the half-angle at point blank
 const RPG_RELOAD_SECS := 3.0       # reload refills the rocket pool (RPG has no hit-scan mag)
@@ -442,6 +446,7 @@ func _physics_process(delta: float) -> void:
 		var sp: Pawn = _sim.world.pawns[sid]
 		if sp.suppression > 0.0:
 			sp.suppression = Suppress.decay(sp.suppression)
+	_step_health_regen()   # M19 Combat Vigor / out-of-combat health regen (after suppression decay)
 	var t_fire := Time.get_ticks_usec()
 	_step_grenades()
 	_step_rockets()
@@ -770,6 +775,10 @@ func _apply_pawn_damage(vid: int, victim: Pawn, dmg: int, headshot: bool, source
 	# M16: taking damage hard-cancels any bandage channel this pawn is in (as healer OR target).
 	_support.cancel_bandages_involving(vid)
 	if _clients.has(vid):
+		var vc: Dictionary = _clients[vid]
+		var vfast := bool(Loadout.class_traits(int(vc["class"]))["regen_fast"])
+		vc["regen_block_until"] = _sim.tick + int(round(HEALTH_REGEN_DELAY_TICKS * (ASSAULT_REGEN_DELAY_SCALE if vfast else 1.0)))
+		vc["regen_accum"] = 0.0   # a hit interrupts any in-progress fractional heal
 		var src: Pawn = _sim.world.get_pawn(killer_id)
 		var bearing: float = DamageDir.bearing(victim.pos, src.pos) if src != null else 0.0
 		_net.send_to(_clients[vid]["peer"], NetHost.CHANNEL_CONTROL,
@@ -1180,7 +1189,7 @@ func _handle_hello(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
 		"reloading": false, "reload_done_tick": 0, "last_fire_time": -999.0,
 		"shot_index": 0, "fire_mode": Weapon.default_mode(wid), "respawn_tick": 0, "auto_deploy": auto_deploy,
 		"active_slot": 0, "swap_locked_until": 0,
-		"last_build_tick": -100000, "last_grenade_tick": -100000, "known_regions": {},
+		"last_build_tick": -100000, "last_grenade_tick": -100000, "grenades": 3, "known_regions": {},
 		"name": pname, "kills": 0, "deaths": 0, "score": 0, "dmg_ledger": {},
 		"loadout": loadout,   # M19: player/bot loadout (sanitized). Stored now; spawn reads it from Task 4 on.
 	}
@@ -1234,7 +1243,8 @@ func _grenade_cooldown_ticks(c: Dictionary) -> int:
 	return 1 if _fast_nades and not bool(c["auto_deploy"]) else GRENADE_COOLDOWN_TICKS
 
 func _throwables_for(c: Dictionary) -> Array:
-	var ready := 1 if _sim.tick - int(c["last_grenade_tick"]) >= _grenade_cooldown_ticks(c) else 0
+	var pool := int(c.get("grenades", 0))
+	var ready := 1 if (_sim.tick - int(c["last_grenade_tick"]) >= _grenade_cooldown_ticks(c) and pool > 0) else 0
 	var list: Array = [{"kind": Grenade.FRAG, "count": ready}, {"kind": Grenade.SMOKE, "count": ready}]
 	if int(c["loadout"]["gadget"]) == Loadout.GADGET_RPG:
 		list.append({"kind": 100, "count": int(c["rockets"])})   # kind 100 = RPG (UI-only tag; M5.5 formalizes) — RPG is an Engineer gadget now (M19)
@@ -1326,7 +1336,7 @@ func _build_weapon_slots(c: Dictionary) -> void:
 	var secondary := {
 		"weapon": swid, "weapon_def": sdef,
 		"ammo": int(Weapon.get_def(swid)["mag_size"]),
-		"reserve": int(Weapon.reserve_ammo(swid)),
+		"reserve": _spawn_reserve(swid, int(c["class"])),
 		"reloading": false, "reload_done_tick": 0, "last_fire_time": -999.0,
 		"shot_index": 0, "fire_mode": Weapon.default_mode(swid),
 	}
@@ -1378,6 +1388,12 @@ func _swap_weapon(id: int, target: int) -> void:
 ## client change the loadout mid-session. Rockets depend on the gadget and are refilled by the caller.
 ## last_fire_time/swap_locked_until are reset here too (matching _reset_weapon_loadout and the HELLO
 ## record literal) so _build_weapon_slots snapshots a fresh -999.0/0 into slot 0.
+## Spawn/resupply reserve pool for weapon `wid` held by class `cls`, scaled by the class reserve_mult
+## trait (Support carries extra spare ammo; every other class ×1.0). M19 P2a — used at every point a
+## fresh reserve pool or a resupply cap is set, so the Support bonus is consistent across spawn + refill.
+func _spawn_reserve(wid: int, cls: int) -> int:
+	return int(round(float(Weapon.reserve_ammo(wid)) * float(Loadout.class_traits(cls)["reserve_mult"])))
+
 func _apply_loadout_to_client(c: Dictionary, p: Pawn) -> void:
 	var lo: Dictionary = c["loadout"]
 	var cls := int(lo["class"])
@@ -1385,13 +1401,16 @@ func _apply_loadout_to_client(c: Dictionary, p: Pawn) -> void:
 	if not Loadout.can_equip(cls, wid):
 		wid = Loadout.default_primary(cls)
 	c["class"] = cls
+	c["grenades"] = int(Loadout.class_traits(cls)["grenade_count"])   # M19: finite per-life throwable pool
+	c["regen_block_until"] = 0
+	c["regen_accum"] = 0.0
 	c["weapon"] = wid
 	# _attachments is always loaded before any spawn in production (_ready); the null-guard only
 	# covers minimal test fixtures that drive the deploy path without an attachment catalog.
 	var mults: Dictionary = _attachments.multipliers(lo["attachments"]) if _attachments != null else {}
 	c["weapon_def"] = Weapon.effective_def(wid, mults)
 	c["ammo"] = int(Weapon.get_def(wid)["mag_size"])
-	c["reserve"] = int(Weapon.reserve_ammo(wid))
+	c["reserve"] = _spawn_reserve(wid, cls)
 	c["reloading"] = false
 	c["reload_done_tick"] = 0
 	c["last_fire_time"] = -999.0
@@ -1412,7 +1431,7 @@ func _reset_weapon_loadout(c: Dictionary) -> void:
 	for slot in c["slots"]:
 		var swid: int = int(slot["weapon"])
 		slot["ammo"] = int(Weapon.get_def(swid)["mag_size"])
-		slot["reserve"] = int(Weapon.reserve_ammo(swid))   # respawn/deploy refills the spare pool (M17)
+		slot["reserve"] = _spawn_reserve(swid, int(c["class"]))   # respawn/deploy refills the spare pool (M17), scaled by class reserve_mult (M19 P2a)
 		slot["reloading"] = false
 		slot["reload_done_tick"] = 0
 		slot["last_fire_time"] = -999.0
@@ -1453,10 +1472,12 @@ func _handle_grenade_throw(peer: ENetPacketPeer, bytes: PackedByteArray) -> void
 	var p: Pawn = _sim.world.get_pawn(id)
 	if p == null or not p.alive or p.is_downed or p.climbing: return   # downed/climbing = incapacitated (same gate as fire/melee/gadgets)
 	if _sim.tick - int(c["last_grenade_tick"]) < _grenade_cooldown_ticks(c): return
+	if int(c.get("grenades", 0)) <= 0: return   # M19: finite grenade pool exhausted this life
 	var d := Protocol.decode_grenade_throw(bytes)
 	var dir: Vector3 = d["dir"]
 	if dir.length() < 0.001: return
 	c["last_grenade_tick"] = _sim.tick
+	c["grenades"] = int(c["grenades"]) - 1   # spend one from the pool
 	var gtype := int(d["type"])
 	if gtype < Grenade.FRAG or gtype > Grenade.IMPACT:
 		gtype = Grenade.FRAG   # reject unknown throwable ids (default to frag)
@@ -1911,6 +1932,13 @@ func _piece_normal(id: int) -> Vector3:
 
 func _blast_at(center: Vector3, owner: int, team: int, pawn_dmg: int, pawn_radius: float,
 		struct_dmg: int, struct_radius: float, veh_dmg: int = 0, carve_normal: Vector3 = Vector3.ZERO) -> int:
+	# M19: an Engineer's explosives get +20% blast radius (class_traits.blast_mult); everyone else ×1.0.
+	# One multiply here covers C4/RPG/frag (all route through _blast_at); the scaled radius also widens
+	# the distance-falloff (spec §B). Guard: a blast can be owned by a since-disconnected id.
+	if _clients.has(owner):
+		var bm := float(Loadout.class_traits(int(_clients[owner]["class"]))["blast_mult"])
+		pawn_radius *= bm
+		struct_radius *= bm
 	if struct_dmg > 0 and struct_radius > 0.0:
 		# Search a cell BEYOND the carve radius so a blast near a cell boundary carves the chunks in the
 		# NEIGHBOURING cells too — holes flow across cells instead of stopping dead at each 2 m edge
@@ -2119,6 +2147,26 @@ func _expire_smoke_zones() -> void:
 			live.append(z)
 	_smoke_zones = live
 
+## M19 Combat Vigor / baseline out-of-combat health regen. Server-authoritative (health is not
+## client-predicted): once a pawn has been out of combat for its class regen delay, restore health at
+## its class rate up to 100. Assault (regen_fast) has a shorter delay + higher rate. A fractional
+## accumulator on the client record avoids int-truncation at low rates. O(pawns)/tick.
+func _step_health_regen() -> void:
+	for sid in _sim.world.pawns:
+		if not _clients.has(sid): continue
+		var sp: Pawn = _sim.world.pawns[sid]
+		if not sp.alive or sp.is_downed or sp.bleeding or sp.health >= 100: continue   # M16 standing bleed must bandage/bleed out, not self-heal
+		var c: Dictionary = _clients[sid]
+		if _sim.tick < int(c.get("regen_block_until", 0)): continue
+		var fast := bool(Loadout.class_traits(int(c["class"]))["regen_fast"])
+		var rate := HEALTH_REGEN_RATE * (ASSAULT_REGEN_RATE_SCALE if fast else 1.0)
+		var acc := float(c.get("regen_accum", 0.0)) + rate * SimLoop.DT
+		var whole := int(floor(acc))
+		if whole > 0:
+			sp.health = mini(100, sp.health + whole)
+			acc -= float(whole)
+		c["regen_accum"] = acc
+
 ## Thrown bags dispense to every teammate in radius at 25% of the active rate, drawing from a
 ## finite pool; a bag vanishes when its pool hits 0 (spec §"Medic heal tool & Support ammo tool").
 func _step_bags() -> void:
@@ -2147,7 +2195,7 @@ func _step_bags() -> void:
 				if not _clients.has(pid): continue
 				var tc = _clients[pid]
 				var cap: int = int(Weapon.get_def(int(tc["weapon"]))["mag_size"])
-				var reserve_max: int = int(Weapon.reserve_ammo(int(tc["weapon"])))
+				var reserve_max: int = _spawn_reserve(int(tc["weapon"]), int(tc["class"]))
 				if int(tc["ammo"]) >= cap and int(tc.get("reserve", 0)) >= reserve_max: continue
 				tc["ammo"] = cap
 				tc["reserve"] = reserve_max   # ammo bag refills the reserve pool too (M17)

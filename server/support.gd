@@ -198,7 +198,7 @@ func give_ammo(target_id: int, period: int) -> void:
 	if not srv._clients.has(target_id): return
 	var tc = srv._clients[target_id]
 	var cap: int = int(Weapon.get_def(int(tc["weapon"]))["mag_size"])
-	var reserve_max: int = int(Weapon.reserve_ammo(int(tc["weapon"])))
+	var reserve_max: int = srv._spawn_reserve(int(tc["weapon"]), int(tc["class"]))
 	if int(tc["ammo"]) >= cap and int(tc.get("reserve", 0)) >= reserve_max and pawn_bandages_full(target_id): return
 	tc["ammo"] = cap
 	tc["reserve"] = reserve_max
