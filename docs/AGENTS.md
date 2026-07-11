@@ -106,3 +106,12 @@ Milestone numbers (and shared identifiers — wire message ids, `Protocol.VERSIO
 
 - Plan of record: the milestone index in `docs/TASKS.md` (an external plan file previously named here no longer exists)
 - Board: `docs/TASKS.md` · Roadmap: `docs/milestones/` · Decisions: `docs/adr/` · Specs: `docs/specs/` · Ops: `docs/runbooks/` · Session logs: `docs/sessions/` · Reviews: `docs/reviews/` · Superpowers specs: `docs/superpowers/specs/`
+
+## `backend/` — stats & analytics service (out of scope for game work)
+
+`backend/` is the Python/FastAPI + PostgreSQL stats & analytics service
+(design: `docs/superpowers/specs/2026-07-11-stats-analytics-backend-design.md`).
+It is **not part of the Godot game** and shares no runtime with `client/ server/
+shared/ bots/`. When working on the game, do **not** scan, analyze, or modify
+`backend/` — it only communicates with the game via the HTTP ingest contract.
+Work there only when the task is explicitly the stats/analytics milestone.
