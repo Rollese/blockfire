@@ -153,6 +153,32 @@ static func class_traits(cls: int) -> Dictionary:
 			return {"revive_fast": false, "bandages": Revive.BANDAGE_COUNT, "sledgehammer": false,
 				"blast_mult": 1.0, "regen_fast": true, "grenade_count": 3, "reserve_mult": 1.0}
 
+## Plain-language perk lines for the class-select screen (spec §G) — generated from class_traits so
+## the display can never disagree with the sim. Order: signature perk(s) first, then utility.
+static func trait_blurbs(cls: int) -> Array:
+	var t := class_traits(cls)
+	var out: Array = []
+	if bool(t["regen_fast"]):
+		out.append("Combat Vigor — heals faster after taking damage")
+	if bool(t["revive_fast"]):
+		out.append("Field Medic — revives teammates faster")
+	if int(t["bandages"]) > Revive.BANDAGE_COUNT:
+		out.append("Carries %d bandages" % int(t["bandages"]))
+	if bool(t["sledgehammer"]):
+		out.append("Sledgehammer melee — smashes through structures")
+	if float(t["blast_mult"]) > 1.0:
+		out.append("Demolitions — +%d%% explosive blast radius" % int(round((float(t["blast_mult"]) - 1.0) * 100.0)))
+	if int(t["grenade_count"]) > 3:
+		out.append("Ammo Hauler — carries %d grenades" % int(t["grenade_count"]))
+	if float(t["reserve_mult"]) > 1.0:
+		out.append("Extra reserve ammo")
+	# Weapon-access lines (derived from the primary list so they track the matrix).
+	if Weapon.DMR in primary_options(cls):
+		out.append("Can equip the DMR (marksman)")
+	if Weapon.LMG in primary_options(cls):
+		out.append("Can equip the LMG (heavy suppression)")
+	return out
+
 static func random_class() -> int:
 	return randi() % 4
 

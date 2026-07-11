@@ -80,3 +80,33 @@ func test_class_traits_medic_and_engineer_signatures() -> void:
 	assert_eq(int(Loadout.class_traits(Loadout.ASSAULT)["bandages"]), Revive.BANDAGE_COUNT)
 	assert_true(bool(Loadout.class_traits(Loadout.ENGINEER)["sledgehammer"]))
 	assert_false(bool(Loadout.class_traits(Loadout.ASSAULT)["sledgehammer"]))
+
+func test_trait_blurbs_nonempty_for_all_classes() -> void:
+	for c in ALL_CLASSES:
+		assert_gt(Loadout.trait_blurbs(c).size(), 0, "class %d has blurbs" % c)
+
+func _joined(cls: int) -> String:
+	return " || ".join(Loadout.trait_blurbs(cls))
+
+func test_trait_blurbs_mention_each_signature_perk() -> void:
+	assert_contains(_joined(Loadout.ASSAULT), "Combat Vigor")
+	assert_contains(_joined(Loadout.ASSAULT), "DMR")
+	assert_contains(_joined(Loadout.MEDIC), "revive")
+	assert_contains(_joined(Loadout.MEDIC), "20")
+	assert_contains(_joined(Loadout.ENGINEER), "blast")
+	assert_contains(_joined(Loadout.ENGINEER), "Sledgehammer")
+	assert_contains(_joined(Loadout.SUPPORT), "LMG")
+	assert_contains(_joined(Loadout.SUPPORT), "grenade")
+
+func test_trait_blurbs_cover_every_active_trait() -> void:
+	for c in ALL_CLASSES:
+		var t := Loadout.class_traits(c)
+		var active := 0
+		if bool(t["regen_fast"]): active += 1
+		if bool(t["revive_fast"]): active += 1
+		if bool(t["sledgehammer"]): active += 1
+		if float(t["blast_mult"]) > 1.0: active += 1
+		if int(t["grenade_count"]) > 3: active += 1
+		if float(t["reserve_mult"]) > 1.0: active += 1
+		assert_true(Loadout.trait_blurbs(c).size() >= active,
+			"class %d: %d blurbs >= %d active traits" % [c, Loadout.trait_blurbs(c).size(), active])
