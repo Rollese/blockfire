@@ -1,0 +1,57 @@
+{% extends "admin_base.html" %}
+{% block title %}Admin Overview — Blockfire Stats{% endblock %}
+{% block admin_content %}
+<h1>Admin Overview</h1>
+
+<section class="stat-grid">
+  <div class="stat"><span class="label">Matches</span><span class="value">{{ summary.matches }}</span></div>
+  <div class="stat"><span class="label">Players</span><span class="value">{{ summary.players }}</span></div>
+  <div class="stat"><span class="label">Total kills</span><span class="value">{{ summary.total_kills }}</span></div>
+  <div class="stat"><span class="label">Kill events</span><span class="value">{{ summary.kill_events }}</span></div>
+</section>
+
+<h2>Weapon balance</h2>
+{% if weapons %}
+<table class="stats">
+  <thead>
+    <tr>
+      <th>Weapon</th><th>Shots</th><th>Hits</th><th>Kills</th><th>Headshots</th>
+      <th>Damage</th><th>Users</th><th>Matches</th><th>Hit&nbsp;%</th>
+      <th>HS&nbsp;%</th><th>Dmg/Hit</th><th>Kills/Match</th><th>Usage</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for w in weapons %}
+    <tr>
+      <td>{{ w.weapon_id }}</td>
+      <td>{{ w.total_shots }}</td>
+      <td>{{ w.total_hits }}</td>
+      <td>{{ w.total_kills }}</td>
+      <td>{{ w.total_headshots }}</td>
+      <td>{{ w.total_damage }}</td>
+      <td>{{ w.users }}</td>
+      <td>{{ w.matches }}</td>
+      <td>{{ "%.1f"|format((w.hit_rate or 0.0) * 100) }}</td>
+      <td>{{ "%.1f"|format((w.headshot_rate or 0.0) * 100) }}</td>
+      <td>{{ "%.2f"|format(w.damage_per_hit or 0.0) }}</td>
+      <td>{{ "%.3f"|format(w.kills_per_match or 0.0) }}</td>
+      <td>{{ "%.1f"|format((w.usage_pct or 0.0) * 100) }}%</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+<h2>Usage distribution</h2>
+<div class="bar-list">
+  {% for w in weapons %}
+  <div class="bar-row">
+    <span class="bar-label">{{ w.weapon_id }}</span>
+    <div class="bar-track"><div class="bar" style="width: {{ (w.usage_pct or 0.0) * 100 }}%"></div></div>
+    <span class="bar-value">{{ "%.1f"|format((w.usage_pct or 0.0) * 100) }}%</span>
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<p class="empty">No weapon data yet.</p>
+{% endif %}
+{% endblock %}

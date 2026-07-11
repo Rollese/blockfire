@@ -1,6 +1,7 @@
 import datetime as dt
 
 from app.admin_stats import (
+    admin_summary,
     hitzone_breakdown,
     kill_distance_stats,
     longest_kills,
@@ -186,6 +187,26 @@ async def test_weapon_balance_empty_db_returns_empty_list(app_and_sessionmaker):
     async with sm() as s:
         rows = await weapon_balance(s)
     assert rows == []
+
+
+async def test_admin_summary_counts(app_and_sessionmaker):
+    _, sm = app_and_sessionmaker
+    await _seed(sm)
+    await _seed_kills(sm)
+    async with sm() as s:
+        summary = await admin_summary(s)
+    assert summary["matches"] == 2       # m1, m2
+    assert summary["players"] == 3       # P1, P2, P3
+    # sum of every _mpw kills in _seed: ar(6+5+3) + smg(4+1) + dmr(14) + pistol(0)
+    assert summary["total_kills"] == 33
+    assert summary["kill_events"] == 5   # _seed_kills' 5 "kill" rows (1 "damage" excluded)
+
+
+async def test_admin_summary_empty_db(app_and_sessionmaker):
+    _, sm = app_and_sessionmaker
+    async with sm() as s:
+        summary = await admin_summary(s)
+    assert summary == {"matches": 0, "players": 0, "total_kills": 0, "kill_events": 0}
 
 
 def _kill_event(mid, tick, actor, target, wid, distance, hitzone, created_at=NOW):

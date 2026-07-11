@@ -31,11 +31,13 @@ def create_app(settings: Settings | None = None,
     from app.web import register_web_routes
     from app.web_api import register_api_routes
     from app.admin_api import register_admin_api_routes
+    from app.admin_web import register_admin_web_routes
     register_ingest_routes(app)
     register_api_routes(app)
     register_auth_routes(app)
     register_web_routes(app)
     register_admin_api_routes(app)
+    register_admin_web_routes(app)
     return app
 
 

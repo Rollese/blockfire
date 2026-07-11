@@ -72,3 +72,72 @@ table.stats tbody tr:hover { background: var(--panel); }
 }
 .stat .label { color: var(--subtle); font-size: 0.8rem; }
 .stat .value { font-size: 1.3rem; font-weight: 700; }
+
+.admin-subnav {
+  display: flex;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid var(--line);
+}
+.admin-subnav a { color: var(--subtle); font-weight: 600; }
+.admin-subnav a:hover { color: var(--text); }
+
+.bar-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  margin-top: 0.5rem;
+}
+.bar-row {
+  display: grid;
+  grid-template-columns: 90px 1fr 60px;
+  align-items: center;
+  gap: 0.5rem;
+}
+.bar-label { color: var(--subtle); font-size: 0.85rem; }
+.bar-track {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  height: 14px;
+  overflow: hidden;
+}
+.bar { background: var(--accent); height: 100%; }
+.bar-value { text-align: right; font-size: 0.85rem; color: var(--subtle); }
+
+.filter-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  align-items: end;
+  margin-bottom: 1.5rem;
+  padding: 1rem;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.filter-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.85rem;
+  color: var(--subtle);
+}
+.filter-form input, .filter-form select {
+  background: var(--bg);
+  border: 1px solid var(--line);
+  color: var(--text);
+  border-radius: 4px;
+  padding: 0.4rem 0.5rem;
+}
+.filter-form button {
+  align-self: end;
+  background: var(--accent);
+  border: none;
+  color: #14171c;
+  font-weight: 700;
+  border-radius: 4px;
+  padding: 0.5rem 1rem;
+  cursor: pointer;
+}

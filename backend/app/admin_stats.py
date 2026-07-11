@@ -8,7 +8,29 @@ import math
 from sqlalchemy import Float, asc, desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import Event, MatchPlayerWeapon
+from app.models import Event, Match, MatchPlayerWeapon, Player
+
+
+async def admin_summary(session: AsyncSession) -> dict:
+    """Headline totals for the admin dashboard overview: match count,
+    distinct player count (all rows in `players`), total kills summed across
+    `match_player_weapons`, and total `type == "kill"` event count. Zero-safe
+    on an empty DB (every field is 0).
+    """
+    matches = (await session.execute(select(func.count()).select_from(Match))).scalar_one()
+    players = (await session.execute(select(func.count()).select_from(Player))).scalar_one()
+    total_kills = (await session.execute(
+        select(func.coalesce(func.sum(MatchPlayerWeapon.kills), 0))
+    )).scalar_one()
+    kill_events = (await session.execute(
+        select(func.count()).where(Event.type == "kill")
+    )).scalar_one()
+    return {
+        "matches": matches,
+        "players": players,
+        "total_kills": total_kills,
+        "kill_events": kill_events,
+    }
 
 
 async def weapon_balance(session: AsyncSession) -> list[dict]:
