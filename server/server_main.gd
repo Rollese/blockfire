@@ -1127,6 +1127,7 @@ func _on_packet(peer: ENetPacketPeer, _channel: int, bytes: PackedByteArray) -> 
 		Protocol.Msg.SET_SQUAD: _handle_set_squad(peer, bytes)
 		Protocol.Msg.SET_FIRE_MODE: _handle_set_fire_mode(peer, bytes)
 		Protocol.Msg.SWAP_WEAPON: _handle_swap_weapon(peer, bytes)
+		Protocol.Msg.SET_LOADOUT: _handle_set_loadout(peer, bytes)
 		Protocol.Msg.MELEE: _handle_melee(peer, bytes)
 		_: pass
 
@@ -1177,6 +1178,7 @@ func _handle_hello(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
 	var weapon_def := Weapon.effective_def(wid, _attachments.multipliers(attachments))
 	var start_rockets := int(_gadgets.def_of_kind(Gadget.KIND_RPG)["ammo"]) if wid == Weapon.RPG else 0
 	var squad := _squads.assign(id, team)
+	var loadout := Loadout.bot_loadout(id, _attachments) if auto_deploy else Loadout.default_loadout(Loadout.ASSAULT)
 	_peer_to_id[peer] = id
 	_clients[id] = {
 		"peer": peer, "input_buf": InputBuffer.new(), "last_input": null, "last_input_tick": 0,
@@ -1191,6 +1193,7 @@ func _handle_hello(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
 		"active_slot": 0, "swap_locked_until": 0,
 		"last_build_tick": -100000, "last_grenade_tick": -100000, "known_regions": {},
 		"name": pname, "kills": 0, "deaths": 0, "score": 0, "dmg_ledger": {},
+		"loadout": loadout,   # M19: player/bot loadout (sanitized). Stored now; spawn reads it from Task 4 on.
 	}
 	_build_weapon_slots(_clients[id])
 	if not auto_deploy:
@@ -1314,6 +1317,15 @@ func _handle_set_fire_mode(peer: ENetPacketPeer, bytes: PackedByteArray) -> void
 	var m := Protocol.decode_set_fire_mode(bytes)
 	if Weapon.mode_allowed(int(_clients[id]["weapon"]), m):
 		_clients[id]["fire_mode"] = m
+
+## M19 SET_LOADOUT: store the player's chosen loadout (re-sanitized server-side — the client is
+## never trusted). Store-and-apply-at-spawn: the LIVE pawn is NOT mutated here; the next spawn
+## reads _clients[id]["loadout"] (Task 4). Always accepted (no reject path).
+func _handle_set_loadout(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
+	var id = _peer_to_id.get(peer, 0)
+	if id == 0 or not _clients.has(id): return
+	var cfg := Loadout.sanitize(Protocol.decode_set_loadout(bytes), _attachments)
+	_clients[id]["loadout"] = cfg
 
 ## Build the two weapon slots. Slot 0 = snapshot of the current (primary) flat fields.
 ## Slot 1 = a fresh secondary (sidearm) at full ammo, default fire-mode.
