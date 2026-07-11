@@ -19,7 +19,10 @@ def make_sessionmaker(engine: AsyncEngine) -> async_sessionmaker[AsyncSession]:
 
 
 async def init_db(engine: AsyncEngine) -> None:
-    """Create all tables if absent. Idempotent; safe to call on every startup.
+    """Create all tables if absent. Idempotent and safe under concurrent startup
+    (api + worker start together under compose): a transaction-scoped advisory
+    lock serializes create_all so two processes can't both CREATE the same table.
     Alembic migrations are introduced at the first schema change (P2)."""
     async with engine.begin() as conn:
+        await conn.exec_driver_sql("SELECT pg_advisory_xact_lock(4915301)")
         await conn.run_sync(Base.metadata.create_all)
