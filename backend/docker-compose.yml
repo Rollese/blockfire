@@ -22,6 +22,9 @@ services:
       DATABASE_URL: postgresql+asyncpg://blockfire:blockfire@db:5432/blockfire_stats
       INGEST_TOKEN: ${INGEST_TOKEN:-change-me-in-prod}
       RAW_EVENT_RETENTION_DAYS: ${RAW_EVENT_RETENTION_DAYS:-90}
+      STEAM_WEB_API_KEY: ${STEAM_WEB_API_KEY:-}
+      SESSION_SECRET: ${SESSION_SECRET:-dev-insecure-change-me}
+      SITE_BASE_URL: ${SITE_BASE_URL:-http://localhost:8000}
     ports:
       - "8000:8000"
     depends_on:
@@ -36,6 +39,9 @@ services:
       DATABASE_URL: postgresql+asyncpg://blockfire:blockfire@db:5432/blockfire_stats
       INGEST_TOKEN: ${INGEST_TOKEN:-change-me-in-prod}
       RAW_EVENT_RETENTION_DAYS: ${RAW_EVENT_RETENTION_DAYS:-90}
+      STEAM_WEB_API_KEY: ${STEAM_WEB_API_KEY:-}
+      SESSION_SECRET: ${SESSION_SECRET:-dev-insecure-change-me}
+      SITE_BASE_URL: ${SITE_BASE_URL:-http://localhost:8000}
     depends_on:
       db:
         condition: service_healthy

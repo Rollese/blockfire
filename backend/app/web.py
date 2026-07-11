@@ -18,6 +18,7 @@ def register_web_routes(app: FastAPI) -> None:
     from app.profiles import (  # local import avoids import cycle
         get_profile, get_recent_matches, get_weapon_totals, list_leaderboard,
     )
+    from app.steam_openid import current_steam_id
 
     templates = Jinja2Templates(directory=str(_HERE / "templates"))
     app.mount("/static", StaticFiles(directory=str(_HERE / "static")),
@@ -29,7 +30,9 @@ def register_web_routes(app: FastAPI) -> None:
         async with sm() as session:
             players = await list_leaderboard(session, limit=50, sort="kills")
         return templates.TemplateResponse(
-            request, "index.html", {"players": players},
+            request, "index.html",
+            {"players": players,
+             "current_steam_id": current_steam_id(request)},
         )
 
     @app.get("/players/{player_key:path}")
@@ -43,5 +46,6 @@ def register_web_routes(app: FastAPI) -> None:
             recent = await get_recent_matches(session, player_key)
         return templates.TemplateResponse(
             request, "profile.html",
-            {"profile": prof, "weapons": weapons, "recent_matches": recent},
+            {"profile": prof, "weapons": weapons, "recent_matches": recent,
+             "current_steam_id": current_steam_id(request)},
         )
