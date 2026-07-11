@@ -28,9 +28,11 @@ func test_gadget_per_class_default() -> void:
 	assert_eq(Loadout.gadget_for(Loadout.SUPPORT), Loadout.GADGET_AMMO)
 	assert_eq(Loadout.gadget_for(Loadout.ASSAULT), Loadout.GADGET_NONE)
 
-func test_rpg_only_engineer_can_equip() -> void:
+func test_rpg_no_longer_weapon_gated() -> void:
+	# M19: RPG is an Engineer *gadget*, not a weapon-slot choice — can_equip no longer gates it
+	# (it can still never be a primary; see test_sanitize_rpg_never_a_primary).
 	assert_true(Loadout.can_equip(Loadout.ENGINEER, Weapon.RPG))
-	assert_false(Loadout.can_equip(Loadout.ASSAULT, Weapon.RPG))
+	assert_true(Loadout.can_equip(Loadout.ASSAULT, Weapon.RPG), "RPG is gadget-only, not weapon-gated")
 	assert_true(Loadout.can_equip(Loadout.ASSAULT, Weapon.AR), "AR unrestricted")
 
 func test_non_rpg_non_dmr_weapons_unrestricted() -> void:

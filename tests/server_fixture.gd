@@ -42,6 +42,7 @@ static func add_pawn(srv, id: int, team := 0, pos := Vector3.ZERO) -> Pawn:
 static func add_client(srv, id: int, team := 0, human := false) -> Dictionary:
 	var c := {"team": team, "auto_deploy": not human, "peer": null, "name": "p%d" % id,
 		"squad": 1, "class": Loadout.ASSAULT, "weapon": Weapon.AR,
+		"loadout": Loadout.default_loadout(Loadout.ASSAULT),   # M19: spawn/deploy paths read c["loadout"]
 		"kills": 0, "deaths": 0, "score": 0, "dmg_ledger": {}}
 	srv._clients[id] = c
 	if human:

@@ -130,11 +130,11 @@ static func secondary_for(_cls: int) -> int:
 	return Weapon.PISTOL   # v1: universal sidearm
 
 ## Class weapon locks, resolved on the ARCHETYPE (so a variant of a locked archetype is gated the
-## same as its base): RPG⇒Engineer, DMR⇒Assault, LMG⇒Support; everything else unrestricted.
+## same as its base): DMR⇒Assault, LMG⇒Support; everything else unrestricted. RPG is gadget-only
+## now (M19) — no weapon-slot gate; it can never be a primary because it isn't in any class's
+## allowed_archetypes and isn't a variant (is_primary_allowed/sanitize block it).
 static func can_equip(cls: int, weapon_id: int) -> bool:
 	var arch := _archetype_of(weapon_id)
-	if arch == Weapon.RPG:
-		return cls == ENGINEER
 	if arch == Weapon.DMR:
 		return cls == ASSAULT
 	if arch == Weapon.LMG:
