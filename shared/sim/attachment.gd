@@ -28,6 +28,15 @@ func multipliers(selection: Dictionary) -> Dictionary:
 			m["prone_spread_zero"] = true
 	return m
 
+## The slot ("optic"/"barrel"/"underbarrel") an attachment id belongs to, or "" if unknown.
+## Public read accessor over the private catalog so loadout sanitize can validate slot membership.
+func slot_of(id: String) -> String:
+	var a = _by_id.get(id, null)
+	return String(a["slot"]) if a != null else ""
+
+func has_id(id: String) -> bool:
+	return _by_id.has(id)
+
 static func from_json_string(text: String) -> Dictionary:
 	var data = JSON.parse_string(text)
 	if typeof(data) != TYPE_DICTIONARY:
