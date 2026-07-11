@@ -91,4 +91,13 @@ func _on_request_completed(result: int, code: int, _headers: PackedStringArray, 
 		_queue = []
 		return
 	_queue.pop_front()
-	_send_next()
+	if not _queue.is_empty():
+		_send_next()
+		return
+	# Queue drained. Pick up anything spooled while we were inflight — e.g. the
+	# final match report deferred by end_match, or events diverted mid-flight —
+	# so it delivers without waiting for the next _post.
+	var pending := _spool.read_all()
+	if not pending.is_empty():
+		_spool.clear()
+		_send_queue(pending)
