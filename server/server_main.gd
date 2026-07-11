@@ -456,10 +456,7 @@ func _physics_process(delta: float) -> void:
 	_fire.resolve_vehicle_fires()
 	_fire.step_projectiles()   # bullets spawned by _resolve_fires step in present time (M5.5-P1)
 	# M5.5-P2: decay suppression once per tick, after accrual in _step_projectiles (accrue-then-decay).
-	for sid in _sim.world.pawns:
-		var sp: Pawn = _sim.world.pawns[sid]
-		if sp.suppression > 0.0:
-			sp.suppression = Suppress.decay(sp.suppression)
+	_step_suppression_decay()
 	_step_health_regen()   # M19 Combat Vigor / out-of-combat health regen (after suppression decay)
 	var t_fire := Time.get_ticks_usec()
 	_step_grenades()
@@ -568,6 +565,18 @@ func _step_movement() -> void:
 			var filled: Array = Weapon.reload_fill(int(c["ammo"]), int(Weapon.get_def(c["weapon"])["mag_size"]), int(c.get("reserve", -1)))
 			c["ammo"] = int(filled[0])
 			c["reserve"] = int(filled[1])
+	# M19 P2b: inject the server-authoritative stim flag into each pawn's cmd right before stepping —
+	# covers BOTH bots and humans (bots are ordinary entries in _clients/inputs; their AI feeds input
+	# through the same ingest path). Duplicated rather than mutated in place: `inp` above may be the
+	# very same Dictionary stored as c["last_input"] (starvation reuse, or just assigned this tick),
+	# and writing "stimmed" onto it would leak into next tick's prev_inp/inp content comparison.
+	for id in inputs:
+		var sp: Pawn = _sim.world.pawns.get(id)
+		if sp == null:
+			continue
+		var stimmed_cmd: Dictionary = (inputs[id] as Dictionary).duplicate()
+		stimmed_cmd["stimmed"] = _sim.tick < sp.stim_until_tick
+		inputs[id] = stimmed_cmd
 	_sim.step(inputs, _map.world_half)
 	_apply_fall_damage()
 
@@ -782,6 +791,18 @@ func _apply_fall_damage() -> void:
 		if dmg > 0:
 			_apply_pawn_damage(id, p, dmg, false, Revive.Source.FALL, id, 0)
 
+## M5.5-P2 + M19 P2b: per-tick suppression decay, extracted from _step() so it's a small, directly
+## callable unit (fixture-friendly — no world/map setup needed beyond a pawn). A stimmed pawn is
+## fully suppression-IMMUNE (not merely faster-decaying): the meter is zeroed outright, mirroring
+## the speed/stamina buff and damage-resist that also gate on Pawn.stim_until_tick.
+func _step_suppression_decay() -> void:
+	for sid in _sim.world.pawns:
+		var sp: Pawn = _sim.world.pawns[sid]
+		if _sim.tick < sp.stim_until_tick:
+			sp.suppression = 0.0
+		elif sp.suppression > 0.0:
+			sp.suppression = Suppress.decay(sp.suppression)
+
 ## Single routing path for all pawn damage. A standing pawn is killed outright by a headshot or
 ## blast (instant-kill bypass) and otherwise downed. DOWNED pawns are immune to weapon damage
 ## (no finishing, BattleBit-style) — they resolve only via passive bleed-out or a teammate revive.
@@ -798,6 +819,10 @@ func _apply_pawn_damage(vid: int, victim: Pawn, dmg: int, headshot: bool, source
 			dmg = int(round(float(dmg) * Armor.body_mult(victim.armor_class)))
 	else:
 		dmg = int(round(float(dmg) * Armor.body_mult(victim.armor_class)))
+	# M19 P2b: Combat Stim damage-resist — scales the ALREADY armor-adjusted damage, after
+	# headshot/body_mult finalize it and before it's applied/credited.
+	if _sim.tick < victim.stim_until_tick:
+		dmg = int(round(float(dmg) * float(_gadgets.def_of_kind(Gadget.KIND_STIM)["resist"])))
 	var pre_hp := maxi(int(victim.health), 0)   # health before this hit — caps the recap ledger credit
 	victim.health -= dmg
 	if _stats_reporter != null and killer_id != vid:
@@ -1063,7 +1088,7 @@ func _send_snapshots() -> void:
 		# SELF_STATE packets (lossy links) leave the client predicting phantom ammo it doesn't have.
 		var rgauge := _support.repair_gauge_for(id)
 		_net.send_to(c["peer"], NetHost.CHANNEL_CONTROL,
-			Protocol.encode_self_state(int(c["ammo"]), bool(c["reloading"]), reload_remaining, int(c["weapon"]), _throwables_for(c), _support.being_revived.has(id), self_pawn.suppression, clampi(self_pawn.blind_until_tick - _sim.tick, 0, 255), self_pawn.bandage_count, self_pawn.bleed_halted, rgauge.x, rgauge.y, self_pawn.stamina, self_pawn.velocity.y, self_pawn.grounded, self_pawn.vaulting, self_pawn.vault_tick, self_pawn._regen_cooldown, self_pawn._sprint_locked, int(c["input_buf_depth"]), self_pawn.bleeding, _support.bandage_progress_u8(id), int(c.get("reserve", 0))),
+			Protocol.encode_self_state(int(c["ammo"]), bool(c["reloading"]), reload_remaining, int(c["weapon"]), _throwables_for(c), _support.being_revived.has(id), self_pawn.suppression, clampi(self_pawn.blind_until_tick - _sim.tick, 0, 255), self_pawn.bandage_count, self_pawn.bleed_halted, rgauge.x, rgauge.y, self_pawn.stamina, self_pawn.velocity.y, self_pawn.grounded, self_pawn.vaulting, self_pawn.vault_tick, self_pawn._regen_cooldown, self_pawn._sprint_locked, int(c["input_buf_depth"]), self_pawn.bleeding, _support.bandage_progress_u8(id), int(c.get("reserve", 0)), int(c.get("stim_charges", 0)), maxi(0, self_pawn.stim_until_tick - _sim.tick)),
 			ENetPacketPeer.FLAG_RELIABLE)
 		t_self += Time.get_ticks_usec() - t0
 		t0 = Time.get_ticks_usec()
@@ -1226,6 +1251,7 @@ func _handle_hello(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
 		"last_build_tick": -100000, "last_grenade_tick": -100000, "grenades": 3, "known_regions": {},
 		"name": pname, "kills": 0, "deaths": 0, "score": 0, "dmg_ledger": {},
 		"loadout": loadout,   # M19: player/bot loadout (sanitized). Stored now; spawn reads it from Task 4 on.
+		"stim_charges": 0, "stim_ready_tick": 0,   # M19 P2b: Combat Stim pool, seeded properly in _apply_loadout_to_client
 	}
 	if _stats_reporter != null:
 		_stats_reporter.buffer.register_player(id, pname, int(_clients[id].get("steam_id", 0)), team)
@@ -1455,9 +1481,14 @@ func _apply_loadout_to_client(c: Dictionary, p: Pawn) -> void:
 	c["active_slot"] = 0
 	c["swap_locked_until"] = 0
 	_build_weapon_slots(c)
+	# M19 P2b: fresh-life stim pool — full charges only when the gadget is actually equipped, so a
+	# Medic who respecs away from STIM doesn't carry a stale pool into an unrelated gadget's slot.
+	c["stim_charges"] = int(_gadgets.def_of_kind(Gadget.KIND_STIM)["charges"]) if int(lo["gadget"]) == Loadout.GADGET_STIM else 0
+	c["stim_ready_tick"] = 0
 	if p != null:
 		p.armor_class = int(lo["armor"])
 		p.bandage_count = Revive.bandage_count_for(cls == Loadout.MEDIC)
+		p.stim_until_tick = 0   # fresh life: no residual buff carried across spawns
 
 ## On (re)spawn/deploy: restore a fresh weapon loadout — both slots full ammo, fire-mode defaults,
 ## back on the primary. Preserves each slot's weapon identity (set at connect; never changes after).
@@ -1602,6 +1633,7 @@ func _handle_gadget_action(peer: ENetPacketPeer, bytes: PackedByteArray) -> void
 		Protocol.GA_BAG_THROW: _throw_bag(id, p, d["pos"])
 		Protocol.GA_REPAIR_START: _support.repairing[id] = true
 		Protocol.GA_REPAIR_STOP: _support.repairing.erase(id)
+		Protocol.GA_STIM_USE: _use_stim(id)
 		_: pass
 
 func _handle_vehicle_action(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
@@ -1684,6 +1716,23 @@ func _fire_rocket(id: int, p: Pawn, dir: Vector3) -> void:
 	# Cosmetic: tell other humans a rocket launched so they render it flying. The shooter renders
 	# its own immediately (client-side, no RTT wait) — mirrors the gunfire tracer split.
 	_broadcast_rocket_fx(id, p.eye_position(), dir.normalized())
+
+## Self/team Combat Stim injection (M19 P2b): gated on the Medic's STIM gadget, a spendable charge,
+## and the per-use cooldown. Sets Pawn.stim_until_tick — the speed/stamina buff (pawn.step),
+## damage-resist (_apply_pawn_damage), and suppression-immunity (_step_suppression_decay) all read
+## that single field, so this is the only place the buff window is ever opened.
+func _use_stim(id: int) -> void:
+	if not _clients.has(id): return
+	var c = _clients[id]
+	if int(c["loadout"]["gadget"]) != Loadout.GADGET_STIM: return
+	if int(c.get("stim_charges", 0)) <= 0: return
+	if _sim.tick < int(c.get("stim_ready_tick", 0)): return
+	var p: Pawn = _sim.world.get_pawn(id)
+	if p == null: return
+	var sdef: Dictionary = _gadgets.def_of_kind(Gadget.KIND_STIM)
+	c["stim_charges"] = int(c["stim_charges"]) - 1
+	c["stim_ready_tick"] = _sim.tick + int(sdef["use_cooldown_ticks"])
+	p.stim_until_tick = _sim.tick + int(sdef["duration_ticks"])
 
 func _broadcast_rocket_fx(shooter_id: int, origin: Vector3, dir: Vector3) -> void:
 	_broadcast_humans(NetHost.CHANNEL_SNAPSHOT, Protocol.encode_rocket_fx(origin, dir), 0, shooter_id)

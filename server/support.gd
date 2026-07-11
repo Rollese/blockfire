@@ -217,14 +217,23 @@ func give_heal(target_id: int, rate: int) -> void:
 	srv._stats.heals += 1
 
 ## Ammo give at 1 mag per `period` ticks (active_rate is the period). Tops the mag, refills the
-## reserve-ammo pool (M17), and restocks a bandage.
+## reserve-ammo pool (M17), restocks a bandage, and — M19 P2b — tops a resupplied Medic's Combat
+## Stim pool back to the catalog refill (a Support giving ammo restocks a teammate's whole kit, not
+## just bullets). Checked/applied even when ammo/reserve/bandages are already full so a Medic who's
+## topped on everything else but out of stim still gets refilled.
 func give_ammo(target_id: int, period: int) -> void:
 	if period <= 0 or srv._sim.tick % period != 0: return
 	if not srv._clients.has(target_id): return
 	var tc = srv._clients[target_id]
 	var cap: int = int(Weapon.get_def(int(tc["weapon"]))["mag_size"])
 	var reserve_max: int = srv._spawn_reserve(int(tc["weapon"]), int(tc["class"]))
-	if int(tc["ammo"]) >= cap and int(tc.get("reserve", 0)) >= reserve_max and pawn_bandages_full(target_id): return
+	var stim_full := true
+	if int(tc["loadout"]["gadget"]) == Loadout.GADGET_STIM:
+		var refill := int(srv._gadgets.def_of_kind(Gadget.KIND_STIM)["refill"])
+		stim_full = int(tc.get("stim_charges", 0)) >= refill
+		if not stim_full:
+			tc["stim_charges"] = refill
+	if int(tc["ammo"]) >= cap and int(tc.get("reserve", 0)) >= reserve_max and pawn_bandages_full(target_id) and stim_full: return
 	tc["ammo"] = cap
 	tc["reserve"] = reserve_max
 	var tp: Pawn = srv._sim.world.get_pawn(target_id)
