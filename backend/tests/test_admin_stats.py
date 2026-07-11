@@ -233,6 +233,27 @@ async def test_kill_distance_stats_basic(app_and_sessionmaker):
     ]
 
 
+async def test_kill_distance_stats_histogram_boundaries(app_and_sessionmaker):
+    """Each band boundary must fall in the HIGHER band ([lo,hi) semantics).
+    Locks banding against a future </<= regression."""
+    _, sm = app_and_sessionmaker
+    async with sm() as s:
+        for i, d in enumerate((10.0, 25.0, 50.0, 100.0, 200.0)):
+            s.add(_kill_event("m1", i, "name:P1", "name:P2", "ar", d, "head"))
+        await s.commit()
+    async with sm() as s:
+        stats = await kill_distance_stats(s)
+    hist = {b["bucket"]: b["count"] for b in stats["histogram"]}
+    assert hist == {
+        "0-10": 0,      # 10.0 excluded (upper-exclusive)
+        "10-25": 1,     # 10.0
+        "25-50": 1,     # 25.0
+        "50-100": 1,    # 50.0
+        "100-200": 1,   # 100.0
+        "200+": 1,      # 200.0 (>= 200)
+    }
+
+
 async def test_kill_distance_stats_empty_returns_zeroed_dict(app_and_sessionmaker):
     _, sm = app_and_sessionmaker
     async with sm() as s:
@@ -280,6 +301,26 @@ async def test_longest_kills_limit_clamp(app_and_sessionmaker):
     assert len(top1) == 1
     assert top1[0]["distance_m"] == 300.0
     assert len(many) == 5  # limit clamps to 100, but only 5 kill rows exist
+
+
+async def test_longest_kills_clamp_upper_and_lower(app_and_sessionmaker):
+    """With >100 kill rows, limit=999 must clamp to exactly 100; limit=0 and
+    negative must clamp UP to 1 (never error, never return 0/all rows)."""
+    _, sm = app_and_sessionmaker
+    async with sm() as s:
+        for i in range(150):
+            s.add(_kill_event("m1", i, "name:P1", "name:P2", "ar", float(i), "head"))
+        await s.commit()
+    async with sm() as s:
+        clamped_high = await longest_kills(s, limit=999)
+        clamped_zero = await longest_kills(s, limit=0)
+        clamped_neg = await longest_kills(s, limit=-5)
+    assert len(clamped_high) == 100
+    # highest distance (149.0) leads the DESC ordering
+    assert clamped_high[0]["distance_m"] == 149.0
+    assert len(clamped_zero) == 1
+    assert clamped_zero[0]["distance_m"] == 149.0
+    assert len(clamped_neg) == 1
 
 
 async def test_longest_kills_tiebreak_by_event_id_asc(app_and_sessionmaker):
