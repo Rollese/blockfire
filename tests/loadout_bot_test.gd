@@ -60,3 +60,13 @@ func test_bot_gadget_matches_bot_loadout() -> void:
 		var lo := Loadout.bot_loadout(id, attach)
 		assert_eq(Loadout.bot_gadget(id, int(lo["class"])), int(lo["gadget"]),
 			"bot_gadget(%d) equals the gadget bot_loadout stored" % id)
+
+## M19 P2b Task 6: the 128-bot fleet matrix must cover the two NEW gadgets too, so the fleet gate
+## actually exercises their server paths (BREACH=Assault, REPAIR=Engineer).
+func test_bot_matrix_covers_breach_and_repair() -> void:
+	var attach := _attach()
+	var seen := {}
+	for id in range(0, 128):
+		seen[int(Loadout.bot_loadout(id, attach)["gadget"])] = true
+	assert_true(seen.has(Loadout.GADGET_BREACH), "some bot fields BREACH")
+	assert_true(seen.has(Loadout.GADGET_REPAIR), "some bot fields REPAIR")

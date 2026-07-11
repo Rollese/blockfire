@@ -164,6 +164,7 @@ var _fast_rpg := false             # QA (--fast-rpg): RPG fires with no cooldown
 var _grenades: Array = []     # [{owner, team, type, pos, vel, detonate_tick}] — server-side, not replicated
 var _rockets: Array = []      # [{owner, team, pos, vel}] — server-side, not replicated
 var _mines: Array = []        # [{owner, team, pos, facing, armed_after_tick}]
+var _breaches: Array = []     # [{owner, pos, id, detonate_tick}] — M19 Assault breaching charges
 var _support_rl := ReliableList.new()  # SUPPORT_LIST
 var _downed_rl := ReliableList.new()   # DOWNED_LIST
 var _bleeding_rl := ReliableList.new() # BLEEDING_LIST ({team: pkt} payload) — M16
@@ -386,6 +387,7 @@ func _reset_match_state() -> void:
 	_bags.clear()
 	_c4.clear()
 	_smoke_zones.clear()
+	_breaches.clear()
 	_prev_owners = []
 	_match_over_broadcast = false
 	_match_end_tick = -1
@@ -450,6 +452,7 @@ func _physics_process(delta: float) -> void:
 	var t_fire := Time.get_ticks_usec()
 	_step_grenades()
 	_step_rockets()
+	_step_breaches()
 	_step_mines()
 	var t_ord := Time.get_ticks_usec()
 	_support.links_this_tick.clear()   # rebuilt by the give/repair/revive steps below for SUPPORT_LIST
@@ -1560,6 +1563,7 @@ func _handle_gadget_action(peer: ENetPacketPeer, bytes: PackedByteArray) -> void
 		Protocol.GA_C4_PLACE: _place_c4(id, p, d["pos"])
 		Protocol.GA_C4_DETONATE: _detonate_c4(id)
 		Protocol.GA_MINE_PLACE: _place_mine(id, p, d["pos"], d["dir"])
+		Protocol.GA_BREACH_PLACE: _place_breach(id, p, d["pos"], d["dir"])
 		Protocol.GA_GIVE_START: _support.giving[id] = _sim.tick
 		Protocol.GA_GIVE_STOP: _support.giving.erase(id)
 		Protocol.GA_BAG_THROW: _throw_bag(id, p, d["pos"])
@@ -1772,6 +1776,42 @@ func _place_mine(id: int, p: Pawn, pos: Vector3, facing: Vector3) -> void:
 	var face := facing.normalized() if facing.length() > 0.001 else Vector3(sin(p.yaw), 0.0, cos(p.yaw))
 	_mines.append({"owner": id, "team": p.team, "pos": pos, "facing": face,
 		"armed_after_tick": _sim.tick + int(mdef["arm_delay_ticks"])})
+
+## M19 Assault BREACH: a placed charge that must be aimed at a structure (marched from the eye
+## along `facing`, falling back to yaw like _place_mine) — it only takes root against a hit
+## structure, never floats in open air. Arms on a timer (_step_breaches) then carves that exact
+## piece via the shared _damage_structure path, struct-only (no pawn damage), mirroring _place_mine.
+func _place_breach(id: int, p: Pawn, pos: Vector3, facing: Vector3) -> void:
+	if int(_clients[id]["loadout"]["gadget"]) != Loadout.GADGET_BREACH: return
+	var bdef: Dictionary = _gadgets.def_of_kind(Gadget.KIND_BREACH)
+	var breach_count := 0
+	for b in _breaches:
+		if int(b["owner"]) == id: breach_count += 1
+	if breach_count >= int(bdef["max_active"]): return
+	if p.pos.distance_to(pos) > float(bdef["place_range"]): return
+	if _store == null: return
+	var dir := facing.normalized() if facing.length() > 0.001 else Vector3(sin(p.yaw), 0.0, cos(p.yaw))
+	var m := _store.march(p.eye_position(), dir, float(bdef["place_range"]))
+	if not bool(m["hit"]): return
+	if int(m["id"]) == 0: return   # terrain hit, not a structure — don't place
+	var impact: Vector3 = p.eye_position() + dir * float(m["dist"])
+	_breaches.append({"owner": id, "pos": impact, "id": int(m["id"]),
+		"detonate_tick": _sim.tick + int(bdef["arm_delay_ticks"])})
+
+## Arm-timer tick for placed BREACH charges: once armed, carve the aimed structure via the shared
+## _damage_structure path (SRC_EXPLOSIVE) and announce the blast VFX the same way C4/RPG do
+## (_broadcast_detonation). Struct-only — no pawn/vehicle damage, unlike C4/RPG blasts.
+func _step_breaches() -> void:
+	if _breaches.is_empty():
+		return
+	var bdef: Dictionary = _gadgets.def_of_kind(Gadget.KIND_BREACH)
+	var still: Array = []
+	for b in _breaches:
+		if _sim.tick < int(b["detonate_tick"]):
+			still.append(b); continue
+		_damage_structure(int(b["id"]), PieceCatalog.SRC_EXPLOSIVE, b["pos"], float(bdef["struct_radius"]))
+		_broadcast_detonation(b["pos"], Protocol.DET_EXPLOSION)   # blast VFX/audio (same as C4/frag)
+	_breaches = still
 
 func _throw_bag(id: int, p: Pawn, pos: Vector3) -> void:
 	var kind := _support.giver_kind(int(_clients[id]["class"]))

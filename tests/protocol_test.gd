@@ -293,6 +293,14 @@ func test_gadget_action_roundtrip_target() -> void:
 	var d := Protocol.decode_gadget_action(Protocol.encode_gadget_action(Protocol.GA_GIVE_START, Vector3.ZERO, Vector3(0, 0, 1), 777))
 	assert_eq(d["target"], 777)
 
+func test_gadget_action_roundtrip_breach_place() -> void:
+	var d := Protocol.decode_gadget_action(Protocol.encode_gadget_action(Protocol.GA_BREACH_PLACE, Vector3(12.5, 0.0, -8.25), Vector3(0, 0, 1), 0))
+	assert_eq(d["action"], Protocol.GA_BREACH_PLACE)
+	# 0.1 m quantization (×10): worst-case error 0.05 m; -8.25 sits on a half-grid point so allow a hair over.
+	assert_almost_eq(d["pos"].x, 12.5, 0.06)
+	assert_almost_eq(d["pos"].z, -8.25, 0.06)
+	assert_true(d["dir"].normalized().dot(Vector3(0, 0, 1)) > 0.999)
+
 func test_welcome_carries_class() -> void:
 	var d := Protocol.decode_welcome(Protocol.encode_welcome(5, 30, Loadout.ENGINEER))
 	assert_eq(d["id"], 5)

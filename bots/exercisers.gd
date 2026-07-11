@@ -546,6 +546,68 @@ func maybe_mine(bot: Dictionary, me: EntityState, toward: Vector3) -> void:
 		Protocol.encode_gadget_action(Protocol.GA_MINE_PLACE, place, face, 0), 0)
 	bot["mine_placed"] = true
 
+## M19 P2b Task 6: Engineer structure REPAIR — an engineer who chose REPAIR (bot_gadget → REPAIR)
+## aims at the nearest known structure piece within repair range and latches GA_REPAIR_START,
+## releasing once nothing is in range. Harmless by construction: the server's step_repairs/
+## repair_chunks is a no-op on an already-full piece, so holding this on is never map-damaging —
+## unlike BREACH/RPG there is no cadence gate here, only a range gate.
+func maybe_repair_structure(bot: Dictionary, me: EntityState) -> void:
+	if Loadout.bot_gadget(int(bot["id"]), int(bot["class"])) != Loadout.GADGET_REPAIR: return
+	var structs: Dictionary = bot["structs"]
+	var best_wp := Vector3.ZERO
+	var best_d: float = d.REPAIR_STRUCT_RANGE
+	var found := false
+	for sid in structs:
+		var wp: Vector3 = BuildGrid.world_of(structs[sid]["cell"] as Vector3i)
+		var dist := me.pos.distance_to(wp)
+		if dist < best_d:
+			best_d = dist; best_wp = wp; found = true
+	if not found:
+		if bool(bot.get("struct_repairing", false)):
+			(bot["net"] as NetHost).send_to(bot["peer"], NetHost.CHANNEL_INPUT,
+				Protocol.encode_gadget_action(Protocol.GA_REPAIR_STOP, Vector3.ZERO, Vector3.ZERO, 0), 0)
+			bot["struct_repairing"] = false
+		return
+	var to := best_wp - me.pos
+	if to.length() > 0.001:
+		bot["yaw"] = atan2(to.x, to.z)
+	if not bool(bot.get("struct_repairing", false)):
+		(bot["net"] as NetHost).send_to(bot["peer"], NetHost.CHANNEL_INPUT,
+			Protocol.encode_gadget_action(Protocol.GA_REPAIR_START, Vector3.ZERO, Vector3.ZERO, 0), 0)
+		bot["struct_repairing"] = true
+
+## M19 P2b Task 6: Assault BREACH, kept deliberately RARE (project memory: bots previously
+## over-rocketed and chewed the map with RPGs — BREACH must not repeat that). Only fires when
+## (a) the per-bot MATCH-lifetime cap (d.MAX_BOT_BREACHES) and a long cooldown (d.BREACH_COOLDOWN_TICKS,
+## stricter than the RPG structure cadence) both allow it, (b) a known structure piece sits within
+## the gadget's own place range (so the server's place-range + aim-raycast gates would actually
+## accept it), AND (c) a structure genuinely sits on the line between the bot and its objective —
+## i.e. a wall is directly blocking its own march, not an arbitrary nearby piece.
+func maybe_breach(bot: Dictionary, me: EntityState, obj: Vector3) -> void:
+	if Loadout.bot_gadget(int(bot["id"]), int(bot["class"])) != Loadout.GADGET_BREACH: return
+	if int(bot.get("breaches_placed", 0)) >= d.MAX_BOT_BREACHES: return
+	var st: int = bot["server_tick"]
+	if st - int(bot.get("breach_last_tick", -100000)) < d.BREACH_COOLDOWN_TICKS: return
+	if not cover_between(bot, me.pos, obj): return   # a wall must actually block the path to the objective
+	var structs: Dictionary = bot["structs"]
+	var best_wp := Vector3.ZERO
+	var best_d: float = d.BREACH_PLACE_RANGE
+	var found := false
+	for sid in structs:
+		var wp: Vector3 = BuildGrid.world_of(structs[sid]["cell"] as Vector3i)
+		var dist := me.pos.distance_to(wp)
+		if dist < best_d:
+			best_d = dist; best_wp = wp; found = true
+	if not found: return   # nothing close enough for the server's place-range gate to accept
+	var dir := best_wp - me.pos
+	if dir.length() < 0.001: return
+	var face := dir.normalized()
+	var place := me.pos + face * best_d
+	(bot["net"] as NetHost).send_to(bot["peer"], NetHost.CHANNEL_INPUT,
+		Protocol.encode_gadget_action(Protocol.GA_BREACH_PLACE, place, face, 0), 0)
+	bot["breach_last_tick"] = st
+	bot["breaches_placed"] = int(bot.get("breaches_placed", 0)) + 1
+
 const GIVE_RANGE := 3.0
 
 ## Pure give-target pick: nearest same-team mate within GIVE_RANGE that is alive,

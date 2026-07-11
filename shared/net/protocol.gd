@@ -89,6 +89,7 @@ const GA_GIVE_START := 5
 const GA_GIVE_STOP := 6
 const GA_REPAIR_START := 7
 const GA_REPAIR_STOP := 8
+const GA_BREACH_PLACE := 9   # M19: place an Assault breaching charge (pos + facing dir)
 
 # VEHICLE_ACTION sub-actions.
 const VA_ENTER := 0

@@ -37,6 +37,14 @@ const RPG_FIRE_COOLDOWN := 120     # ticks between RPG fire attempts (matches se
 # longer cadence than the anti-vehicle path — un-BattleBit-like map demolition, tempered.
 const RPG_STRUCTURE_COOLDOWN := 600      # ticks (~20 s @30Hz) between structure-directed rockets
 const RPG_STRUCTURE_ENEMY_RADIUS := 6.0  # m: only rocket a piece with a visible enemy this close to it
+# M19 P2b Task 6: BREACH restraint (bot-ai.md §8 lesson applied up front, not after the fact — see
+# project memory blockfire-bot-rpg-restraint). A BREACH bot must place VERY rarely and only when a
+# wall is genuinely blocking its own march to the objective, so it never reads as spam-carving.
+const BREACH_PLACE_RANGE := 2.5          # m — mirrors data/gadgets.json breach.place_range
+const BREACH_COOLDOWN_TICKS := 1800      # ticks (~60 s @30Hz) — stricter than RPG_STRUCTURE_COOLDOWN
+const MAX_BOT_BREACHES := 1              # per-bot MATCH-lifetime cap (never reset on respawn)
+const REPAIR_STRUCT_RANGE := 4.0         # m — mirrors data/gadgets.json repair.range; harmless no-op
+                                          # when the aimed piece is already full (server repair_chunks)
 const ROCKET_SPEED := 150.0  # keep in sync with data/gadgets.json rpg.rocket_speed (bot lead math)
 const ROCKET_GRAVITY := 20.0  # matches Grenade.GRAVITY; bots aim higher by 1/2 g t^2 to counter rocket drop
 const FOB_DRILL_MAX_TICKS := 30 * 30   # M12-P3: safety deadline (~30s) a squad leader drills its FOB
@@ -219,6 +227,11 @@ func _spawn_bot(index: int) -> void:
 		"mine_placed": false, "gave_until": 0, "give_target": 0,
 		"vview": {}, "in_vehicle": 0, "boarded_origin": Vector3.ZERO, "repairing": false,
 		"vveh_track": {},
+		# M19 P2b Task 6: BREACH is a MATCH-lifetime cap (never reset on respawn, mirroring
+		# nades_thrown/smokes_thrown below) — deliberately rarer than a per-life cap. struct_repairing
+		# is per-life (reset on respawn, like the vehicle-crew "repairing" latch above) since
+		# structure repair is harmless (no-op on an already-full piece).
+		"breach_last_tick": -100000, "breaches_placed": 0, "struct_repairing": false,
 		# M7.5-P3 support mirrors + latches: SELF_STATE dict, GADGET_LIST wholesale mirror,
 		# GRENADE_FX landing ring; reviving_id = active REVIVE_ACTION latch,
 		# last_bag_tick = needs-driven bag-deploy cooldown.
@@ -312,6 +325,7 @@ func _drive(bot: Dictionary, delta: float) -> void:
 		bot["c4_placed"] = false
 		bot["c4_detonated"] = false
 		bot["mine_placed"] = false
+		bot["struct_repairing"] = false   # server drops the latch on death (step_repairs); mirror it
 		bot["in_vehicle"] = 0
 		bot["fire_mode_set"] = false
 		bot["has_build"] = false   # shovel-driller: drop any stale build-commit cell from the past life
@@ -573,6 +587,8 @@ func _drive(bot: Dictionary, delta: float) -> void:
 		_ex.maybe_mine(bot, me, obj)
 
 	_ex.maybe_rpg(bot, me)
+	_ex.maybe_repair_structure(bot, me)   # M19 P2b Task 6: self-gates on bot_gadget == GADGET_REPAIR
+	_ex.maybe_breach(bot, me, obj)        # M19 P2b Task 6: self-gates on bot_gadget == GADGET_BREACH
 	_ex.maybe_give(bot, me, target != null)
 	_maybe_deploy_bag(bot, me)
 	_ex.maybe_weapon_handling(bot, me)
