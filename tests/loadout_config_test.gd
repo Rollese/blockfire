@@ -36,12 +36,18 @@ func test_default_armor_is_medium() -> void:
 	for c in ALL_CLASSES:
 		assert_eq(Loadout.default_armor(c), Armor.MEDIUM)
 
-func test_primary_allowed_enforces_locks() -> void:
-	assert_true(Loadout.primary_allowed(Loadout.ASSAULT, Weapon.DMR), "Assault may take DMR")
-	assert_false(Loadout.primary_allowed(Loadout.MEDIC, Weapon.DMR), "Medic may not take DMR")
-	assert_true(Loadout.primary_allowed(Loadout.SUPPORT, Weapon.LMG), "Support may take LMG")
-	assert_false(Loadout.primary_allowed(Loadout.ASSAULT, Weapon.LMG), "only Support takes LMG")
-	assert_false(Loadout.primary_allowed(Loadout.ENGINEER, Weapon.RPG), "RPG is never a primary")
+func test_is_primary_allowed_enforces_locks() -> void:
+	assert_true(Loadout.is_primary_allowed(Loadout.ASSAULT, Weapon.DMR), "Assault may take DMR")
+	assert_false(Loadout.is_primary_allowed(Loadout.MEDIC, Weapon.DMR), "Medic may not take DMR")
+	assert_true(Loadout.is_primary_allowed(Loadout.SUPPORT, Weapon.LMG), "Support may take LMG")
+	assert_false(Loadout.is_primary_allowed(Loadout.ASSAULT, Weapon.LMG), "only Support takes LMG")
+	assert_false(Loadout.is_primary_allowed(Loadout.ENGINEER, Weapon.RPG), "RPG is never a primary")
+
+func test_every_primary_option_passes_can_equip() -> void:
+	# primary_options (the menu) and can_equip (the authority) must never disagree.
+	for c in ALL_CLASSES:
+		for wid in Loadout.primary_options(c):
+			assert_true(Loadout.can_equip(c, wid), "class %d option %d must pass can_equip" % [c, wid])
 
 func test_lmg_can_equip_support_only() -> void:
 	assert_true(Loadout.can_equip(Loadout.SUPPORT, Weapon.LMG))

@@ -1,7 +1,9 @@
 class_name Loadout
 extends Object
 ## Class -> weapon + gadget + default attachments mapping. Gadget identity per spec
-## §"Class gadget assignment"; RPG is an Engineer-only weapon-slot choice (can_equip gate).
+## §"Class gadget assignment". M18 transition: Weapon.RPG is still the Engineer-only weapon-slot
+## choice (can_equip/secondary_for gate) today, while the new GADGET_RPG gadget-slot id coexists
+## with it; RPG becomes gadget-only in P1b.
 
 enum { ASSAULT = 0, MEDIC = 1, ENGINEER = 2, SUPPORT = 3 }
 
@@ -28,9 +30,11 @@ const GADGET_SANDBAG := 11
 const GADGET_LMG_NEST := 12
 
 # Gadgets whose selection is actually supported so far. GROWS PER PHASE (spec §D/§L): P1b adds RPG;
-# P2 adds STIM/BREACH/SMOKE_WALL/REPAIR/SANDBAG; P4 adds LMG_NEST; later GRAPPLE/RIOT_SHIELD. An
-# unbuilt gadget is not selectable (sanitize + client hide it) and its class falls back to the
-# first BUILT option (default_gadget).
+# P2 adds STIM/BREACH/SMOKE_WALL/REPAIR; P4 adds LMG_NEST; later GRAPPLE/RIOT_SHIELD. An unbuilt
+# gadget is not selectable (sanitize + client hide it) and its class falls back to the first BUILT
+# option (default_gadget). GADGET_SANDBAG is a RESERVED interim filler: it is intentionally NOT in
+# any class's gadget_options yet, so adding it here alone would not surface it — a later phase wires
+# it into specific class slots first.
 const IMPLEMENTED_GADGETS := [GADGET_C4, GADGET_HEAL, GADGET_AMMO]
 
 static func weapon_for(cls: int) -> int:
@@ -66,7 +70,7 @@ static func primary_options(cls: int) -> Array:
 		_: return [Weapon.AR, Weapon.SMG]   # medic, engineer
 
 ## True if a class may take this primary: it's in the class's archetype list AND passes can_equip.
-static func primary_allowed(cls: int, weapon_id: int) -> bool:
+static func is_primary_allowed(cls: int, weapon_id: int) -> bool:
 	return (weapon_id in primary_options(cls)) and can_equip(cls, weapon_id)
 
 ## First primary archetype (AR for every class today).
@@ -81,7 +85,9 @@ static func default_gadget(cls: int) -> int:
 			return g
 	return GADGET_C4   # unreachable given every class has an implemented option; safe fallback
 
-## Armor tier a fresh loadout starts on.
+## M18 deploy-screen STARTING armor tier (MEDIUM for every class); the player overrides it via the
+## loadout. Intentionally differs from the legacy per-class armor_for() below (e.g. MEDIC starts
+## MEDIUM here but armor_for(MEDIC)==LIGHT) — see armor_for for why both exist during M18.
 static func default_armor(_cls: int) -> int:
 	return Armor.MEDIUM
 
@@ -116,10 +122,12 @@ static func has_sledgehammer(cls: int) -> bool:
 static func default_attachments() -> Dictionary:
 	return {"optic": "iron", "barrel": "standard", "underbarrel": "none_ub"}
 
-## Default armor tier per class (M5.5-P2). Recon was removed (M12-P1), so the four live classes
+## LEGACY class-derived armor tier (M5.5-P2), still used by the server until P1b wires the
+## player-picked armor from the loadout. Recon was removed (M12-P1), so the four live classes
 ## span all three tiers: the mobile Medic runs LIGHT to reach downed teammates, frontline Assault
-## takes MEDIUM, and the durable Engineer/Support take HEAVY. Armor is conceptually its own loadout
-## choice (spec §2); v1 derives it from class so the fleet exercises every tier.
+## takes MEDIUM, and the durable Engineer/Support take HEAVY. This intentionally differs from the
+## M18 default_armor() (which starts every class at MEDIUM as a deploy-screen default the player
+## then overrides); both coexist during M18.
 static func armor_for(cls: int) -> int:
 	match cls:
 		MEDIC: return Armor.LIGHT
