@@ -144,6 +144,80 @@ async def hitzone_breakdown(session: AsyncSession) -> dict:
     }
 
 
+async def query_kill_events(
+    session: AsyncSession,
+    *,
+    weapon_id: str | None = None,
+    min_distance_m: float | None = None,
+    hitzone: str | None = None,
+    order: str = "distance",
+    limit: int = 50,
+) -> list[dict]:
+    """Parameterized edge-case explorer over `type == "kill"` events, for
+    hunting balance/forensic outliers (READ-only; no flagging/queue here).
+
+    Filters (all optional, AND-combined): exact `weapon_id`, `distance_m >=
+    min_distance_m`, exact `hitzone`. `order`: "distance" -> payload
+    distance_m DESC; "recent" -> created_at DESC then tick DESC; any other
+    value (including unrecognised strings) falls back to "distance". Every
+    ordering carries a final `event_id` ASC tiebreak for determinism.
+    `limit` is clamped to `[1, 200]`.
+    """
+    limit = max(1, min(200, limit))
+    distance = Event.payload["distance_m"].astext.cast(Float)
+
+    stmt = select(Event).where(Event.type == "kill")
+    if weapon_id is not None:
+        stmt = stmt.where(Event.weapon_id == weapon_id)
+    if min_distance_m is not None:
+        stmt = stmt.where(distance >= min_distance_m)
+    if hitzone is not None:
+        stmt = stmt.where(Event.payload["hitzone"].astext == hitzone)
+
+    if order == "recent":
+        stmt = stmt.order_by(desc(Event.created_at), desc(Event.tick), asc(Event.event_id))
+    else:
+        stmt = stmt.order_by(desc(distance), asc(Event.event_id))
+
+    stmt = stmt.limit(limit)
+    rows = (await session.execute(stmt)).scalars().all()
+    return [
+        {
+            "match_id": r.match_id,
+            "weapon_id": r.weapon_id,
+            "actor_key": r.actor_key,
+            "target_key": r.target_key,
+            "distance_m": r.payload.get("distance_m"),
+            "hitzone": r.payload.get("hitzone"),
+            "tick": r.tick,
+            "created_at": r.created_at,
+        }
+        for r in rows
+    ]
+
+
+async def weapon_outliers(session: AsyncSession) -> list[dict]:
+    """Thin projection over `weapon_balance` (no separate DB query) that
+    surfaces the classic cheat/edge signal: weapons ranked by headshot_rate
+    DESC, then hit_rate DESC, with a weapon_id ASC final tiebreak. Returns
+    [] when there are no weapons.
+    """
+    balance = await weapon_balance(session)
+    projected = [
+        {
+            "weapon_id": r["weapon_id"],
+            "hit_rate": r["hit_rate"],
+            "headshot_rate": r["headshot_rate"],
+            "kills_per_match": r["kills_per_match"],
+            "users": r["users"],
+            "total_kills": r["total_kills"],
+        }
+        for r in balance
+    ]
+    projected.sort(key=lambda r: (-r["headshot_rate"], -r["hit_rate"], r["weapon_id"]))
+    return projected
+
+
 async def longest_kills(session: AsyncSession, limit: int = 20) -> list[dict]:
     """Top `limit` `type == "kill"` events by `payload -> distance_m` DESC,
     tiebroken by `event_id` ASC (insertion order) for determinism. `limit`

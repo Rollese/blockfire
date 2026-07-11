@@ -1,6 +1,13 @@
 import datetime as dt
 
-from app.admin_stats import hitzone_breakdown, kill_distance_stats, longest_kills, weapon_balance
+from app.admin_stats import (
+    hitzone_breakdown,
+    kill_distance_stats,
+    longest_kills,
+    query_kill_events,
+    weapon_balance,
+    weapon_outliers,
+)
 from app.models import Event, Match, MatchPlayerWeapon, Player
 
 NOW = dt.datetime(2026, 7, 11, 12, 0, 0, tzinfo=dt.timezone.utc)
@@ -339,4 +346,184 @@ async def test_longest_kills_empty_db_returns_empty_list(app_and_sessionmaker):
     _, sm = app_and_sessionmaker
     async with sm() as s:
         rows = await longest_kills(s)
+    assert rows == []
+
+
+async def _seed_kill_explorer(sm):
+    """4 kill events with hand-checkable (event_id, tick, weapon, distance,
+    hitzone, created_at) tuples, plus 1 non-kill "damage" event to prove the
+    `type == "kill"` filter still applies in the explorer.
+
+    event_id=1 tick=100 "ar"  distance=10.0 head created_at=NOW
+    event_id=2 tick=200 "ar"  distance=90.0 body created_at=NOW+10s (latest tick)
+    event_id=3 tick=50  "smg" distance=45.0 head created_at=NOW+20s (latest created_at)
+    event_id=4 tick=300 "dmr" distance=45.0 body created_at=NOW+5s
+    -> event_id=3 and event_id=4 TIE on distance_m(45.0) to prove the
+       event_id ASC final tiebreak (3 sorts before 4).
+    """
+    async with sm() as s:
+        s.add(_kill_event("m1", 100, "name:P1", "name:P2", "ar", 10.0, "head", created_at=NOW))
+        s.add(_kill_event("m1", 200, "name:P2", "name:P1", "ar", 90.0, "body",
+                           created_at=NOW + dt.timedelta(seconds=10)))
+        s.add(_kill_event("m2", 50, "name:P3", "name:P1", "smg", 45.0, "head",
+                           created_at=NOW + dt.timedelta(seconds=20)))
+        s.add(_kill_event("m2", 300, "name:P1", "name:P3", "dmr", 45.0, "body",
+                           created_at=NOW + dt.timedelta(seconds=5)))
+        s.add(Event(match_id="m1", tick=999, type="damage", actor_key="name:P1",
+                     target_key="name:P2", weapon_id="ar",
+                     payload={"distance_m": 999.0, "hitzone": "head"}, created_at=NOW))
+        await s.commit()
+
+
+async def test_query_kill_events_filter_weapon_id(app_and_sessionmaker):
+    _, sm = app_and_sessionmaker
+    await _seed_kill_explorer(sm)
+    async with sm() as s:
+        rows = await query_kill_events(s, weapon_id="ar")
+    assert [r["tick"] for r in rows] == [200, 100]
+    assert all(r["weapon_id"] == "ar" for r in rows)
+
+
+async def test_query_kill_events_filter_min_distance(app_and_sessionmaker):
+    _, sm = app_and_sessionmaker
+    await _seed_kill_explorer(sm)
+    async with sm() as s:
+        rows = await query_kill_events(s, min_distance_m=45.0)
+    # distance >= 45: tick200(90), tick50(45,event_id3), tick300(45,event_id4)
+    assert [r["tick"] for r in rows] == [200, 50, 300]
+
+
+async def test_query_kill_events_filter_hitzone(app_and_sessionmaker):
+    _, sm = app_and_sessionmaker
+    await _seed_kill_explorer(sm)
+    async with sm() as s:
+        rows = await query_kill_events(s, hitzone="head")
+    assert [r["tick"] for r in rows] == [50, 100]
+    assert all(r["hitzone"] == "head" for r in rows)
+
+
+async def test_query_kill_events_filter_combined(app_and_sessionmaker):
+    _, sm = app_and_sessionmaker
+    await _seed_kill_explorer(sm)
+    async with sm() as s:
+        only_dmr_body = await query_kill_events(s, weapon_id="dmr", hitzone="body")
+        none_match = await query_kill_events(s, weapon_id="smg", hitzone="body")
+    assert [r["tick"] for r in only_dmr_body] == [300]
+    assert none_match == []
+
+
+async def test_query_kill_events_order_distance_leading_row(app_and_sessionmaker):
+    _, sm = app_and_sessionmaker
+    await _seed_kill_explorer(sm)
+    async with sm() as s:
+        rows = await query_kill_events(s, order="distance")
+    assert rows[0]["tick"] == 200  # distance 90.0 is the max
+
+
+async def test_query_kill_events_order_recent_leading_row(app_and_sessionmaker):
+    _, sm = app_and_sessionmaker
+    await _seed_kill_explorer(sm)
+    async with sm() as s:
+        rows = await query_kill_events(s, order="recent")
+    assert rows[0]["tick"] == 50  # created_at = NOW+20s is the most recent
+
+
+async def test_query_kill_events_unknown_order_falls_back_to_distance(app_and_sessionmaker):
+    _, sm = app_and_sessionmaker
+    await _seed_kill_explorer(sm)
+    async with sm() as s:
+        rows = await query_kill_events(s, order="bogus")
+    assert rows[0]["tick"] == 200  # same leading row as order="distance"
+
+
+async def test_query_kill_events_tiebreak_by_event_id_asc(app_and_sessionmaker):
+    _, sm = app_and_sessionmaker
+    await _seed_kill_explorer(sm)
+    async with sm() as s:
+        rows = await query_kill_events(s)
+    # distance DESC: 90(tick200), 45/45 tie -> event_id ASC (tick50 before
+    # tick300), then 10(tick100)
+    assert [r["tick"] for r in rows] == [200, 50, 300, 100]
+
+
+async def test_query_kill_events_row_shape(app_and_sessionmaker):
+    _, sm = app_and_sessionmaker
+    await _seed_kill_explorer(sm)
+    async with sm() as s:
+        rows = await query_kill_events(s, limit=1)
+    assert set(rows[0].keys()) == {
+        "match_id", "weapon_id", "actor_key", "target_key", "distance_m",
+        "hitzone", "tick", "created_at",
+    }
+
+
+async def test_query_kill_events_limit_clamp(app_and_sessionmaker):
+    _, sm = app_and_sessionmaker
+    async with sm() as s:
+        for i in range(250):
+            s.add(_kill_event("m1", i, "name:P1", "name:P2", "ar", float(i), "head"))
+        await s.commit()
+    async with sm() as s:
+        clamped_high = await query_kill_events(s, limit=500)
+        clamped_zero = await query_kill_events(s, limit=0)
+        clamped_neg = await query_kill_events(s, limit=-10)
+    assert len(clamped_high) == 200
+    assert clamped_high[0]["distance_m"] == 249.0
+    assert len(clamped_zero) == 1
+    assert clamped_zero[0]["distance_m"] == 249.0
+    assert len(clamped_neg) == 1
+
+
+async def test_query_kill_events_empty_db_returns_empty_list(app_and_sessionmaker):
+    _, sm = app_and_sessionmaker
+    async with sm() as s:
+        rows = await query_kill_events(s)
+    assert rows == []
+
+
+async def _seed_outliers(sm):
+    """5 weapons, all shot=100 for easy fractions, hand-checkable
+    (hit_rate, headshot_rate) pairs:
+
+    e_gun: hits=60 headshots=30 -> hit_rate=0.6 headshot_rate=0.5 (highest
+        headshot_rate tier, highest hit_rate within it -> ranks #1)
+    a_gun: hits=50 headshots=25 -> hit_rate=0.5 headshot_rate=0.5 (TIES
+        b_gun on both fields -> weapon_id ASC tiebreak: "a_gun" < "b_gun")
+    b_gun: hits=50 headshots=25 -> hit_rate=0.5 headshot_rate=0.5
+    c_gun: hits=100 headshots=10 -> hit_rate=1.0 headshot_rate=0.1 (proves
+        headshot_rate, not hit_rate, is the PRIMARY sort key)
+    d_gun: hits=0 headshots=0 -> hit_rate=0.0 headshot_rate=0.0 (zero-safe)
+
+    Expected order: e_gun, a_gun, b_gun, c_gun, d_gun.
+    """
+    async with sm() as s:
+        s.add(_match("m1"))
+        s.add(_player("name:P1", "P1"))
+        await s.flush()
+
+        s.add(_mpw("m1", "name:P1", "e_gun", shots=100, hits=60, kills=5, headshots=30, damage=1000))
+        s.add(_mpw("m1", "name:P1", "a_gun", shots=100, hits=50, kills=5, headshots=25, damage=1000))
+        s.add(_mpw("m1", "name:P1", "b_gun", shots=100, hits=50, kills=5, headshots=25, damage=1000))
+        s.add(_mpw("m1", "name:P1", "c_gun", shots=100, hits=100, kills=5, headshots=10, damage=1000))
+        s.add(_mpw("m1", "name:P1", "d_gun", shots=100, hits=0, kills=0, headshots=0, damage=0))
+        await s.commit()
+
+
+async def test_weapon_outliers_ordering_and_shape(app_and_sessionmaker):
+    _, sm = app_and_sessionmaker
+    await _seed_outliers(sm)
+    async with sm() as s:
+        rows = await weapon_outliers(s)
+    assert [r["weapon_id"] for r in rows] == ["e_gun", "a_gun", "b_gun", "c_gun", "d_gun"]
+    assert rows[0]["headshot_rate"] == 0.5
+    assert rows[0]["hit_rate"] == 0.6
+    assert set(rows[0].keys()) == {
+        "weapon_id", "hit_rate", "headshot_rate", "kills_per_match", "users", "total_kills",
+    }
+
+
+async def test_weapon_outliers_empty_db_returns_empty_list(app_and_sessionmaker):
+    _, sm = app_and_sessionmaker
+    async with sm() as s:
+        rows = await weapon_outliers(s)
     assert rows == []
