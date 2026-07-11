@@ -287,4 +287,9 @@ static func bot_loadout(id: int, attach: Attachment) -> Dictionary:
 		var lmgs := Weapon.variants_of(Weapon.LMG)
 		if not lmgs.is_empty():
 			cfg["primary"] = int(lmgs[id % lmgs.size()])
+	if cls == ASSAULT and (bit == 1):
+		# Hand alternating Assault bots a DMR so the fleet exercises the Assault-only marksman path.
+		var dmrs := Weapon.variants_of(Weapon.DMR)
+		if not dmrs.is_empty():
+			cfg["primary"] = int(dmrs[id % dmrs.size()])
 	return sanitize(cfg, attach)

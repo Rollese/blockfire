@@ -1236,8 +1236,8 @@ func _grenade_cooldown_ticks(c: Dictionary) -> int:
 func _throwables_for(c: Dictionary) -> Array:
 	var ready := 1 if _sim.tick - int(c["last_grenade_tick"]) >= _grenade_cooldown_ticks(c) else 0
 	var list: Array = [{"kind": Grenade.FRAG, "count": ready}, {"kind": Grenade.SMOKE, "count": ready}]
-	if int(c["weapon"]) == Weapon.RPG:
-		list.append({"kind": 100, "count": int(c["rockets"])})   # kind 100 = RPG (UI-only tag; M5.5 formalizes)
+	if int(c["loadout"]["gadget"]) == Loadout.GADGET_RPG:
+		list.append({"kind": 100, "count": int(c["rockets"])})   # kind 100 = RPG (UI-only tag; M5.5 formalizes) — RPG is an Engineer gadget now (M19)
 	return list
 
 func _handle_deploy_request(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:

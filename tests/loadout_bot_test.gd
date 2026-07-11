@@ -32,6 +32,7 @@ func test_bot_loadout_covers_matrix() -> void:
 	var armors := {}
 	var has_rpg_engineer := false
 	var has_lmg_support := false
+	var has_dmr_assault := false
 	for id in range(0, 64):
 		var lo := Loadout.bot_loadout(id, attach)
 		classes[int(lo["class"])] = true
@@ -40,10 +41,13 @@ func test_bot_loadout_covers_matrix() -> void:
 			has_rpg_engineer = true
 		if int(lo["class"]) == Loadout.SUPPORT and Weapon.archetype_of(int(lo["primary"])) == Weapon.LMG:
 			has_lmg_support = true
+		if int(lo["class"]) == Loadout.ASSAULT and Weapon.archetype_of(int(lo["primary"])) == Weapon.DMR:
+			has_dmr_assault = true
 	assert_eq(classes.size(), 4, "all four classes appear")
 	assert_eq(armors.size(), 3, "all three armor tiers appear")
 	assert_true(has_rpg_engineer, "at least one Engineer runs the RPG gadget")
 	assert_true(has_lmg_support, "at least one Support runs an LMG primary")
+	assert_true(has_dmr_assault, "at least one Assault runs a DMR primary (marksman path)")
 
 func test_bot_loadout_every_gadget_implemented() -> void:
 	var attach := _attach()
