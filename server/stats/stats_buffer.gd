@@ -80,6 +80,20 @@ func record_kill(killer_id: int, victim_id: int, wkey: String, headshot: bool,
 		},
 	})
 
+func record_shot(shooter_id: int, wkey: String) -> void:
+	var w := _wslot(shooter_id, wkey)
+	w["shots"] = int(w["shots"]) + 1
+
+func record_hit(shooter_id: int, wkey: String, headshot: bool) -> void:
+	var w := _wslot(shooter_id, wkey)
+	w["hits"] = int(w["hits"]) + 1
+	if headshot:
+		w["headshots"] = int(w["headshots"]) + 1
+
+func record_damage(attacker_id: int, wkey: String, dmg: int) -> void:
+	var w := _wslot(attacker_id, wkey)
+	w["damage"] = int(w["damage"]) + dmg
+
 func build_match_report(started_at: String, ended_at: String) -> Dictionary:
 	var players_arr: Array = []
 	for id in _players:

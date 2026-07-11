@@ -35,6 +35,23 @@ func test_player_key_uses_steam_id_when_present() -> void:
 	var report := b.build_match_report("s", "e")
 	assert_eq(report["players"][0]["steam_id"], 76561198000000000, "steam id passed through")
 
+func test_shots_hits_headshots_and_damage_accumulate() -> void:
+	var b := _seed()
+	for i in range(100):
+		b.record_shot(1, "ar")
+	for i in range(40):
+		b.record_hit(1, "ar", i < 5)   # 5 of the hits are headshots
+	b.record_damage(1, "ar", 30)
+	b.record_damage(1, "ar", 20)
+	var a := _player(b.build_match_report("s", "e"), "name:Bot_A")
+	var w := _weapon(a, "ar")
+	assert_eq(w["shots"], 100, "shots")
+	assert_eq(w["hits"], 40, "hits")
+	assert_eq(w["headshots"], 5, "headshots")
+	assert_eq(w["damage"], 50, "summed damage")
+	# The P1 gate's balancing query — hit rate:
+	assert_true(abs(float(w["hits"]) / float(w["shots"]) - 0.40) < 1e-6, "hit rate 0.40")
+
 # --- helpers ---
 func _player(report: Dictionary, key: String) -> Dictionary:
 	for p in report["players"]:
