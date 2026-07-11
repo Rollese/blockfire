@@ -27,6 +27,8 @@ These are not optional. Match the skill to the work:
 | Before merging / finishing | `requesting-code-review`, then `receiving-code-review` |
 | Before claiming anything "done" | `verification-before-completion` (evidence, not assertions) |
 
+**Executing a written plan: ALWAYS use `subagent-driven-development`** (owner's standing preference — fresh subagent per task + two-stage review). Don't ask which execution mode; don't use inline `executing-plans` unless the owner explicitly overrides for a specific plan.
+
 ## 3. One owner per task
 
 Work is tracked in **`docs/TASKS.md`** and the per-milestone files in `docs/milestones/`.

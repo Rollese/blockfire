@@ -228,7 +228,7 @@ func validate_place(cell: Vector3i, player_pos: Vector3, now_tick: int, last_bui
 	return {"ok": true, "reason": ""}
 
 const FLOOR_REACH_EPS := 0.35   # m; a pawn within this distance below a flat surface "catches" it (small step-up)
-const RAMP_REACH_EPS := 0.6     # m; ramps need a larger catch = max per-tick climb at sprint (9.6 m/s * dt on a 1:1 slope ~0.32) + margin
+const RAMP_REACH_EPS := 0.6     # m; ramps need a larger catch = max per-tick climb at sprint (LIGHT armor 1.2x → ~11.5 m/s * dt on a 1:1 slope ~0.38) + margin (M19 widened LIGHT 1.0→1.2; margin 0.6-0.38≈0.22, revisit before further speed tuning)
 
 ## Walk a ray through the build grid up to max_dist. Returns {hit:bool, dist:float, id:int}.
 ## Amanatides–Woo 3D DDA: visits EVERY cell the ray crosses, exactly once, in ray order —

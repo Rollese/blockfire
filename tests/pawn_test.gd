@@ -6,7 +6,7 @@ func _cmd(mx := 0.0, my := 0.0, yaw := 0.0, pitch := 0.0, buttons := 0) -> Dicti
 func test_walks_at_stand_speed() -> void:
 	var p := Pawn.new(1)
 	p.step(1.0, _cmd(1.0, 0.0))
-	assert_almost_eq(p.pos.x, Stance.speed(Stance.STAND), 0.001)
+	assert_almost_eq(p.pos.x, Stance.speed(Stance.STAND) * Armor.speed_mult(Armor.LIGHT), 0.001)
 	assert_almost_eq(p.pos.y, 0.0, 0.001, "stays grounded")
 
 func test_step_clamps_to_supplied_world_half() -> void:
@@ -26,7 +26,7 @@ func test_crouch_is_slower() -> void:
 	var p := Pawn.new(1)
 	p.step(1.0, _cmd(1.0, 0.0, 0.0, 0.0, InputCommand.BTN_CROUCH))
 	assert_eq(p.stance, Stance.CROUCH)
-	assert_almost_eq(p.pos.x, Stance.speed(Stance.CROUCH), 0.001)
+	assert_almost_eq(p.pos.x, Stance.speed(Stance.CROUCH) * Armor.speed_mult(Armor.LIGHT), 0.001)
 
 func test_jump_rises_then_gravity_returns_to_ground() -> void:
 	var p := Pawn.new(1)
@@ -40,7 +40,7 @@ func test_jump_rises_then_gravity_returns_to_ground() -> void:
 func test_sprint_drains_stamina_and_is_faster() -> void:
 	var p := Pawn.new(1)
 	p.step(1.0, _cmd(1.0, 0.0, 0.0, 0.0, InputCommand.BTN_SPRINT))
-	assert_almost_eq(p.pos.x, Stance.speed(Stance.STAND) * Pawn.SPRINT_MULT, 0.01)
+	assert_almost_eq(p.pos.x, Stance.speed(Stance.STAND) * Pawn.SPRINT_MULT * Armor.speed_mult(Armor.LIGHT), 0.01)
 	assert_true(p.stamina < Pawn.STAMINA_MAX, "sprint drained stamina")
 
 func test_sprint_locked_flag_blocks_sprint() -> void:
@@ -49,7 +49,7 @@ func test_sprint_locked_flag_blocks_sprint() -> void:
 	p.stamina = 10.0
 	p._sprint_locked = true
 	p.step(1.0, _cmd(1.0, 0.0, 0.0, 0.0, InputCommand.BTN_SPRINT))
-	assert_almost_eq(p.pos.x, Stance.speed(Stance.STAND), 0.01, "locked pawn walks even with stamina left")
+	assert_almost_eq(p.pos.x, Stance.speed(Stance.STAND) * Armor.speed_mult(Armor.LIGHT), 0.01, "locked pawn walks even with stamina left")
 
 func test_empty_sprint_no_1hz_burst_until_recovered() -> void:
 	# Regression for the ~1 Hz empty-sprint rubberband: holding sprint after stamina bottoms out must
@@ -57,7 +57,7 @@ func test_empty_sprint_no_1hz_burst_until_recovered() -> void:
 	# until stamina climbs back past SPRINT_RESUME, then resumes sprinting.
 	var p := Pawn.new(1)
 	var dt := 1.0 / 30.0
-	var walk := Stance.speed(Stance.STAND)
+	var walk := Stance.speed(Stance.STAND) * Armor.speed_mult(Armor.LIGHT)
 	var emptied := false
 	for _i in 600:
 		p.step(dt, _cmd(1.0, 0.0, 0.0, 0.0, InputCommand.BTN_SPRINT))
@@ -153,7 +153,7 @@ func test_heavy_armor_moves_slower_than_light() -> void:
 	light.step(1.0, _cmd(1.0, 0.0))
 	heavy.step(1.0, _cmd(1.0, 0.0))
 	assert_true(absf(heavy.pos.x) < absf(light.pos.x), "heavy armor reduces move speed")
-	assert_almost_eq(light.pos.x, Stance.speed(Stance.STAND), 0.001, "light armor = unmodified stance speed")
+	assert_almost_eq(light.pos.x, Stance.speed(Stance.STAND) * Armor.speed_mult(Armor.LIGHT), 0.001, "light armor = stance speed * LIGHT mult")
 
 func test_blind_state() -> void:
 	var p := Pawn.new(1)
