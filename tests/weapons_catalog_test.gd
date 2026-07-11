@@ -16,7 +16,7 @@ func _by_key(archetype: int) -> Dictionary:
 func test_catalog_wellformed() -> void:
 	_load()
 	var seen := {}
-	for arch in [Weapon.AR, Weapon.SMG, Weapon.DMR, Weapon.PISTOL]:
+	for arch in [Weapon.AR, Weapon.SMG, Weapon.DMR, Weapon.PISTOL, Weapon.LMG]:
 		var ids := Weapon.variants_of(arch)
 		assert_true(ids.size() >= 3, "archetype %d has >=3 variants" % arch)
 		for id in ids:
@@ -68,3 +68,15 @@ func test_effective_def_applies_to_variant() -> void:
 	var eff := Weapon.effective_def(18, {"spread_mult": 0.5, "recoil_mult": 1.0, "range_mult": 1.0})
 	assert_almost_eq(float(eff["spread_base_deg"]), float(base["spread_base_deg"]) * 0.5, 0.0001, "spread mult applied to variant")
 	assert_eq(int(eff["damage_body"]), int(base["damage_body"]), "damage untouched by these mults")
+
+func test_lmg_variants() -> void:
+	_load()
+	var ids := Weapon.variants_of(Weapon.LMG)
+	assert_true(ids.size() >= 3, "LMG has >=3 variants")
+	assert_eq(String(Weapon.get_def(Weapon.default_variant(Weapon.LMG))["key"]), "pkp", "LMG default PKP")
+	for id in ids:
+		assert_eq(Weapon.archetype_of(id), Weapon.LMG, "id %d is an LMG" % id)
+		assert_true(float(Weapon.get_def(id)["suppression_mult"]) > 1.0, "LMG suppresses harder")
+	var l := _by_key(Weapon.LMG)
+	assert_true(int(l["m245"]["rpm"]) > int(l["m250"]["rpm"]), "SAW faster than M240")
+	assert_true(int(l["m250"]["damage_body"]) > int(l["m245"]["damage_body"]), "M240 hits harder than SAW")

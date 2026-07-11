@@ -99,10 +99,10 @@ static func effective_def(weapon_id: int, mult: Dictionary) -> Dictionary:
 static var _VARIANTS: Dictionary = {}       # id(int) -> resolved def (fire_modes+archetype as ints)
 static var _BY_ARCHETYPE: Dictionary = {}   # archetype(int) -> ordered Array[int] of variant ids
 
-# "LMG" maps to 5 as a LITERAL on purpose: the LMG enum entry is owned by the parallel loadout
-# agent (spec §4). Referencing a not-yet-existent Weapon.LMG here would create a merge collision;
-# the literal 5 is the agreed value and stays correct once their `LMG = 5` enum lands.
-const _ARCH := {"AR": AR, "SMG": SMG, "DMR": DMR, "RPG": RPG, "PISTOL": PISTOL, "LMG": 5}
+# _ARCH maps archetype name -> enum int. RPG/LMG have no (RPG) or a launcher-style (LMG) role but
+# are valid archetype ids; kept here so the JSON's "archetype" strings resolve without duplicating
+# the enum. archetype_of() uses _ARCH.values() as the set of valid base ids.
+const _ARCH := {"AR": AR, "SMG": SMG, "DMR": DMR, "RPG": RPG, "PISTOL": PISTOL, "LMG": LMG}
 const _MODE := {"AUTO": MODE_AUTO, "SEMI": MODE_SEMI, "BURST": MODE_BURST}
 const _FLOAT_FIELDS := ["headshot_mult", "reload_secs", "spread_base_deg", "spread_bloom_deg",
 	"recoil_pitch_deg", "range_m", "muzzle_velocity", "gravity_scale"]
