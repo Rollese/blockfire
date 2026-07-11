@@ -23,7 +23,7 @@ Vehicles usable under load; bots can at least occupy and transport via vehicles;
 
 ## Phase 1 (Land Vehicles + Substrate) — CLOSED ✅ (2026-06-16)
 
-Spec: [`docs/specs/vehicles.md`](../specs/vehicles.md). Plan: [`docs/plans/m5-p1-vehicles.md`](../plans/m5-p1-vehicles.md) — 18 TDD tasks (substrate → land vehicle → gate). Built on the `m5-p1-vehicles` branch via `subagent-driven-development` (heavy server-integration tasks T10/T11/T12/T16 got read-only spec reviews; branch HEAD verified after each reviewer per [[subagent git safety]]).
+Spec: [`docs/specs/vehicles.md`](../specs/vehicles.md). Plan: [`docs/plans/m5-p1-vehicles.md`](../archive/plans/m5-p1-vehicles.md) — 18 TDD tasks (substrate → land vehicle → gate). Built on the `m5-p1-vehicles` branch via `subagent-driven-development` (heavy server-integration tasks T10/T11/T12/T16 got read-only spec reviews; branch HEAD verified after each reviewer per [[subagent git safety]]).
 
 **What shipped:** one armored **transport** (driver / 3 passengers / gunner) on a full vehicle substrate — `Vehicle`/`VehicleState`/`VehicleCatalog` in `shared/sim/` (deterministic custom-kinematic physics, M7-prediction-ready); multiplexed into the existing `SNAPSHOT` stream (disjoint ID range `0x40000000+`, per-client radius relevance + baseline/delta history); server enter/exit + seat slaving + gunner-turret; vehicle HP via the single `_blast_at` path (RPG/C4/frag), destruction kills occupants (incl. downed) + respawn; Engineer repair kit (overheat→cooldown, no pool); mounted gun (gunner hit-scan, lag-comp + Hitbox); anti-cheat L2 `InputValidate` (+ infantry view-rate telemetry); minimal bot crew. **309 unit tests green.**
 

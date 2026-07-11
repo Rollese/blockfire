@@ -3,7 +3,7 @@
 Read this first if you're picking up the project in a fresh context. It points to the canonical docs rather than duplicating them. **Status lives in [`docs/TASKS.md`](TASKS.md) — this file deliberately does not restate per-milestone evidence** (a previous version did, went 16 days stale, and taught fresh agents wrong facts).
 
 ## What this is
-Internal codename for a lightweight, 128-player, low-poly FPS in **Godot 4.6** inspired by *BattleBit Remastered*. v1 game mode: **Conquest**. Three runtime roles in one Godot project (client / dedicated server / bot driver) over a shared core. Repo on GitHub at **Rollese/blockfire** (SSH remote `origin`, default branch `master`). The plan of record is the milestone index in [`docs/TASKS.md`](TASKS.md).
+Internal codename for a lightweight, 128-player, low-poly FPS in **Godot 4.7** inspired by *BattleBit Remastered*. v1 game mode: **Conquest**. Three runtime roles in one Godot project (client / dedicated server / bot driver) over a shared core. Repo on GitHub at **Rollese/blockfire** (SSH remote `origin`, default branch `master`). The plan of record is the milestone index in [`docs/TASKS.md`](TASKS.md).
 
 ## Status (pointer, correct as of 2026-07-03)
 The game is a **playable rendered LAN game**: full infantry loop, vehicles, building/destruction, destructible buildings, ballistics/suppression/melee, squads/FOBs, tactical bot AI, HUD, audio, procedural art. See the milestone index in [`docs/TASKS.md`](TASKS.md) for the authoritative per-milestone state. One-line orientation:
@@ -20,7 +20,7 @@ Board: `docs/TASKS.md`. Gates: `docs/milestones/`. Specs: `docs/specs/`. Decisio
 The working agreement is `docs/AGENTS.md`. In short:
 1. **superpowers skills**, in this order per milestone: `brainstorming` (→ spec in `docs/specs/`) → `writing-plans` (→ `docs/plans/`) → `subagent-driven-development` (execute) → `finishing-a-development-branch` (merge). TDD for every task; `verification-before-completion` before claiming done.
 2. **graphify** for architecture/intent questions — the graph (`graphify-out/`, gitignored) covers **both the design docs and the entire GDScript codebase** (`.gd` is indexed as code; see AGENTS.md §1). Query it for "how/why systems relate"; read the `.gd` directly when you need exact current lines. Rebuild with `/graphify --update`.
-3. **Branch per work item** (`git checkout -b m8-...`); never implement on `master`. Merge back via finishing-a-development-branch. Do **not** push to origin unless the owner asks.
+3. **Branch per work item** (`git checkout -b m8-...`); never implement on `master`. Merge back via finishing-a-development-branch, then **push to `origin/master`** — landing completed *and* checkpoint (spec/plan) work on `origin` is owner-ratified and mandatory; don't strand work on a reclaimable worktree (AGENTS.md §11, §13).
 4. Decisions → ADRs; specs precede netcode-bearing code; gates are hard (recorded evidence). **Wire changes**: bump `Protocol.VERSION` and update `docs/specs/wire-protocol-registry.md` in the same commit (next free msg id lives there).
 
 ### Execution mechanics that worked well
@@ -31,17 +31,18 @@ The working agreement is `docs/AGENTS.md`. In short:
 ### GDScript / Godot gotchas (tell every implementer)
 - Run `godot --headless --path . --import` once after adding any `class_name` script, before tests.
 - **Do NOT pipe `godot` through `tail`/`head`** — it can hang; redirect to a file.
-- GDScript 4.6 rejects `var x := <Dictionary access>` (Variant) — annotate the type explicitly.
+- GDScript rejects `var x := <Dictionary access>` (Variant) — annotate the type explicitly.
 - Tests live in `tests/*_test.gd` extending global `TestCase`; run `godot --headless --path . -- --test [--filter=<substr>]`. The harness fails a test on: assertion failure, **zero assertions**, a **runtime SCRIPT ERROR mid-test** (opt out with `tolerate_runtime_errors()` when the error path is the point), or a test file that fails to parse. Per-test `setup()`/`teardown()` hooks and `autofree(node)` exist — use `autofree` for any Node you create.
 - `git add -A` to include Godot `.uid` sidecars. Commit trailer: co-author as the model doing the work.
 
 ## Architecture (current, 2026-07-02)
 - `shared/sim/` — deterministic sim core, pure/testable: `World`/`Pawn`/`SimLoop` (30 Hz), `EntityState` (replicated fields + `bake()` quantize cache), movement (stances/lean/jump/stamina, `Ladder`/`Vault`/`Stairs`/`Fall`), combat (`Weapon`/`Combat` seeded rays/`Hitbox`/`projectile.gd` stepped ballistics/`melee.gd`/`armor.gd`/`suppress.gd`/`Grenade` incl. flash+impact), structures (chunked `StructureStore` + `ChunkMask` + `support.gd` collapse cascade + `BuildSite`/`build_site_store.gd` shovel construction + `fob.gd`), vehicles (`Vehicle`/`VehicleState`/`VehicleCatalog`, id space `ID_BASE 0x40000000`), Conquest (`conquest.gd`, `MapDef`, `deploy_spawn.gd` spawn refs), catalogs (`piece_catalog`/`gadget`/`attachment`/`building_catalog`, uniform `{ok, catalog, error}` load contract).
-- `shared/net/` — `NetHost` (ENet, channels CONTROL/SNAPSHOT/INPUT), `Protocol` (**VERSION 2**; 44 messages; see [`specs/wire-protocol-registry.md`](specs/wire-protocol-registry.md)), `Snapshot` (baseline+delta, ack-keyed per client, ENTER carries armor+weapon), `InputCommand`/`InputBuffer`, `Quantize`. `shared/telemetry.gd` per-second counters ([`specs/telemetry.md`](specs/telemetry.md) is the schema-of-record).
+- `shared/net/` — `NetHost` (ENet, channels CONTROL/SNAPSHOT/INPUT/BULK — the reliable BULK channel 3 carries structure traffic), `Protocol` (**VERSION 7**; see [`specs/wire-protocol-registry.md`](specs/wire-protocol-registry.md) for the message table + exact id count — don't restate it here, it moves), `Snapshot` (baseline+delta, ack-keyed per client, ENTER carries armor+weapon), `InputCommand`/`InputBuffer`, `Quantize`. `shared/telemetry.gd` per-second counters ([`specs/telemetry.md`](specs/telemetry.md) is the schema-of-record).
 - `server/` — `server_main.gd` (authoritative tick: input → movement → vehicles → lag record → interest → fire/projectiles → ordnance → support → build → respawns → conquest → snapshots; `[perf]` phase buckets), `degrade.gd` (adaptive snapshot degradation ladder), `lag_comp.gd` (mounted-gun rewind only — bullets are present-time projectiles), `spawn_select.gd`, `squads.gd`, voice relay logic shells.
 - `client/` — full rendered client: `client_main.gd` (net/prediction/reconciliation/input/QA flags), `world_renderer.gd` (entities, viewmodel, all FX, MultiMesh-batched structures), `hud/` (`hud_model.gd` pure + `hud_view.gd`), `audio/` (director + pure mix helpers, `data/sounds.json`), `art/` (procedural low-poly kits), `menus/` (deploy/squad). ~47 `--*-test` QA flags drive screenshot self-validation (recipes: memory + `docs/runbooks/running-client.md`).
 - `bots/` — `bot_driver.gd` (fleet shell: N ENet clients/process + per-milestone gate exercisers) delegating infantry combat/movement to `bots/ai/` (M7.5 engine: `perception.gd` → `utility.gd` → behaviours + `humanize.gd`, per-life `reset()`).
 - `native/voice_opus/` — Rust GDExtension Opus codec (M6; binary built locally, source committed).
+- `native/snapshot_encoder/` — Rust GDExtension snapshot encoder (ADR-0003; the shipped/default path — `stress.sh` requires the built `.so` unless `ENCODER=gd`). Build: `cargo build --release --manifest-path native/snapshot_encoder/Cargo.toml`.
 - Run locally: `docs/runbooks/running-locally.md` (server+client) · fleet/stress: `docker/stress.sh` + `docs/runbooks/running-a-stress-test.md` · telemetry: `docs/runbooks/reading-telemetry.md`.
 
 ## Perf & hosts (the short version)

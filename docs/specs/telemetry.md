@@ -4,7 +4,7 @@ Status: **active** (M8-P2) · Milestone: [`M8-hardening-ops.md`](../milestones/M
 Interpretation/how-to: [`docs/runbooks/reading-telemetry.md`](../runbooks/reading-telemetry.md)
 
 The dedicated server's observability surface is a single **`[telemetry]` line per 1-second window**
-on stdout (no metrics stack — a LAN game; see [`m8-hardening-ops.md`](m8-hardening-ops.md)). This
+on stdout (no metrics stack — a LAN game; see [`m8-hardening-ops.md`](../archive/specs/m8-hardening-ops.md)). This
 spec is the authoritative schema; the runbook covers reading it for health.
 
 ## Format

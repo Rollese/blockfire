@@ -5,7 +5,7 @@ The M7-C1 **rendered first-person infantry client**: deploy → move/look → fi
 P2). The client is a **view + predictor + intent-sender** — it owns no authority (AGENTS.md §7); the
 server on game2 decides everything.
 
-Requires **Godot 4.6.x** on `PATH` (verified on 4.6.3). First run on a fresh checkout:
+Requires **Godot 4.7.x** on `PATH` (verified on 4.7.stable). First run on a fresh checkout:
 ```
 godot --headless --path . --import
 ```

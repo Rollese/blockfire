@@ -1,8 +1,8 @@
 # Spec: Destructible Buildings (M11)
 
-**Status:** approved (brainstorm complete; not yet implemented) · **Date:** 2026-06-18 ·
-**Milestone:** M11 (proposed) — *spec authored now; implementation sequenced after the M7 rendered
-client lands* (the cosmetic layer is owner-playtest-gated and needs rendering).
+**Status:** implemented — M11 sim + feel done (Gate A PASS; ratified parent spec) · **Date:** 2026-06-18 ·
+**Milestone:** M11 — *spec authored 2026-06-18; P1–P3 sim/cascade/art merged to master; Gate-B feel
+built + owner-playtested* (the cosmetic layer is owner-playtest-gated).
 
 BattleBit-style destructible **map buildings** — almost all walls, interiors, and stairs can be
 destroyed, with chain-reacting structural collapse — built directly on the M4

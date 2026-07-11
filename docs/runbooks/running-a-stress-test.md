@@ -8,6 +8,9 @@ canonical operator entrypoint and the **M8 gate**.
 - Run on **game2** (14900KS / CachyOS, 32 threads) — the dev + gate host. Docker installed.
 - Nothing else contending the pinned cores. The full unit suite should be green first
   (`godot --headless --path . -- --test`).
+- **Native snapshot encoder built** (ADR-0003; the shipped/default path). `stress.sh` refuses to
+  run without the `.so`: `cargo build --release --manifest-path ../native/snapshot_encoder/Cargo.toml`
+  (or set `ENCODER=gd` for a reference-path run).
 
 ## One command
 
@@ -39,6 +42,7 @@ SERVER_CPUS=0,1,2,3 BOTS_CPUS=4-31 BOT_REPLICAS=16 BOT_COUNT=8 ./stress.sh
 | `MAX_WAIT` | 720 | how long to wait for a winner (s) before FAIL. |
 | `BOT_REPLICAS` / `BOT_COUNT` | 16 / 8 | fleet shape. Raise `BOT_REPLICAS` if `starv` is high. |
 | `SERVER_CPUS` / `BOTS_CPUS` | — | taskset core pins passed to compose. |
+| `ENCODER` | `native` | snapshot encoder A/B (ADR-0003). `native` = shipped Rust `.so`; `gd` = GDScript reference path. Gate runs must use `native`. |
 | `LABEL` | `stress` | srvlog filename tag. |
 
 ## Reading the result

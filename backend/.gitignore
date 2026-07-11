@@ -1,0 +1,9 @@
+# Python build/runtime artifacts
+__pycache__/
+*.pyc
+*.egg-info/
+.pytest_cache/
+
+# Local env / virtualenv (never commit secrets or the venv)
+.env
+.venv/

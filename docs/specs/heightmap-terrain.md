@@ -2,7 +2,7 @@
 
 **Status:** IMPLEMENTED 2026-07-06 (branch `m15-heightmap-terrain`) — deterministic suite (1326/0) + 128-bot fleet gate PASS on `conquest_proving_grounds` (`winner=1 elapsed=249s peak tick=16.72ms<33.3`); owner feel-playtest pending. Ratified 2026-07-03. See `docs/sessions/2026-07-06-m15-heightmap-terrain.md`.
 
-**VILLAGE ROUND 2 (2026-07-06 pm, master `f5688d7`, pushed):** retrofitted `conquest_town` into the DEFAULT playable village (gentle core + countryside hills, 77→31 buildings, grass MultiMesh, procedural tree/rock materials, tree/rock scenery, road/sidewalk SURFACE SPLATMAP painted into the terrain shader). Plus (not terrain, same round): BattleBit capture markers, compass letters, top-center score band, ammo/med glyphs + radius rings, grenade terrain-ground fix, match-over deploy fix. Suite 1335/0, 128-bot gate PASS on `conquest_town` (~24 ms). **OPEN:** owner finds ROADS "wavy" after ~6 fix attempts — paused for fresh eyes. Full handoff: **`docs/sessions/2026-07-06-wavy-roads-handoff.md`**.
+**VILLAGE ROUND 2 (2026-07-06 pm, master `f5688d7`, pushed):** retrofitted `conquest_town` into the DEFAULT playable village (gentle core + countryside hills, 77→31 buildings, grass MultiMesh, procedural tree/rock scenery, road/sidewalk splatmap in the terrain shader; plus non-terrain HUD polish — capture markers, compass, score band, glyphs, grenade/deploy fixes). Suite 1335/0, 128-bot gate PASS on `conquest_town` (~24 ms). **OPEN:** owner finds ROADS "wavy" after ~6 fix attempts — paused for fresh eyes. Full handoff: **`docs/sessions/2026-07-06-wavy-roads-handoff.md`**.
 **Builds on:** M11 (StructureStore / building pieces) + M14 (walkable multi-floor — the vertical-movement
 seam this milestone extends).
 

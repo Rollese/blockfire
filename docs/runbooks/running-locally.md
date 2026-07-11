@@ -1,6 +1,6 @@
 # Runbook: running locally
 
-Requires **Godot 4.6.x** on `PATH` (verified on 4.6.3). Running from source needs no export presets — those are only for the Docker/CI builds (M8).
+Requires **Godot 4.7.x** on `PATH` (verified on 4.7.stable). Running from source needs no export presets — those are only for the Docker/CI builds (M8).
 
 > First run on a fresh checkout: import resources once so `.godot/` is built:
 > ```

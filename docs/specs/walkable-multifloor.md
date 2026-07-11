@@ -158,7 +158,4 @@ Per project discipline (AGENTS.md §10 — prove mechanics deterministically, do
 
 ## Open decisions (resolved during brainstorm)
 
-- Stairs = **walkable ramp** (not stepped, not ladder-only).
-- Verticality = **humans only** in v1; bots ground-level; gate is deterministic tests + playtest.
-- Fall damage = **yes, height-based** (`SAFE_FALL = 4 m`, lethal ~11-12 m).
-- Floor surface = **cell base plane** (`Y·CELL_SIZE`); art aligns the slab mesh to it.
+Ratified as stated in the design body: stairs = walkable ramp (§3); verticality humans-only in v1 (§6); height-based fall damage `SAFE_FALL = 4 m`, lethal ~11-12 m (§4); floor surface = cell base plane `Y·CELL_SIZE` (§1).
