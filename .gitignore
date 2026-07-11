@@ -40,3 +40,6 @@ export_presets.cfg.local
 /.claude/settings.local.json
 __pycache__/
 tools/.venv-scenery/
+
+# Superpowers brainstorm visual companion (session-local mockups)
+.superpowers/
