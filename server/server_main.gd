@@ -71,6 +71,7 @@ const SMOKE_RADIUS := 6.0             # m — smoke zone radius (matches blast r
 const PIECES_PATH := "res://pieces/pieces.json"
 const GADGETS_PATH := "res://data/gadgets.json"
 const ATTACHMENTS_PATH := "res://data/attachments.json"
+const WEAPONS_PATH := "res://data/weapons.json"
 const VEHICLES_PATH := "res://data/vehicles.json"
 const ENTER_RANGE := 3.0
 const WEAPON_SWAP_TICKS := 12   # equip lockout after a quick-swap (~0.4s @30Hz)
@@ -236,6 +237,9 @@ func _ready() -> void:
 	_attachments = Attachment.load_file(ATTACHMENTS_PATH)
 	if _attachments == null:
 		push_error("[server] failed to load attachments %s" % ATTACHMENTS_PATH); get_tree().quit(1); return
+	var wres := Weapon.load_from_file(WEAPONS_PATH)
+	if not wres["ok"]:
+		push_error("[server] failed to load weapons %s: %s" % [WEAPONS_PATH, wres["error"]]); get_tree().quit(1); return
 	_vehicles_cat = VehicleCatalog.load_file(VEHICLES_PATH)
 	if _vehicles_cat == null:
 		push_error("[server] failed to load vehicles %s" % VEHICLES_PATH); get_tree().quit(1); return

@@ -254,6 +254,9 @@ func _ready() -> void:
 	# Client mirror of the server's piece catalog, so prediction can collide with structures (walls).
 	# Built from STRUCTURE_BASELINE/DELTA; without it the client predicts through walls and rubber-bands.
 	_piece_cat = PieceCatalog.load_file("res://pieces/pieces.json")
+	var wres := Weapon.load_from_file("res://data/weapons.json")
+	if not wres["ok"]:
+		push_error("[client] failed to load weapons: %s" % wres["error"])
 	_build_ctrl = BuildController.new(_piece_cat)   # M12: build-tool state machine
 	_wpred = WeaponPredictor.new()
 	_hud_model = HudModel.new()
