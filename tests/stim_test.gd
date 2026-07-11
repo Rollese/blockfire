@@ -52,6 +52,24 @@ func test_stim_use_gated_on_gadget() -> void:
 	assert_eq(p.stim_until_tick, 0, "no buff — wrong gadget equipped")
 
 
+func test_stim_use_cooldown() -> void:
+	var srv := _srv()
+	var c := _medic_client(srv, 1)
+	c["stim_charges"] = 3
+	F.add_pawn(srv, 1, 0)
+	srv._use_stim(1)
+	assert_eq(int(c["stim_charges"]), 2, "first use spends a charge")
+	var cooldown_ticks := int(srv._gadgets.def_of_kind(Gadget.KIND_STIM)["use_cooldown_ticks"])
+	# Immediate re-use within the cooldown window must be blocked — no charge spent.
+	srv._use_stim(1)
+	assert_eq(int(c["stim_charges"]), 2, "re-use inside cooldown window is blocked")
+	# Advance past the cooldown gate (stim_ready_tick) and try again — should succeed.
+	srv._sim.tick = int(c["stim_ready_tick"]) + 1
+	assert_true(cooldown_ticks > 0, "sanity: catalog cooldown is nonzero")
+	srv._use_stim(1)
+	assert_eq(int(c["stim_charges"]), 1, "use succeeds once cooldown has elapsed")
+
+
 func test_stim_use_blocked_when_empty() -> void:
 	var srv := _srv()
 	var c := _medic_client(srv, 1)

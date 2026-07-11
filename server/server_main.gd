@@ -574,9 +574,10 @@ func _step_movement() -> void:
 		var sp: Pawn = _sim.world.pawns.get(id)
 		if sp == null:
 			continue
-		var stimmed_cmd: Dictionary = (inputs[id] as Dictionary).duplicate()
-		stimmed_cmd["stimmed"] = _sim.tick < sp.stim_until_tick
-		inputs[id] = stimmed_cmd
+		if _sim.tick < sp.stim_until_tick:
+			var stimmed_cmd: Dictionary = (inputs[id] as Dictionary).duplicate()
+			stimmed_cmd["stimmed"] = true
+			inputs[id] = stimmed_cmd
 	_sim.step(inputs, _map.world_half)
 	_apply_fall_damage()
 
@@ -1486,6 +1487,7 @@ func _apply_loadout_to_client(c: Dictionary, p: Pawn) -> void:
 	# Medic who respecs away from STIM doesn't carry a stale pool into an unrelated gadget's slot.
 	c["stim_charges"] = int(_gadgets.def_of_kind(Gadget.KIND_STIM)["charges"]) if int(lo["gadget"]) == Loadout.GADGET_STIM else 0
 	c["stim_ready_tick"] = 0
+	c["smokewall_ready_tick"] = 0   # M19 P2b: fresh-life — no residual SMOKE_WALL cooldown carried across spawns
 	if p != null:
 		p.armor_class = int(lo["armor"])
 		p.bandage_count = Revive.bandage_count_for(cls == Loadout.MEDIC)

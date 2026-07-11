@@ -27,7 +27,12 @@ func test_stim_flag_increases_move_speed() -> void:
 	assert_true(boosted > base * 1.05, "stimmed pawn moves faster (got %f vs %f)" % [boosted, base])
 
 func test_no_stim_flag_is_baseline_speed() -> void:
-	assert_true(abs(_fwd_speed(false) - _fwd_speed(false)) < 0.001, "deterministic")
+	var base := _fwd_speed(false)
+	var boosted := _fwd_speed(true)
+	assert_true(base > 0.0, "baseline forward speed is a real nonzero value")
+	assert_true(base < boosted, "unstimmed speed is strictly below stimmed speed")
+	assert_true(abs((boosted / base) - Pawn.STIM_SPEED_MULT) < 0.01,
+		"unstimmed speed scales up by exactly STIM_SPEED_MULT when stimmed (got ratio %f)" % (boosted / base))
 
 func test_stim_flag_boosts_stamina_regen() -> void:
 	assert_true(_regen_gain(true) > _regen_gain(false), "stimmed regen faster")
