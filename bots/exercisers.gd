@@ -608,6 +608,43 @@ func maybe_breach(bot: Dictionary, me: EntityState, obj: Vector3) -> void:
 	bot["breach_last_tick"] = st
 	bot["breaches_placed"] = int(bot.get("breaches_placed", 0)) + 1
 
+## M19 P2b Task 7: Medic STIM — a medic who chose STIM (bot_gadget → STIM) self-injects on a
+## conservative bot-side cadence (d.STIM_BOT_COOLDOWN_TICKS) while in a fight (a target is visible)
+## or hurt (health <= d.STIM_HURT_HEALTH), so the fleet gate exercises GA_STIM_USE without hammering
+## it every tick. Harmless by construction: the server independently gates spendable charges + its
+## own use_cooldown_ticks (_use_stim), so a request outside those windows is simply dropped.
+func maybe_stim(bot: Dictionary, me: EntityState, target: EntityState) -> void:
+	if Loadout.bot_gadget(int(bot["id"]), int(bot["class"])) != Loadout.GADGET_STIM: return
+	var st: int = bot["server_tick"]
+	if st - int(bot.get("stim_last_tick", -100000)) < d.STIM_BOT_COOLDOWN_TICKS: return
+	if target == null and me.health > d.STIM_HURT_HEALTH: return
+	(bot["net"] as NetHost).send_to(bot["peer"], NetHost.CHANNEL_INPUT,
+		Protocol.encode_gadget_action(Protocol.GA_STIM_USE, Vector3.ZERO, Vector3.ZERO, 0), 0)
+	bot["stim_last_tick"] = st
+
+## M19 P2b Task 7: Medic SMOKE_WALL, kept deliberately RARE (mirrors the BREACH restraint above —
+## project memory blockfire-bot-rpg-restraint: bots must not spam a gadget that visibly reshapes
+## the map/LOS). Only fires when (a) the per-bot MATCH-lifetime cap (d.MAX_BOT_SMOKE_WALLS) and a
+## long cooldown (d.SMOKE_WALL_COOLDOWN_TICKS) both allow it, and (b) the bot is advancing with no
+## immediate enemy in view (mirrors maybe_smoke's grenade-smoke gate) — a wall dropped mid-firefight
+## would blind the bot's own team as often as the enemy. Placed toward the objective, within the
+## server's place_range so _place_smoke_wall's distance gate actually accepts it.
+func maybe_smoke_wall(bot: Dictionary, me: EntityState, target: EntityState, obj: Vector3) -> void:
+	if Loadout.bot_gadget(int(bot["id"]), int(bot["class"])) != Loadout.GADGET_SMOKE_WALL: return
+	if target != null: return
+	if int(bot.get("smoke_walls_placed", 0)) >= d.MAX_BOT_SMOKE_WALLS: return
+	var st: int = bot["server_tick"]
+	if st - int(bot.get("smoke_wall_last_tick", -100000)) < d.SMOKE_WALL_COOLDOWN_TICKS: return
+	var dir := obj - me.pos
+	if dir.length() < 0.001: return
+	var face := dir.normalized()
+	var place_range: float = d.SMOKE_WALL_PLACE_RANGE
+	var place := me.pos + face * place_range
+	(bot["net"] as NetHost).send_to(bot["peer"], NetHost.CHANNEL_INPUT,
+		Protocol.encode_gadget_action(Protocol.GA_SMOKE_WALL_PLACE, place, face, 0), 0)
+	bot["smoke_wall_last_tick"] = st
+	bot["smoke_walls_placed"] = int(bot.get("smoke_walls_placed", 0)) + 1
+
 const GIVE_RANGE := 3.0
 
 ## Pure give-target pick: nearest same-team mate within GIVE_RANGE that is alive,

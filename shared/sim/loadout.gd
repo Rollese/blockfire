@@ -273,9 +273,11 @@ static func random_class_no_engineer() -> int:
 
 ## The deterministic gadget a bot of (id, cls) carries — the SINGLE source both the server's
 ## bot_loadout(id) and the bot AI (exercisers) read, so the AI's gadget decisions can never drift
-## from the loadout the server actually stored. Engineers rotate RPG/C4/REPAIR and Assault bots
-## rotate C4/BREACH (both by id % 3), so the 128-bot fleet matrix covers every implemented gadget
-## incl. the M19 P2b Task 6 additions (BREACH, REPAIR); every other class takes its default gadget.
+## from the loadout the server actually stored. Engineers rotate RPG/C4/REPAIR, Assault bots
+## rotate C4/BREACH (both by id % 3), and Medics rotate HEAL/STIM/SMOKE_WALL (id % 3, M19 P2b
+## Task 7), so the 128-bot fleet matrix covers every implemented gadget incl. the M19 P2b Task 6
+## additions (BREACH, REPAIR) and Task 7 additions (STIM, SMOKE_WALL); every other class takes
+## its default gadget.
 static func bot_gadget(id: int, cls: int) -> int:
 	if cls == ENGINEER:
 		match id % 3:
@@ -284,6 +286,11 @@ static func bot_gadget(id: int, cls: int) -> int:
 			_: return GADGET_REPAIR
 	if cls == ASSAULT:
 		return GADGET_BREACH if (id % 3 == 0) else GADGET_C4
+	if cls == MEDIC:
+		match id % 3:
+			0: return GADGET_HEAL
+			1: return GADGET_STIM
+			_: return GADGET_SMOKE_WALL
 	return default_gadget(cls)
 
 ## Deterministic per-id bot loadout — exercises every class × armor tier × built gadget so the

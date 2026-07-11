@@ -45,6 +45,16 @@ const BREACH_COOLDOWN_TICKS := 1800      # ticks (~60 s @30Hz) — stricter than
 const MAX_BOT_BREACHES := 1              # per-bot MATCH-lifetime cap (never reset on respawn)
 const REPAIR_STRUCT_RANGE := 4.0         # m — mirrors data/gadgets.json repair.range; harmless no-op
                                           # when the aimed piece is already full (server repair_chunks)
+# M19 P2b Task 7: STIM/SMOKE_WALL restraint. STIM is a harmless self-buff (server already gates
+# charges + a 30-tick use_cooldown_ticks), so the bot can be liberal — but a per-bot cadence still
+# stops it hammering the action every tick while it sits in the qualifying window. SMOKE_WALL
+# alters LOS for both teams, so it gets BREACH-style restraint: a small per-bot MATCH-lifetime cap
+# plus a long cooldown, only placed while advancing with no immediate enemy in view.
+const STIM_BOT_COOLDOWN_TICKS := 90       # ticks (~3 s @30Hz) — bot-side pacing atop the server's own gate
+const STIM_HURT_HEALTH := 60              # HP at/below which a stim bot self-injects even out of combat
+const SMOKE_WALL_PLACE_RANGE := 2.3       # m — just inside data/gadgets.json smokewall.place_range (2.5)
+const SMOKE_WALL_COOLDOWN_TICKS := 1800   # ticks (~60 s @30Hz) — matches BREACH_COOLDOWN_TICKS restraint
+const MAX_BOT_SMOKE_WALLS := 1            # per-bot MATCH-lifetime cap (never reset on respawn)
 const ROCKET_SPEED := 150.0  # keep in sync with data/gadgets.json rpg.rocket_speed (bot lead math)
 const ROCKET_GRAVITY := 20.0  # matches Grenade.GRAVITY; bots aim higher by 1/2 g t^2 to counter rocket drop
 const FOB_DRILL_MAX_TICKS := 30 * 30   # M12-P3: safety deadline (~30s) a squad leader drills its FOB
@@ -232,6 +242,12 @@ func _spawn_bot(index: int) -> void:
 		# is per-life (reset on respawn, like the vehicle-crew "repairing" latch above) since
 		# structure repair is harmless (no-op on an already-full piece).
 		"breach_last_tick": -100000, "breaches_placed": 0, "struct_repairing": false,
+		# M19 P2b Task 7: STIM cooldown is per-life (reset on respawn below, mirroring
+		# struct_repairing) since a fresh life gets a fresh 3-charge pool from the server
+		# (_apply_loadout_to_client). SMOKE_WALL is a MATCH-lifetime cap, mirroring breaches_placed,
+		# since it alters LOS and must stay rare across the whole match, not per life.
+		"stim_last_tick": -100000,
+		"smoke_wall_last_tick": -100000, "smoke_walls_placed": 0,
 		# M7.5-P3 support mirrors + latches: SELF_STATE dict, GADGET_LIST wholesale mirror,
 		# GRENADE_FX landing ring; reviving_id = active REVIVE_ACTION latch,
 		# last_bag_tick = needs-driven bag-deploy cooldown.
@@ -326,6 +342,7 @@ func _drive(bot: Dictionary, delta: float) -> void:
 		bot["c4_detonated"] = false
 		bot["mine_placed"] = false
 		bot["struct_repairing"] = false   # server drops the latch on death (step_repairs); mirror it
+		bot["stim_last_tick"] = -100000   # M19 P2b Task 7: fresh life = fresh 3-charge stim pool
 		bot["in_vehicle"] = 0
 		bot["fire_mode_set"] = false
 		bot["has_build"] = false   # shovel-driller: drop any stale build-commit cell from the past life
@@ -589,6 +606,8 @@ func _drive(bot: Dictionary, delta: float) -> void:
 	_ex.maybe_rpg(bot, me)
 	_ex.maybe_repair_structure(bot, me)   # M19 P2b Task 6: self-gates on bot_gadget == GADGET_REPAIR
 	_ex.maybe_breach(bot, me, obj)        # M19 P2b Task 6: self-gates on bot_gadget == GADGET_BREACH
+	_ex.maybe_stim(bot, me, target)            # M19 P2b Task 7: self-gates on bot_gadget == GADGET_STIM
+	_ex.maybe_smoke_wall(bot, me, target, obj) # M19 P2b Task 7: self-gates on bot_gadget == GADGET_SMOKE_WALL
 	_ex.maybe_give(bot, me, target != null)
 	_maybe_deploy_bag(bot, me)
 	_ex.maybe_weapon_handling(bot, me)
