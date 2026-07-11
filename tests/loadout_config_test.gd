@@ -8,6 +8,18 @@ func test_primary_options_match_matrix() -> void:
 	assert_eq(Loadout.primary_options(Loadout.ENGINEER), [Weapon.AR, Weapon.SMG])
 	assert_eq(Loadout.primary_options(Loadout.SUPPORT), [Weapon.AR, Weapon.SMG, Weapon.LMG])
 
+func test_allowed_archetypes_match_matrix() -> void:
+	# The archetype allow-list that class gating is expressed against (stable across the
+	# weapon-variants switch; only primary_options() expands to variant ids later).
+	assert_eq(Loadout.allowed_archetypes(Loadout.ASSAULT), [Weapon.AR, Weapon.SMG, Weapon.DMR])
+	assert_eq(Loadout.allowed_archetypes(Loadout.SUPPORT), [Weapon.AR, Weapon.SMG, Weapon.LMG])
+	assert_eq(Loadout.allowed_archetypes(Loadout.MEDIC), [Weapon.AR, Weapon.SMG])
+
+func test_primary_options_equal_archetypes_pre_variants() -> void:
+	# Seam invariant: until the variant registry lands, one selectable id per archetype.
+	for c in ALL_CLASSES:
+		assert_eq(Loadout.primary_options(c), Loadout.allowed_archetypes(c))
+
 func test_gadget_options_match_matrix() -> void:
 	assert_eq(Loadout.gadget_options(Loadout.ASSAULT), [Loadout.GADGET_C4, Loadout.GADGET_GRAPPLE, Loadout.GADGET_BREACH])
 	assert_eq(Loadout.gadget_options(Loadout.MEDIC), [Loadout.GADGET_HEAL, Loadout.GADGET_STIM, Loadout.GADGET_SMOKE_WALL])
