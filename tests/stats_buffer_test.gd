@@ -52,6 +52,19 @@ func test_shots_hits_headshots_and_damage_accumulate() -> void:
 	# The P1 gate's balancing query — hit rate:
 	assert_true(abs(float(w["hits"]) / float(w["shots"]) - 0.40) < 1e-6, "hit rate 0.40")
 
+func test_take_event_batch_increments_seq_and_clears() -> void:
+	var b := _seed()
+	b.record_kill(1, 2, "ar", true, 10.0, 1, Vector3.ZERO, Vector3.ZERO)
+	var batch0 := b.take_event_batch()
+	assert_eq(batch0["batch_seq"], 0, "first batch seq 0")
+	assert_eq(batch0["events"].size(), 1, "one event")
+	assert_eq(batch0["match_id"], "m1", "match id present")
+	var empty := b.take_event_batch()
+	assert_true(empty.is_empty(), "no pending events -> empty dict")
+	b.record_kill(1, 2, "ar", false, 20.0, 2, Vector3.ZERO, Vector3.ZERO)
+	var batch1 := b.take_event_batch()
+	assert_eq(batch1["batch_seq"], 1, "second batch seq 1")
+
 # --- helpers ---
 func _player(report: Dictionary, key: String) -> Dictionary:
 	for p in report["players"]:

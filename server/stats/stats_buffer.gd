@@ -94,6 +94,14 @@ func record_damage(attacker_id: int, wkey: String, dmg: int) -> void:
 	var w := _wslot(attacker_id, wkey)
 	w["damage"] = int(w["damage"]) + dmg
 
+func take_event_batch() -> Dictionary:
+	if _events.is_empty():
+		return {}
+	var batch := {"match_id": match_id, "batch_seq": _batch_seq, "events": _events}
+	_batch_seq += 1
+	_events = []
+	return batch
+
 func build_match_report(started_at: String, ended_at: String) -> Dictionary:
 	var players_arr: Array = []
 	for id in _players:
