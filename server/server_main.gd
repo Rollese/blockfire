@@ -158,6 +158,10 @@ var _collapsed_bids: Array = []    # building_ids fully collapsed this match —
                                    # from the static MapDef and showed ghost ladders on dead buildings)
 var _collapse_test_bid := 0        # QA (--collapse-test=<bid>): force-collapse that building ~5s in.
 var _fast_nades := false           # QA (--fast-nades): drop the grenade throw cooldown to ~1 tick so a playtester can level a building fast (destruction/ladder testing).
+var _stats_endpoint: String = ""
+var _stats_token: String = ""
+var _stats_reporter: StatsReporter = null
+var _stats_match_started_at: String = ""
 var _fast_rpg := false             # QA (--fast-rpg): RPG fires with no cooldown and never depletes rockets (pairs with --human-rpg for fast destruction testing).
                                    # Whole-building collapse is rare in bot-only runs, so this is the
                                    # on-demand exerciser for the collapse/ladder/rubble/join-replay path.
@@ -199,6 +203,8 @@ func configure(args: Dictionary) -> void:
 	_human_rpg = args.has("human-rpg")
 	_collapse_test_bid = int(args["collapse-test"]) if args.has("collapse-test") else 0
 	_fast_nades = args.has("fast-nades")
+	_stats_endpoint = String(args.get("stats-endpoint", ""))
+	_stats_token = String(args.get("stats-token", ""))
 	_fast_rpg = args.has("fast-rpg")
 	# ADR-0003: --encoder=gd forces the GDScript reference encoder (A/B gate runs, debugging).
 	# Default is native when the gdext .so is present; absent .so falls back silently.
@@ -249,6 +255,12 @@ func _ready() -> void:
 		push_error("[server] failed to load vehicles %s" % VEHICLES_PATH); get_tree().quit(1); return
 	if not _start_match():
 		get_tree().quit(1); return
+	if not _stats_endpoint.is_empty():
+		_stats_reporter = StatsReporter.new()
+		_stats_reporter.configure(_stats_endpoint, _stats_token)
+		add_child(_stats_reporter)
+		_stats_reporter.begin_match(_gen_match_id(), _stats_server_id(), _map_path.get_file().get_basename(), "conquest")
+		_stats_match_started_at = Time.get_datetime_string_from_system(true) + "Z"
 	_net = NetHost.new()
 	add_child(_net)
 	_net.peer_connected.connect(func(_p): pass)
@@ -663,6 +675,12 @@ func _broadcast_impact_fx(pos: Vector3, kind: int) -> void:
 	_broadcast_humans(NetHost.CHANNEL_SNAPSHOT, Protocol.encode_impact_fx(pos, kind))
 
 
+func _gen_match_id() -> String:
+	return "%d-%04d" % [int(Time.get_unix_time_from_system()), (randi() % 10000)]
+
+func _stats_server_id() -> String:
+	return "game2-dev-%d" % _port
+
 func _down_pawn(victim: Pawn) -> void:
 	victim.is_downed = true
 	victim.down_count += 1   # halving bleedout: each down this life shrinks the window
@@ -671,6 +689,8 @@ func _down_pawn(victim: Pawn) -> void:
 	victim.bleed_halted = false
 	victim.bleeding = false   # M16: the standing bleed is subsumed by the DBNO halving-bleedout
 	_stats.downed += 1
+	if _stats_reporter != null:
+		_stats_reporter.buffer.record_down(victim.id)
 	# No ticket cost and no KILL event at down — only true death spends a ticket.
 
 ## M16: a standing bleed drained `health` to 0. Route it through the same down/kill decision the
@@ -736,6 +756,12 @@ func _kill_pawn(vid: int, victim: Pawn, killer_id: int, weapon_id: int, headshot
 		c2["dmg_ledger"] = {}
 		for k in ["downed_by", "downed_by_weapon", "downed_by_hp", "downed_by_dist"]:
 			c2.erase(k)   # consumed by this death
+	if _stats_reporter != null:
+		var kp: Pawn = _sim.world.get_pawn(killer_id)
+		var kpos := kp.pos if kp != null else Vector3.ZERO
+		var kdist := victim.pos.distance_to(kpos) if kp != null else 0.0
+		_stats_reporter.buffer.record_kill(killer_id, vid,
+			StatsReporter.weapon_key(weapon_id), headshot, kdist, _sim.tick, kpos, victim.pos)
 	var ev := Protocol.encode_kill(vid, killer_id, weapon_id, headshot)
 	for cid in _clients:
 		_net.send_to(_clients[cid]["peer"], NetHost.CHANNEL_CONTROL, ev, ENetPacketPeer.FLAG_RELIABLE)
@@ -771,6 +797,8 @@ func _apply_pawn_damage(vid: int, victim: Pawn, dmg: int, headshot: bool, source
 		dmg = int(round(float(dmg) * Armor.body_mult(victim.armor_class)))
 	var pre_hp := maxi(int(victim.health), 0)   # health before this hit — caps the recap ledger credit
 	victim.health -= dmg
+	if _stats_reporter != null and killer_id != vid:
+		_stats_reporter.buffer.record_damage(killer_id, StatsReporter.weapon_key(weapon_id), int(dmg))
 	victim.combat_until_tick = _sim.tick + COMBAT_FLAG_TICKS   # taking fire flags "in combat" (blocks squad-spawn on this pawn)
 	# M16: taking damage hard-cancels any bandage channel this pawn is in (as healer OR target).
 	_support.cancel_bandages_involving(vid)
@@ -904,6 +932,9 @@ func _track_and_broadcast_match_state() -> void:
 			_net.send_to(_clients[cid]["peer"], NetHost.CHANNEL_CONTROL, bytes, ENetPacketPeer.FLAG_RELIABLE)
 		print("[match] OVER winner=%d t0=%d t1=%d elapsed=%ds cap_events=%d"
 			% [_conquest.winner, _conquest.tickets_int(0), _conquest.tickets_int(1), int(_conquest.elapsed), _stats.cap_events_total])
+		if _stats_reporter != null:
+			_stats_reporter.end_match(_conquest.winner, int(_conquest.elapsed),
+				_stats_match_started_at, Time.get_datetime_string_from_system(true) + "Z")
 	elif not _match_over_broadcast and _sim.tick % MATCH_STATE_INTERVAL == 0:
 		var bytes := Protocol.encode_match_state(_conquest.points,
 			[_conquest.tickets_int(0), _conquest.tickets_int(1)], false, _conquest.winner, int(_conquest.elapsed))
@@ -1193,6 +1224,8 @@ func _handle_hello(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
 		"name": pname, "kills": 0, "deaths": 0, "score": 0, "dmg_ledger": {},
 		"loadout": loadout,   # M19: player/bot loadout (sanitized). Stored now; spawn reads it from Task 4 on.
 	}
+	if _stats_reporter != null:
+		_stats_reporter.buffer.register_player(id, pname, int(_clients[id].get("steam_id", 0)), team)
 	if not auto_deploy:
 		_human_ids.append(id)   # rendered client: joins the cosmetic/list broadcast fan-out
 	var p := _sim.world.spawn(id)
@@ -2557,5 +2590,7 @@ func _log_telemetry() -> void:
 			% [new_level, _tele.mean_tick_ms(), _snapshot_stride, _max_enemy_snapshot])
 	for k in _phase_us: _phase_us[k] = 0
 	_phase_ticks = 0
+	if _stats_reporter != null:
+		_stats_reporter.flush_events()
 	_tele.reset_window()
 	_stats.reset_window()

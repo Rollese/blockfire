@@ -51,6 +51,8 @@ func complete_revive(target_id: int, reviver_id: int) -> void:
 		for k in ["downed_by", "downed_by_weapon", "downed_by_hp", "downed_by_dist"]:
 			srv._clients[target_id].erase(k)
 	srv._stats.revives += 1
+	if srv._stats_reporter != null:
+		srv._stats_reporter.buffer.record_revive(reviver_id)
 	# No ticket refund needed — DOWNED never spent one.
 
 ## Accumulate revive progress for downed teammates being held by an in-range, alive reviver.

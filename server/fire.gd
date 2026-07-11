@@ -118,6 +118,8 @@ func resolve_fires() -> void:
 		var shot_index: int = c["shot_index"]
 		c["shot_index"] = shot_index + 1
 		srv._stats.shots += 1
+		if srv._stats_reporter != null:
+			srv._stats_reporter.buffer.record_shot(id, StatsReporter.weapon_key(int(c["weapon"])))
 		fire_shot(id, shooter, inp, shot_index)
 
 
@@ -289,6 +291,8 @@ func step_projectiles() -> void:
 			var victim: Pawn = srv._sim.world.get_pawn(best_victim)
 			if victim != null and victim.alive:
 				srv._stats.hits += 1
+				if srv._stats_reporter != null:
+					srv._stats_reporter.buffer.record_hit(int(pr["owner"]), StatsReporter.weapon_key(wid), best_head)
 				srv._stats.proj_hits += 1
 				srv._broadcast_impact_fx(old_pos + seg_dir * best_t, Protocol.IMPACT_FLESH)   # cosmetic blood mist at the hit
 				srv._apply_pawn_damage(best_victim, victim, enemy_dmg, best_head, Revive.Source.BULLET,
