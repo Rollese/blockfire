@@ -2,9 +2,9 @@
 
 - **Date:** 2026-07-11
 - **Status:** approved (design)
-- **Proposed milestone:** new **"Online Stats & Analytics"** milestone (sibling to, and a strict
-  datastore subset of, [M9 — Online Services](../../milestones/M9-online-services.md)). Milestone
-  number to be assigned when scheduled; M15/M16/M17 are free.
+- **Milestone:** **M20 — Online Stats & Analytics** (sibling to, and a strict datastore subset of,
+  [M9 — Online Services](../../milestones/M9-online-services.md)). (M15–M19 are all assigned;
+  M19 is Class Select & Player Loadouts.)
 - **Relationship to M9 / [ADR-0004](../../adr/0004-anti-cheat-and-skill-matchmaking.md):** M9 already
   specs the project's first persistent backend (SteamID-keyed datastore + rating + matchmaker +
   Layer-4 cheat detection), but is **deferred post-1.0** and focused on *matchmaking*. This milestone
@@ -61,7 +61,7 @@ BACKEND (repo backend/, docker-compose)  ▼
   [ api ]  FastAPI/Uvicorn — /ingest (P1), /profile (P2), /admin (P3)
      │ writes                         ╲ reads
   [ db ]  PostgreSQL            [ worker ]  rollups · retention prune · anomaly jobs
-     • events (~90d)                        │
+     • events (90d)                         │
      • match_player_weapons (∞)             │
      • player_profiles (∞) ◀──recompute─────┘
                                      │ reverse-proxy (prod: unraid SWAG/NPM, TLS)
@@ -103,7 +103,8 @@ analytics DB like ClickHouse/DuckDB (Postgres handles the volume; revisit if eve
 - **`■ match_player_weapons`** — the **counter layer** [PK `match_id, steam_id, weapon_id`].
   `shots` · `hits` · `kills` · `headshots` · `damage` · `time_used_s`. Powers hit-rate, most-used
   weapon, weapon balance without a shot firehose.
-- **`■ events`** — the **raw forensic layer**, ~90d retention, time-partitioned. `event_id` ·
+- **`■ events`** — the **raw forensic layer**, 90-day retention (`RAW_EVENT_RETENTION_DAYS`, default
+  90), time-partitioned. `event_id` ·
   `match_id` · `tick` · `seq` · `type` · `actor_steam_id` · `target_steam_id` · `weapon_id` ·
   **`payload JSONB`** {`distance_m`, `hitzone`, `actor_pos`, `target_pos`, `damage`, `objective_id`…}.
   Types: `kill` · `damage` · `down` · `revive` · `capture` · `spawn` · `session_start`/`session_end`.
