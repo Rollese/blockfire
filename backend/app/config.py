@@ -11,6 +11,19 @@ class Settings(BaseSettings):
     session_secret: str = "dev-insecure-change-me"
     site_base_url: str = "http://localhost:8000"
 
+    # Comma/space-separated list of admin SteamID64s. Kept as a raw str
+    # (pydantic-settings can't reliably parse a bare CSV env var into a
+    # set[int]); use admin_steam_id_set() to get the parsed set.
+    admin_steam_ids: str = ""
+
+    # When True, admin routes are open WITHOUT Steam auth.
+    # dev/LAN only — MUST stay False in any internet-facing deploy.
+    admin_dev_open: bool = False
+
+    def admin_steam_id_set(self) -> frozenset[int]:
+        tokens = self.admin_steam_ids.replace(",", " ").split()
+        return frozenset(int(token) for token in tokens if token)
+
 
 def get_settings() -> Settings:
     return Settings()

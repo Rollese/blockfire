@@ -41,3 +41,48 @@ def test_p2_config_env_overrides(monkeypatch):
     assert s.steam_web_api_key == "k"
     assert s.session_secret == "s"
     assert s.site_base_url == "http://x"
+
+
+def test_admin_steam_id_set_parses_csv():
+    s = Settings(
+        database_url="postgresql+asyncpg://u:p@h:5432/d",
+        ingest_token="secret",
+        admin_steam_ids="76561190000000001, 76561190000000002",
+    )
+    assert s.admin_steam_id_set() == frozenset(
+        {76561190000000001, 76561190000000002}
+    )
+
+
+def test_admin_steam_id_set_empty_string():
+    s = Settings(
+        database_url="postgresql+asyncpg://u:p@h:5432/d",
+        ingest_token="secret",
+        admin_steam_ids="",
+    )
+    assert s.admin_steam_id_set() == frozenset()
+
+
+def test_admin_steam_id_set_tolerates_whitespace_and_trailing_comma():
+    s = Settings(
+        database_url="postgresql+asyncpg://u:p@h:5432/d",
+        ingest_token="secret",
+        admin_steam_ids=" 76561190000000001 ,  ,",
+    )
+    assert s.admin_steam_id_set() == frozenset({76561190000000001})
+
+
+def test_admin_dev_open_defaults_false():
+    s = Settings(
+        database_url="postgresql+asyncpg://u:p@h:5432/d",
+        ingest_token="secret",
+    )
+    assert s.admin_dev_open is False
+
+
+def test_admin_dev_open_env_override(monkeypatch):
+    monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://u:p@h:5432/d")
+    monkeypatch.setenv("INGEST_TOKEN", "secret")
+    monkeypatch.setenv("ADMIN_DEV_OPEN", "true")
+    s = Settings()
+    assert s.admin_dev_open is True
