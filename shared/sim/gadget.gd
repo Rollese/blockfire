@@ -12,9 +12,11 @@ const KIND_RPG := 2
 const KIND_HEAL := 3
 const KIND_AMMO := 4
 const KIND_REPAIR := 5
+const KIND_STIM := 6         # matches Loadout.GADGET_STIM
+const KIND_SMOKE_WALL := 7   # matches Loadout.GADGET_SMOKE_WALL
 const KIND_BREACH := 8   # matches Loadout.GADGET_BREACH
 
-const _KINDS := {"c4": KIND_C4, "mine": KIND_MINE, "rpg": KIND_RPG, "heal": KIND_HEAL, "ammo": KIND_AMMO, "repair": KIND_REPAIR, "breach": KIND_BREACH}
+const _KINDS := {"c4": KIND_C4, "mine": KIND_MINE, "rpg": KIND_RPG, "heal": KIND_HEAL, "ammo": KIND_AMMO, "repair": KIND_REPAIR, "stim": KIND_STIM, "smokewall": KIND_SMOKE_WALL, "breach": KIND_BREACH}
 
 var _by_kind: Dictionary = {}   # kind:int -> def Dictionary
 

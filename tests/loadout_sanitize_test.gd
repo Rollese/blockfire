@@ -33,3 +33,17 @@ func test_engineer_repair_survives_sanitize() -> void:
 	var cfg := Loadout.default_loadout(Loadout.ENGINEER)
 	cfg["gadget"] = Loadout.GADGET_REPAIR
 	assert_eq(int(Loadout.sanitize(cfg, _attach())["gadget"]), Loadout.GADGET_REPAIR, "Engineer keeps REPAIR")
+
+func test_stim_and_smokewall_implemented() -> void:
+	assert_true(Loadout.GADGET_STIM in Loadout.IMPLEMENTED_GADGETS, "STIM selectable")
+	assert_true(Loadout.GADGET_SMOKE_WALL in Loadout.IMPLEMENTED_GADGETS, "SMOKE_WALL selectable")
+
+func test_medic_stim_survives_sanitize() -> void:
+	var cfg := Loadout.default_loadout(Loadout.MEDIC)
+	cfg["gadget"] = Loadout.GADGET_STIM
+	assert_eq(int(Loadout.sanitize(cfg, _attach())["gadget"]), Loadout.GADGET_STIM, "Medic keeps STIM")
+
+func test_medic_smokewall_survives_sanitize() -> void:
+	var cfg := Loadout.default_loadout(Loadout.MEDIC)
+	cfg["gadget"] = Loadout.GADGET_SMOKE_WALL
+	assert_eq(int(Loadout.sanitize(cfg, _attach())["gadget"]), Loadout.GADGET_SMOKE_WALL, "Medic keeps SMOKE_WALL")

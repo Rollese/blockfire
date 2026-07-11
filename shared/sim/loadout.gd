@@ -35,7 +35,7 @@ const GADGET_LMG_NEST := 12
 # BUILT option (default_gadget). GADGET_SANDBAG is a RESERVED interim filler: it is intentionally NOT
 # in any class's gadget_options yet, so adding it here alone would not surface it — a later phase
 # wires it into specific class slots first.
-const IMPLEMENTED_GADGETS := [GADGET_C4, GADGET_HEAL, GADGET_AMMO, GADGET_RPG, GADGET_REPAIR, GADGET_BREACH]
+const IMPLEMENTED_GADGETS := [GADGET_C4, GADGET_HEAL, GADGET_AMMO, GADGET_RPG, GADGET_REPAIR, GADGET_BREACH, GADGET_STIM, GADGET_SMOKE_WALL]
 
 static func weapon_for(cls: int) -> int:
 	match cls:
