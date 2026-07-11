@@ -18,9 +18,11 @@ A player authenticates via Steam, is placed into a rating tier, and is matched (
 
 ## Specs required
 - [`docs/specs/anti-cheat-matchmaking.md`](../specs/anti-cheat-matchmaking.md) (written)
+- [`docs/specs/client-packaging-release-hardening.md`](../specs/client-packaging-release-hardening.md) (written) — client-side release hardening ([ADR-0010](../adr/0010-client-packaging-drm-hardening.md)): server-side Steam **ownership** validation, export hygiene (no secrets/server-only code in the client `.pck`), DTLS, wire/DoS hardening, PII retention. Pairs with this milestone's backend auth.
 - `docs/specs/backend-architecture.md` (service boundaries, datastore schema, deploy/ops) — brainstorm before coding
 
 ## Depends on / cross-milestone notes
 - **M5+**: server-side **input validation** (anti-cheat Layer 2), rules in `shared/`, covering vehicle inputs.
 - **M7**: **Steam auth (session tickets) + VAC** baseline, and **LOS culling** (Layer 3). M9's auth-gateway builds on M7's Steam auth.
 - **M4**: building/destruction should keep occlusion data queryable so M7 LOS culling is feasible (flagged dependency).
+- **Release hardening ([ADR-0010](../adr/0010-client-packaging-drm-hardening.md))**: the backend auth-gateway is the server side of ownership validation — clients never gate ownership locally (Goldberg-emulator resilient); the Steam Web API publisher key + match-report signing keys live in the backend, **never** in the client `.pck`; SteamID-keyed stats carry the PII/retention obligations (privacy policy, 90-day retention, deletion path).
