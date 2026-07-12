@@ -125,15 +125,18 @@ curl -sI  https://www.blockfire.cc/ | grep -i location   # -> https://blockfire.
   `blockfire.cc` + `*.blockfire.cc`, valid Jul 12 → Oct 10 2026; same cert on
   `stats.`. Chain verifies (`ssl_verify_result=0`). Site opens correctly in a
   browser (owner-confirmed).
-- **⚠️ Cloudflare managed challenge caveat:** a security setting (Bot Fight Mode
-  / managed challenge) challenges non-browser clients, so the `curl` checks above
-  return **`403` + `cf-mitigated: challenge`**, not `200` — this is expected and
-  does **not** indicate a cert/origin fault (the TLS handshake still succeeds).
-  Real browsers pass. To smoke-test the origin content itself, hit the game2
-  upstream directly: `curl -sI http://192.168.1.166:8080/` (bypasses the edge).
-  If you want unauthenticated crawlers/monitors to reach the marketing site,
-  relax the challenge for the apex in the Cloudflare dashboard (Security → Bots /
-  WAF) — owner's call; the DNS token here can't change security settings.
+- **Cloudflare bot challenge (tuned 2026-07-12):** the WAF now **allows verified
+  search crawlers** while still challenging generic non-browser clients:
+    - Verified **Googlebot / Bingbot** UA ⇒ `200` with the real page (confirmed
+      on `/`, `/contact/`, `/privacy/`, `/terms/`, `/sitemap.xml`) — indexing
+      path is clear.
+    - Plain `curl` / no-JS clients ⇒ `403` + `cf-mitigated: challenge` (by
+      design). So the bare `curl` checks above return `403`, **not** a
+      cert/origin fault — the TLS handshake still succeeds.
+  - To smoke-test edge content as a crawler:
+    `curl -sI -A "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)" https://blockfire.cc/`
+  - To smoke-test the origin directly (bypass the edge):
+    `curl -sI http://192.168.1.166:8080/`.
 
 ## Prod cutover (Phase 5 — when stacks move to unraid)
 
