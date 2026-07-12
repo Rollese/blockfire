@@ -70,3 +70,33 @@ async def test_ingest_match_defaults_untrusted(app_and_sessionmaker):
     async with sm() as s:
         row = (await s.execute(select(Match).where(Match.match_id == "m-u"))).scalar_one()
         assert row.trusted is False
+
+
+import time as _time
+from app.signing import compute_signature as _sig
+
+_SKEY_ID = "game2-dev-1"
+_SSECRET = "test-secret"
+
+
+def _sign_headers(body_bytes: bytes):
+    ts = int(_time.time())
+    return {"X-BF-Key-Id": _SKEY_ID, "X-BF-Timestamp": str(ts),
+            "X-BF-Signature": _sig(_SSECRET, _SKEY_ID, str(ts), body_bytes)}
+
+
+async def test_route_unsigned_match_is_accepted(client):
+    import json
+    raw = json.dumps(_trust_report("m-route-u").model_dump(mode="json")).encode()
+    r = await client.post("/ingest/match", content=raw,
+                          headers={"Content-Type": "application/json"})
+    assert r.status_code == 202  # unsigned accepted under default settings
+
+
+async def test_route_forged_match_rejected(client):
+    import json
+    raw = json.dumps(_trust_report("m-route-f").model_dump(mode="json")).encode()
+    h = _sign_headers(raw); h["X-BF-Signature"] = "0" * 64
+    h["Content-Type"] = "application/json"
+    r = await client.post("/ingest/match", content=raw, headers=h)
+    assert r.status_code == 401
