@@ -122,3 +122,22 @@ def test_match_has_trusted_column_default_false():
     assert col.nullable is False
     # default resolves to False for a freshly-constructed row
     assert Match().trusted in (False, None)  # server_default applies at flush
+
+
+async def test_player_rating_and_match_rated_roundtrip(sessionmaker_fixture):
+    import datetime as dt
+    from app.models import PlayerRating, Match
+    now = dt.datetime.now(dt.timezone.utc)
+    async with sessionmaker_fixture() as session:
+        session.add(PlayerRating(
+            player_key="name:Alpha", mu=27.5, sigma=6.1, ordinal=9.2,
+            tier="Silver", matches_rated=3, last_match_id="m1", updated_at=now))
+        session.add(Match(
+            match_id="m-rated", server_id="s", map="conquest_town", mode="conquest",
+            report_version=1, complete=True, ingested_at=now, trusted=True, rated=True))
+        await session.commit()
+    async with sessionmaker_fixture() as session:
+        r = await session.get(PlayerRating, "name:Alpha")
+        assert r.tier == "Silver" and r.matches_rated == 3
+        m = await session.get(Match, "m-rated")
+        assert m.rated is True
