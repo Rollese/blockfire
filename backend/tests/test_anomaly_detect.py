@@ -1,5 +1,7 @@
 import datetime as dt
+import statistics
 
+import pytest
 from sqlalchemy import func, select
 
 from app.anomaly import ANOMALY_DETECTOR_VERSION, detect_anomalies
@@ -87,7 +89,10 @@ async def test_population_and_egregious_outlier(app_and_sessionmaker):
         assert f.status == "open"
         assert f.severity == "high"
         assert f.context["population_median"] is not None
-        assert f.threshold >= f.context["absolute_floor"]
+        # 8 identical normals + 1 cheater -> MAD collapses to 0, so pop_thr sits
+        # at the (low) median and the absolute floor is the binding threshold.
+        assert f.threshold == f.context["absolute_floor"]
+        assert f.value >= f.threshold
         assert f.detector_version == ANOMALY_DETECTOR_VERSION
 
     # A normal profile has zero flags.
@@ -138,6 +143,8 @@ async def test_idempotent_rescan(app_and_sessionmaker):
     async with sm() as s:
         await detect_anomalies(s, _settings(), now=NOW)
     count1 = await _count(sm)
+    kd_id_before = [f for f in await _flags_for(sm, "name:CHEAT")
+                    if f.metric == "kd"][0].flag_id
 
     later = NOW + dt.timedelta(hours=6)
     async with sm() as s:
@@ -149,6 +156,7 @@ async def test_idempotent_rescan(app_and_sessionmaker):
     kd = [f for f in await _flags_for(sm, "name:CHEAT") if f.metric == "kd"][0]
     assert kd.created_at == NOW
     assert kd.last_seen_at == later
+    assert kd.flag_id == kd_id_before  # in-place update, not delete+reinsert
 
 
 async def test_no_resurrection_of_triaged_flag(app_and_sessionmaker):
@@ -182,6 +190,82 @@ async def test_empty_db(app_and_sessionmaker):
         n = await detect_anomalies(s, _settings(), now=NOW)
     assert n == 0
     assert await _count(sm) == 0
+
+
+async def test_mad_population_threshold_drives_flagging(app_and_sessionmaker):
+    """A DISPERSED population must push the effective threshold ABOVE the floor
+    via median + k*1.4826*MAD, and that computed threshold — not the floor — must
+    be the binding constraint. Guards the MAD formula against regressions
+    (dropped 1.4826, wrong sign, MAD-vs-mean, etc.). Uses hit_rate so `value`
+    is set directly via overall_hit_rate.
+    """
+    _, sm = app_and_sessionmaker
+    st = _settings()
+    # 7 qualifying profiles (>= anomaly_min_population=5), all shots>=100.
+    # Spread is tuned so pop_thr lands ABOVE the floor (0.55) and the outlier
+    # (0.70) clears it while the "between" player (0.58 > floor) does not.
+    hit_rates = {
+        "name:C0": 0.30, "name:C1": 0.32, "name:C2": 0.35,
+        "name:C3": 0.38, "name:C4": 0.40,
+        "name:BETWEEN": 0.58,   # above floor 0.55, below pop_thr -> NOT flagged
+        "name:OUT": 0.70,       # above pop_thr -> flagged
+    }
+    rows = [_profile(k, shots=200, hits=0, hit_rate=v) for k, v in hit_rates.items()]
+    await _add(sm, *rows)
+
+    async with sm() as s:
+        await detect_anomalies(s, st, now=NOW)
+
+    # Independently reproduce the population statistic the same way the code does.
+    values = sorted(hit_rates.values())
+    med = statistics.median(values)
+    mad = statistics.median([abs(v - med) for v in values])
+    pop_thr = med + st.anomaly_mad_k * 1.4826 * mad
+    effective = max(st.anomaly_hit_rate_floor, pop_thr)
+    # Sanity: the population statistic must have tightened above the floor.
+    assert pop_thr > st.anomaly_hit_rate_floor
+
+    # Outlier IS flagged, at the population-derived threshold (not the floor).
+    out = [f for f in await _flags_for(sm, "name:OUT") if f.metric == "hit_rate"]
+    assert len(out) == 1
+    assert out[0].threshold == pytest.approx(effective, abs=1e-4)
+    assert out[0].threshold > st.anomaly_hit_rate_floor
+    assert out[0].context["population_median"] == pytest.approx(round(med, 4), abs=1e-4)
+    assert out[0].context["population_mad"] == pytest.approx(round(mad, 4), abs=1e-4)
+
+    # Player above the FLOOR but below the (higher) pop_thr is NOT flagged —
+    # proving the population stat, not the floor, drew the line.
+    assert 0.58 > st.anomaly_hit_rate_floor  # would be flagged on a floor-only path
+    between = [f for f in await _flags_for(sm, "name:BETWEEN") if f.metric == "hit_rate"]
+    assert between == []
+
+
+async def test_severity_med_and_low_branches(app_and_sessionmaker):
+    """Exercise the med ([1.2,1.5)) and low ((1.0,1.2)) severity branches.
+    Only 2 qualifying profiles (< anomaly_min_population) so the floor (0.55) is
+    the effective threshold, making value/effective easy to pin.
+    """
+    _, sm = app_and_sessionmaker
+    st = _settings()
+    floor = st.anomaly_hit_rate_floor  # 0.55
+    med_val = 0.70   # 0.70/0.55 = 1.27 -> "med"
+    low_val = 0.58   # 0.58/0.55 = 1.05 -> "low"
+    await _add(
+        sm,
+        _profile("name:MED", shots=200, hit_rate=med_val),
+        _profile("name:LOW", shots=200, hit_rate=low_val),
+    )
+
+    async with sm() as s:
+        await detect_anomalies(s, st, now=NOW)
+
+    medf = [f for f in await _flags_for(sm, "name:MED") if f.metric == "hit_rate"][0]
+    lowf = [f for f in await _flags_for(sm, "name:LOW") if f.metric == "hit_rate"][0]
+    assert medf.threshold == floor and lowf.threshold == floor
+    assert 1.2 <= med_val / floor < 1.5
+    assert 1.0 < low_val / floor < 1.2
+    assert medf.severity == "med"
+    assert lowf.severity == "low"
 
 
 async def test_detector_version_agrees_with_model_default(app_and_sessionmaker):
