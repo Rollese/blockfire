@@ -135,6 +135,15 @@ Given that, a **server-side nonce store is YAGNI for P1** and is explicitly defe
 idempotency neutralizes replay of identical bodies, and body-binding prevents altered
 replays. Revisit if a future phase ingests non-idempotent, rating-affecting side effects.
 
+**Trust is monotonic under re-POST.** `/ingest/match` is an idempotent upsert, so a bearer-token
+holder could re-POST an existing `match_id` *unsigned* and would otherwise flip a previously
+`trusted=true` match to `false`, evicting it from rating. `ingest_match_report` therefore sets
+`trusted = new OR existing` — trust only ever moves up, never down. NDJSON replay re-POSTs the
+identical signed report (still `trusted=true`), so this never blocks a legit flow; correcting an
+erroneously-trusted match is an admin/DB action, not an ingest path. (Prod `REQUIRE_SIGNED_INGEST`
+already 401s the unsigned re-POST before it reaches this code; monotonicity is defense-in-depth
+for the default mode.)
+
 ## 5. Trust tiers & backward compatibility
 
 `matches.trusted` (new `BOOLEAN NOT NULL DEFAULT FALSE`) is the durable output. Behavior is

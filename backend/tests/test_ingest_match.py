@@ -100,3 +100,16 @@ async def test_route_forged_match_rejected(client):
     h["Content-Type"] = "application/json"
     r = await client.post("/ingest/match", content=raw, headers=h)
     assert r.status_code == 401
+
+
+async def test_ingest_match_trust_is_monotonic(app_and_sessionmaker):
+    # A signed report marks the match trusted; a later UNSIGNED re-POST (trusted
+    # defaults False) must NOT downgrade it — trust is monotonic (ADR-0011).
+    _, sm = app_and_sessionmaker
+    async with sm() as s:
+        await ingest_match_report(s, _trust_report("m-mono"), trusted=True)
+    async with sm() as s:
+        await ingest_match_report(s, _trust_report("m-mono"))  # unsigned re-post
+    async with sm() as s:
+        row = (await s.execute(select(Match).where(Match.match_id == "m-mono"))).scalar_one()
+        assert row.trusted is True
