@@ -645,6 +645,121 @@ func maybe_smoke_wall(bot: Dictionary, me: EntityState, target: EntityState, obj
 	bot["smoke_wall_last_tick"] = st
 	bot["smoke_walls_placed"] = int(bot.get("smoke_walls_placed", 0)) + 1
 
+## M19 P4 Task 14: SUPPORT LMG-nest exerciser — DEPLOY + MOUNT (a mounted gunner is handled early in
+## bot_driver by drive_mounted_nest, so this only ever runs while NOT seated). Self-gates on
+## GADGET_LMG_NEST (~1/3 of Support bots). Priority: (1) a friendly, unoccupied nest already within
+## mount range -> request the seat, retry-gated exactly like the vehicle board (seating is confirmed by
+## the next SELF_STATE, never latched on the send); (2) else, no friendly nest nearby AND enemies
+## roughly ahead (reuse `target`) -> deploy one a few metres ahead along the facing, cadence-gated so a
+## Support drops a nest occasionally, never spamming (mirrors the BREACH/SMOKE_WALL restraint). The
+## server independently validates gadget/separation (deploy) and team/range/occupancy (mount), so any
+## rejected request is harmless.
+func maybe_lmg_nest(bot: Dictionary, me: EntityState, target: EntityState) -> void:
+	if Loadout.bot_gadget(int(bot["id"]), int(bot["class"])) != Loadout.GADGET_LMG_NEST: return
+	var nests: Array = bot.get("nests", [])
+	var st: int = bot["server_tick"]
+	# (1) Mount a friendly, unoccupied nest already within reach — takes priority over redeploying.
+	var mount_id := nearest_mountable_nest(nests, me.pos, int(me.team), d.LMG_NEST_MOUNT_RANGE)
+	if mount_id != 0:
+		if st - int(bot.get("lmg_mount_last_tick", -100000)) >= d.LMG_MOUNT_RETRY_TICKS:
+			(bot["net"] as NetHost).send_to(bot["peer"], NetHost.CHANNEL_INPUT,
+				Protocol.encode_emplacement_action(Protocol.EA_MOUNT, mount_id), 0)
+			bot["lmg_mount_last_tick"] = st
+		return
+	# (2) Deploy: only with enemies ahead, no friendly nest already nearby, and the cadence elapsed.
+	if target == null: return
+	if has_friendly_nest_near(nests, me.pos, int(me.team), d.LMG_NEST_NEAR_RADIUS): return
+	if st - int(bot.get("lmg_deploy_last_tick", -100000)) < d.LMG_NEST_DEPLOY_COOLDOWN_TICKS: return
+	var to := Vector3(target.pos.x - me.pos.x, 0.0, target.pos.z - me.pos.z)
+	if to.length() < 0.001: return
+	var face := to.normalized()   # aim the traverse arc at the threat
+	var ahead: float = d.LMG_NEST_DEPLOY_AHEAD
+	var place := me.pos + face * ahead
+	(bot["net"] as NetHost).send_to(bot["peer"], NetHost.CHANNEL_INPUT,
+		Protocol.encode_gadget_action(Protocol.GA_LMG_DEPLOY, place, face, 0), 0)
+	bot["lmg_deploy_last_tick"] = st
+
+## M19 P4 Task 14: drive a bot that is MANNING an LMG nest (SELF_STATE mounted_nest != 0). The pawn is
+## seat-locked server-side, so movement is ignored — we only aim at the nearest live enemy and hold fire
+## while it lies within the traverse arc (step_occupants clamps our yaw; step_fire meters belt/heat, so a
+## continuous hold is correct — no burst/reload cadence). When no live target has been seen for
+## LMG_NEST_DISMOUNT_NOTARGET_TICKS, DISMOUNT and rejoin the push. Self-contained: aims + _sends.
+func drive_mounted_nest(bot: Dictionary, me: EntityState) -> void:
+	var mounted: int = int((bot.get("self_state", {}) as Dictionary).get("mounted_nest", 0))
+	var st: int = bot["server_tick"]
+	# Nearest live enemy — same rule as bot_driver's target pick (skip self/teammates/dead/downed).
+	var view: Dictionary = bot["view"]
+	var target: EntityState = null
+	var best := INF
+	for id in view:
+		if int(id) == int(bot["id"]): continue
+		var e: EntityState = view[id]
+		if not e.alive or e.is_downed or e.team == me.team: continue
+		var dist := me.pos.distance_to(e.pos)
+		if dist < best:
+			best = dist; target = e
+	var buttons := 0
+	if target != null:
+		bot["lmg_notarget_since"] = -1
+		var aim := target.pos - me.pos
+		var desired_yaw := atan2(aim.x, aim.z)
+		bot["yaw"] = desired_yaw
+		bot["pitch"] = clampf(asin(clampf(aim.y / maxf(aim.length(), 0.001), -1.0, 1.0)), -Pawn.MAX_PITCH, Pawn.MAX_PITCH)
+		# Only open fire when the enemy is roughly within the traverse arc — a target behind the nest
+		# just pins the turret at the arc edge and wastes the belt. Facing comes from our nest mirror.
+		var facing := mounted_nest_facing(bot.get("nests", []), mounted)
+		var in_arc: bool = is_nan(facing) or absf(Emplacement.ang_diff(desired_yaw, facing)) <= d.LMG_NEST_FIRE_ARC
+		if in_arc:
+			buttons |= InputCommand.BTN_FIRE   # server heat/belt/overheat + arc-clamp gate the actual rounds
+	else:
+		# No target — after a grace window, leave the seat so the bot rejoins the objective push.
+		var since := int(bot.get("lmg_notarget_since", -1))
+		if since < 0:
+			bot["lmg_notarget_since"] = st
+			since = st
+		if st - since >= d.LMG_NEST_DISMOUNT_NOTARGET_TICKS:
+			(bot["net"] as NetHost).send_to(bot["peer"], NetHost.CHANNEL_INPUT,
+				Protocol.encode_emplacement_action(Protocol.EA_DISMOUNT, mounted), 0)
+			bot["lmg_notarget_since"] = -1
+	d._send(bot, 0.0, 0.0, bot["yaw"], bot["pitch"], buttons)
+
+## Seat-world of a decoded EMPLACEMENT_LIST record — mirrors Emplacement.seat_world (the gunner sits
+## SEAT_BACK behind the pivot). Pure: mount range is measured to the SEAT server-side (can_mount), so the
+## bot must too, or it would think it's in range while the seat is still a body-length away.
+static func nest_seat_world(n: Dictionary) -> Vector3:
+	var f: float = float(n.get("facing_yaw", 0.0))
+	return (n["pos"] as Vector3) - Vector3(sin(f), 0.0, cos(f)) * Emplacement.SEAT_BACK
+
+## Nearest friendly, alive, UNOCCUPIED nest whose SEAT is within `range_m` of `pos`, else 0. Pure.
+static func nearest_mountable_nest(nests: Array, pos: Vector3, team: int, range_m: float) -> int:
+	var best := 0
+	var best_d := range_m
+	for n in nests:
+		if int(n.get("team", -1)) != team: continue
+		if int(n.get("occupant", 0)) != 0: continue
+		if float(n.get("hp_frac", 0.0)) <= 0.0: continue
+		var dist := pos.distance_to(nest_seat_world(n))
+		if dist <= best_d:
+			best_d = dist; best = int(n["id"])
+	return best
+
+## True if any friendly, alive nest's PIVOT is within `radius` of `pos` — the redeploy suppressor
+## (don't drop a second nest on top of your own). Pure.
+static func has_friendly_nest_near(nests: Array, pos: Vector3, team: int, radius: float) -> bool:
+	for n in nests:
+		if int(n.get("team", -1)) != team: continue
+		if float(n.get("hp_frac", 0.0)) <= 0.0: continue
+		if pos.distance_to(n["pos"] as Vector3) <= radius: return true
+	return false
+
+## facing_yaw of the nest with `nest_id` in the mirror, or NAN when it isn't in the list (destroyed /
+## not yet synced) — the caller treats NAN as "fire freely" (no arc info to gate on). Pure.
+static func mounted_nest_facing(nests: Array, nest_id: int) -> float:
+	for n in nests:
+		if int(n.get("id", 0)) == nest_id:
+			return float(n.get("facing_yaw", 0.0))
+	return NAN
+
 const GIVE_RANGE := 3.0
 
 ## Pure give-target pick: nearest same-team mate within GIVE_RANGE that is alive,

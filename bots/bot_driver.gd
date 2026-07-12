@@ -73,6 +73,22 @@ const BOARD_RETRY_TICKS := 30         # min ticks between VA_ENTER attempts whil
 const BOARD_MAX_TRIES := 3            # rejected boards of one hull before we blacklist it and fight on foot
 const BOARD_BLACKLIST_TICKS := 600    # ~20s a refused hull stays ignored
 
+# M19 P4 Task 14: SUPPORT LMG-nest exerciser (bots/exercisers.gd maybe_lmg_nest + drive_mounted_nest).
+# ~1/3 of Support bots roll GADGET_LMG_NEST (Loadout.bot_gadget id%3==1), so the fleet gate exercises
+# the deploy -> mount -> fire -> dismount loop. DEPLOY is cadence-gated (a Support drops a nest
+# occasionally when facing enemies — never spam, mirroring the BREACH/SMOKE_WALL restraint), MOUNT is
+# retry-gated like the vehicle board, and a mounted gunner is seat-locked so it only aims + holds fire.
+const LMG_NEST_DEPLOY_COOLDOWN_TICKS := 900   # ~30 s @30Hz between deploy attempts (occasional, not per-tick)
+const LMG_NEST_DEPLOY_AHEAD := 2.5            # m ahead of facing to place it (seat ends ~1.9 m ahead — walkable into mount range)
+const LMG_NEST_NEAR_RADIUS := 6.0             # m — a friendly nest this close means "use it / don't redeploy"
+const LMG_NEST_MOUNT_RANGE := 1.6             # m — must match data/gadgets.json lmgnest.mount_range_m (mount seek == server gate)
+const LMG_MOUNT_RETRY_TICKS := 30             # min ticks between EA_MOUNT attempts (mirrors BOARD_RETRY_TICKS)
+const LMG_NEST_DISMOUNT_NOTARGET_TICKS := 150 # ~5 s with no live target -> dismount and rejoin the push
+const LMG_NEST_FIRE_ARC := deg_to_rad(45)     # rad — MUST match data/gadgets.json lmgnest.half_arc_deg: the
+                                              # server pins the turret to ±half_arc (Emplacement.clamp_yaw) and
+                                              # fires along that clamped yaw, so a target beyond it is unhittable —
+                                              # opening fire there just wastes the belt at the arc edge.
+
 ## M15: bot-only slope-avoidance (NOT pathfinding, NOT sim-authoritative — the server still
 ## authoritatively clips a bot's movement via Terrain.resolve_movement exactly like a human; see
 ## shared/sim/sim_loop.gd). A too-steep hill otherwise sticks a bot's AI in place forever since it
@@ -248,6 +264,11 @@ func _spawn_bot(index: int) -> void:
 		# since it alters LOS and must stay rare across the whole match, not per life.
 		"stim_last_tick": -100000,
 		"smoke_wall_last_tick": -100000, "smoke_walls_placed": 0,
+		# M19 P4 Task 14: LMG-nest mirror + exerciser cadence state. `nests` is the wholesale
+		# EMPLACEMENT_LIST mirror (refreshed each tick like `gadgets`); the *_tick fields pace deploy /
+		# mount (persist across lives — they are cooldowns, not per-life caps); `lmg_notarget_since`
+		# tracks how long a mounted gunner has lacked a target (dismount trigger), reset on death.
+		"nests": [], "lmg_deploy_last_tick": -100000, "lmg_mount_last_tick": -100000, "lmg_notarget_since": -1,
 		# M7.5-P3 support mirrors + latches: SELF_STATE dict, GADGET_LIST wholesale mirror,
 		# GRENADE_FX landing ring; reviving_id = active REVIVE_ACTION latch,
 		# last_bag_tick = needs-driven bag-deploy cooldown.
@@ -285,6 +306,7 @@ func _reconnect(bot: Dictionary) -> void:
 	bot["vveh_track"] = {}
 	bot["structs"] = {}
 	bot["gadgets"] = []
+	bot["nests"] = []   # M19 P4: stale nest mirror — the next match rebuilds it from EMPLACEMENT_LIST
 	bot["grenade_events"] = []
 	bot["self_state"] = {}
 	bot["last_seq"] = 0
@@ -343,6 +365,7 @@ func _drive(bot: Dictionary, delta: float) -> void:
 		bot["mine_placed"] = false
 		bot["struct_repairing"] = false   # server drops the latch on death (step_repairs); mirror it
 		bot["stim_last_tick"] = -100000   # M19 P2b Task 7: fresh life = fresh 3-charge stim pool
+		bot["lmg_notarget_since"] = -1    # M19 P4: server drops the seat on death; re-arm the dismount timer
 		bot["in_vehicle"] = 0
 		bot["fire_mode_set"] = false
 		bot["has_build"] = false   # shovel-driller: drop any stale build-commit cell from the past life
@@ -366,6 +389,15 @@ func _drive(bot: Dictionary, delta: float) -> void:
 			(bot["net"] as NetHost).send_to(bot["peer"], NetHost.CHANNEL_CONTROL,
 				Protocol.encode_give_up(), ENetPacketPeer.FLAG_RELIABLE)
 		_send(bot, 0.0, 0.0, bot["yaw"], 0.0, 0)
+		return
+
+	# M19 P4 Task 14: a bot MANNING an LMG nest (SELF_STATE mounted_nest != 0) is seat-locked
+	# server-side — movement input is ignored, so handle it early like the CREW block below and never
+	# entangle the normal move/combat/exerciser pipeline. drive_mounted_nest aims at the nearest enemy,
+	# holds fire while one is within the arc, and dismounts once the fight is over. self_state is the
+	# authoritative seat signal (the server clears mounted_nest on eject/death), never latched locally.
+	if int((bot.get("self_state", {}) as Dictionary).get("mounted_nest", 0)) != 0:
+		_ex.drive_mounted_nest(bot, me)
 		return
 
 	var role: int = BotRolesRef.of(int(bot["index"]))
@@ -608,6 +640,7 @@ func _drive(bot: Dictionary, delta: float) -> void:
 	_ex.maybe_breach(bot, me, obj)        # M19 P2b Task 6: self-gates on bot_gadget == GADGET_BREACH
 	_ex.maybe_stim(bot, me, target)            # M19 P2b Task 7: self-gates on bot_gadget == GADGET_STIM
 	_ex.maybe_smoke_wall(bot, me, target, obj) # M19 P2b Task 7: self-gates on bot_gadget == GADGET_SMOKE_WALL
+	_ex.maybe_lmg_nest(bot, me, target)        # M19 P4 Task 14: self-gates on bot_gadget == GADGET_LMG_NEST (deploy/mount; manning handled early above)
 	_ex.maybe_give(bot, me, target != null)
 	_maybe_deploy_bag(bot, me)
 	_ex.maybe_weapon_handling(bot, me)
@@ -755,6 +788,10 @@ func _on_packet(bot: Dictionary, bytes: PackedByteArray) -> void:
 			# Authoritative deployed-gadget list (mines/bags/C4) — replace wholesale, exactly
 			# like the client's consumption pattern (no per-removal bookkeeping needed).
 			bot["gadgets"] = Protocol.decode_gadget_list(bytes)
+		Protocol.Msg.EMPLACEMENT_LIST:
+			# M19 P4: authoritative deployed LMG-nest list — replace wholesale (self-healing render
+			# list), same pattern as GADGET_LIST. Feeds maybe_lmg_nest (mount/redeploy decisions).
+			bot["nests"] = Protocol.decode_emplacement_list(bytes)
 		Protocol.Msg.GRENADE_FX:
 			# A remote pawn threw a grenade: stamp a flat GRENADE_LANDING_EST-ahead landing
 			# estimate into a small ring; AiSupport.danger_zones expires entries by tick.
