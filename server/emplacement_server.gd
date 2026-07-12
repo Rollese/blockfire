@@ -145,6 +145,44 @@ func step_fire() -> void:
 		var dir := Combat._forward(e.turret_yaw, e.pitch)
 		srv._fire.emplacement_hitscan(e.occupant, e.team, origin, dir, dmg, rng, supp)
 
+const DESTROY_BLAST_DMG := 60   # knock-off blast a manned nest's destruction deals its gunner
+
+# v1 destruction vectors = explosives (via _blast_at) + the exposed gunner (normal pawn fire).
+# DEFERRED: bullet-ray-chip in ServerFire.step_projectiles and sledgehammer-vs-nest — damage() is
+# ready for both; only the ray/melee integration is unbuilt. The gunner being killable already makes
+# a manned nest counterable by direct fire.
+
+## Apply `amount` damage to a nest by id (explosives route here via splash(); the future bullet/sledge
+## paths will call this too). On death, EJECT the gunner (clear the seat binding) and, if it was manned,
+## deal a knock-off blast so destroying a manned nest punishes the gunner. `attacker_id` credits it.
+## The next EMPLACEMENT_LIST self-heals the removed entity on clients (build_list skips dead nests).
+func damage(nest_id: int, amount: int, attacker_id: int) -> void:
+	var e: Emplacement = nests.get(nest_id)
+	if e == null or not e.alive: return
+	var occ := e.occupant
+	e.hit(amount, srv._sim.tick)   # floors hp; on death sets alive=false, occupant=0
+	if not e.alive and occ != 0:
+		var p: Pawn = srv._sim.world.get_pawn(occ)
+		if p != null:
+			p.mounted_nest = 0                       # always eject
+			# punish only a still-living gunner: the direct pawn-splash in _blast_at runs BEFORE this and
+			# may already have killed the gunner (pos == seat == blast centre); re-hitting a dead pawn would
+			# double the kill cascade. Mirror _destroy_vehicle's `p.alive` guard.
+			if p.alive:
+				# real signature: _apply_pawn_damage(vid, victim:Pawn, dmg, headshot, source, killer_id, weapon_id)
+				srv._apply_pawn_damage(occ, p, DESTROY_BLAST_DMG, false, Revive.Source.BLAST, attacker_id, 0)
+
+## Radius damage from an explosion centre. `base_dmg`/`radius` are the explosion's pawn-damage + radius;
+## nests take the explosive `pawn_dmg` splash from any ENEMY explosive (frag/RPG/C4/mine); friendly fire
+## is off (same-team nests are skipped, matching _blast_at's pawn/vehicle sweeps).
+func splash(center: Vector3, base_dmg: int, radius: float, attacker_id: int, team: int) -> void:
+	for eid in nests.keys():
+		var e: Emplacement = nests[eid]
+		if not e.alive or e.team == team: continue
+		var d := Grenade.falloff_damage(center, e.pos, base_dmg, radius)
+		if d > 0:
+			damage(eid, d, attacker_id)
+
 func clear() -> void:
 	nests.clear()
 	_next_index = 0

@@ -2127,6 +2127,9 @@ func _blast_at(center: Vector3, owner: int, team: int, pawn_dmg: int, pawn_radiu
 			var vd := Grenade.falloff_damage(center, v.pos, veh_dmg, pawn_radius)
 			if vd > 0:
 				_damage_vehicle(vid, v, vd, owner)
+	# M19 P4: destructible LMG nests take an explosive pawn_dmg splash from any ENEMY explosive (all
+	# explosives route through _blast_at); friendly fire is off (same-team nests skipped, like the sweeps).
+	_emplacements.splash(center, pawn_dmg, pawn_radius, owner, team)
 	return hits
 
 func _damage_vehicle(vid: int, v: Vehicle, amount: int, killer_id: int) -> void:

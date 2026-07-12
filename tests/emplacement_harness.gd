@@ -58,6 +58,15 @@ func first_nest_id() -> int:
 	var e := first_nest()
 	return e.id if e != null else 0
 
+func nest(id: int) -> Emplacement:
+	return emp.nests.get(id)   # returns even a DEAD nest (so tests can inspect it after destruction)
+
+func explode_at(center: Vector3, base_dmg: int, radius: float, team := 0) -> void:
+	emp.splash(center, base_dmg, radius, 99, team)   # 99 = stand-in attacker id; team 0 = enemy (nest is team 1)
+
+func bullet_hit_nest(nest_id: int, dmg: int) -> void:
+	emp.damage(nest_id, dmg, 99)
+
 func move_pawn_to(pos: Vector3) -> void:
 	support_pawn().pos = pos
 
