@@ -37,7 +37,7 @@ curl -s -H "Authorization: Bearer $CADDY_TOKEN" \
 `"count":1` ⇒ good. `"count":0` ⇒ add blockfire.cc to that token (dashboard → API
 Tokens → edit → Zone Resources), no Caddy restart needed.
 
-- **Result:** _pending owner confirmation._
+- **Result:** ✅ `count:1` (owner-confirmed 2026-07-12) — edge Caddy token can issue for blockfire.cc.
 
 ## DNS records (Cloudflare)
 
