@@ -50,10 +50,12 @@ blockfire.cc).
 | `blockfire.cc` | A | `178.174.157.185` | proxied | marketing site | ✅ created |
 | `www.blockfire.cc` | A | `178.174.157.185` | proxied | www→apex redirect | ✅ created |
 | `stats.blockfire.cc` | A | `178.174.157.185` | proxied | M20 stats | ✅ created |
-| `blockfire.cc` | MX | `mail.rolandot.com` (pri 10) | DNS-only | email | ⬜ Phase 4 |
-| `blockfire.cc` | TXT | `v=spf1 mx -all` | DNS-only | SPF | ⬜ Phase 4 |
-| `mail._domainkey.blockfire.cc` | TXT | `v=DKIM1; ...` (from VPS keygen) | DNS-only | DKIM | ⬜ Phase 4 |
-| `_dmarc.blockfire.cc` | TXT | `v=DMARC1; p=quarantine; rua=mailto:postmaster@blockfire.cc; adkim=s; aspf=s` | DNS-only | DMARC | ⬜ Phase 4 |
+| `blockfire.cc` | MX | `mail.rolandot.com` (pri 10) | DNS-only | email | ✅ created |
+| `blockfire.cc` | TXT | `v=spf1 mx -all` | DNS-only | SPF | ✅ created |
+| `mail._domainkey.blockfire.cc` | TXT | `v=DKIM1; h=sha256; k=rsa; p=MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8A...AQAB` (selector `mail`, OpenDKIM 2048-bit) | DNS-only | DKIM | ✅ created |
+| `_dmarc.blockfire.cc` | TXT | `v=DMARC1; p=quarantine; rua=mailto:postmaster@blockfire.cc; adkim=s; aspf=s` | DNS-only | DMARC | ✅ created |
+
+**Email account:** `hello@blockfire.cc` (mailbox) + catch-all alias `@blockfire.cc → hello@blockfire.cc` on the VPS docker-mailserver. Password in `/home/roland/.bf_mail_hello_pw` (game2, chmod 600) — move to the owner's password manager. DKIM selector `mail`, key at `/srv/docker-mailserver/docker-data/dms/config/opendkim/keys/blockfire.cc/mail.txt`.
 
 ## Edge Caddy blocks (owner applies to the live unraid Caddyfile)
 
