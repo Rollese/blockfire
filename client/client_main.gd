@@ -144,6 +144,8 @@ var _smoke_test := false            # --smoke-test: pop a smoke cloud in front o
 var _grenade_test := false          # --grenade-test: lob cosmetic grenades across the view (visual QA)
 var _gadget_test := false           # --gadget-test: place sample deployed gadgets in view (visual QA)
 var _gadget_bytes := PackedByteArray()   # last GADGET_LIST bytes — skip the rebuild on an unchanged heartbeat
+var _emplacement_bytes := PackedByteArray()  # last EMPLACEMENT_LIST bytes — skip the rebuild on an unchanged tick
+var _emplacements: Array = []            # M19 P4: last decoded LMG-nest list (mount targeting / debug)
 var _support_bytes := PackedByteArray()  # last SUPPORT_LIST bytes — skip the rebuild on an unchanged heartbeat
 var _downed_bytes := PackedByteArray()   # last DOWNED_LIST bytes — skip the rebuild on an unchanged heartbeat
 var _fob_bytes := PackedByteArray()      # last FOB_LIST bytes — skip rework on an unchanged heartbeat
@@ -1355,6 +1357,12 @@ func _on_packet(_from: ENetPacketPeer, _channel: int, bytes: PackedByteArray) ->
 				if _renderer != null:
 					# Pass our team so the renderer draws each supply bag's resupply/heal ring friendly-only.
 					_renderer.set_gadgets(Protocol.decode_gadget_list(bytes), _local_team())
+		Protocol.Msg.EMPLACEMENT_LIST:
+			if bytes != _emplacement_bytes:
+				_emplacement_bytes = bytes   # skip the rebuild on an unchanged tick
+				_emplacements = Protocol.decode_emplacement_list(bytes)
+				if _renderer != null:
+					_renderer.set_emplacements(_emplacements, _local_team())
 		Protocol.Msg.SUPPORT_LIST:
 			if bytes != _support_bytes:
 				_support_bytes = bytes   # skip the rebuild on an unchanged 1 Hz heartbeat

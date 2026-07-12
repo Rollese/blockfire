@@ -273,6 +273,14 @@ const CLIMB_PITCH := 0.32        # rad (~18°) forward lean of a figure climbing
 # active vehicle nodes: vid(int) -> Node3D (VehicleKit transport; VehicleState carries no team)
 var _vehicle_active: Dictionary = {}
 var _vehicle_free_list: Array = []
+# M19 P4: deployed LMG nests. Identity-keyed pool (nest id -> LmgNestKit root) so a manned nest's
+# frequently-changing turret_yaw re-poses the same node (barrel pivot) instead of rebuilding meshes.
+var _emplacement_active: Dictionary = {}   # nest id(int) -> Node3D
+var _emplacements: Array = []              # last decoded nest list (drives the manned-gunner pose)
+var _manned_ids: Dictionary = {}           # gunner pawn id(int) -> {facing, turret}; posed crouched at the gun
+const NEST_CROUCH_PITCH := 0.30            # rad forward hunch of a gunner leaning over the mounted gun
+const NEST_CROUCH_SCALE := 0.66            # crouched silhouette (shorter than a standing figure)
+const NEST_CROUCH_DROP := 0.05             # small settle onto the gun (kneeling), keeps feet near ground
 const VEHICLE_SMOOTH_RATE := 16.0                # higher = snappier; ~1/e catch-up in ~60 ms
 var _wreck_mat: StandardMaterial3D = null        # shared burnt-out material for destroyed vehicles
 const _WRECK_DEMO_VID := -424242                 # synthetic vid for the --vehicle-test wreck
@@ -909,6 +917,10 @@ func update(world_view: WorldView, predictor: Prediction, now: float, fov: float
 	# Occupant map (pawn id -> seat/heading) so _pose_entity can seat riders instead of standing them
 	# upright at the seat. Cross-referenced from the already-replicated VehicleState.seats — no wire.
 	_seated_ids = SeatPose.occupants(world_view.vehicles())
+	# Manned-nest gunners (M19 P4): pawn id -> nest facing/turret yaw, from the cached EMPLACEMENT_LIST.
+	# Cross-referenced from the replicated nest occupant field — no wire change; poses the gunner crouched
+	# at the gun instead of standing upright through the mount.
+	_manned_ids = _nest_occupants(_emplacements)
 	_sync_entity_pool(remotes, local_team, render_delta, now)
 
 	# 1b. Support-link beams (heal/ammo/repair/revive) — resolve giver/target by id from the same
@@ -2345,6 +2357,19 @@ func _pose_entity(id: int, node: Node3D, es: EntityState, render_delta: float) -
 		node.scale = Vector3(1.0, SeatPose.SIT_HEIGHT_SCALE, 1.0)
 		return
 
+	if _manned_ids.has(id):
+		# Manning an LMG nest (M19 P4): hunch the gunner crouched over the mounted gun, oriented to the
+		# turret aim so the body faces where the barrel points. Crouched (shorter) silhouette + slight
+		# forward pitch lean; distinct from the reclined vehicle-seat pose. Cross-referenced from the
+		# nest occupant field (no wire change). Wins over airborne/climb inference like the seated branch.
+		var gyaw: float = float((_manned_ids[id] as Dictionary)["turret"])
+		var gb := Basis.IDENTITY.rotated(Vector3.UP, gyaw)
+		gb = gb.rotated(gb.x, NEST_CROUCH_PITCH)   # +X pitch = forward lean over the gun (prone/climb sign)
+		node.position = Vector3(es.pos.x, es.pos.y - NEST_CROUCH_DROP, es.pos.z)
+		node.transform.basis = gb
+		node.scale = Vector3(1.0, NEST_CROUCH_SCALE, 1.0)
+		return
+
 	if es.climbing:
 		# On a ladder: lean the figure forward toward the rungs so it doesn't read as standing/floating
 		# upright while it slides up. Pitch about the feet (node origin), keeping the stance height scale.
@@ -3435,6 +3460,83 @@ func _make_vehicle_mesh() -> Node3D:
 	# Neutral transport — VehicleState carries no team field on the wire, so build with the
 	# neutral tint (team -1 -> ArtPalette neutral). Forward = +Z, matches heading yaw.
 	return VehicleKit.build("transport", -1)
+
+
+# =============================================================================
+#  LMG-nest pool (M19 P4) — identity-keyed, so a manned nest's changing turret_yaw re-poses the
+#  same node's "Barrel" pivot instead of the free-and-rebuild set_gadgets style. Self-heals off the
+#  authoritative EMPLACEMENT_LIST: nests missing from the list are freed. View-only (AGENTS.md §7).
+# =============================================================================
+func set_emplacements(list: Array, local_team: int = -1) -> void:
+	# local_team is accepted for signature parity with set_gadgets (friend/foe tint could key off it
+	# later); nests already carry their own team on the wire, so it is unused today.
+	_emplacements = list
+	# Release nodes whose nest id left the view.
+	var seen: Dictionary = {}
+	for e: Dictionary in list:
+		seen[int(e["id"])] = true
+	var to_free: Array = []
+	for nid: int in _emplacement_active:
+		if not seen.has(nid):
+			to_free.append(nid)
+	for nid: int in to_free:
+		(_emplacement_active[nid] as Node3D).queue_free()
+		_emplacement_active.erase(nid)
+	# Acquire / pose each visible nest.
+	for e: Dictionary in list:
+		var nid: int = int(e["id"])
+		var pos: Vector3 = e["pos"]
+		if not pos.is_finite():
+			continue
+		var team: int = int(e.get("team", 0))
+		var facing: float = float(e["facing_yaw"])
+		var turret: float = float(e["turret_yaw"])
+		var node: Node3D = _emplacement_active.get(nid) as Node3D
+		if node == null:
+			node = LmgNestKit.build(team)
+			add_child(node)
+			_emplacement_active[nid] = node
+		node.position = pos
+		node.rotation.y = facing   # orient the sandbag body to the deploy facing
+		# Traverse the gun: the body already carries facing, so the Barrel child's LOCAL yaw is the
+		# difference to the world-space turret aim (mirrors the vehicle turret pivot). Snap is fine — the
+		# list re-arrives each tick while a gunner aims.
+		var barrel: Node3D = node.get_node_or_null("Barrel") as Node3D
+		if barrel != null:
+			barrel.rotation.y = wrapf(turret - facing, -PI, PI)
+		_apply_nest_damage(node, team, float(e.get("hp_frac", 1.0)))
+
+
+## Darken the sandbag body toward scorched as hp_frac -> 0 (persistent, self-correcting off replicated
+## HP). Walks the body meshes (skips the "Barrel" pivot — the gun stays gun-metal). Pure re-tint from
+## the base team colour each call, so it never compounds.
+func _apply_nest_damage(node: Node3D, team: int, hp_frac: float) -> void:
+	var base: Color = ArtPalette.NEUTRAL
+	if team >= 0 and team < ArtPalette.TEAM_COLOR.size():
+		base = ArtPalette.TEAM_COLOR[team]
+	var factor: float = lerpf(0.4, 1.0, clampf(hp_frac, 0.0, 1.0))
+	var tint := Color(base.r * factor, base.g * factor, base.b * factor)
+	# Only the team-tinted sandbag meshes darken; the gun-metal Mount post and Barrel stay dark.
+	for child in node.get_children():
+		if not String(child.name).begins_with("Sand"):
+			continue
+		var mi := child as MeshInstance3D
+		if mi == null:
+			continue
+		var mat := mi.material_override as StandardMaterial3D
+		if mat != null:
+			mat.albedo_color = tint
+
+
+## Manning gunners: pawn id -> {facing, turret} for nests with an occupant, so _pose_entity can crouch
+## the rider at the gun. Pure (mirrors SeatPose.occupants for vehicles).
+func _nest_occupants(list: Array) -> Dictionary:
+	var out: Dictionary = {}
+	for e: Dictionary in list:
+		var occ: int = int(e.get("occupant", 0))
+		if occ != 0:
+			out[occ] = {"facing": float(e["facing_yaw"]), "turret": float(e["turret_yaw"])}
+	return out
 
 
 const WRECK_CHAR_COLOR := Color(0.10, 0.09, 0.08)   # blackened, burnt-out hulk
