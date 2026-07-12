@@ -71,7 +71,10 @@ blockfire.cc {
 			header_up X-Forwarded-For {http.request.header.CF-Connecting-IP}
 		}
 	}
-	handle { respond "Access Denied" 403 }
+	# Deny requests from non-Cloudflare IPs
+	handle {
+		respond "Access Denied" 403
+	}
 }
 
 www.blockfire.cc {
@@ -85,9 +88,16 @@ stats.blockfire.cc {
 			header_up X-Forwarded-For {http.request.header.CF-Connecting-IP}
 		}
 	}
-	handle { respond "Access Denied" 403 }
+	# Deny requests from non-Cloudflare IPs
+	handle {
+		respond "Access Denied" 403
+	}
 }
 ```
+
+> **Caddyfile gotcha:** a block's opening `{` must be followed by a newline — the
+> one-liner `handle { respond "Access Denied" 403 }` fails to adapt. Keep `handle`
+> blocks multi-line as above (matches the other sites in this Caddyfile).
 
 Validate + reload (no restart if reload works):
 
