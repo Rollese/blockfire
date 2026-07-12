@@ -213,7 +213,7 @@ func _refresh() -> void:
 		_clear_options(row)
 		var chosen := String(attachments.get(slot, ""))
 		for aid: String in _attach_options.get(slot, []):
-			_add_button(row, aid.capitalize(), aid == chosen, false,
+			_add_button(row, _attach_label(aid), aid == chosen, false,
 				_on_attachment_pressed.bind(String(slot), aid))
 
 	# Armor — trade-off text derived from the real Armor multipliers.
@@ -259,6 +259,13 @@ func _armor_label(tier: int) -> String:
 	var speed_pct: int = int(round((Armor.speed_mult(tier) - 1.0) * 100.0))
 	var dr_pct: int = int(round((1.0 - Armor.body_mult(tier)) * 100.0))
 	return "%s  %+d%% speed, %d%% dmg reduction" % [tier_name, speed_pct, dr_pct]
+
+## Attachment button label. The catalog carries no display names, so ids are title-cased; the
+## per-slot empty option (e.g. "none_ub") renders as a plain "None" rather than the raw id.
+func _attach_label(aid: String) -> String:
+	if aid.begins_with("none"):
+		return "None"
+	return aid.capitalize()
 
 ## Remove option buttons from a section, keeping the leading caption Label (child 0).
 func _clear_options(row: HBoxContainer) -> void:
