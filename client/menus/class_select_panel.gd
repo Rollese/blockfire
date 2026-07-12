@@ -49,7 +49,7 @@ const _GADGET_LABELS := {
 	Loadout.GADGET_STIM: "Stim — fast self / ally heal",
 	Loadout.GADGET_SMOKE_WALL: "Smoke Wall — deployable smoke screen",
 	Loadout.GADGET_GRAPPLE: "Grappling Hook — (coming soon)",
-	Loadout.GADGET_RIOT_SHIELD: "Riot Shield — (coming soon)",
+	Loadout.GADGET_RIOT_SHIELD: "Riot Shield — bulletproof frontal cover; slower, no primary fire",
 	Loadout.GADGET_LMG_NEST: "LMG Nest",
 }
 

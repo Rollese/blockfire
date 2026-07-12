@@ -216,6 +216,12 @@ var _mounted_nest: int = 0         # id of the LMG nest we're manning (0 = on fo
 var _mg_heat: int = 0              # manned MG heat 0..255 from SELF_STATE (Task 13 HUD; stored now)
 var _mg_ammo: int = 0              # manned MG belt rounds remaining from SELF_STATE (Task 13 HUD; stored now)
 var _mg_overheated: bool = false   # manned MG overheat-lockout flag from SELF_STATE (Task 13 HUD; stored now)
+# ---- M19 P5: riot shield (Support) ------------------------------------------
+var _shield_hp_frac: int = 0       # latest shield HP 0..255 from SELF_STATE (0 = no shield/broken; HUD bar + break-forces-down)
+var _shield_held := false          # local toggle intent: true = player wants the shield raised (OR'd into BTN_SHIELD)
+var _shield_key_down := false      # previous-frame "gadget" action state — own edge detector (see _produce_input_frame:
+                                    # is_action_just_pressed() would double-toggle on a frame_repeats()==2 catch-up tick,
+                                    # since _produce_input_frame can run twice off one gathered Input frame)
 # Nest arc/pitch limits — must match data/gadgets.json "lmgnest" (client doesn't load the gadget catalog).
 const NEST_HALF_ARC := deg_to_rad(45.0)
 const NEST_PITCH_LO := deg_to_rad(20.0)
@@ -581,6 +587,27 @@ func _produce_input_frame(ss: EntityState, cmd: Dictionary) -> void:
 					and ((Input.is_action_pressed("fire") and not _input_paused_by_menu()) or _build_test):
 				bb |= InputCommand.BTN_SHOVEL   # _build_test forces the shovel so the QA shot shows it rise
 			cmd["buttons"] = bb
+	# M19 P5: shield input — Support-only hold-to-block. Toggled on the "gadget" key (BTN_SHIELD is
+	# OR'd into the buttons this pawn sends, mirroring the server's own gadget==RIOT_SHIELD gate — see
+	# server_main.gd's per-tick shield inject). Manual edge detection (not is_action_just_pressed): this
+	# function can run TWICE off one gathered Input frame during a tick-lead catch-up tick
+	# (frame_repeats()==2), and is_action_just_pressed would read true both times, double-toggling
+	# _shield_held back to its original value and silently eating the press.
+	var shield_gadget_down: bool = Input.is_action_pressed("gadget")
+	var shield_equipped: bool = int(_loadout.get("gadget", -1)) == Loadout.GADGET_RIOT_SHIELD
+	if shield_equipped and shield_gadget_down and not _shield_key_down:
+		_shield_held = not _shield_held
+	_shield_key_down = shield_gadget_down
+	if not shield_equipped or _shield_hp_frac == 0:
+		_shield_held = false   # not the equipped gadget, or the shield is broken — never keep stale intent latched
+	if _shield_held and _in_vehicle() < 0 and _mounted_nest == 0 and not _photo_mode:
+		cmd["buttons"] = int(cmd["buttons"]) | InputCommand.BTN_SHIELD
+	# Mirror the server's per-tick "shielded" inject (server_main.gd) BEFORE record_cmd below —
+	# record_cmd's immediate _advance(cmd) runs Pawn.step synchronously, which reads cmd["shielded"] for
+	# the move/sprint cost; setting it any later would miss this tick's prediction (same idiom as the
+	# stim inject just below).
+	if (int(cmd["buttons"]) & InputCommand.BTN_SHIELD) != 0:
+		cmd["shielded"] = true
 	# M19 P2b: mirror the server's _step_movement stim inject (server_main.gd) — only set the key when
 	# active so the common (unstimmed) tick doesn't pay a Dictionary-mutation cost on every frame.
 	# stim_until_tick is re-anchored to _client_tick from SELF_STATE's remaining-ticks field (above,
@@ -593,9 +620,13 @@ func _produce_input_frame(ss: EntityState, cmd: Dictionary) -> void:
 	var buttons: int = int(cmd["buttons"])
 	var sprinting: bool = bool(buttons & InputCommand.BTN_SPRINT) \
 		and _pred.predicted.stance == Stance.STAND
+	var shielded_local: bool = (buttons & InputCommand.BTN_SHIELD) != 0   # M19 P5: mirror for the fire-predict gate below
 	# No firing while downed — the server ignores it, so suppress the local tracer/ammo
-	# prediction too (otherwise a downed player still sees their own tracers).
-	var firing: bool = bool(buttons & InputCommand.BTN_FIRE) and not _pred.predicted.is_downed and not _pred.predicted.climbing
+	# prediction too (otherwise a downed player still sees their own tracers). Also no firing while the
+	# shield is up (Pawn.fire_suppressed_by_shield mirrors the server's fire-vs-shield lockout) — a
+	# shield-up Support predicts no shot instead of a phantom local tracer the server then rejects.
+	var firing: bool = bool(buttons & InputCommand.BTN_FIRE) and not _pred.predicted.is_downed and not _pred.predicted.climbing \
+		and not Pawn.fire_suppressed_by_shield(buttons, shielded_local)
 
 	# Predict weapon state — drop_shoot=false here; server gates authoritatively,
 	# and SELF_STATE reconciles the client's mag each tick so divergence is transient.
@@ -866,6 +897,8 @@ func _process(_dt: float) -> void:
 		"mg_heat": _mg_heat,                # M19 P4 Task 13: manned MG heat 0..255 -> HUD heat bar
 		"mg_ammo": _mg_ammo,                # M19 P4 Task 13: manned MG belt rounds remaining -> HUD belt counter
 		"mg_overheated": _mg_overheated,    # M19 P4 Task 13: manned MG overheat-lockout -> HUD overheat flash
+		"shield_equipped": int(_loadout.get("gadget", -1)) == Loadout.GADGET_RIOT_SHIELD,  # M19 P5: gates the shield HUD bar
+		"shield_hp_frac": _shield_hp_frac,  # M19 P5: shield HP 0..255 from SELF_STATE -> HUD bar
 		"repair_heat": _repair_heat,
 		"repair_cooldown": _repair_cooldown,
 		"throw_charge": _throw_charge if _throw_charging else 0.0,   # C3 grenade charge bar (0 when idle)
@@ -1671,6 +1704,7 @@ func _handle_self_state(bytes: PackedByteArray) -> void:
 	_mg_heat = int(d.get("mg_heat", 0))
 	_mg_ammo = int(d.get("mg_ammo", 0))
 	_mg_overheated = bool(d.get("mg_overheated", false))
+	_shield_hp_frac = int(d.get("shield_hp_frac", 0))   # M19 P5: authoritative shield HP 0..255 (HUD bar; 0 forces _shield_held off)
 	# Tick-lead: feed the post-drain buffer depth to the input-clock loop. Only while input is
 	# actually being produced (deployed, on foot; menus now keep producing zeroed frames — A5) —
 	# a dead client sends no frames, so its depth reads 0 and would wrongly integrate catch-up
