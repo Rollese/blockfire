@@ -16,7 +16,8 @@ extends Object
 ## tail). History: VERSION sat at 1 through M1–M12 while the wire changed dozens of times,
 ## so the check protected nothing; real from 2 onward.
 
-const VERSION := 9   # 9: M19 P2b-medic — STIM charges/ticks in SELF_STATE + GA_STIM_USE/GA_SMOKE_WALL_PLACE (2026-07-11)
+const VERSION := 10   # 10: M19 P4 LMG Nest — EMPLACEMENT_ACTION/EMPLACEMENT_LIST + GA_LMG_DEPLOY + SELF_STATE mount tail (2026-07-12)
+                     # 9: M19 P2b-medic — STIM charges/ticks in SELF_STATE + GA_STIM_USE/GA_SMOKE_WALL_PLACE (2026-07-11)
                      # 7: reliable BULK channel (3) for structure traffic — transport-topology change,
                      # old clients must be rejected (channel-count mismatch); no message format change (2026-07-10)
                      # 6: M17 reserve-ammo economy — SELF_STATE gains a trailing reserve u16 (2026-07-10)
@@ -72,6 +73,8 @@ enum Msg {
 	BANDAGE_ACTION = 46,    ## client -> server (M16): hold-to-bandage a standing-bleeding self/teammate (active-bit + target id)
 	BLEEDING_LIST = 47,     ## server -> human clients (M16): standing-bleeding teammate ids -> bleed marker + "hold to bandage" prompt
 	SET_LOADOUT = 48,       ## client -> server (M19): player-picked loadout (class/primary/secondary/gadget/armor/grenade + attachment ids); stored, applied at next spawn
+	EMPLACEMENT_ACTION = 49,  ## client -> server (M19 P4): mount/dismount a deployed LMG nest (action + nest id)
+	EMPLACEMENT_LIST = 50,    ## server -> clients (M19 P4): deployed LMG nests {id,pos,facing,turret,hp_frac,occupant,team}
 }
 
 const OP_PLACE := 0
@@ -92,10 +95,15 @@ const GA_REPAIR_STOP := 8
 const GA_BREACH_PLACE := 9   # M19: place an Assault breaching charge (pos + facing dir)
 const GA_STIM_USE := 10   # M19 P2b: Medic self/team stim injection (pos + facing dir)
 const GA_SMOKE_WALL_PLACE := 11   # M19 P2b: Medic smoke-wall gadget placement (pos + facing dir)
+const GA_LMG_DEPLOY := 12   # M19 P4: place an LMG nest (pos + facing dir)
 
 # VEHICLE_ACTION sub-actions.
 const VA_ENTER := 0
 const VA_EXIT := 1
+
+# EMPLACEMENT_ACTION sub-actions.
+const EA_MOUNT := 0
+const EA_DISMOUNT := 1
 
 
 static func encode_hello(player_name: String, auto_deploy: bool = true) -> PackedByteArray:
@@ -686,6 +694,52 @@ static func decode_gadget_list(bytes: PackedByteArray) -> Array:
 			out.append({"kind": kind, "pos": pos, "face": Vector3(float(s0) / 10000.0, 0.0, float(s1) / 10000.0)})
 	return out
 
+static func encode_emplacement_action(action: int, nest_id: int) -> PackedByteArray:
+	var buf := StreamPeerBuffer.new()
+	buf.put_u8(Msg.EMPLACEMENT_ACTION)
+	buf.put_u8(action)
+	buf.put_u32(nest_id)
+	return buf.data_array
+
+static func decode_emplacement_action(bytes: PackedByteArray) -> Dictionary:
+	var r := body_reader(bytes)
+	return {"action": r.get_u8(), "nest_id": r.get_u32()}
+
+## Deployed LMG nests, rebuilt + sent each tick like GADGET_LIST (self-healing render list).
+## Per nest: id u32, pos ×10, facing_yaw ×10000 i16, turret_yaw ×10000 i16, hp_frac u8 (×255),
+## occupant u32, team u8.
+static func encode_emplacement_list(list: Array) -> PackedByteArray:
+	var buf := StreamPeerBuffer.new()
+	buf.put_u8(Msg.EMPLACEMENT_LIST)
+	var n: int = mini(list.size(), 255)
+	buf.put_u8(n)
+	for i in range(n):
+		var e: Dictionary = list[i]
+		buf.put_u32(int(e["id"]))
+		put_pos10(buf, e["pos"])
+		buf.put_16(clampi(roundi(float(e["facing_yaw"]) * 10000.0), -32768, 32767))
+		buf.put_16(clampi(roundi(float(e["turret_yaw"]) * 10000.0), -32768, 32767))
+		buf.put_u8(clampi(roundi(float(e["hp_frac"]) * 255.0), 0, 255))
+		buf.put_u32(int(e.get("occupant", 0)))
+		buf.put_u8(clampi(int(e.get("team", 0)), 0, 255))
+	return buf.data_array
+
+static func decode_emplacement_list(bytes: PackedByteArray) -> Array:
+	var r := body_reader(bytes)
+	var n := r.get_u8()
+	var out: Array = []
+	for i in range(n):
+		var id := r.get_u32()
+		var pos := get_pos10(r)
+		var facing := float(r.get_16()) / 10000.0
+		var turret := float(r.get_16()) / 10000.0
+		var hp_frac := float(r.get_u8()) / 255.0
+		var occ := r.get_u32()
+		var team := r.get_u8()
+		out.append({"id": id, "pos": pos, "facing_yaw": facing, "turret_yaw": turret,
+			"hp_frac": hp_frac, "occupant": occ, "team": team})
+	return out
+
 ## Active support links (M7): each entry is giver_id u32 + target_id u32 + kind u8
 ## (SupportLinks.HEAL/AMMO/REPAIR/REVIVE). No coordinates on the wire — the client resolves both
 ## endpoints from its own snapshot (pawn or vehicle ids it already mirrors) and skips any it can't
@@ -842,7 +896,7 @@ static func decode_damage_event(bytes: PackedByteArray) -> Dictionary:
 	return {"bearing": Quantize.dec_angle(r.get_u16()), "amount": r.get_u8()}
 
 
-static func encode_self_state(mag: int, reloading: bool, reload_remaining: int, weapon: int, throwables: Array = [], being_revived: bool = false, suppression: float = 0.0, blind_ticks: int = 0, bandage_count: int = 0, bleed_halted: bool = false, repair_heat: float = 0.0, repair_cooldown: float = 0.0, stamina: float = 100.0, vel_y: float = 0.0, grounded: bool = true, vaulting: bool = false, vault_tick: int = 0, regen_cooldown: float = 0.0, sprint_locked: bool = false, input_buf_depth: int = 0, bleeding: bool = false, bandage_progress: int = 0, reserve: int = 0, stim_charges: int = 0, stim_ticks: int = 0) -> PackedByteArray:
+static func encode_self_state(mag: int, reloading: bool, reload_remaining: int, weapon: int, throwables: Array = [], being_revived: bool = false, suppression: float = 0.0, blind_ticks: int = 0, bandage_count: int = 0, bleed_halted: bool = false, repair_heat: float = 0.0, repair_cooldown: float = 0.0, stamina: float = 100.0, vel_y: float = 0.0, grounded: bool = true, vaulting: bool = false, vault_tick: int = 0, regen_cooldown: float = 0.0, sprint_locked: bool = false, input_buf_depth: int = 0, bleeding: bool = false, bandage_progress: int = 0, reserve: int = 0, stim_charges: int = 0, stim_ticks: int = 0, mounted_nest: int = 0, mg_heat: int = 0, mg_ammo: int = 0, mg_overheated: bool = false) -> PackedByteArray:
 	var buf := StreamPeerBuffer.new()
 	buf.put_u8(Msg.SELF_STATE)
 	buf.put_u8(clampi(mag, 0, 255))
@@ -914,6 +968,12 @@ static func encode_self_state(mag: int, reloading: bool, reload_remaining: int, 
 	# charges (Medic's syringe pool) and the ticks left on an active stim buff.
 	buf.put_u8(clampi(stim_charges, 0, 255))
 	buf.put_u16(clampi(stim_ticks, 0, 65535))
+	# M19 P4 LMG Nest (owner-only, appended last so older decoders ignore them): which nest the
+	# owner is mounted in (0 = none) and the mounted LMG's overheat gauge/ammo for the HUD.
+	buf.put_u32(mounted_nest)
+	buf.put_u8(clampi(mg_heat, 0, 255))
+	buf.put_u16(clampi(mg_ammo, 0, 65535))
+	buf.put_u8(1 if mg_overheated else 0)
 	return buf.data_array
 
 static func decode_self_state(bytes: PackedByteArray) -> Dictionary:
@@ -987,7 +1047,20 @@ static func decode_self_state(bytes: PackedByteArray) -> Dictionary:
 		stim_charges = r.get_u8()
 	if r.get_available_bytes() >= 2:
 		stim_ticks = r.get_u16()
-	return {"mag": mag, "reloading": reloading, "reload_remaining": reload_remaining, "weapon": weapon, "throwables": throwables, "being_revived": being_revived, "suppression": suppression, "blind_ticks": blind_ticks, "bandage_count": bandage_count, "bleed_halted": bleed_halted, "repair_heat": repair_heat, "repair_cooldown": repair_cooldown, "stamina": stamina, "vel_y": vel_y, "grounded": grounded, "vaulting": vaulting, "vault_tick": vault_tick, "regen_cooldown": regen_cooldown, "sprint_locked": sprint_locked, "input_buf_depth": input_buf_depth, "bleeding": bleeding, "bandage_progress": bandage_progress, "reserve": reserve, "stim_charges": stim_charges, "stim_ticks": stim_ticks}
+	# M19 P4 LMG Nest: owner-only mount tail, guarded like the rest of the trailing fields so an
+	# older/short packet just leaves the local player unmounted rather than misaligning the read.
+	# NOTE: all four fields share ONE >= 8 guard on purpose — they are a single semantic unit
+	# (mounted-or-not, always written together). Do NOT split into per-field guards.
+	var mounted_nest := 0
+	var mg_heat := 0
+	var mg_ammo := 0
+	var mg_overheated := false
+	if r.get_available_bytes() >= 8:
+		mounted_nest = r.get_u32()
+		mg_heat = r.get_u8()
+		mg_ammo = r.get_u16()
+		mg_overheated = r.get_u8() == 1
+	return {"mag": mag, "reloading": reloading, "reload_remaining": reload_remaining, "weapon": weapon, "throwables": throwables, "being_revived": being_revived, "suppression": suppression, "blind_ticks": blind_ticks, "bandage_count": bandage_count, "bleed_halted": bleed_halted, "repair_heat": repair_heat, "repair_cooldown": repair_cooldown, "stamina": stamina, "vel_y": vel_y, "grounded": grounded, "vaulting": vaulting, "vault_tick": vault_tick, "regen_cooldown": regen_cooldown, "sprint_locked": sprint_locked, "input_buf_depth": input_buf_depth, "bleeding": bleeding, "bandage_progress": bandage_progress, "reserve": reserve, "stim_charges": stim_charges, "stim_ticks": stim_ticks, "mounted_nest": mounted_nest, "mg_heat": mg_heat, "mg_ammo": mg_ammo, "mg_overheated": mg_overheated}
 
 
 static func encode_roster(rows: Array) -> PackedByteArray:

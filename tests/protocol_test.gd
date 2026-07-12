@@ -376,7 +376,7 @@ func test_self_state_carries_vault_progress() -> void:
 func test_self_state_vault_defaults_when_absent() -> void:
 	# Old/short packets (no vault bytes) must decode as not-vaulting so reconcile never freezes an arc.
 	var b := Protocol.encode_self_state(17, false, 0, Weapon.AR, [], false, 0.0, 0, 0, false, 0.0, 0.0, 100.0, 0.0, true, true, 5)
-	b.resize(b.size() - 12)   # drop the two vault bytes + trailing regen + sprint-locked + input-buf-depth + M16 bleeding/progress + M17 reserve + M19 stim bytes
+	b.resize(b.size() - 20)   # drop the two vault bytes + trailing regen + sprint-locked + input-buf-depth + M16 bleeding/progress + M17 reserve + M19 stim + M19 P4 mount-tail bytes
 	var d := Protocol.decode_self_state(b)
 	assert_false(bool(d["vaulting"]), "absent vault bytes -> not vaulting")
 	assert_eq(int(d["vault_tick"]), 0)
@@ -390,7 +390,7 @@ func test_self_state_carries_regen_cooldown() -> void:
 
 func test_self_state_regen_defaults_when_absent() -> void:
 	var b := Protocol.encode_self_state(17, false, 0, Weapon.AR, [], false, 0.0, 0, 0, false, 0.0, 0.0, 100.0, 0.0, true, false, 0, 0.5)
-	b.resize(b.size() - 10)   # drop the M19 stim + M17 reserve + M16 bleeding/progress + input-buf-depth + sprint-locked + regen bytes
+	b.resize(b.size() - 18)   # drop the M19 stim + M17 reserve + M16 bleeding/progress + input-buf-depth + sprint-locked + regen + M19 P4 mount-tail bytes
 	var d := Protocol.decode_self_state(b)
 	assert_eq(float(d["regen_cooldown"]), 0.0, "absent regen byte -> 0 (immediate regen, harmless)")
 
@@ -403,7 +403,7 @@ func test_self_state_carries_sprint_locked() -> void:
 
 func test_self_state_sprint_locked_defaults_when_absent() -> void:
 	var b := Protocol.encode_self_state(17, false, 0, Weapon.AR, [], false, 0.0, 0, 0, false, 0.0, 0.0, 100.0, 0.0, true, false, 0, 0.0, true)
-	b.resize(b.size() - 9)   # drop the M19 stim + M17 reserve + M16 bleeding/progress + input-buf-depth + sprint-locked bytes
+	b.resize(b.size() - 17)   # drop the M19 stim + M17 reserve + M16 bleeding/progress + input-buf-depth + sprint-locked + M19 P4 mount-tail bytes
 	var d := Protocol.decode_self_state(b)
 	assert_false(bool(d["sprint_locked"]), "absent sprint-locked byte -> not locked (never wrongly stalls sprint)")
 
@@ -418,7 +418,7 @@ func test_self_state_input_buf_depth_absent_is_sentinel() -> void:
 	# Old/short packets must decode as -1 (absent) so the tick-lead loop stays idle rather than
 	# treating "no data" as "buffer empty" and wrongly emitting catch-up frames.
 	var b := Protocol.encode_self_state(17, false, 0, Weapon.AR, [], false, 0.0, 0, 0, false, 0.0, 0.0, 100.0, 0.0, true, false, 0, 0.0, false, 3)
-	b.resize(b.size() - 8)   # drop the M19 stim + M17 reserve + M16 bleeding/progress bytes + the input-buf-depth byte
+	b.resize(b.size() - 16)   # drop the M19 stim + M17 reserve + M16 bleeding/progress bytes + the input-buf-depth byte + M19 P4 mount-tail bytes
 	var d := Protocol.decode_self_state(b)
 	assert_eq(int(d["input_buf_depth"]), -1, "absent depth byte -> -1 sentinel (loop stays idle)")
 
@@ -725,7 +725,7 @@ func test_self_state_reserve_absent_decodes_sentinel() -> void:
 	# A pre-M17 packet omits the reserve field; the decoder must report -1 so the client keeps its
 	# own predicted reserve instead of snapping to a phantom 0.
 	var b := Protocol.encode_self_state(30, false, 0, Weapon.AR)   # default reserve arg = 0 → appended
-	# Truncate the trailing reserve bytes (and the M19 stim bytes appended after them) to simulate
-	# an older encoder that never wrote any of them.
-	var short := b.slice(0, b.size() - 5)
+	# Truncate the trailing reserve bytes (and the M19 stim + M19 P4 mount-tail bytes appended
+	# after them) to simulate an older encoder that never wrote any of them.
+	var short := b.slice(0, b.size() - 13)
 	assert_eq(int(Protocol.decode_self_state(short)["reserve"]), -1, "absent reserve → -1 sentinel")

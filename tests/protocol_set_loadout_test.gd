@@ -1,7 +1,7 @@
 extends TestCase
 
-func test_version_is_9() -> void:
-	assert_eq(Protocol.VERSION, 9)
+func test_version_is_10() -> void:
+	assert_eq(Protocol.VERSION, 10)
 
 func test_set_loadout_round_trips() -> void:
 	var cfg := {"class": 3, "primary": 29, "secondary": 4, "gadget": 4, "armor": 2, "grenade": 1,
