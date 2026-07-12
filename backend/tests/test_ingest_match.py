@@ -1,5 +1,9 @@
+import datetime as dt
+
 from sqlalchemy import select
+from app.ingest import ingest_match_report
 from app.models import Match, MatchPlayer, MatchPlayerWeapon, Player
+from app.schemas import MatchMetaIn, MatchReportIn, PlayerReportIn
 
 REPORT = {
     "report_version": 1,
@@ -36,3 +40,33 @@ async def test_hit_rate_query_is_correct(client, app_and_sessionmaker):
     async with sm() as s:
         w = (await s.execute(select(MatchPlayerWeapon))).scalar_one()
         assert round(w.hits / w.shots, 4) == round(150 / 420, 4)
+
+
+def _trust_report(match_id="m-trust"):
+    return MatchReportIn(
+        report_version=1,
+        match=MatchMetaIn(match_id=match_id, server_id="s1", map="town",
+                          mode="conquest",
+                          started_at=dt.datetime(2026, 7, 12, tzinfo=dt.timezone.utc),
+                          ended_at=dt.datetime(2026, 7, 12, 0, 20, tzinfo=dt.timezone.utc),
+                          winner="team_a"),
+        players=[PlayerReportIn(name="BotAlpha", kills=1)],
+    )
+
+
+async def test_ingest_match_records_trusted_true(app_and_sessionmaker):
+    _, sm = app_and_sessionmaker
+    async with sm() as s:
+        await ingest_match_report(s, _trust_report("m-t"), trusted=True)
+    async with sm() as s:
+        row = (await s.execute(select(Match).where(Match.match_id == "m-t"))).scalar_one()
+        assert row.trusted is True
+
+
+async def test_ingest_match_defaults_untrusted(app_and_sessionmaker):
+    _, sm = app_and_sessionmaker
+    async with sm() as s:
+        await ingest_match_report(s, _trust_report("m-u"))  # trusted defaults False
+    async with sm() as s:
+        row = (await s.execute(select(Match).where(Match.match_id == "m-u"))).scalar_one()
+        assert row.trusted is False
