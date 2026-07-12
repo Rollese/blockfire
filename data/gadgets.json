@@ -8,6 +8,7 @@
     {"id": "repairkit", "kind": "repair", "rate": 6, "range": 4.0, "overheat_ticks": 50, "cooldown_ticks": 150},
     {"id": "stim", "kind": "stim", "charges": 3, "duration_ticks": 150, "resist": 0.8, "refill": 3, "use_cooldown_ticks": 30},
     {"id": "smokewall", "kind": "smokewall", "radius": 9.0, "duration_ticks": 600, "cooldown_ticks": 450, "place_range": 2.5},
-    {"id": "breach", "kind": "breach", "max_active": 1, "arm_delay_ticks": 45, "struct_damage": 400, "struct_radius": 1.4, "place_range": 2.5}
+    {"id": "breach", "kind": "breach", "max_active": 1, "arm_delay_ticks": 45, "struct_damage": 400, "struct_radius": 1.4, "place_range": 2.5},
+    {"id": "lmgnest", "kind": "lmgnest", "hp": 500, "half_arc_deg": 45, "pitch_lo_deg": 20, "pitch_hi_deg": 25, "mg_damage": 22, "fire_interval": 0.075, "range_m": 220, "spread_deg": 1.5, "belt": 150, "reload_ticks": 135, "overheat_ticks": 90, "cooldown_ticks": 90, "mount_range_m": 1.6, "min_sep_m": 4.0, "suppression": 1.0}
   ]
 }

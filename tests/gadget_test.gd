@@ -5,7 +5,8 @@ const VALID := '{"gadgets":[' + \
 	'{"id":"claymore","kind":"mine","max_active":2,"pawn_damage":100,"pawn_radius":4.0,"trigger_radius":1.5,"place_range":2.0,"arm_delay_ticks":60,"directional":true},' + \
 	'{"id":"rpg","kind":"rpg","max_active":2,"ammo":3,"pawn_damage":100,"pawn_radius":6.0,"struct_damage":250,"struct_radius":4.0,"cooldown_ticks":120,"rocket_speed":150},' + \
 	'{"id":"medkit","kind":"heal","give_range":3.0,"active_rate":2,"bag_pool":300,"bag_radius":3.0,"max_bags":1},' + \
-	'{"id":"ammobag","kind":"ammo","give_range":3.0,"active_rate":30,"bag_pool":8,"bag_radius":3.0,"max_bags":1}]}'
+	'{"id":"ammobag","kind":"ammo","give_range":3.0,"active_rate":30,"bag_pool":8,"bag_radius":3.0,"max_bags":1},' + \
+	'{"id":"lmgnest","kind":"lmgnest","hp":500,"half_arc_deg":45,"pitch_lo_deg":20,"pitch_hi_deg":25,"mg_damage":22,"fire_interval":0.075,"range_m":220,"spread_deg":1.5,"belt":150,"reload_ticks":135,"overheat_ticks":90,"cooldown_ticks":90,"mount_range_m":1.6,"min_sep_m":4.0,"suppression":1.0}]}'
 
 func test_loads_valid_catalog() -> void:
 	var res := Gadget.from_json_string(VALID)
@@ -45,3 +46,11 @@ func test_rpg_def_has_three_rockets() -> void:
 func test_rpg_rocket_speed_is_fast_direct_fire() -> void:
 	var g: Gadget = Gadget.from_json_string(VALID)["catalog"]
 	assert_eq(int(g.def_of_kind(Gadget.KIND_RPG)["rocket_speed"]), 150)
+
+func test_lmg_nest_def_present() -> void:
+	var g: Gadget = Gadget.from_json_string(VALID)["catalog"]
+	var d := g.def_of_kind(Gadget.KIND_LMG_NEST)
+	assert_eq(int(d["hp"]), 500)
+	assert_eq(int(d["belt"]), 150)
+	assert_almost_eq(float(d["fire_interval"]), 0.075, 0.0001)
+	assert_eq(int(d["half_arc_deg"]), 45)
