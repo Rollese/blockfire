@@ -35,7 +35,7 @@ const GADGET_LMG_NEST := 12
 # BUILT option (default_gadget). GADGET_SANDBAG is a RESERVED interim filler: it is intentionally NOT
 # in any class's gadget_options yet, so adding it here alone would not surface it — a later phase
 # wires it into specific class slots first.
-const IMPLEMENTED_GADGETS := [GADGET_C4, GADGET_HEAL, GADGET_AMMO, GADGET_RPG, GADGET_REPAIR, GADGET_BREACH, GADGET_STIM, GADGET_SMOKE_WALL]
+const IMPLEMENTED_GADGETS := [GADGET_C4, GADGET_HEAL, GADGET_AMMO, GADGET_RPG, GADGET_REPAIR, GADGET_BREACH, GADGET_STIM, GADGET_SMOKE_WALL, GADGET_LMG_NEST]
 
 static func weapon_for(cls: int) -> int:
 	match cls:
@@ -277,7 +277,8 @@ static func random_class_no_engineer() -> int:
 ## rotate C4/BREACH (both by id % 3), and Medics rotate HEAL/STIM/SMOKE_WALL (id % 3, M19 P2b
 ## Task 7), so the 128-bot fleet matrix covers every implemented gadget incl. the M19 P2b Task 6
 ## additions (BREACH, REPAIR) and Task 7 additions (STIM, SMOKE_WALL); every other class takes
-## its default gadget.
+## its default gadget. Support rotates AMMO/LMG_NEST (id % 3, M19 P4 Task 2) so the fleet also
+## exercises the nest; RIOT_SHIELD is not yet implemented so its slot falls back to AMMO.
 static func bot_gadget(id: int, cls: int) -> int:
 	if cls == ENGINEER:
 		match id % 3:
@@ -291,6 +292,11 @@ static func bot_gadget(id: int, cls: int) -> int:
 			0: return GADGET_HEAL
 			1: return GADGET_STIM
 			_: return GADGET_SMOKE_WALL
+	if cls == SUPPORT:
+		match id % 3:
+			0: return GADGET_AMMO
+			1: return GADGET_LMG_NEST
+			_: return GADGET_AMMO   # RIOT_SHIELD not yet implemented -> fall back to ammo
 	return default_gadget(cls)
 
 ## Deterministic per-id bot loadout — exercises every class × armor tier × built gadget so the

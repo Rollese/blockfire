@@ -81,3 +81,14 @@ func test_sledge_engineer_only() -> void:
 	assert_false(Loadout.has_sledgehammer(Loadout.ASSAULT))
 	assert_false(Loadout.has_sledgehammer(Loadout.MEDIC))
 	assert_false(Loadout.has_sledgehammer(Loadout.SUPPORT))
+
+func test_lmg_nest_is_implemented() -> void:
+	assert_true(Loadout.GADGET_LMG_NEST in Loadout.IMPLEMENTED_GADGETS)
+
+func test_support_bots_rotate_lmg_nest() -> void:
+	# some Support id must roll the nest so the fleet exercises it
+	var seen := false
+	for id in range(64):
+		if Loadout.bot_gadget(id, Loadout.SUPPORT) == Loadout.GADGET_LMG_NEST:
+			seen = true
+	assert_true(seen, "no Support id rolls GADGET_LMG_NEST")
