@@ -66,6 +66,8 @@ var suppress_events := 0     # near-miss suppression accruals (M5.5-P2)
 # Melee / flash / impact (M5.5-P3)
 var melees := 0
 var backstabs := 0
+var shield_blocks := 0   # M19 P5: frontal gun hits fully absorbed by a raised riot shield
+var shield_breaks := 0   # M19 P5: shields depleted to 0 by a hit
 var sledge_hits := 0
 var flashes := 0
 var flash_blinds := 0
