@@ -89,6 +89,14 @@ const LMG_NEST_FIRE_ARC := deg_to_rad(45)     # rad — MUST match data/gadgets.
                                               # fires along that clamped yaw, so a target beyond it is unhittable —
                                               # opening fire there just wastes the belt at the arc edge.
 
+# M19 P5 Task 7: SUPPORT riot-shield exerciser (bots/exercisers.gd maybe_riot_shield). ~1/3 of Support
+# bots roll GADGET_RIOT_SHIELD (Loadout.bot_gadget id%3==2), so the fleet gate exercises the shield's
+# frontal-block/break paths (server/stats.gd shield_blocks/shield_breaks). Restrained by construction —
+# no cadence needed: it only raises while a live enemy is close AND already roughly ahead of the bot's
+# current combat facing, so it toggles off the moment the fight moves on (never a permanent turtle).
+const RIOT_SHIELD_ENGAGE_RANGE := 20.0        # m — only worth raising the (speed-penalized) shield this close to a fight
+const RIOT_SHIELD_FRONT_ARC := deg_to_rad(90) # rad — half-angle off the bot's CURRENT facing counted as "roughly ahead"
+
 ## M15: bot-only slope-avoidance (NOT pathfinding, NOT sim-authoritative — the server still
 ## authoritatively clips a bot's movement via Terrain.resolve_movement exactly like a human; see
 ## shared/sim/sim_loop.gd). A too-steep hill otherwise sticks a bot's AI in place forever since it
@@ -640,6 +648,7 @@ func _drive(bot: Dictionary, delta: float) -> void:
 	_ex.maybe_breach(bot, me, obj)        # M19 P2b Task 6: self-gates on bot_gadget == GADGET_BREACH
 	_ex.maybe_stim(bot, me, target)            # M19 P2b Task 7: self-gates on bot_gadget == GADGET_STIM
 	_ex.maybe_smoke_wall(bot, me, target, obj) # M19 P2b Task 7: self-gates on bot_gadget == GADGET_SMOKE_WALL
+	buttons |= _ex.maybe_riot_shield(bot, me, target)  # M19 P5 Task 7: self-gates on bot_gadget == GADGET_RIOT_SHIELD
 	_ex.maybe_lmg_nest(bot, me, target)        # M19 P4 Task 14: self-gates on bot_gadget == GADGET_LMG_NEST (deploy/mount; manning handled early above)
 	_ex.maybe_give(bot, me, target != null)
 	_maybe_deploy_bag(bot, me)

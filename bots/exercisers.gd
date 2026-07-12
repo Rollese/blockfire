@@ -645,6 +645,29 @@ func maybe_smoke_wall(bot: Dictionary, me: EntityState, target: EntityState, obj
 	bot["smoke_wall_last_tick"] = st
 	bot["smoke_walls_placed"] = int(bot.get("smoke_walls_placed", 0)) + 1
 
+## M19 P5 Task 7: SUPPORT riot-shield exerciser — a bot who chose GADGET_RIOT_SHIELD raises its
+## shield (BTN_SHIELD) while a live enemy sits within RIOT_SHIELD_ENGAGE_RANGE and roughly ahead of
+## the bot's CURRENT facing (bot["yaw"], already set by this tick's combat AI) — i.e. it is already
+## fighting that direction, not spinning around to turtle behind it. On raising, it squares its
+## facing exactly at the enemy so the shield's real frontal arc (RiotShield.SHIELD_ARC_DEG, 150 deg)
+## actually intercepts their fire. No target, or one too far / outside the front arc, or a non-shield
+## bot -> returns 0 (buttons unchanged) so the caller's normal combat/movement stands. Returning a
+## button mask (rather than sending a packet) mirrors how BTN_CROUCH/BTN_SPRINT intent already flows
+## through bot_driver's shared `buttons` var — the server derives shield-up itself from
+## gadget==RIOT_SHIELD + BTN_SHIELD + not-broken/downed/mounted (server_main.gd), so a bot sending
+## the bit outside those windows is harmless by construction, same as every other gadget exerciser.
+func maybe_riot_shield(bot: Dictionary, me: EntityState, target: EntityState) -> int:
+	if Loadout.bot_gadget(int(bot["id"]), int(bot["class"])) != Loadout.GADGET_RIOT_SHIELD: return 0
+	if target == null: return 0
+	var to := target.pos - me.pos
+	var flat := Vector2(to.x, to.z)
+	if flat.length() < 0.001 or flat.length() > d.RIOT_SHIELD_ENGAGE_RANGE: return 0
+	var to_yaw := atan2(to.x, to.z)
+	if absf(wrapf(to_yaw - float(bot["yaw"]), -PI, PI)) > d.RIOT_SHIELD_FRONT_ARC:
+		return 0   # enemy is behind/off to the side of our current facing — don't spin around to turtle
+	bot["yaw"] = to_yaw   # square up so the shield's frontal arc actually faces the threat
+	return InputCommand.BTN_SHIELD
+
 ## M19 P4 Task 14: SUPPORT LMG-nest exerciser — DEPLOY + MOUNT (a mounted gunner is handled early in
 ## bot_driver by drive_mounted_nest, so this only ever runs while NOT seated). Self-gates on
 ## GADGET_LMG_NEST (~1/3 of Support bots). Priority: (1) a friendly, unoccupied nest already within
