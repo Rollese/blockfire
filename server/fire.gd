@@ -31,7 +31,7 @@ func resolve_vehicle_fires() -> void:
 		if (float(srv._sim.tick) - float(v.last_mounted_fire_tick)) * SimLoop.DT < interval: continue
 		v.last_mounted_fire_tick = srv._sim.tick
 		var gp: Pawn = srv._sim.world.get_pawn(gunner)
-		if gp == null: continue
+		if gp == null or gp.shield_up: continue   # M19 P5: a raised shield locks out gun fire (mirrors infantry gate)
 		var origin := v.turret_muzzle()
 		var dir := Combat._forward(v.turret_yaw, gp.pitch)
 		# Cosmetic: tracer + muzzle flash + gunfire sound at the turret muzzle (the mounted gun was
@@ -137,7 +137,7 @@ func resolve_fires() -> void:
 		var inp = c["last_input"]
 		if inp == null: continue
 		var shooter: Pawn = srv._sim.world.get_pawn(id)
-		if shooter == null or not shooter.alive or shooter.is_downed or shooter.climbing: continue   # downed/climbing = can't fire (also drops ADS accuracy, read below)
+		if shooter == null or not shooter.alive or shooter.is_downed or shooter.climbing or shooter.shield_up: continue   # downed/climbing/shield-up = can't fire (also drops ADS accuracy, read below)
 		# (M19: RPG is an Engineer gadget, never a held weapon — no rocket-reload branch here. Rockets
 		# refill on spawn/deploy/respawn; mid-life resupply via ammo bag is a P2 follow-up.)
 		var firing: bool = (inp["buttons"] & InputCommand.BTN_FIRE) != 0

@@ -134,7 +134,7 @@ func _grenade_danger(ctx: Dictionary):
 
 func build(ctx: Dictionary) -> Dictionary:
 	var dmg := _damage(ctx)
-	return {"ammo": _ammo(ctx), "compass": _compass(ctx), "tickets": _tickets(ctx), "capture": _capture(ctx), "killfeed": _killfeed_current(ctx), "damage_arcs": dmg["arcs"], "vignette": dmg["vignette"], "scoreboard": _scoreboard(ctx), "squad_roster": _squad_roster(ctx), "interaction_prompt": _interaction_prompt(ctx), "throwables": _throwables(ctx), "death_recap": _death_recap(ctx), "grenade_danger": _grenade_danger(ctx), "capture_feed": _capture_feed_current(ctx), "repair_heat": _repair_heat(ctx), "throw_charge": _throw_charge(ctx), "stamina": _stamina(ctx), "mg_gauge": _mg_gauge(ctx)}
+	return {"ammo": _ammo(ctx), "compass": _compass(ctx), "tickets": _tickets(ctx), "capture": _capture(ctx), "killfeed": _killfeed_current(ctx), "damage_arcs": dmg["arcs"], "vignette": dmg["vignette"], "scoreboard": _scoreboard(ctx), "squad_roster": _squad_roster(ctx), "interaction_prompt": _interaction_prompt(ctx), "throwables": _throwables(ctx), "death_recap": _death_recap(ctx), "grenade_danger": _grenade_danger(ctx), "capture_feed": _capture_feed_current(ctx), "repair_heat": _repair_heat(ctx), "throw_charge": _throw_charge(ctx), "stamina": _stamina(ctx), "mg_gauge": _mg_gauge(ctx), "shield_bar": _shield_bar(ctx)}
 
 ## C3 grenade hold-to-charge: a 0..1 throw-strength meter, shown only while charging.
 func _throw_charge(ctx: Dictionary) -> Dictionary:
@@ -172,6 +172,13 @@ func _mg_gauge(ctx: Dictionary) -> Dictionary:
 		"belt_max": MG_BELT_MAX,
 		"reloading": mounted and ammo <= 0,
 	}
+
+## M19 P5: Support riot-shield HP bar. Visible only while the shield is the equipped gadget (a plain
+## functional readout — feel/styling deferred to owner playtest, like the other tool gauges above).
+## Pure — reads the SELF_STATE-derived fraction from ctx.
+func _shield_bar(ctx: Dictionary) -> Dictionary:
+	var equipped := bool(ctx.get("shield_equipped", false))
+	return {"visible": equipped, "frac": clampf(float(ctx.get("shield_hp_frac", 0)) / 255.0, 0.0, 1.0)}
 
 func cycle_throwable(count: int) -> void:
 	if count <= 0:

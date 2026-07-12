@@ -65,6 +65,10 @@ var armor_class: int = Armor.LIGHT   # M5.5-P2: body-damage + move-speed tier (s
 var suppression: float = 0.0         # M5.5-P2: 0..1 incoming-fire scalar; widens own spread, decays per tick
 var blind_until_tick: int = 0        # M5.5-P3: flashbang white-out persists until this tick (0 = not blinded)
 var stim_until_tick: int = 0         # M19: Combat Stim buff active until this tick (server-set; mirrors blind_until_tick)
+var shield_up: bool = false            # M19 P5: derived server-side per-tick (gadget + BTN_SHIELD + not broken); not replicated
+var shield_hp: int = RiotShield.SHIELD_HP   # server-owned frontal-block pool
+var shield_last_hit_tick: int = 0      # last tick the shield absorbed a hit (gates regen)
+var shield_broken_until_tick: int = 0  # forced-down lockout after a full break
 
 func _init(p_id: int = 0) -> void:
 	id = p_id
@@ -101,9 +105,10 @@ func step(dt: float, cmd: Dictionary, world_half: float = WORLD_HALF) -> void:
 		move = move.normalized()
 	var has_move := move.length() > 0.01
 
-	var sprinting := bool(buttons & InputCommand.BTN_SPRINT) and stance == Stance.STAND and stamina > 0.0 and has_move and not _sprint_locked
+	var shielded := bool(cmd.get("shielded", false))
+	var sprinting := bool(buttons & InputCommand.BTN_SPRINT) and stance == Stance.STAND and stamina > 0.0 and has_move and not _sprint_locked and not shielded
 	var stimmed := bool(cmd.get("stimmed", false))
-	var speed := Stance.speed(stance) * (SPRINT_MULT if sprinting else 1.0) * Armor.speed_mult(armor_class) * (STIM_SPEED_MULT if stimmed else 1.0)
+	var speed := Stance.speed(stance) * (SPRINT_MULT if sprinting else 1.0) * Armor.speed_mult(armor_class) * (STIM_SPEED_MULT if stimmed else 1.0) * (RiotShield.SHIELD_SPEED_MULT if shielded else 1.0)
 	velocity.x = move.x * speed
 	velocity.z = move.z * speed
 
@@ -170,6 +175,12 @@ func eye_position() -> Vector3:
 ## M5.5-P3: true while a flashbang white-out is still active at `tick`.
 func is_blinded(tick: int) -> bool:
 	return tick < blind_until_tick
+
+## M19-P5: true when a shield-up pawn's primary fire is locked out (they're holding the shield).
+## CLIENT-side fire-predict mirror only — the server gates gun fire on the authoritative
+## `pawn.shield_up` in fire.gd (not dead code; keeps local prediction in step with the server).
+static func fire_suppressed_by_shield(buttons: int, shielded: bool) -> bool:
+	return shielded and (buttons & InputCommand.BTN_FIRE) != 0
 
 func to_state() -> EntityState:
 	var e := EntityState.new()

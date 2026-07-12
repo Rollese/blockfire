@@ -38,7 +38,8 @@ func test_telemetry_line_format_pinned() -> void:
 	assert_contains(line, " t0=80 t1=55 pts=0.1 ", "ticket/points block pinned")
 	assert_contains(line, " struct=76 ", "structure count from caller pinned")
 	assert_contains(line, " fobs_destroyed=1 ", "FOB block pinned")
-	assert_true(line.ends_with("nests_dep=0 nests_man=0 nests_dead=0"), "line still ends with the nest telemetry block (M19 P4)")
+	assert_contains(line, "nests_dep=0 nests_man=0 nests_dead=0 ", "nest telemetry block present (M19 P4)")
+	assert_true(line.ends_with("shield_blk=0 shield_brk=0"), "line ends with the riot-shield telemetry block (M19 P5)")
 	assert_contains(line, " destroyed=0 ", "destroyed= present (anchored scrapers depend on the leading space)")
 
 

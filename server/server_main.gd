@@ -468,6 +468,7 @@ func _physics_process(delta: float) -> void:
 	# M5.5-P2: decay suppression once per tick, after accrual in _step_projectiles (accrue-then-decay).
 	_step_suppression_decay()
 	_step_health_regen()   # M19 Combat Vigor / out-of-combat health regen (after suppression decay)
+	_step_shield_regen()   # M19 P5: riot-shield pool re-arm / trickle-regen (after fire resolution)
 	var t_fire := Time.get_ticks_usec()
 	_emplacements.step_occupants()   # M19 P4: slave manned nest gunners + mirror clamped aim onto turrets (before any fire step)
 	_emplacements.step_fire()        # M19 P4: belt/heat/overheat/reload + arc-clamped suppressive MG hitscan
@@ -587,10 +588,25 @@ func _step_movement() -> void:
 		var sp: Pawn = _sim.world.pawns.get(id)
 		if sp == null:
 			continue
-		if _sim.tick < sp.stim_until_tick:
-			var stimmed_cmd: Dictionary = (inputs[id] as Dictionary).duplicate()
-			stimmed_cmd["stimmed"] = true
-			inputs[id] = stimmed_cmd
+		# M19 P5: derive shield-up (gadget equipped + BTN_SHIELD held + not broken + pool left) and
+		# inject "shielded" the same pass as the stim flag — Pawn.step reads it for the move/fire cost.
+		var want_shield := false
+		if _clients.has(id) and int(_clients[id]["loadout"]["gadget"]) == Loadout.GADGET_RIOT_SHIELD:
+			var btns := int((inputs[id] as Dictionary).get("buttons", 0))
+			# server never trusts BTN_SHIELD while downed/mounted (anti-exploit): a modified client could
+			# raise the shield while manning an MG nest / in a seat and gun with frontal bullet-immunity.
+			if (btns & InputCommand.BTN_SHIELD) != 0 and _sim.tick >= sp.shield_broken_until_tick and sp.shield_hp > 0 \
+					and not sp.is_downed and sp.mounted_nest == 0 and sp.in_vehicle == 0 \
+					and not sp.climbing and not sp.vaulting:
+				want_shield = true
+		sp.shield_up = want_shield
+		if (_sim.tick < sp.stim_until_tick) or want_shield:
+			var mod_cmd: Dictionary = (inputs[id] as Dictionary).duplicate()
+			if _sim.tick < sp.stim_until_tick:
+				mod_cmd["stimmed"] = true
+			if want_shield:
+				mod_cmd["shielded"] = true
+			inputs[id] = mod_cmd
 	_sim.step(inputs, _map.world_half)
 	_apply_fall_damage()
 
@@ -817,13 +833,43 @@ func _step_suppression_decay() -> void:
 		elif sp.suppression > 0.0:
 			sp.suppression = Suppress.decay(sp.suppression)
 
+## M19 P5: per-tick riot-shield pool upkeep. A broken shield re-arms to full once its lockout
+## elapses; otherwise the pool trickles back after a no-hit delay (mirrors out-of-combat regen).
+func _step_shield_regen() -> void:
+	for id in _clients:
+		var p: Pawn = _sim.world.get_pawn(id)
+		if p == null or not p.alive: continue
+		if p.shield_broken_until_tick > 0 and _sim.tick >= p.shield_broken_until_tick:
+			p.shield_broken_until_tick = 0
+			p.shield_hp = RiotShield.SHIELD_HP   # clean re-arm to full after the lockout
+		elif p.shield_broken_until_tick == 0 and p.shield_hp < RiotShield.SHIELD_HP \
+				and (_sim.tick - p.shield_last_hit_tick) >= RiotShield.SHIELD_REGEN_DELAY_TICKS:
+			p.shield_hp = mini(RiotShield.SHIELD_HP, p.shield_hp + RiotShield.SHIELD_REGEN_PER_TICK)
+
 ## Single routing path for all pawn damage. A standing pawn is killed outright by a headshot or
 ## blast (instant-kill bypass) and otherwise downed. DOWNED pawns are immune to weapon damage
 ## (no finishing, BattleBit-style) — they resolve only via passive bleed-out or a teammate revive.
 func _apply_pawn_damage(vid: int, victim: Pawn, dmg: int, headshot: bool, source: int,
-		killer_id: int, weapon_id: int) -> void:
+		killer_id: int, weapon_id: int, is_melee: bool = false) -> void:
 	if victim.is_downed:
 		return  # immune to damage while downed
+	# M19 P5 riot shield: a raised shield absorbs frontal GUN small-arms into its own pool.
+	# Melee (is_melee) / back-stab / explosive / fall all bypass (is_small_arms handles source; is_melee excludes knives).
+	if victim.shield_up and RiotShield.is_small_arms(source, is_melee):
+		var atk: Pawn = _sim.world.get_pawn(killer_id)
+		if atk != null and RiotShield.blocks(victim.yaw, DamageDir.bearing(victim.pos, atk.pos)):
+			victim.shield_last_hit_tick = _sim.tick
+			victim.combat_until_tick = _sim.tick + COMBAT_FLAG_TICKS
+			if victim.shield_hp > dmg:
+				victim.shield_hp -= dmg
+				_stats.shield_blocks += 1
+				return   # fully absorbed — no health loss, no bleed, no ledger
+			# the breaking shot: empty the pool, force down, arm the lockout; NO overflow to health
+			victim.shield_hp = 0
+			victim.shield_up = false
+			victim.shield_broken_until_tick = _sim.tick + RiotShield.SHIELD_BREAK_TICKS
+			_stats.shield_breaks += 1
+			return
 	# M5.5-P2 armor: scale body damage by the victim's tier; a HEAVY helmet can downgrade a
 	# sub-threshold (finishing) headshot off the instant-kill, routing it through as body damage
 	# (DBNO-eligible). Runs before the HP reduction + is_instant_kill routing below.
@@ -914,6 +960,10 @@ func _handle_respawns() -> void:
 			p.landed_fall = 0.0
 			p.suppression = 0.0       # fresh life: no residual spread penalty
 			p.blind_until_tick = 0    # a flashbang taken last life doesn't white-out the respawn
+			p.shield_hp = RiotShield.SHIELD_HP   # M19 P5: fresh life re-arms the riot-shield pool to full
+			p.shield_up = false
+			p.shield_last_hit_tick = 0
+			p.shield_broken_until_tick = 0
 			c["respawn_tick"] = 0
 			_apply_loadout_to_client(c, p)   # re-derive weapon/armor/class from the stored loadout, both slots full
 			_force_reenter(id)         # a swapper who died holding secondary respawns on primary
@@ -1102,8 +1152,10 @@ func _send_snapshots() -> void:
 		# SELF_STATE packets (lossy links) leave the client predicting phantom ammo it doesn't have.
 		var rgauge := _support.repair_gauge_for(id)
 		var mnest: Emplacement = (_emplacements.get_nest(self_pawn.mounted_nest) if self_pawn.mounted_nest != 0 else null)
+		# M19 P5: shield pool as a 0..255 wire byte — zero unless the shield is the equipped gadget (§E wire contract)
+		var _shield_frac := (int(round(255.0 * float(self_pawn.shield_hp) / float(RiotShield.SHIELD_HP))) if int(c["loadout"]["gadget"]) == Loadout.GADGET_RIOT_SHIELD else 0)
 		_net.send_to(c["peer"], NetHost.CHANNEL_CONTROL,
-			Protocol.encode_self_state(int(c["ammo"]), bool(c["reloading"]), reload_remaining, int(c["weapon"]), _throwables_for(c), _support.being_revived.has(id), self_pawn.suppression, clampi(self_pawn.blind_until_tick - _sim.tick, 0, 255), self_pawn.bandage_count, self_pawn.bleed_halted, rgauge.x, rgauge.y, self_pawn.stamina, self_pawn.velocity.y, self_pawn.grounded, self_pawn.vaulting, self_pawn.vault_tick, self_pawn._regen_cooldown, self_pawn._sprint_locked, int(c["input_buf_depth"]), self_pawn.bleeding, _support.bandage_progress_u8(id), int(c.get("reserve", 0)), int(c.get("stim_charges", 0)), maxi(0, self_pawn.stim_until_tick - _sim.tick), self_pawn.mounted_nest, (int(mnest.heat) if mnest != null else 0), (int(mnest.ammo) if mnest != null else 0), (mnest != null and Emplacement.overheated(mnest.overheated_until, _sim.tick))),
+			Protocol.encode_self_state(int(c["ammo"]), bool(c["reloading"]), reload_remaining, int(c["weapon"]), _throwables_for(c), _support.being_revived.has(id), self_pawn.suppression, clampi(self_pawn.blind_until_tick - _sim.tick, 0, 255), self_pawn.bandage_count, self_pawn.bleed_halted, rgauge.x, rgauge.y, self_pawn.stamina, self_pawn.velocity.y, self_pawn.grounded, self_pawn.vaulting, self_pawn.vault_tick, self_pawn._regen_cooldown, self_pawn._sprint_locked, int(c["input_buf_depth"]), self_pawn.bleeding, _support.bandage_progress_u8(id), int(c.get("reserve", 0)), int(c.get("stim_charges", 0)), maxi(0, self_pawn.stim_until_tick - _sim.tick), self_pawn.mounted_nest, (int(mnest.heat) if mnest != null else 0), (int(mnest.ammo) if mnest != null else 0), (mnest != null and Emplacement.overheated(mnest.overheated_until, _sim.tick)), _shield_frac),
 			ENetPacketPeer.FLAG_RELIABLE)
 		t_self += Time.get_ticks_usec() - t0
 		t0 = Time.get_ticks_usec()
@@ -1507,6 +1559,9 @@ func _apply_loadout_to_client(c: Dictionary, p: Pawn) -> void:
 		p.armor_class = int(lo["armor"])
 		p.bandage_count = Revive.bandage_count_for(cls == Loadout.MEDIC)
 		p.stim_until_tick = 0   # fresh life: no residual buff carried across spawns
+		p.shield_hp = RiotShield.SHIELD_HP   # M19 P5: (re)deploy seeds a full shield pool
+		p.shield_up = false
+		p.shield_broken_until_tick = 0
 
 ## On (re)spawn/deploy: restore a fresh weapon loadout — both slots full ammo, fire-mode defaults,
 ## back on the primary. Preserves each slot's weapon identity (set at connect; never changes after).
@@ -1628,10 +1683,10 @@ func _resolve_melee(id: int, view_tick: int = 0) -> void:
 	if Melee.is_backstab(victim.yaw, atk.pos - vpos):
 		# Rear-arc back-stab = instant kill: headshot=true routes through Revive.is_instant_kill,
 		# bypassing DBNO (same path the M4.5 head/blast instant-kill uses).
-		_apply_pawn_damage(vid, victim, 100000, true, Revive.Source.BULLET, id, weapon_id)
+		_apply_pawn_damage(vid, victim, 100000, true, Revive.Source.BULLET, id, weapon_id, true)
 		_stats.backstabs += 1
 	else:
-		_apply_pawn_damage(vid, victim, melee_damage, false, Revive.Source.BULLET, id, weapon_id)
+		_apply_pawn_damage(vid, victim, melee_damage, false, Revive.Source.BULLET, id, weapon_id, true)
 	_stats.melees += 1
 
 func _handle_gadget_action(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:

@@ -1,7 +1,7 @@
 extends TestCase
 
 func test_version_bumped() -> void:
-	assert_eq(Protocol.VERSION, 10)
+	assert_eq(Protocol.VERSION, 11)
 
 func test_emplacement_action_roundtrip() -> void:
 	var b := Protocol.encode_emplacement_action(Protocol.EA_MOUNT, Emplacement.id_for(3))

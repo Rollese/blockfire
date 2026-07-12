@@ -29,6 +29,7 @@ const _THROWABLE_LABELS: Dictionary = {
 # ---- node references --------------------------------------------------
 var _repair_gauge: _RepairGauge   # Engineer repair-tool heat/overheat gauge (bottom-centre)
 var _mg_gauge: _MgGauge           # M19 P4 Task 13: manned LMG-nest heat/belt gauge (bottom-centre, above repair gauge)
+var _shield_bar: _ShieldBar       # M19 P5: Support riot-shield HP bar (bottom-centre, above the mg gauge)
 var _ammo_label: Label
 var _reload_label: Label
 var _firemode_label: Label   # AUTO/SEMI/BURST glyph above the ammo count (M5.5-P1 fire-mode)
@@ -144,6 +145,7 @@ func render(model: Dictionary) -> void:
 	_render_death_recap(model.get("death_recap"))
 	_render_repair_gauge(model.get("repair_heat", {}))
 	_render_mg_gauge(model.get("mg_gauge", {}))
+	_render_shield_bar(model.get("shield_bar", {}))
 	_render_throw_charge(model.get("throw_charge", {}))
 	_render_stamina(model.get("stamina", {}))
 
@@ -176,6 +178,7 @@ func _build_tree() -> void:
 	add_child(_hitmarker)
 	_build_repair_gauge()
 	_build_mg_gauge()
+	_build_shield_bar()
 	_build_ammo()
 	_build_compass()
 	_build_objective_markers()
@@ -1437,6 +1440,33 @@ func _render_mg_gauge(mg: Dictionary) -> void:
 			int(mg.get("ammo", 0)), int(mg.get("belt_max", 0)), bool(mg.get("reloading", false)))
 
 
+## M19 P5: Support riot-shield HP bar — bottom-centre, above the mg gauge (a Support could theoretically
+## carry LMG_NEST instead of the shield, so the slot avoids overlap on the off chance both ever render).
+## Plain functional bar only — feel/styling deferred to owner playtest, same as the other tool gauges.
+func _build_shield_bar() -> void:
+	_shield_bar = _ShieldBar.new()
+	_shield_bar.anchor_left = 0.5
+	_shield_bar.anchor_right = 0.5
+	_shield_bar.anchor_top = 1.0
+	_shield_bar.anchor_bottom = 1.0
+	_shield_bar.offset_left = -70.0
+	_shield_bar.offset_right = 70.0
+	_shield_bar.offset_top = -190.0
+	_shield_bar.offset_bottom = -164.0
+	_shield_bar.mouse_filter = MOUSE_FILTER_IGNORE
+	_shield_bar.visible = false
+	add_child(_shield_bar)
+
+
+func _render_shield_bar(sb: Dictionary) -> void:
+	if _shield_bar == null:
+		return
+	var vis := bool(sb.get("visible", false))
+	_shield_bar.visible = vis
+	if vis:
+		_shield_bar.set_state(float(sb.get("frac", 0.0)))
+
+
 func _build_death_recap() -> void:
 	# Left side, vertically centered — kept clear of the centered respawn options and the
 	# top compass (earlier center/top placements overlapped both).
@@ -1841,6 +1871,27 @@ class _MgGauge extends Control:
 		draw_string(f, Vector2(0, bar_y - 6), label, HORIZONTAL_ALIGNMENT_CENTER, w, 13, txt_col)
 		# Border.
 		draw_rect(Rect2(0, bar_y, w, bar_h), Color(1, 1, 1, 0.25), false, 1.0)
+
+
+## M19 P5: Support riot-shield HP bar — a plain blue-to-grey fill, shown only while the shield is the
+## equipped gadget. Feel/styling deferred to owner playtest (per the task); modeled on _RepairGauge.
+class _ShieldBar extends Control:
+	var _frac: float = 1.0
+
+	func set_state(frac: float) -> void:
+		_frac = clampf(frac, 0.0, 1.0)
+		queue_redraw()
+
+	func _draw() -> void:
+		var w := size.x
+		var h := size.y
+		var bar_h := 8.0
+		var bar_y := h - bar_h
+		draw_rect(Rect2(0, bar_y, w, bar_h), Color(0, 0, 0, 0.55))   # backdrop track
+		draw_rect(Rect2(0, bar_y, w * _frac, bar_h), Color(0.35, 0.55, 0.9, 0.95))   # shield-blue fill
+		var f := ThemeDB.fallback_font
+		draw_string(f, Vector2(0, bar_y - 6), "SHIELD", HORIZONTAL_ALIGNMENT_CENTER, w, 12, Color(0.8, 0.85, 0.9, 0.9))
+		draw_rect(Rect2(0, bar_y, w, bar_h), Color(1, 1, 1, 0.25), false, 1.0)   # border
 
 
 class _ArcMarker extends Control:
