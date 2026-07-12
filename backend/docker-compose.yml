@@ -21,6 +21,12 @@ services:
     environment:
       DATABASE_URL: postgresql+asyncpg://blockfire:blockfire@db:5432/blockfire_stats
       INGEST_TOKEN: ${INGEST_TOKEN:-change-me-in-prod}
+      # M9-P1 signed match reports (ADR-0011). Space/comma-separated key_id:secret
+      # pairs; any configured key is an official/trusted signer. REQUIRE_SIGNED_INGEST
+      # rejects unsigned POSTs (prod); default false keeps M20 dev servers working.
+      INGEST_SIGNING_KEYS: ${INGEST_SIGNING_KEYS:-}
+      REQUIRE_SIGNED_INGEST: ${REQUIRE_SIGNED_INGEST:-false}
+      INGEST_MAX_SKEW_S: ${INGEST_MAX_SKEW_S:-300}
       RAW_EVENT_RETENTION_DAYS: ${RAW_EVENT_RETENTION_DAYS:-90}
       STEAM_WEB_API_KEY: ${STEAM_WEB_API_KEY:-}
       SESSION_SECRET: ${SESSION_SECRET:-dev-insecure-change-me}

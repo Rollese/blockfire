@@ -29,6 +29,10 @@ class Match(Base):
     report_version: Mapped[int] = mapped_column(Integer, default=1)
     complete: Mapped[bool] = mapped_column(Boolean, default=False)
     ingested_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True))
+    # M9-P1 (ADR-0011): true iff the /ingest/match POST carried a valid official
+    # signature. Downstream rating (P2) / Layer-4 (P3) filter on this.
+    trusted: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false")
 
 
 class MatchPlayer(Base):
