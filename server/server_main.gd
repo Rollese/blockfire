@@ -1152,7 +1152,8 @@ func _send_snapshots() -> void:
 		# SELF_STATE packets (lossy links) leave the client predicting phantom ammo it doesn't have.
 		var rgauge := _support.repair_gauge_for(id)
 		var mnest: Emplacement = (_emplacements.get_nest(self_pawn.mounted_nest) if self_pawn.mounted_nest != 0 else null)
-		var _shield_frac := int(round(255.0 * float(self_pawn.shield_hp) / float(RiotShield.SHIELD_HP)))   # M19 P5: shield pool as a 0..255 wire byte
+		# M19 P5: shield pool as a 0..255 wire byte — zero unless the shield is the equipped gadget (§E wire contract)
+		var _shield_frac := (int(round(255.0 * float(self_pawn.shield_hp) / float(RiotShield.SHIELD_HP))) if int(c["loadout"]["gadget"]) == Loadout.GADGET_RIOT_SHIELD else 0)
 		_net.send_to(c["peer"], NetHost.CHANNEL_CONTROL,
 			Protocol.encode_self_state(int(c["ammo"]), bool(c["reloading"]), reload_remaining, int(c["weapon"]), _throwables_for(c), _support.being_revived.has(id), self_pawn.suppression, clampi(self_pawn.blind_until_tick - _sim.tick, 0, 255), self_pawn.bandage_count, self_pawn.bleed_halted, rgauge.x, rgauge.y, self_pawn.stamina, self_pawn.velocity.y, self_pawn.grounded, self_pawn.vaulting, self_pawn.vault_tick, self_pawn._regen_cooldown, self_pawn._sprint_locked, int(c["input_buf_depth"]), self_pawn.bleeding, _support.bandage_progress_u8(id), int(c.get("reserve", 0)), int(c.get("stim_charges", 0)), maxi(0, self_pawn.stim_until_tick - _sim.tick), self_pawn.mounted_nest, (int(mnest.heat) if mnest != null else 0), (int(mnest.ammo) if mnest != null else 0), (mnest != null and Emplacement.overheated(mnest.overheated_until, _sim.tick)), _shield_frac),
 			ENetPacketPeer.FLAG_RELIABLE)

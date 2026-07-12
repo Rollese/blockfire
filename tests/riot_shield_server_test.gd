@@ -112,3 +112,39 @@ func test_respawn_rearms() -> void:
 	srv._handle_respawns()
 	assert_eq(int(v.shield_hp), RiotShield.SHIELD_HP, "respawn re-arms the pool to full")
 	assert_eq(int(v.shield_broken_until_tick), 0, "respawn clears the break lockout")
+
+
+func test_regen_only_after_delay() -> void:
+	var srv := _srv()
+	var v := _shield_victim(srv, 1)
+	v.shield_hp = 100
+	v.shield_broken_until_tick = 0
+	v.shield_last_hit_tick = 0
+	# Before the no-hit delay elapses: no regen.
+	srv._sim.tick = RiotShield.SHIELD_REGEN_DELAY_TICKS - 1
+	srv._step_shield_regen()
+	assert_eq(int(v.shield_hp), 100, "no regen before the no-hit delay")
+	# Once the delay has elapsed: trickle-refill by SHIELD_REGEN_PER_TICK, capped at full.
+	srv._sim.tick = RiotShield.SHIELD_REGEN_DELAY_TICKS
+	srv._step_shield_regen()
+	assert_eq(int(v.shield_hp), 100 + RiotShield.SHIELD_REGEN_PER_TICK, "regen trickles once the delay passes")
+
+
+func test_break_lockout_then_rearm_to_full() -> void:
+	var srv := _srv()
+	var v := _shield_victim(srv, 1)
+	srv._sim.tick = 100
+	# Break it: emptied pool + a lockout into the future.
+	v.shield_hp = 0
+	v.shield_up = false
+	v.shield_broken_until_tick = srv._sim.tick + RiotShield.SHIELD_BREAK_TICKS
+	# Mid-lockout: still broken, pool stays 0 (no natural regen while broken).
+	srv._sim.tick = 100 + RiotShield.SHIELD_BREAK_TICKS - 1
+	srv._step_shield_regen()
+	assert_eq(int(v.shield_hp), 0, "a broken shield does not regen during the lockout")
+	assert_true(v.shield_broken_until_tick > srv._sim.tick, "still locked out just before expiry")
+	# At/after expiry: clean re-arm to full, lockout cleared.
+	srv._sim.tick = 100 + RiotShield.SHIELD_BREAK_TICKS
+	srv._step_shield_regen()
+	assert_eq(int(v.shield_hp), RiotShield.SHIELD_HP, "re-arms to full once the lockout expires")
+	assert_eq(int(v.shield_broken_until_tick), 0, "lockout cleared on re-arm")
