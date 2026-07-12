@@ -95,6 +95,16 @@ func _ensure_built() -> void:
 	_built = true
 	_load_attach_options()
 
+	# Dimmed backdrop behind the panel content (matches DeployMenu's ~60%-black full-rect overlay) so
+	# the editor reads as a modal instead of floating over the still-visible spawn list. Input is
+	# already blocked by this Control's default STOP filter — this is purely visual. IGNORE so it
+	# never eats clicks meant for the panel buttons drawn on top of it.
+	var backdrop := ColorRect.new()
+	backdrop.color = Color(0.0, 0.0, 0.0, 0.6)
+	backdrop.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	backdrop.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(backdrop)
+
 	var center := CenterContainer.new()
 	center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	add_child(center)

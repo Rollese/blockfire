@@ -100,6 +100,11 @@ func populate(team: int, map: MapDef, conquest: ConquestState, squadmates: Array
 	# Ensure the layout exists even when called before _ready (e.g. DeployMenu.new() in tests).
 	if _vbox == null:
 		_build_layout()
+	# M19 P3: the deploy menu is (re)showing — always start with the loadout editor closed. Without
+	# this, a sibling overlay (e.g. Settings) that hid the deploy menu while the editor was open would
+	# leave the editor stuck visible over the spawn list when the deploy menu reappears.
+	if _class_select != null:
+		_class_select.visible = false
 	# Fresh spawn list -> not awaiting. Without this, a populate() after death (the alive->dead
 	# repopulate) leaves the post-click "Awaiting deploy…" state up with the buttons hidden, and
 	# the player is stuck on a buttonless deploy screen.
