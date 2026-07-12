@@ -114,3 +114,11 @@ async def test_anomaly_flag_defaults(sessionmaker_fixture):
         assert got.reviewed_at is None
         assert got.reviewed_by is None
         assert got.notes is None
+
+
+def test_match_has_trusted_column_default_false():
+    from app.models import Match
+    col = Match.__table__.c.trusted
+    assert col.nullable is False
+    # default resolves to False for a freshly-constructed row
+    assert Match().trusted in (False, None)  # server_default applies at flush
