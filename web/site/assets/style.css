@@ -129,9 +129,9 @@ body > * { position: relative; z-index: 1; }
     linear-gradient(90deg, rgba(11,13,12,.94) 0%, rgba(11,13,12,.62) 46%, rgba(11,13,12,.42) 100%),
     linear-gradient(0deg, rgba(11,13,12,.96) 2%, rgba(11,13,12,0) 46%),
     radial-gradient(120% 90% at 70% 40%, rgba(255,138,30,.10), transparent 55%),
-    url("shots/01.webp");
+    url("shots/hero.webp");
   background-size: cover;
-  background-position: center 42%;
+  background-position: center 38%;
 }
 .hero__inner { max-width: 760px; }
 
