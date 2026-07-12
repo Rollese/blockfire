@@ -20,6 +20,17 @@ class Settings(BaseSettings):
     # dev/LAN only — MUST stay False in any internet-facing deploy.
     admin_dev_open: bool = False
 
+    # --- P4 anomaly-detection thresholds (tuning knobs) ---
+    anomaly_kd_floor: float = 4.0
+    anomaly_headshot_rate_floor: float = 0.6
+    anomaly_hit_rate_floor: float = 0.55
+    anomaly_min_deaths: int = 5
+    anomaly_min_kills: int = 10
+    anomaly_min_hits: int = 40
+    anomaly_min_shots: int = 100
+    anomaly_min_population: int = 5
+    anomaly_mad_k: float = 3.5
+
     def admin_steam_id_set(self) -> frozenset[int]:
         tokens = self.admin_steam_ids.replace(",", " ").split()
         # SteamID64s are always positive integers, so isdigit() is a clean,

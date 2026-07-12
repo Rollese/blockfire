@@ -121,6 +121,27 @@ class PlayerWeaponTotal(Base):
     matches_used: Mapped[int] = mapped_column(Integer, default=0)
 
 
+class AnomalyFlag(Base):
+    __tablename__ = "anomaly_flags"
+    # Additive P4 review-queue table: no FK, decoupled like `events`/`player_profiles`.
+    flag_id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    player_key: Mapped[str] = mapped_column(String, index=True)
+    metric: Mapped[str] = mapped_column(String, index=True)  # "kd" | "headshot_rate" | "hit_rate"
+    value: Mapped[float] = mapped_column(Float)
+    threshold: Mapped[float] = mapped_column(Float)
+    sample_size: Mapped[int] = mapped_column(Integer)
+    severity: Mapped[str] = mapped_column(String)  # "low" | "med" | "high"
+    status: Mapped[str] = mapped_column(String, index=True, default="open")  # "open" | "confirmed" | "dismissed"
+    # keep in sync with app.anomaly.ANOMALY_DETECTOR_VERSION (Task 2)
+    detector_version: Mapped[int] = mapped_column(Integer, default=1)
+    context: Mapped[dict] = mapped_column(JSONB, default=dict)
+    created_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), index=True)
+    last_seen_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True))
+    reviewed_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    reviewed_by: Mapped[str | None] = mapped_column(String, nullable=True)
+    notes: Mapped[str | None] = mapped_column(String, nullable=True)
+
+
 class IngestedBatch(Base):
     __tablename__ = "ingested_batches"
     # Plain String, no FK to matches.match_id: batch rows are recorded during
