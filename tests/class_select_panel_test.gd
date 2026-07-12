@@ -74,3 +74,19 @@ func test_emitted_cfg_is_independent_deep_copy() -> void:
 	assert_eq(String((panel._cfg.get("attachments", {}) as Dictionary).get("optic", "")), panel_optic,
 		"internal nested attachments unchanged by host mutation")
 	panel.free()
+
+func test_perk_panel_populates_from_trait_blurbs() -> void:
+	# Task 3: the always-visible perk panel is one Label per Loadout.trait_blurbs(cls) entry, rebuilt
+	# on every class change (no leak/duplicate). Single source of truth = trait_blurbs.
+	var panel := _make()
+	for cls in [Loadout.ASSAULT, Loadout.MEDIC, Loadout.ENGINEER, Loadout.SUPPORT]:
+		panel._on_class_pressed(cls)
+		var expected: int = Loadout.trait_blurbs(cls).size()
+		assert_eq(panel._perk_box.get_child_count(), expected,
+			"class %d perk panel has one label per trait blurb" % cls)
+	# Re-selecting a class must not accumulate stale labels (clear-before-fill).
+	panel._on_class_pressed(Loadout.ASSAULT)
+	panel._on_class_pressed(Loadout.ASSAULT)
+	assert_eq(panel._perk_box.get_child_count(), Loadout.trait_blurbs(Loadout.ASSAULT).size(),
+		"repeated same-class picks do not duplicate perk labels")
+	panel.free()

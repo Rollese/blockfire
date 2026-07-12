@@ -13,6 +13,10 @@ extends Control
 ## file the catalog is built from). Sanitize still runs against the passed catalog.
 
 signal loadout_changed(cfg: Dictionary)
+## Emitted when the player dismisses the editor (the "Done" button). The host hides the overlay.
+## Needed because the panel is a full-rect Control (mouse_filter STOP) and would otherwise trap
+## input over whatever opened it.
+signal closed()
 
 const _ATTACH_PATH := "res://data/attachments.json"
 
@@ -124,8 +128,19 @@ func _ensure_built() -> void:
 	_gadget_row = _add_section(vbox, "Gadget")
 
 	vbox.add_child(HSeparator.new())
-	_perk_box = VBoxContainer.new()   # Task 3 fills this from Loadout.trait_blurbs()
+	var perk_caption := Label.new()
+	perk_caption.text = "PERKS"
+	perk_caption.add_theme_font_size_override("font_size", 16)
+	vbox.add_child(perk_caption)
+	_perk_box = VBoxContainer.new()   # filled from Loadout.trait_blurbs() on every _refresh()
 	vbox.add_child(_perk_box)
+
+	vbox.add_child(HSeparator.new())
+	var done_btn := Button.new()
+	done_btn.text = "Done"
+	done_btn.custom_minimum_size = Vector2(0, 40)
+	done_btn.pressed.connect(func() -> void: closed.emit())
+	vbox.add_child(done_btn)
 
 ## A labelled section: an HBox whose first child is the caption Label; option buttons are appended
 ## after it on refresh. Returns the HBox so refresh can clear/refill its button children.
@@ -209,6 +224,23 @@ func _refresh() -> void:
 		var implemented: bool = gd in Loadout.IMPLEMENTED_GADGETS
 		_add_button(_gadget_row, String(_GADGET_LABELS.get(gd, "Gadget %d" % gd)),
 			gd == gadget, not implemented, _on_gadget_pressed.bind(gd))
+
+	# Passive perks — always-visible, refreshed on class change (single source: trait_blurbs).
+	_refresh_perks(cls)
+
+## Rebuild the passive-perk panel from Loadout.trait_blurbs(cls). Clears the old labels first (same
+## remove_child+queue_free idiom as _clear_options) so repeated class changes don't leak/duplicate
+## rows. One Label per blurb — never a hardcoded perk string.
+func _refresh_perks(cls: int) -> void:
+	for c in _perk_box.get_children():
+		_perk_box.remove_child(c)
+		c.queue_free()
+	for blurb: String in Loadout.trait_blurbs(cls):
+		var lbl := Label.new()
+		lbl.text = "• %s" % blurb
+		lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		lbl.custom_minimum_size = Vector2(480, 0)
+		_perk_box.add_child(lbl)
 
 ## Armor picker line built from Armor.speed_mult / Armor.body_mult (no invented numbers). body_mult
 ## is the fraction of damage that LANDS, so damage-reduction = (1 - body_mult).
