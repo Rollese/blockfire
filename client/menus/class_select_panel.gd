@@ -50,7 +50,7 @@ const _GADGET_LABELS := {
 	Loadout.GADGET_SMOKE_WALL: "Smoke Wall — deployable smoke screen",
 	Loadout.GADGET_GRAPPLE: "Grappling Hook — (coming soon)",
 	Loadout.GADGET_RIOT_SHIELD: "Riot Shield — (coming soon)",
-	Loadout.GADGET_LMG_NEST: "LMG Nest — (coming soon)",
+	Loadout.GADGET_LMG_NEST: "LMG Nest",
 }
 
 # ---- state -----------------------------------------------------------------
