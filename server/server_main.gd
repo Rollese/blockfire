@@ -593,7 +593,11 @@ func _step_movement() -> void:
 		var want_shield := false
 		if _clients.has(id) and int(_clients[id]["loadout"]["gadget"]) == Loadout.GADGET_RIOT_SHIELD:
 			var btns := int((inputs[id] as Dictionary).get("buttons", 0))
-			if (btns & InputCommand.BTN_SHIELD) != 0 and _sim.tick >= sp.shield_broken_until_tick and sp.shield_hp > 0:
+			# server never trusts BTN_SHIELD while downed/mounted (anti-exploit): a modified client could
+			# raise the shield while manning an MG nest / in a seat and gun with frontal bullet-immunity.
+			if (btns & InputCommand.BTN_SHIELD) != 0 and _sim.tick >= sp.shield_broken_until_tick and sp.shield_hp > 0 \
+					and not sp.is_downed and sp.mounted_nest == 0 and sp.in_vehicle == 0 \
+					and not sp.climbing and not sp.vaulting:
 				want_shield = true
 		sp.shield_up = want_shield
 		if (_sim.tick < sp.stim_until_tick) or want_shield:

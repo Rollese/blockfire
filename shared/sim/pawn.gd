@@ -177,6 +177,8 @@ func is_blinded(tick: int) -> bool:
 	return tick < blind_until_tick
 
 ## M19-P5: true when a shield-up pawn's primary fire is locked out (they're holding the shield).
+## CLIENT-side fire-predict mirror only — the server gates gun fire on the authoritative
+## `pawn.shield_up` in fire.gd (not dead code; keeps local prediction in step with the server).
 static func fire_suppressed_by_shield(buttons: int, shielded: bool) -> bool:
 	return shielded and (buttons & InputCommand.BTN_FIRE) != 0
 
