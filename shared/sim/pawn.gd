@@ -101,9 +101,10 @@ func step(dt: float, cmd: Dictionary, world_half: float = WORLD_HALF) -> void:
 		move = move.normalized()
 	var has_move := move.length() > 0.01
 
-	var sprinting := bool(buttons & InputCommand.BTN_SPRINT) and stance == Stance.STAND and stamina > 0.0 and has_move and not _sprint_locked
+	var shielded := bool(cmd.get("shielded", false))
+	var sprinting := bool(buttons & InputCommand.BTN_SPRINT) and stance == Stance.STAND and stamina > 0.0 and has_move and not _sprint_locked and not shielded
 	var stimmed := bool(cmd.get("stimmed", false))
-	var speed := Stance.speed(stance) * (SPRINT_MULT if sprinting else 1.0) * Armor.speed_mult(armor_class) * (STIM_SPEED_MULT if stimmed else 1.0)
+	var speed := Stance.speed(stance) * (SPRINT_MULT if sprinting else 1.0) * Armor.speed_mult(armor_class) * (STIM_SPEED_MULT if stimmed else 1.0) * (RiotShield.SHIELD_SPEED_MULT if shielded else 1.0)
 	velocity.x = move.x * speed
 	velocity.z = move.z * speed
 
@@ -170,6 +171,10 @@ func eye_position() -> Vector3:
 ## M5.5-P3: true while a flashbang white-out is still active at `tick`.
 func is_blinded(tick: int) -> bool:
 	return tick < blind_until_tick
+
+## M19-P5: true when a shield-up pawn's primary fire is locked out (they're holding the shield).
+static func fire_suppressed_by_shield(buttons: int, shielded: bool) -> bool:
+	return shielded and (buttons & InputCommand.BTN_FIRE) != 0
 
 func to_state() -> EntityState:
 	var e := EntityState.new()
