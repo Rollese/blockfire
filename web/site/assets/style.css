@@ -207,6 +207,16 @@ body > * { position: relative; z-index: 1; }
 .btn-primary:hover { background: var(--amber-hi); border-color: var(--amber-hi); }
 .btn-ghost { background: transparent; color: var(--bone); border-color: var(--olive); }
 .btn-ghost:hover { border-color: var(--amber); color: var(--amber); }
+/* not-yet-available action (e.g. Wishlist before the Steam appid exists) */
+.btn.is-disabled {
+  cursor: not-allowed;
+  background: var(--steel);
+  border-color: var(--steel-2);
+  color: var(--mute);
+  opacity: .9;
+}
+.btn.is-disabled .sub { color: var(--faint); }
+.btn.is-disabled:hover { transform: none; }
 
 /* ---- Section shell ------------------------------------------------------- */
 .section { padding-block: var(--section-y); }

@@ -24,6 +24,7 @@
   <meta name="twitter:image" content="https://blockfire.cc/assets/shots/hero.webp">
 
   <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml">
+  <link rel="preload" href="/assets/shots/hero.webp" as="image" fetchpriority="high">
   <link rel="stylesheet" href="/assets/style.css">
 </head>
 <body>
@@ -63,11 +64,13 @@
             </p>
 
             <div class="cta-row">
-              <!-- TODO: real Steam store URL when appid exists -->
-              <a class="btn btn-primary" href="#">
+              <!-- TODO: when the Steam appid exists, swap this <span> for
+                   <a class="btn btn-primary" href="https://store.steampowered.com/app/APPID">
+                   and drop the is-disabled class / aria-disabled. -->
+              <span class="btn btn-primary is-disabled" role="link" aria-disabled="true">
                 Wishlist on Steam
                 <span class="sub">Coming soon</span>
-              </a>
+              </span>
               <a class="btn btn-ghost" href="https://stats.blockfire.cc">
                 View Player Stats
                 <span class="sub">Live match data</span>
