@@ -336,6 +336,40 @@ body > * { position: relative; z-index: 1; }
   color: var(--bone); font-size: .92em;
 }
 
+/* ---- 404 / not found ----------------------------------------------------- */
+.notfound {
+  min-height: min(78vh, 660px);
+  display: flex; align-items: center;
+  padding: clamp(3rem, 10vw, 6rem) 0;
+  overflow: hidden;
+  background:
+    linear-gradient(90deg, rgba(11,13,12,.94) 0%, rgba(11,13,12,.66) 50%, rgba(11,13,12,.5) 100%),
+    linear-gradient(0deg, rgba(11,13,12,.96) 2%, rgba(11,13,12,0) 46%),
+    radial-gradient(120% 90% at 70% 40%, rgba(255,138,30,.10), transparent 55%),
+    url("shots/hero.webp");
+  background-size: cover;
+  background-position: center 42%;
+}
+.notfound__inner { max-width: 640px; }
+.notfound__code {
+  font-family: var(--display);
+  font-weight: 800; line-height: .82;
+  font-size: clamp(5rem, 24vw, 12rem);
+  margin: 0;
+  color: var(--bone);
+  text-shadow: 0 4px 40px rgba(0,0,0,.6);
+}
+.notfound__code .fire { color: var(--amber); }
+.notfound__title {
+  font-family: var(--display);
+  font-weight: 700; text-transform: uppercase;
+  letter-spacing: .16em;
+  font-size: clamp(1.05rem, 3.4vw, 1.6rem);
+  color: var(--tan);
+  margin: .8rem 0 .8rem;
+}
+.notfound__lede { color: var(--mute); max-width: 46ch; margin: 0 0 2rem; }
+
 /* ---- Motion / a11y ------------------------------------------------------- */
 @media (prefers-reduced-motion: reduce) {
   * { animation: none !important; transition: none !important; scroll-behavior: auto !important; }

@@ -126,3 +126,7 @@ _To be finalized in Phase 5._ Outline: run `backend/` + `web/` compose on unraid
 change the two `reverse_proxy` upstreams above from `192.168.1.166:{8000,8080}` to the
 unraid-local addresses; `caddy validate` + `reload`; re-verify the Phase 1–3 checks.
 DNS and email records do **not** change on cutover.
+
+The `web/` compose bind-mounts `nginx-default.conf` (branded 404 via
+`error_page 404 /404.html`); it moves with the compose file, so the custom 404
+works identically on unraid with no edge-Caddy change.
