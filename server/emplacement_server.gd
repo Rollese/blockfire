@@ -102,6 +102,49 @@ func step_occupants() -> void:
 		e.pitch = Emplacement.clamp_pitch(p.pitch, pit_lo, pit_hi)
 		p.yaw = e.turret_yaw   # reflect the clamped aim onto the pawn so this tick's snapshot yaw matches the turret (client mirrors the clamp locally)
 
+## Fire step for every manned nest whose gunner holds fire (read from the occupant's last_input, like
+## ServerFire.resolve_vehicle_fires). Heat accrues while HOLDING the trigger (not per-shot) so sustained
+## fire overheats on the balance clock; the belt depletes per shot; an empty belt triggers a reload.
+## Delegates hit resolution to ServerFire.emplacement_hitscan (lag-comp + LOS + damage) — stubbed in tests.
+func step_fire() -> void:
+	var def := _def()
+	var interval := float(def.get("fire_interval", 0.075))
+	var dmg := int(def.get("mg_damage", 22))
+	var rng := float(def.get("range_m", 220.0))
+	var supp := float(def.get("suppression", 1.0))
+	var belt := int(def.get("belt", 150))
+	var reload_ticks := int(def.get("reload_ticks", 135))
+	var overheat_ticks := int(def.get("overheat_ticks", 90))
+	var cooldown_ticks := int(def.get("cooldown_ticks", 90))
+	var tick: int = srv._sim.tick
+	for e: Emplacement in nests.values():
+		if not e.alive or e.occupant == 0: continue
+		var c = srv._clients.get(e.occupant)
+		var inp = (c["last_input"] if c != null else null)
+		var want := inp != null and (int(inp.get("buttons", 0)) & InputCommand.BTN_FIRE) != 0
+		# reload state machine
+		if e.ammo <= 0 and e.reloading_until == 0:
+			e.reloading_until = tick + reload_ticks
+		if e.reloading_until != 0 and tick >= e.reloading_until:
+			e.ammo = belt
+			e.reloading_until = 0
+		var reloading := e.reloading_until != 0
+		# heat integrates from the INTENT to fire (holding), gated by reload; heat_step's own locked
+		# branch handles the already-overheated case, so passing `holding` is safe.
+		var holding := want and not reloading
+		var hs := Emplacement.heat_step(e.heat, e.overheated_until, tick, holding, overheat_ticks, cooldown_ticks)
+		e.heat = int(hs["heat"]); e.overheated_until = int(hs["overheated_until"])
+		# an actual round leaves the barrel only if holding, not overheated (post-step), belt has ammo,
+		# and the fire interval elapsed since the last shot.
+		var can_fire := holding and not Emplacement.overheated(e.overheated_until, tick) \
+			and e.ammo > 0 and (float(tick - e.last_fire_tick) * SimLoop.DT >= interval)
+		if not can_fire: continue
+		e.last_fire_tick = tick
+		e.ammo -= 1
+		var origin := e.muzzle()
+		var dir := Combat._forward(e.turret_yaw, e.pitch)
+		srv._fire.emplacement_hitscan(e.occupant, e.team, origin, dir, dmg, rng, supp)
+
 func clear() -> void:
 	nests.clear()
 	_next_index = 0

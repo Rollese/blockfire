@@ -465,6 +465,7 @@ func _physics_process(delta: float) -> void:
 	_step_health_regen()   # M19 Combat Vigor / out-of-combat health regen (after suppression decay)
 	var t_fire := Time.get_ticks_usec()
 	_emplacements.step_occupants()   # M19 P4: slave manned nest gunners + mirror clamped aim onto turrets (before any fire step)
+	_emplacements.step_fire()        # M19 P4: belt/heat/overheat/reload + arc-clamped suppressive MG hitscan
 	_step_grenades()
 	_step_rockets()
 	_step_breaches()

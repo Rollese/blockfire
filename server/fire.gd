@@ -82,6 +82,55 @@ func resolve_vehicle_fires() -> void:
 			var glethal: bool = (not victim.alive) or victim.is_downed
 			srv._net.send_to(gsc["peer"], NetHost.CHANNEL_CONTROL, Protocol.encode_hitmarker(best_head, glethal), 0)
 
+## Arc-clamped mounted-nest hit resolution (M19 P4). Mirrors the vehicle mounted-gun hitscan
+## (resolve_vehicle_fires) but parameterized for an emplacement: lag-comp rewind vs the shooter's
+## last view tick, nearest enemy raycast, structure-LOS occlusion, damage + cosmetics + hitmarker.
+func emplacement_hitscan(shooter_id: int, team: int, origin: Vector3, dir: Vector3, dmg: int, max_range: float, supp: float) -> void:
+	srv._broadcast_shot_fx(shooter_id, origin, dir)
+	var c = srv._clients.get(shooter_id, {})
+	var inp = c.get("last_input", null) if not c.is_empty() else null
+	var view_tick: int = int(inp["view_server_tick"]) if inp != null else srv._sim.tick
+	if srv._lag.clamped(view_tick):
+		srv._stats.rewind_clamped += 1
+	var frame: Dictionary = srv._lag.rewind(view_tick)
+	var candidates: Array = srv._grid.query(origin, max_range + srv.FIRE_RANGE_MARGIN, srv._positions)
+	var best_t := max_range + 1.0
+	var best_victim := 0
+	var best_head := false
+	for tid in candidates:
+		if tid == shooter_id: continue
+		if not frame.has(tid): continue
+		var stt = frame[tid]
+		if not stt["alive"] or stt["team"] == team: continue
+		var vcenter: Vector3 = stt["pos"] + Vector3(0.0, Stance.body_height(stt["stance"]) * 0.5, 0.0)
+		var to_target: Vector3 = vcenter - origin
+		if to_target.length() > max_range: continue
+		if to_target.length() > srv.FIRE_CONE_SKIP_RANGE and to_target.normalized().dot(dir) < srv.FIRE_CONE_DOT: continue
+		var hit := Hitbox.raycast_pawn(origin, dir, stt["pos"], stt["stance"], max_range)
+		if hit["hit"] and hit["t"] < best_t:
+			best_t = hit["t"]; best_victim = tid; best_head = hit["headshot"]
+	if best_victim == 0: return
+	if srv._store != null and (srv._store.count() > 0 or srv._store.terrain != null):
+		var blocked: Dictionary = srv._store.march(origin, dir, best_t)
+		if bool(blocked["hit"]) and float(blocked["dist"]) < best_t:
+			var hit_pt: Vector3 = origin + dir * float(blocked["dist"])
+			srv._stats.shots += 1
+			srv._stats.shots_blocked += 1
+			srv._damage_structure(int(blocked["id"]), PieceCatalog.SRC_BULLET, hit_pt, srv.BULLET_CARVE_RADIUS)
+			srv._broadcast_impact_fx(hit_pt, Protocol.IMPACT_WALL)
+			return
+	var victim: Pawn = srv._sim.world.get_pawn(best_victim)
+	if victim == null or not victim.alive: return
+	srv._stats.shots += 1; srv._stats.hits += 1
+	srv._broadcast_impact_fx(origin + dir * best_t, Protocol.IMPACT_FLESH)
+	# NOTE: intentional divergence from resolve_vehicle_fires — the MG applies on-hit suppression for its suppressive role.
+	victim.suppression = Suppress.accrue(victim.suppression, 0.0, supp)
+	srv._apply_pawn_damage(best_victim, victim, dmg, best_head, Revive.Source.BULLET, shooter_id, 0)
+	var gsc: Dictionary = srv._clients.get(shooter_id, {})
+	if not gsc.is_empty() and not gsc.get("auto_deploy", true):
+		var glethal: bool = (not victim.alive) or victim.is_downed
+		srv._net.send_to(gsc["peer"], NetHost.CHANNEL_CONTROL, Protocol.encode_hitmarker(best_head, glethal), 0)
+
 func resolve_fires() -> void:
 	for id in srv._clients:
 		var c = srv._clients[id]
