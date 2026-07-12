@@ -1,11 +1,21 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from app.signing import parse_signing_keys
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     database_url: str
     ingest_token: str
+    # M9-P1 signed match reports (ADR-0011). Space/comma-separated key_id:secret
+    # pairs; any configured key is an official/trusted signer.
+    ingest_signing_keys: str = ""
+    # When True, unsigned ingest POSTs are rejected 401 (prod). Default False
+    # keeps M20 dev servers (no signature) working, ingested as trusted=false.
+    require_signed_ingest: bool = False
+    # Max abs clock skew (seconds) tolerated on X-BF-Timestamp.
+    ingest_max_skew_s: int = 300
     raw_event_retention_days: int = 90
     steam_web_api_key: str | None = None
     session_secret: str = "dev-insecure-change-me"
@@ -38,6 +48,9 @@ class Settings(BaseSettings):
         # so a deploy-time typo in ADMIN_STEAM_IDS can't 500 the public
         # homepage (is_admin() is evaluated there to gate the Admin nav link).
         return frozenset(int(token) for token in tokens if token.isdigit())
+
+    def signing_key_map(self) -> dict[str, str]:
+        return parse_signing_keys(self.ingest_signing_keys)
 
 
 def get_settings() -> Settings:

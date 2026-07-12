@@ -130,3 +130,18 @@ def test_p4_anomaly_config_env_override(monkeypatch):
     monkeypatch.setenv("ANOMALY_KD_FLOOR", "6.5")
     s = Settings()
     assert s.anomaly_kd_floor == 6.5
+
+
+def test_signing_key_map_parses():
+    from app.config import Settings
+    s = Settings(ingest_token="t", ingest_signing_keys="game2-dev-1:sa bad-token")
+    assert s.signing_key_map() == {"game2-dev-1": "sa"}
+
+
+def test_signing_defaults():
+    from app.config import Settings
+    s = Settings(ingest_token="t")
+    assert s.ingest_signing_keys == ""
+    assert s.require_signed_ingest is False
+    assert s.ingest_max_skew_s == 300
+    assert s.signing_key_map() == {}
