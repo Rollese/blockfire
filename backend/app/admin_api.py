@@ -6,15 +6,24 @@ Every route requires `require_admin` (see app.admin_auth): either
 read-only thin wrappers -- no aggregation logic lives here, only wiring.
 """
 
-from fastapi import Depends, FastAPI, Request
+from fastapi import Depends, FastAPI, HTTPException, Request
+from pydantic import BaseModel
 
 from app.admin_auth import require_admin
+
+
+class ReviewBody(BaseModel):
+    status: str
+    notes: str | None = None
 
 
 def register_admin_api_routes(app: FastAPI) -> None:
     from app.admin_stats import (  # local import avoids import cycle
         hitzone_breakdown, kill_distance_stats, longest_kills,
         query_kill_events, weapon_balance, weapon_outliers,
+    )
+    from app.anomaly import (
+        detect_anomalies, flag_summary, list_flags, set_flag_status,
     )
 
     @app.get("/admin/api/weapons", dependencies=[Depends(require_admin)])
@@ -60,3 +69,46 @@ def register_admin_api_routes(app: FastAPI) -> None:
         async with sm() as session:
             weapons = await weapon_outliers(session)
         return {"weapons": weapons}
+
+    @app.get("/admin/api/anomalies", dependencies=[Depends(require_admin)])
+    async def admin_anomalies(
+        request: Request,
+        status: str | None = None,
+        metric: str | None = None,
+        limit: int = 100,
+    ) -> dict:
+        sm = request.app.state.sessionmaker
+        async with sm() as session:
+            flags = await list_flags(session, status=status, metric=metric,
+                                     limit=limit)
+            summary = await flag_summary(session)
+        return {"flags": flags, "summary": summary}
+
+    @app.post("/admin/api/anomaly/scan", dependencies=[Depends(require_admin)])
+    async def admin_anomaly_scan(request: Request) -> dict:
+        sm = request.app.state.sessionmaker
+        async with sm() as session:
+            written = await detect_anomalies(session, request.app.state.settings)
+        return {"written": written}
+
+    @app.post("/admin/api/anomalies/{flag_id}/review",
+              dependencies=[Depends(require_admin)])
+    async def admin_anomaly_review(
+        request: Request, flag_id: int, body: ReviewBody,
+    ) -> dict:
+        from app.steam_openid import current_steam_id
+
+        sm = request.app.state.sessionmaker
+        steam_id = current_steam_id(request)
+        reviewed_by = str(steam_id) if steam_id is not None else "dev"
+        try:
+            async with sm() as session:
+                updated = await set_flag_status(
+                    session, flag_id, body.status,
+                    reviewed_by=reviewed_by, notes=body.notes,
+                )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+        if updated is None:
+            raise HTTPException(status_code=404, detail="anomaly flag not found")
+        return {"flag": updated}

@@ -3,7 +3,7 @@ import pytest
 from sqlalchemy import select
 
 from app.db import Base, init_db, make_engine, make_sessionmaker
-from app.models import Player, PlayerProfile, PlayerWeaponTotal
+from app.models import AnomalyFlag, Player, PlayerProfile, PlayerWeaponTotal
 
 
 @pytest.fixture
@@ -89,3 +89,28 @@ async def test_player_weapon_total_composite_pk(sessionmaker_fixture):
         assert ak.time_used_s == 0  # default
         assert m16.kills == 10
         assert m16.matches_used == 5
+
+
+async def test_anomaly_flag_defaults(sessionmaker_fixture):
+    now = dt.datetime(2026, 7, 11, tzinfo=dt.timezone.utc)
+    async with sessionmaker_fixture() as s:
+        s.add(AnomalyFlag(player_key="steam:76561198000000000", metric="kd",
+                          value=8.3, threshold=4.0, sample_size=42, severity="high",
+                          created_at=now, last_seen_at=now))
+        await s.commit()
+    async with sessionmaker_fixture() as s:
+        got = (await s.execute(select(AnomalyFlag).where(
+            AnomalyFlag.player_key == "steam:76561198000000000"))).scalar_one()
+        assert got.metric == "kd"
+        assert got.value == 8.3
+        assert got.threshold == 4.0
+        assert got.sample_size == 42
+        assert got.severity == "high"
+        # defaults applied for columns not supplied
+        assert got.status == "open"
+        assert got.detector_version == 1
+        assert got.context == {}
+        # nullable review fields default to None
+        assert got.reviewed_at is None
+        assert got.reviewed_by is None
+        assert got.notes is None

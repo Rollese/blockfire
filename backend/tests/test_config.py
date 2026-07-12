@@ -106,3 +106,27 @@ def test_admin_dev_open_env_override(monkeypatch):
     monkeypatch.setenv("ADMIN_DEV_OPEN", "true")
     s = Settings()
     assert s.admin_dev_open is True
+
+
+def test_p4_anomaly_config_defaults():
+    s = Settings(
+        database_url="postgresql+asyncpg://u:p@h:5432/d",
+        ingest_token="secret",
+    )
+    assert s.anomaly_kd_floor == 4.0
+    assert s.anomaly_headshot_rate_floor == 0.6
+    assert s.anomaly_hit_rate_floor == 0.55
+    assert s.anomaly_min_deaths == 5
+    assert s.anomaly_min_kills == 10
+    assert s.anomaly_min_hits == 40
+    assert s.anomaly_min_shots == 100
+    assert s.anomaly_min_population == 5
+    assert s.anomaly_mad_k == 3.5
+
+
+def test_p4_anomaly_config_env_override(monkeypatch):
+    monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://u:p@h:5432/d")
+    monkeypatch.setenv("INGEST_TOKEN", "secret")
+    monkeypatch.setenv("ANOMALY_KD_FLOOR", "6.5")
+    s = Settings()
+    assert s.anomaly_kd_floor == 6.5

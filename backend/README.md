@@ -101,3 +101,46 @@ cd backend
 ADMIN_DEV_OPEN=1 docker compose up --build
 open http://localhost:8000/admin
 ```
+
+## P4 — Anomaly / cheat detection
+
+The `worker` cycle (and the on-demand `POST /admin/api/anomaly/scan`) flags
+outlier **K/D**, **headshot-rate**, and **hit-rate** players into the
+`anomaly_flags` review queue. This is the analytics precursor to M9's Layer-4
+statistical detection — see
+`docs/superpowers/specs/2026-07-11-stats-analytics-backend-design.md` §7 (P4).
+
+### How detection decides
+Per metric, a player must first pass a **min-sample gate**
+(min deaths+kills for K/D, min hits for headshot-rate, min shots for
+hit-rate), then is flagged when its value is
+`>= max(absolute_floor, median + K · 1.4826 · MAD)` over the qualifying
+population — a robust population statistic (median + scaled MAD) rather than
+mean/stddev. When the qualifying population is below `ANOMALY_MIN_POPULATION`
+the robust term is skipped and only the absolute floor applies. Severity
+(high / med / low) is graded by how far the value sits past the threshold.
+
+### Idempotency
+Re-scans update an existing OPEN flag in place (no duplicate rows) and never
+resurrect a `confirmed` or `dismissed` flag — triage decisions are final.
+
+### Admin surface
+- `GET /admin/api/anomalies` — current flags as JSON.
+- `POST /admin/api/anomaly/scan` — run detection on demand.
+- `POST /admin/api/anomalies/{id}/review` — confirm/dismiss a flag.
+- `GET /admin/anomalies` — HTML review queue (Confirm/Dismiss triage plus a
+  "Run scan now" button).
+
+All of these sit behind the same `require_admin` gate as the P3 dashboards
+(SteamID allowlist ∪ `ADMIN_DEV_OPEN`).
+
+### Tuning knobs (see `.env.example`)
+The detection thresholds, all `${VAR:-default}` in `docker-compose.yml`:
+- `ANOMALY_KD_FLOOR` (4.0) — absolute K/D floor.
+- `ANOMALY_HEADSHOT_RATE_FLOOR` (0.6) — absolute headshot-rate floor.
+- `ANOMALY_HIT_RATE_FLOOR` (0.55) — absolute hit-rate floor.
+- `ANOMALY_MIN_DEATHS` (5) / `ANOMALY_MIN_KILLS` (10) — K/D sample gate.
+- `ANOMALY_MIN_HITS` (40) — headshot-rate sample gate.
+- `ANOMALY_MIN_SHOTS` (100) — hit-rate sample gate.
+- `ANOMALY_MIN_POPULATION` (5) — min flagged population before MAD scoring.
+- `ANOMALY_MAD_K` (3.5) — modified z-score (MAD) cutoff.
