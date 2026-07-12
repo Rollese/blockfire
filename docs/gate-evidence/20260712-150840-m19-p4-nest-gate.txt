@@ -1,0 +1,8 @@
+gate: m19-p4-nest-gate
+date: 2026-07-12T15:08:40+02:00
+host: game2
+git: 90d4445
+verdict: PASS
+summary: winner=1 elapsed=79s peak_tick=13.32ms budget=33.3ms agg=47.7Mbit/s players=128 kills=38 cap_events=1 ai_us_mean=9994.4us map=conquest_town
+srvlog: srvlog-m19-p4-nest-gate-20260712-150840.log
+srvlog_sha256: 4a001e04a6ab96bf2f03e413c95f0515b999a398be33eac808c98ce9ab4c87fc
