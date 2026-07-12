@@ -464,6 +464,7 @@ func _physics_process(delta: float) -> void:
 	_step_suppression_decay()
 	_step_health_regen()   # M19 Combat Vigor / out-of-combat health regen (after suppression decay)
 	var t_fire := Time.get_ticks_usec()
+	_emplacements.step_occupants()   # M19 P4: slave manned nest gunners + mirror clamped aim onto turrets (before any fire step)
 	_step_grenades()
 	_step_rockets()
 	_step_breaches()
@@ -1196,6 +1197,7 @@ func _on_packet(peer: ENetPacketPeer, _channel: int, bytes: PackedByteArray) -> 
 		Protocol.Msg.GIVE_UP: _support.handle_give_up(peer)
 		Protocol.Msg.GADGET_ACTION: _handle_gadget_action(peer, bytes)
 		Protocol.Msg.VEHICLE_ACTION: _handle_vehicle_action(peer, bytes)
+		Protocol.Msg.EMPLACEMENT_ACTION: _handle_emplacement_action(peer, bytes)
 		Protocol.Msg.DEPLOY_REQUEST: _handle_deploy_request(peer, bytes)
 		Protocol.Msg.SET_SQUAD: _handle_set_squad(peer, bytes)
 		Protocol.Msg.SET_FIRE_MODE: _handle_set_fire_mode(peer, bytes)
@@ -1656,6 +1658,17 @@ func _handle_vehicle_action(peer: ENetPacketPeer, bytes: PackedByteArray) -> voi
 	match int(d["action"]):
 		Protocol.VA_ENTER: _vehicle_enter(id, p, int(d["vehicle_id"]), int(d["seat_hint"]))
 		Protocol.VA_EXIT: _vehicle_exit(id, p)
+		_: pass
+
+func _handle_emplacement_action(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
+	var id = _peer_to_id.get(peer, 0)
+	if id == 0 or not _clients.has(id): return
+	var p: Pawn = _sim.world.get_pawn(id)
+	if p == null: return
+	var d := Protocol.decode_emplacement_action(bytes)
+	match int(d["action"]):
+		Protocol.EA_MOUNT: _emplacements.mount(id, p, int(d["nest_id"]))
+		Protocol.EA_DISMOUNT: _emplacements.dismount(id, p)
 		_: pass
 
 func _vehicle_enter(id: int, p: Pawn, vid: int, seat_hint: int) -> void:

@@ -54,6 +54,28 @@ func first_nest_id() -> int:
 	var e := first_nest()
 	return e.id if e != null else 0
 
+func move_pawn_to(pos: Vector3) -> void:
+	support_pawn().pos = pos
+
+func set_pawn_yaw(rad: float) -> void:
+	support_pawn().yaw = rad
+
+func set_pawn_pitch(rad: float) -> void:
+	support_pawn().pitch = rad
+
+func pawn() -> Pawn:
+	return support_pawn()
+
+func pawn_id() -> int:
+	return _support_id
+
+func mount(nest_id: int) -> void:
+	emp.mount(_support_id, support_pawn(), nest_id)
+
+func dismount() -> void:
+	emp.dismount(_support_id, support_pawn())
+
 func tick() -> void:
 	_sim.tick += 1
-	# later tasks call emp.step_occupants()/emp.step_fire(...) here
+	emp.step_occupants()
+	# a later task also calls emp.step_fire(...) here

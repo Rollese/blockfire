@@ -29,6 +29,9 @@ func test_can_mount_gates() -> void:
 	assert_false(Emplacement.can_mount(e, p, 3.0, 1.6), "out of range")
 	p.team = 0
 	assert_false(Emplacement.can_mount(e, p, 1.0, 1.6), "enemy team (v1 friendly only)")
+	p.team = 1; e.occupant = 0; p.in_vehicle = 999
+	assert_false(Emplacement.can_mount(e, p, 1.0, 1.6), "can't mount while seated in a vehicle")
+	p.in_vehicle = 0
 	p.team = 1; e.occupant = 5
 	assert_false(Emplacement.can_mount(e, p, 1.0, 1.6), "already manned")
 

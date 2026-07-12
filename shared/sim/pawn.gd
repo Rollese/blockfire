@@ -72,8 +72,8 @@ func _init(p_id: int = 0) -> void:
 func step(dt: float, cmd: Dictionary, world_half: float = WORLD_HALF) -> void:
 	yaw = cmd.get("yaw", yaw)
 	pitch = clampf(cmd.get("pitch", pitch), -MAX_PITCH, MAX_PITCH)
-	if in_vehicle != 0:
-		return   # position driven by SimLoop seat slaving; look already applied above
+	if in_vehicle != 0 or mounted_nest != 0:
+		return   # position driven by SimLoop seat slaving / emplacement slaving; look already applied above
 	if is_downed:
 		_step_downed(dt, cmd, world_half)
 		return

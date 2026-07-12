@@ -56,6 +56,52 @@ func build_list() -> Array:
 			"hp_frac": float(e.hp) / float(maxi(1, e.max_hp)), "occupant": e.occupant, "team": e.team})
 	return out
 
+## Bind a pawn to a nest seat (server authority). Defers to Emplacement.can_mount for all validity
+## (alive/unmanned/same-team/in-range/not-already-mounted), so client prediction and tests agree.
+func mount(id: int, p: Pawn, nest_id: int) -> void:
+	var e: Emplacement = nests.get(nest_id)
+	if e == null or p == null: return
+	var mr := float(_def().get("mount_range_m", 1.6))
+	if not Emplacement.can_mount(e, p, p.pos.distance_to(e.seat_world()), mr): return
+	e.occupant = id
+	p.mounted_nest = nest_id
+
+func dismount(id: int, p: Pawn) -> void:
+	if p == null or p.mounted_nest == 0: return
+	var e: Emplacement = nests.get(p.mounted_nest)
+	if e != null and e.occupant == id:
+		e.occupant = 0
+		p.pos = _safe_exit(e)
+	p.mounted_nest = 0
+
+## Step to the side of the seat, clear of the gun (nests deploy in the open, so a fixed side offset suffices).
+func _safe_exit(e: Emplacement) -> Vector3:
+	var side := Emplacement.yaw_forward(e.facing_yaw + PI * 0.5)
+	var cand := e.seat_world() + side * 1.2
+	cand.y = maxf(0.0, Terrain.height_at(srv._sim.terrain, cand.x, cand.z))
+	return cand
+
+## Per-tick: slave each occupant to the seat and mirror its (clamped) aim onto the turret. Run this
+## AFTER pawn movement integration and BEFORE the nest-fire step, so the MG fires along fresh aim.
+func step_occupants() -> void:
+	var def := _def()
+	var half_arc := deg_to_rad(float(def.get("half_arc_deg", 45)))
+	var pit_lo := deg_to_rad(float(def.get("pitch_lo_deg", 20)))
+	var pit_hi := deg_to_rad(float(def.get("pitch_hi_deg", 25)))
+	for e: Emplacement in nests.values():
+		# NOTE: death-eject (clearing a manning gunner's p.mounted_nest when a nest is destroyed) is
+		# the damage path's job (ServerEmplacement.damage, Task 9), not here — dead nests are skipped.
+		if not e.alive or e.occupant == 0: continue
+		var p: Pawn = srv._sim.world.get_pawn(e.occupant)
+		if p == null or not p.alive or p.is_downed or p.mounted_nest != e.id:
+			e.occupant = 0
+			if p != null and p.mounted_nest == e.id: p.mounted_nest = 0
+			continue
+		p.pos = e.seat_world()
+		e.turret_yaw = Emplacement.clamp_yaw(p.yaw, e.facing_yaw, half_arc)
+		e.pitch = Emplacement.clamp_pitch(p.pitch, pit_lo, pit_hi)
+		p.yaw = e.turret_yaw   # reflect the clamped aim onto the pawn so this tick's snapshot yaw matches the turret (client mirrors the clamp locally)
+
 func clear() -> void:
 	nests.clear()
 	_next_index = 0
