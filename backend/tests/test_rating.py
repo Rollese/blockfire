@@ -24,6 +24,21 @@ GOLD_WIN_SIGMA = 7.6331949777882855  # na.sigma
 GOLD_LOSE_MU = 20.794526823442215    # nb.mu
 GOLD_LOSE_SIGMA = 7.6331949777882855
 
+# 2v1 decisive win, all seeded default (μ=25). Guards the team-SUM (not mean)
+# aggregation of μ in the standardized margin — invisible at 1v1.
+#   A = [m.rating(), m.rating()]; B = [m.rating()]; m.rate([A, B], ranks=[0, 1])
+GOLD_2V1_WIN_MU = 25.519621405744676     # each of the two winners
+GOLD_2V1_WIN_SIGMA = 8.151167388069535
+GOLD_2V1_LOSE_MU = 24.480378594255324    # lone loser
+GOLD_2V1_LOSE_SIGMA = 8.205065332370392
+
+# 2v2 unequal-μ decisive win: A seeded μ=30, B seeded μ=20, A wins.
+#   A = [m.rating(mu=30), m.rating(mu=30)]; B = [m.rating(mu=20), m.rating(mu=20)]
+GOLD_2V2_WIN_MU = 30.948822277579048     # each winner (seed μ=30)
+GOLD_2V2_WIN_SIGMA = 8.126489871216027
+GOLD_2V2_LOSE_MU = 19.051177722420952    # each loser (seed μ=20)
+GOLD_2V2_LOSE_SIGMA = 8.126489871216027
+
 
 def test_golden_two_team_1v1_equal_weight():
     a = [default_rating(CFG)]
@@ -33,6 +48,29 @@ def test_golden_two_team_1v1_equal_weight():
     assert math.isclose(na[0].sigma, GOLD_WIN_SIGMA, rel_tol=1e-6)
     assert math.isclose(nb[0].mu, GOLD_LOSE_MU, rel_tol=1e-6)
     assert math.isclose(nb[0].sigma, GOLD_LOSE_SIGMA, rel_tol=1e-6)
+
+
+def test_golden_2v1_decisive_win_equal_weight():
+    a = [default_rating(CFG), default_rating(CFG)]
+    b = [default_rating(CFG)]
+    (na, nb) = rate_two_teams(a, b, [1.0, 1.0], [1.0], Outcome.A_WINS, CFG)
+    for r in na:
+        assert math.isclose(r.mu, GOLD_2V1_WIN_MU, rel_tol=1e-6)
+        assert math.isclose(r.sigma, GOLD_2V1_WIN_SIGMA, rel_tol=1e-6)
+    assert math.isclose(nb[0].mu, GOLD_2V1_LOSE_MU, rel_tol=1e-6)
+    assert math.isclose(nb[0].sigma, GOLD_2V1_LOSE_SIGMA, rel_tol=1e-6)
+
+
+def test_golden_2v2_unequal_mu_decisive_win_equal_weight():
+    a = [Rating(30.0, 25.0 / 3.0), Rating(30.0, 25.0 / 3.0)]
+    b = [Rating(20.0, 25.0 / 3.0), Rating(20.0, 25.0 / 3.0)]
+    (na, nb) = rate_two_teams(a, b, [1.0, 1.0], [1.0, 1.0], Outcome.A_WINS, CFG)
+    for r in na:
+        assert math.isclose(r.mu, GOLD_2V2_WIN_MU, rel_tol=1e-6)
+        assert math.isclose(r.sigma, GOLD_2V2_WIN_SIGMA, rel_tol=1e-6)
+    for r in nb:
+        assert math.isclose(r.mu, GOLD_2V2_LOSE_MU, rel_tol=1e-6)
+        assert math.isclose(r.sigma, GOLD_2V2_LOSE_SIGMA, rel_tol=1e-6)
 
 
 def test_winner_rises_loser_falls_sigma_shrinks():

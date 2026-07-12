@@ -96,8 +96,11 @@ def rate_two_teams(team_a, team_b, weights_a, weights_b, outcome, cfg):
     sum_a2 = sum(a_sig2)
     sum_b2 = sum(b_sig2)
     c = math.sqrt(sum_a2 + sum_b2 + 2.0 * beta2)
-    mean_a_mu = sum(a_mu) / len(a_mu)
-    mean_b_mu = sum(b_mu) / len(b_mu)
+    # Weng-Lin team performance is the SUM of player μ, not the mean; this only
+    # differs from a mean for multi-player teams and is what standardizes the
+    # margin t below (feeds both v and w). 1v1 reduces to a single μ.
+    sum_a_mu = sum(a_mu)
+    sum_b_mu = sum(b_mu)
     eps = cfg.rating_draw_margin  # already a fraction of c-scale margin; applied on standardized t
 
     # Weng-Lin multi-team correction (openskill's gamma): the σ² shrink of a
@@ -131,9 +134,9 @@ def rate_two_teams(team_a, team_b, weights_a, weights_b, outcome, cfg):
     else:
         sign_a = sign_b = 1.0
 
-    new_a = [updated(a_mu[i], a_sig2[i], mean_a_mu, mean_b_mu, sign_a, weights_a[i], mean_wa, gamma_a)
+    new_a = [updated(a_mu[i], a_sig2[i], sum_a_mu, sum_b_mu, sign_a, weights_a[i], mean_wa, gamma_a)
              for i in range(len(team_a))]
-    new_b = [updated(b_mu[i], b_sig2[i], mean_b_mu, mean_a_mu, sign_b, weights_b[i], mean_wb, gamma_b)
+    new_b = [updated(b_mu[i], b_sig2[i], sum_b_mu, sum_a_mu, sign_b, weights_b[i], mean_wb, gamma_b)
              for i in range(len(team_b))]
     return new_a, new_b
 
