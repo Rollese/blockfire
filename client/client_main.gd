@@ -863,6 +863,9 @@ func _process(_dt: float) -> void:
 		"vehicles_near": _vehicles_near(),
 		"mounted_nest": _mounted_nest,      # M19 P4: id of the nest we're manning (0 = on foot) -> dismount prompt
 		"nests_near": _nests_near(),        # M19 P4: friendly unoccupied nests in mount range -> mount prompt
+		"mg_heat": _mg_heat,                # M19 P4 Task 13: manned MG heat 0..255 -> HUD heat bar
+		"mg_ammo": _mg_ammo,                # M19 P4 Task 13: manned MG belt rounds remaining -> HUD belt counter
+		"mg_overheated": _mg_overheated,    # M19 P4 Task 13: manned MG overheat-lockout -> HUD overheat flash
 		"repair_heat": _repair_heat,
 		"repair_cooldown": _repair_cooldown,
 		"throw_charge": _throw_charge if _throw_charging else 0.0,   # C3 grenade charge bar (0 when idle)

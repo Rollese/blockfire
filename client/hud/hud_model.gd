@@ -12,6 +12,7 @@ const BLIND_FULL_TICKS := 45.0   # remaining-blind ticks at/above which the flas
 # threshold, full at a realistic sustained-fire level, so being shot at reads on-screen.
 const SUPPRESS_FX_THRESHOLD := 0.10   # veil starts just below one dead-on near-miss (≈0.15)
 const SUPPRESS_FX_FULL := 0.35        # veil is full at a couple of near-misses / brief sustained fire
+const MG_BELT_MAX := 150   # must match data/gadgets.json lmgnest.belt (client doesn't load the catalog)
 
 ## Flashbang white-out opacity (0..1) from the SELF_STATE remaining-blind-ticks byte (M5.5-P3).
 ## Saturated white while ≥ BLIND_FULL_TICKS remain, then a linear fade over the final tail — so a
@@ -133,7 +134,7 @@ func _grenade_danger(ctx: Dictionary):
 
 func build(ctx: Dictionary) -> Dictionary:
 	var dmg := _damage(ctx)
-	return {"ammo": _ammo(ctx), "compass": _compass(ctx), "tickets": _tickets(ctx), "capture": _capture(ctx), "killfeed": _killfeed_current(ctx), "damage_arcs": dmg["arcs"], "vignette": dmg["vignette"], "scoreboard": _scoreboard(ctx), "squad_roster": _squad_roster(ctx), "interaction_prompt": _interaction_prompt(ctx), "throwables": _throwables(ctx), "death_recap": _death_recap(ctx), "grenade_danger": _grenade_danger(ctx), "capture_feed": _capture_feed_current(ctx), "repair_heat": _repair_heat(ctx), "throw_charge": _throw_charge(ctx), "stamina": _stamina(ctx)}
+	return {"ammo": _ammo(ctx), "compass": _compass(ctx), "tickets": _tickets(ctx), "capture": _capture(ctx), "killfeed": _killfeed_current(ctx), "damage_arcs": dmg["arcs"], "vignette": dmg["vignette"], "scoreboard": _scoreboard(ctx), "squad_roster": _squad_roster(ctx), "interaction_prompt": _interaction_prompt(ctx), "throwables": _throwables(ctx), "death_recap": _death_recap(ctx), "grenade_danger": _grenade_danger(ctx), "capture_feed": _capture_feed_current(ctx), "repair_heat": _repair_heat(ctx), "throw_charge": _throw_charge(ctx), "stamina": _stamina(ctx), "mg_gauge": _mg_gauge(ctx)}
 
 ## C3 grenade hold-to-charge: a 0..1 throw-strength meter, shown only while charging.
 func _throw_charge(ctx: Dictionary) -> Dictionary:
@@ -155,6 +156,22 @@ func _repair_heat(ctx: Dictionary) -> Dictionary:
 	var cooldown := clampf(float(ctx.get("repair_cooldown", 0.0)), 0.0, 1.0)
 	var overheated := cooldown > 0.0
 	return {"visible": heat > 0.0 or overheated, "heat": heat, "cooldown": cooldown, "overheated": overheated}
+
+## M19 P4 Task 13: manned LMG-nest HUD — heat bar + belt (ammo) counter. Visible only while manning
+## (dismount prompt is handled separately by the interaction-prompt system). `reloading` covers the
+## belt-swap window (ammo hits 0 while still mounted); `overheated` drives the red lockout flash.
+## Pure — reads the SELF_STATE-derived fields from ctx.
+func _mg_gauge(ctx: Dictionary) -> Dictionary:
+	var mounted := int(ctx.get("mounted_nest", 0)) != 0
+	var ammo := int(ctx.get("mg_ammo", 0))
+	return {
+		"visible": mounted,
+		"heat_frac": clampf(float(ctx.get("mg_heat", 0)) / 255.0, 0.0, 1.0),
+		"overheated": bool(ctx.get("mg_overheated", false)),
+		"ammo": ammo,
+		"belt_max": MG_BELT_MAX,
+		"reloading": mounted and ammo <= 0,
+	}
 
 func cycle_throwable(count: int) -> void:
 	if count <= 0:

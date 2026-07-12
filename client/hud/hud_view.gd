@@ -28,6 +28,7 @@ const _THROWABLE_LABELS: Dictionary = {
 
 # ---- node references --------------------------------------------------
 var _repair_gauge: _RepairGauge   # Engineer repair-tool heat/overheat gauge (bottom-centre)
+var _mg_gauge: _MgGauge           # M19 P4 Task 13: manned LMG-nest heat/belt gauge (bottom-centre, above repair gauge)
 var _ammo_label: Label
 var _reload_label: Label
 var _firemode_label: Label   # AUTO/SEMI/BURST glyph above the ammo count (M5.5-P1 fire-mode)
@@ -142,6 +143,7 @@ func render(model: Dictionary) -> void:
 	_render_throwables(model.get("throwables", {}))
 	_render_death_recap(model.get("death_recap"))
 	_render_repair_gauge(model.get("repair_heat", {}))
+	_render_mg_gauge(model.get("mg_gauge", {}))
 	_render_throw_charge(model.get("throw_charge", {}))
 	_render_stamina(model.get("stamina", {}))
 
@@ -173,6 +175,7 @@ func _build_tree() -> void:
 	_hitmarker = _Hitmarker.new()
 	add_child(_hitmarker)
 	_build_repair_gauge()
+	_build_mg_gauge()
 	_build_ammo()
 	_build_compass()
 	_build_objective_markers()
@@ -1406,6 +1409,34 @@ func _render_repair_gauge(rh: Dictionary) -> void:
 		_repair_gauge.set_state(float(rh.get("heat", 0.0)), float(rh.get("cooldown", 0.0)), bool(rh.get("overheated", false)))
 
 
+## M19 P4 Task 13: manned LMG-nest heat/belt gauge — bottom-centre, just above the repair gauge (the
+## two never both apply, but the slot avoids overlap on the off chance an engineer mans a nest). The
+## dismount prompt is handled entirely by the interaction-prompt system (Task 12) — not here.
+func _build_mg_gauge() -> void:
+	_mg_gauge = _MgGauge.new()
+	_mg_gauge.anchor_left = 0.5
+	_mg_gauge.anchor_right = 0.5
+	_mg_gauge.anchor_top = 1.0
+	_mg_gauge.anchor_bottom = 1.0
+	_mg_gauge.offset_left = -70.0
+	_mg_gauge.offset_right = 70.0
+	_mg_gauge.offset_top = -160.0
+	_mg_gauge.offset_bottom = -134.0
+	_mg_gauge.mouse_filter = MOUSE_FILTER_IGNORE
+	_mg_gauge.visible = false
+	add_child(_mg_gauge)
+
+
+func _render_mg_gauge(mg: Dictionary) -> void:
+	if _mg_gauge == null:
+		return
+	var vis := bool(mg.get("visible", false))
+	_mg_gauge.visible = vis
+	if vis:
+		_mg_gauge.set_state(float(mg.get("heat_frac", 0.0)), bool(mg.get("overheated", false)),
+			int(mg.get("ammo", 0)), int(mg.get("belt_max", 0)), bool(mg.get("reloading", false)))
+
+
 func _build_death_recap() -> void:
 	# Left side, vertically centered — kept clear of the centered respawn options and the
 	# top compass (earlier center/top placements overlapped both).
@@ -1760,6 +1791,54 @@ class _RepairGauge extends Control:
 			draw_rect(Rect2(0, bar_y, w * _heat, bar_h), col)
 			var f := ThemeDB.fallback_font
 			draw_string(f, Vector2(0, bar_y - 6), "REPAIR", HORIZONTAL_ALIGNMENT_CENTER, w, 12, Color(0.8, 0.85, 0.9, 0.9))
+		# Border.
+		draw_rect(Rect2(0, bar_y, w, bar_h), Color(1, 1, 1, 0.25), false, 1.0)
+
+
+## M19 P4 Task 13: manned LMG-nest HUD gauge — heat bar (amber->red, red flash when the lockout
+## trips) + a belt (ammo) counter, shown only while manning. Modeled on _RepairGauge above.
+class _MgGauge extends Control:
+	var _heat_frac: float = 0.0
+	var _overheated: bool = false
+	var _ammo: int = 0
+	var _belt_max: int = 0
+	var _reloading: bool = false
+
+	func set_state(heat_frac: float, overheated: bool, ammo: int, belt_max: int, reloading: bool) -> void:
+		_heat_frac = clampf(heat_frac, 0.0, 1.0)
+		_overheated = overheated
+		_ammo = ammo
+		_belt_max = belt_max
+		_reloading = reloading
+		queue_redraw()
+
+	func _draw() -> void:
+		var w := size.x
+		var h := size.y
+		var bar_h := 8.0
+		var bar_y := h - bar_h
+		# Backdrop track.
+		draw_rect(Rect2(0, bar_y, w, bar_h), Color(0, 0, 0, 0.55))
+		if _overheated:
+			# Overheat lockout: bar flashes full red.
+			draw_rect(Rect2(0, bar_y, w, bar_h), Color(0.9, 0.2, 0.15, 0.95))
+		else:
+			# Heating: amber->red fill by heat amount.
+			var col := Color(0.95, 0.75, 0.2).lerp(Color(0.95, 0.25, 0.1), _heat_frac)
+			draw_rect(Rect2(0, bar_y, w * _heat_frac, bar_h), col)
+		var f := ThemeDB.fallback_font
+		var label: String
+		var txt_col: Color
+		if _overheated:
+			label = "OVERHEAT"
+			txt_col = Color(1.0, 0.4, 0.3)
+		elif _reloading:
+			label = "RELOADING"
+			txt_col = Color(0.95, 0.75, 0.2)
+		else:
+			label = "%d / %d" % [_ammo, _belt_max]
+			txt_col = Color(0.8, 0.85, 0.9, 0.9)
+		draw_string(f, Vector2(0, bar_y - 6), label, HORIZONTAL_ALIGNMENT_CENTER, w, 13, txt_col)
 		# Border.
 		draw_rect(Rect2(0, bar_y, w, bar_h), Color(1, 1, 1, 0.25), false, 1.0)
 

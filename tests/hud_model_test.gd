@@ -347,3 +347,22 @@ func test_repair_heat_overheated_during_cooldown() -> void:
 	assert_true(out["repair_heat"]["visible"], "gauge stays up during the lockout")
 	assert_true(out["repair_heat"]["overheated"], "cooldown>0 reads as overheated")
 	assert_eq(out["repair_heat"]["cooldown"], 0.8)
+
+func test_mg_gauge_hidden_on_foot() -> void:
+	var m := HudModel.new().build({"mounted_nest": 0, "tick": 0})
+	assert_false(bool(m["mg_gauge"]["visible"]))
+
+func test_mg_gauge_shows_heat_belt_when_mounted() -> void:
+	var g: Dictionary = HudModel.new().build({"mounted_nest": 5, "mg_heat": 128, "mg_ammo": 90,
+		"mg_overheated": false, "tick": 0})["mg_gauge"]
+	assert_true(bool(g["visible"]))
+	assert_almost_eq(float(g["heat_frac"]), 0.502, 0.01)
+	assert_eq(int(g["ammo"]), 90)
+	assert_eq(int(g["belt_max"]), 150)
+	assert_false(bool(g["reloading"]))
+
+func test_mg_gauge_reloading_and_overheat_flags() -> void:
+	var g: Dictionary = HudModel.new().build({"mounted_nest": 5, "mg_heat": 255, "mg_ammo": 0,
+		"mg_overheated": true, "tick": 0})["mg_gauge"]
+	assert_true(bool(g["overheated"]))
+	assert_true(bool(g["reloading"]))
