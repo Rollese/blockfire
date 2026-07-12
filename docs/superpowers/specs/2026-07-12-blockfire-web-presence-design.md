@@ -81,8 +81,15 @@ applies it to production (no agent write to live prod config).
   - `terms.html` — Terms of Service / EULA.
 - Global footer on every page: links to `stats.blockfire.cc`, Contact, Privacy,
   Terms, and the Steam/Valve trademark disclaimer.
-- Served by a tiny `caddy:*-alpine` `file_server` container — **same image dev and
-  prod**, only the edge upstream differs.
+- Served by a **tiny static-file container** (`nginx:alpine` or `caddy` in
+  `file_server` mode) that holds the files and speaks plain HTTP on a LAN port. This
+  is **not** a second edge/reverse-proxy — the single unraid Caddy remains the only
+  internet-facing server and TLS terminator. The container exists only so the edge
+  has an internal upstream to `reverse_proxy` to (`game2:8080` dev, unraid-local
+  prod), which means the prod edge Caddy gets **only an appended `reverse_proxy`
+  block** — no volume mount, no Caddy redeploy — and the static site mirrors the same
+  upstream pattern as the stats app. Same image dev and prod; only the upstream host
+  changes.
 - Visual pass uses the frontend-design skill toward the BattleBit north-star look,
   iterated via the existing game2-Xvfb / desktop screenshot loop (`~/bf-shots`).
 
