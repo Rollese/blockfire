@@ -33,6 +33,11 @@ class Match(Base):
     # signature. Downstream rating (P2) / Layer-4 (P3) filter on this.
     trusted: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="false")
+    # M9-P2 (ADR-0012): true once this match's rating update has been applied
+    # exactly once. Rating is order-dependent + non-idempotent, so this guards
+    # re-application; rebuild_ratings() clears it to replay from scratch.
+    rated: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false")
 
 
 class MatchPlayer(Base):
@@ -144,6 +149,19 @@ class AnomalyFlag(Base):
     reviewed_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     reviewed_by: Mapped[str | None] = mapped_column(String, nullable=True)
     notes: Mapped[str | None] = mapped_column(String, nullable=True)
+
+
+class PlayerRating(Base):
+    __tablename__ = "player_ratings"
+    # Additive, decoupled like the M20 rollups — no FK to players.
+    player_key: Mapped[str] = mapped_column(String, primary_key=True)
+    mu: Mapped[float] = mapped_column(Float, default=25.0)
+    sigma: Mapped[float] = mapped_column(Float, default=25.0 / 3.0)
+    ordinal: Mapped[float] = mapped_column(Float, default=0.0, index=True)
+    tier: Mapped[str] = mapped_column(String, default="", index=True)
+    matches_rated: Mapped[int] = mapped_column(Integer, default=0)
+    last_match_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    updated_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True))
 
 
 class IngestedBatch(Base):

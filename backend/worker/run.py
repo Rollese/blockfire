@@ -3,6 +3,7 @@ import asyncio
 from app.anomaly import detect_anomalies
 from app.config import get_settings
 from app.db import init_db, make_engine, make_sessionmaker
+from app.rating_apply import update_ratings
 from app.retention import prune_old_events
 from app.rollups import recompute_profiles
 from app.steam_api import enrich_profiles
@@ -13,14 +14,14 @@ ROLLUP_INTERVAL_S = 30
 
 
 async def run_cycle(sm, settings) -> dict:
-    """Run one maintenance cycle: prune -> rollup -> enrich -> detect.
+    """Run one maintenance cycle: prune -> rollup -> enrich -> detect -> rate.
 
     Each step opens its own fresh session and is independently try/except
     guarded, so a failure (and rolled-back session) in one step can neither
     propagate nor poison the others. Returns per-step counts, using 0 for any
     step that raised.
     """
-    result = {"pruned": 0, "profiles": 0, "enriched": 0, "anomalies": 0}
+    result = {"pruned": 0, "profiles": 0, "enriched": 0, "anomalies": 0, "rated": 0}
 
     # 1. prune old raw events (idempotent + cheap -> safe every cycle)
     try:
@@ -59,6 +60,16 @@ async def run_cycle(sm, settings) -> dict:
         print(f"[worker] wrote {anomalies} anomaly flags", flush=True)
     except Exception as exc:
         print(f"[worker] anomaly detection failed: {exc!r}", flush=True)
+
+    # 5. skill-rating update over freshly-trusted matches (ADR-0012)
+    try:
+        async with sm() as session:
+            rated = await update_ratings(session, settings)
+        result["rated"] = rated
+        if rated:
+            print(f"[worker] rated {rated} matches", flush=True)
+    except Exception as exc:
+        print(f"[worker] rating update failed: {exc!r}", flush=True)
 
     return result
 

@@ -58,22 +58,22 @@ The closed form is the Weng-Lin **Thurstone–Mosteller full-pairing** two-team 
 # 0. dynamics — re-inflate every player's σ before the update
 σ_i² ← σ_i² + τ²                    for all players, both teams
 
-# 1. shared normalizer and standardized margin
-c   = sqrt( Σσ²_A + Σσ²_B + 2·β² )
-μ_A = mean(team_a μ);  μ_B = mean(team_b μ)
-ε   = RATING_DRAW_MARGIN · c        # draw margin
+# 1. shared normalizer and team performance (Weng-Lin: team perf = SUM of player μ, not mean)
+c   = sqrt( Σσ²_A + Σσ²_B + 2·β² )       # the 2·β² coefficient is the team count (2), not the player count
+μ_A = Σ(team_a μ);  μ_B = Σ(team_b μ)     # team SUM — using the mean is WRONG (understates margin by team size)
 
 # 2. pairing functions (winner-minus-loser margin t, standardized by c)
 #    win/loss:  v(t) = pdf(t) / cdf(t),   w(t) = v·(v + t)          # ε does NOT enter the win path
-#    draw:      symmetric two-sided v_draw(t, ε/c), w_draw(t, ε/c)  # ε is the tie margin only
+#    draw:      symmetric two-sided v_draw(t, ε/c), w_draw(t, ε/c)  # ε = RATING_DRAW_MARGIN, the tie margin only
 # 3. per team T (opponent O), sign s = +1 winner / −1 loser / 0 draw:
-t = s · (μ_T − μ_O) / c
+t     = s · (μ_T − μ_O) / c
+γ_T   = sqrt( Σσ²_T ) / c                 # per-team variance-share factor (openskill "gamma")
 for player i on team T with individual weight ω_i:
     μ_i ← μ_i + s · (ω_i / mean_ω_T) · (σ_i² / c) · v(t)
-    σ_i ← sqrt( σ_i² · max( 1 − (σ_i² / c²) · w(t), κ ) )   # κ = small floor, e.g. 1e-4
+    σ_i ← sqrt( σ_i² · max( 1 − (σ_i² / c²) · γ_T · w(t), κ ) )   # κ = small floor, e.g. 1e-4
 ```
 
-Winner μ rises, loser μ falls; every σ shrinks (a played match always reduces uncertainty). The `ω_i / mean_ω_T` factor is the only objective-weighting hook — it scales **μ** movement by contribution while σ shrinks uniformly. The exact `v`/`w`/`v_draw`/`w_draw` forms are the published Weng-Lin equations; `pdf`/`cdf` are the standard normal density and CDF (`cdf(x) = 0.5·erfc(−x/√2)` via `math.erf`). See §8 for how the golden test's expected numbers are produced from an independent oracle.
+Winner μ rises, loser μ falls; every σ shrinks (a played match always reduces uncertainty). The `ω_i / mean_ω_T` factor is the only objective-weighting hook — it scales **μ** movement by contribution while σ shrinks uniformly (weight-independent). The per-team `γ_T = √(Σσ²_T)/c` factor apportions the σ reduction across a team's players; at 1v1 it reduces to `σ/c`. **Both the team-SUM aggregate and the `γ_T` factor are required for the update to match the reference OpenSkill `ThurstoneMostellerFull` — verified to <1e-6 across 1v1 / 2v1 / 2v2 / 3v2 / draw (§8).** The exact `v`/`w`/`v_draw`/`w_draw` forms are the published Weng-Lin equations; `pdf`/`cdf` are the standard normal density and CDF (`cdf(x) = 0.5·erfc(−x/√2)` via `math.erf`).
 
 `τ` (dynamics factor, default 0.0833 ≈ σ_init/100) re-inflates σ slightly each match so a long-idle player's rating can move again; `β` (default 25/6 ≈ 4.167) is the per-player skill-to-outcome noise.
 
@@ -152,7 +152,7 @@ Weights follow the project's BattleBit-faithful, objective-first posture (captur
 ## 8. Testing
 
 **Unit (`app/rating.py`, pure):**
-- Golden vector: a two-team update (fixed μ/σ/**equal** weights, one team wins) asserts exact post μ/σ — pins the math against refactors. **Expected numbers come from an independent oracle, not from our own code:** generate them once with the reference `openskill` PyPI package (dev/test-only, e.g. `ThurstoneMostellerFull` with matching β/τ and equal weights) and hard-code the results in the test. `rating.py` carries **no** runtime dependency on `openskill`; the library is only an offline source of truth for the golden expectations (documented in a test comment). This makes the self-implementation trustworthy rather than self-confirming.
+- Golden vectors: fixed μ/σ/**equal**-weight decisive-win updates at **1v1, 2v1, and 2v2 (unequal μ)** assert exact post μ/σ — pins the math against refactors and, critically, catches team-aggregate bugs (mean-vs-sum, per-team γ) that a 1v1-only golden cannot. **Expected numbers come from an independent oracle, not from our own code:** generate them once with the reference `openskill` PyPI package (dev/test-only, `ThurstoneMostellerFull(mu, sigma, beta, tau, kappa, epsilon=0)`, `ranks=[0,1]`) and hard-code the results in the test. `rating.py` carries **no** runtime dependency on `openskill`; the library is only an offline source of truth for the golden expectations (documented in a test comment). This makes the self-implementation trustworthy rather than self-confirming.
 - `performance_score` weighting: objective-heavy vs kill-heavy rows; floor applied.
 - Winner μ rises, loser μ falls, both σ shrink; a draw between equal teams is ~no-op on μ; higher-weight player on the winning team gains more than a low-weight teammate.
 - 1v1 reduces to the classic pairwise update.
