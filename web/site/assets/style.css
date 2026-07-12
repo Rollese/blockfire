@@ -316,6 +316,26 @@ body > * { position: relative; z-index: 1; }
   border-top: 1px solid var(--steel-2); padding-top: 1.2rem; margin: 0;
 }
 
+/* ---- Legal / prose pages ------------------------------------------------- */
+.legal { max-width: 760px; }
+.legal > .section__title { margin-bottom: .4rem; }
+.legal h2 {
+  margin: 2.2rem 0 .6rem;
+  font-family: "Arial Narrow", "Helvetica Neue", system-ui, sans-serif;
+  text-transform: uppercase; letter-spacing: .06em;
+  font-size: 1.15rem; color: var(--amber-hi);
+}
+.legal p { margin: 0 0 1rem; color: var(--mute); line-height: 1.7; }
+.legal strong { color: var(--bone); }
+.legal ul { margin: 0 0 1.2rem; padding-left: 1.25rem; color: var(--mute); line-height: 1.7; }
+.legal li { margin: .35rem 0; }
+.legal a { color: var(--amber-hi); text-decoration: underline; text-underline-offset: 2px; }
+.legal a:hover { color: var(--amber); }
+.legal code {
+  background: var(--steel); padding: .1em .4em; border-radius: 2px;
+  color: var(--bone); font-size: .92em;
+}
+
 /* ---- Motion / a11y ------------------------------------------------------- */
 @media (prefers-reduced-motion: reduce) {
   * { animation: none !important; transition: none !important; scroll-behavior: auto !important; }

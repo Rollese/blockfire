@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Privacy Policy — Blockfire</title>
+  <meta name="description" content="How Blockfire collects, uses, and protects player data (SteamID, in-game stats, logs).">
+  <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+  <header class="site-header">
+    <div class="wrap">
+      <a class="brand" href="/">
+        <img class="mark" src="assets/favicon.svg" alt="" width="20" height="20">
+        BLOCK<span class="fire">FIRE</span>
+      </a>
+      <nav class="nav" aria-label="Primary">
+        <a href="/">Home</a>
+        <a href="https://stats.blockfire.cc">Stats</a>
+        <a href="contact.html">Contact</a>
+      </nav>
+    </div>
+  </header>
+
+  <main>
+    <section class="section">
+      <div class="wrap legal">
+        <p class="eyebrow">Legal</p>
+        <h1 class="section__title">Privacy Policy</h1>
+        <p class="note">Last updated: 12 July 2026 · Blockfire is in active development; this policy
+          will be updated as the service evolves.</p>
+
+        <p>This policy explains what personal data Blockfire ("we") processes when you play the game
+          or use the player-stats website at <a href="https://stats.blockfire.cc">stats.blockfire.cc</a>,
+          why, and the choices you have. It is written to reflect what our software actually does.</p>
+
+        <h2>What we collect</h2>
+        <ul>
+          <li><strong>Steam identifier (SteamID64):</strong> your public Steam ID, used to attribute
+            match results to your profile.</li>
+          <li><strong>In-game statistics:</strong> match and event data such as kills, deaths, hits,
+            weapons used, and objective play.</li>
+          <li><strong>Steam display name &amp; avatar:</strong> retrieved from Steam only when public
+            profile enrichment is enabled, to label your profile.</li>
+          <li><strong>Technical logs:</strong> IP addresses and request metadata recorded by our game
+            servers and web server for operation, security, and abuse prevention.</li>
+          <li><strong>A single session cookie</strong> (<code>bf_session</code>) set only if you sign
+            in through Steam, to keep you logged in.</li>
+        </ul>
+
+        <h2>Why we process it (legal basis)</h2>
+        <p>To operate the game service, produce public leaderboards and player profiles, and run
+          anti-cheat / anomaly detection to keep matches fair. Our legal basis is our legitimate
+          interest in providing and protecting the service, and — where you sign in — your consent.</p>
+
+        <h2>How long we keep it</h2>
+        <p>Raw match events are retained for a limited window (by default 90 days) and then pruned;
+          aggregated statistics (totals, leaderboards) are kept for as long as the service runs so
+          your profile remains meaningful. Logs are rotated on a short schedule.</p>
+
+        <h2>Who we share it with</h2>
+        <p>We do not sell your data. It is processed by a small set of providers acting on our behalf:</p>
+        <ul>
+          <li><strong>Valve / Steam</strong> — for sign-in (OpenID) and public profile enrichment.</li>
+          <li><strong>Cloudflare</strong> — content delivery and protection at the network edge.</li>
+          <li><strong>Our hosting &amp; mail infrastructure</strong> — self-managed servers that run
+            the game, website, and email.</li>
+        </ul>
+
+        <h2>Cookies</h2>
+        <p>We use one strictly-necessary session cookie for login, and no advertising or third-party
+          tracking cookies. Because it is essential to a function you request (staying signed in), no
+          consent banner is required.</p>
+
+        <h2>Your rights</h2>
+        <p>You may request access to, correction of, or deletion of your data — including having your
+          player profile and statistics removed ("right to be forgotten"). To make a request, email
+          <a href="mailto:privacy@blockfire.cc">privacy@blockfire.cc</a>. We currently handle deletion
+          manually by your player key; please allow a reasonable time to process it. Depending on your
+          country you may also have the right to lodge a complaint with your data-protection authority.</p>
+
+        <h2>Data controller &amp; contact</h2>
+        <p>The controller responsible for your data is
+          <strong>{{OPERATOR_LEGAL_NAME}}</strong>, {{OPERATOR_ADDRESS}} ({{OPERATOR_JURISDICTION}}).
+          For any privacy question or request, contact
+          <a href="mailto:privacy@blockfire.cc">privacy@blockfire.cc</a>.</p>
+
+        <h2>Changes</h2>
+        <p>We may update this policy as Blockfire develops. Material changes will be reflected by the
+          "last updated" date above.</p>
+
+        <p class="note"><a href="/">← Back to home</a></p>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="wrap">
+      <a class="brand" href="/">BLOCK<span class="fire">FIRE</span></a>
+      <nav class="foot-nav" aria-label="Footer">
+        <a href="/">Home</a>
+        <a href="https://stats.blockfire.cc">Stats</a>
+        <a href="contact.html">Contact</a>
+        <a href="privacy.html">Privacy</a>
+        <a href="terms.html">Terms</a>
+      </nav>
+      <p class="disclaimer">
+        Not affiliated with or endorsed by Valve Corporation. Steam and the Steam logo are
+        trademarks of Valve Corporation.
+      </p>
+    </div>
+  </footer>
+
+</body>
+</html>
