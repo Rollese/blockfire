@@ -112,8 +112,8 @@ statistical detection — see
 
 ### How detection decides
 Per metric, a player must first pass a **min-sample gate**
-(min deaths+kills for K/D, min hits for hit-rate, min shots for
-headshot/hit-rate), then is flagged when its value is
+(min deaths+kills for K/D, min hits for headshot-rate, min shots for
+hit-rate), then is flagged when its value is
 `>= max(absolute_floor, median + K · 1.4826 · MAD)` over the qualifying
 population — a robust population statistic (median + scaled MAD) rather than
 mean/stddev. When the qualifying population is below `ANOMALY_MIN_POPULATION`
@@ -140,7 +140,7 @@ The detection thresholds, all `${VAR:-default}` in `docker-compose.yml`:
 - `ANOMALY_HEADSHOT_RATE_FLOOR` (0.6) — absolute headshot-rate floor.
 - `ANOMALY_HIT_RATE_FLOOR` (0.55) — absolute hit-rate floor.
 - `ANOMALY_MIN_DEATHS` (5) / `ANOMALY_MIN_KILLS` (10) — K/D sample gate.
-- `ANOMALY_MIN_HITS` (40) — hit-rate sample gate.
-- `ANOMALY_MIN_SHOTS` (100) — headshot/hit-rate sample gate.
+- `ANOMALY_MIN_HITS` (40) — headshot-rate sample gate.
+- `ANOMALY_MIN_SHOTS` (100) — hit-rate sample gate.
 - `ANOMALY_MIN_POPULATION` (5) — min flagged population before MAD scoring.
 - `ANOMALY_MAD_K` (3.5) — modified z-score (MAD) cutoff.
