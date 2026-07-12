@@ -1,5 +1,6 @@
 import asyncio
 
+from app.anomaly import detect_anomalies
 from app.config import get_settings
 from app.db import init_db, make_engine, make_sessionmaker
 from app.retention import prune_old_events
@@ -12,14 +13,14 @@ ROLLUP_INTERVAL_S = 30
 
 
 async def run_cycle(sm, settings) -> dict:
-    """Run one maintenance cycle: prune -> rollup -> enrich.
+    """Run one maintenance cycle: prune -> rollup -> enrich -> detect.
 
     Each step opens its own fresh session and is independently try/except
     guarded, so a failure (and rolled-back session) in one step can neither
     propagate nor poison the others. Returns per-step counts, using 0 for any
     step that raised.
     """
-    result = {"pruned": 0, "profiles": 0, "enriched": 0}
+    result = {"pruned": 0, "profiles": 0, "enriched": 0, "anomalies": 0}
 
     # 1. prune old raw events (idempotent + cheap -> safe every cycle)
     try:
@@ -49,6 +50,15 @@ async def run_cycle(sm, settings) -> dict:
             print(f"[worker] enriched {enriched} profiles", flush=True)
     except Exception as exc:
         print(f"[worker] enrich failed: {exc!r}", flush=True)
+
+    # 4. anomaly / cheat detection over the freshly-recomputed rollups
+    try:
+        async with sm() as session:
+            anomalies = await detect_anomalies(session, settings)
+        result["anomalies"] = anomalies
+        print(f"[worker] wrote {anomalies} anomaly flags", flush=True)
+    except Exception as exc:
+        print(f"[worker] anomaly detection failed: {exc!r}", flush=True)
 
     return result
 
