@@ -64,8 +64,8 @@ c   = sqrt( Σσ²_A + Σσ²_B + 2·β² )
 ε   = RATING_DRAW_MARGIN · c        # draw margin
 
 # 2. pairing functions (winner-minus-loser margin t, standardized by c)
-#    win/loss:  v(t) = pdf(t − ε/c) / cdf(t − ε/c),   w(t) = v·(v + t − ε/c)
-#    draw:      symmetric two-sided v_draw(t,ε/c), w_draw(t,ε/c)
+#    win/loss:  v(t) = pdf(t) / cdf(t),   w(t) = v·(v + t)          # ε does NOT enter the win path
+#    draw:      symmetric two-sided v_draw(t, ε/c), w_draw(t, ε/c)  # ε is the tie margin only
 # 3. per team T (opponent O), sign s = +1 winner / −1 loser / 0 draw:
 t = s · (μ_T − μ_O) / c
 for player i on team T with individual weight ω_i:
