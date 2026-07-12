@@ -57,3 +57,20 @@ func test_edits_emit_sanitized_copy() -> void:
 	panel._on_grenade_pressed(Grenade.SMOKE)
 	assert_eq(int(_last_cfg.get("grenade", -1)), Grenade.SMOKE, "grenade pick reflected")
 	panel.free()
+
+func test_emitted_cfg_is_independent_deep_copy() -> void:
+	# _apply emits cfg.duplicate(true); a host mutating the emitted dict (incl. its nested
+	# attachments) must NOT corrupt the panel's internal _cfg. Guards the .duplicate(true) at
+	# the emit site from being dropped.
+	var panel := _make()
+	panel._on_armor_pressed(Armor.MEDIUM)
+	var emitted := _last_cfg
+	var panel_gadget: int = int(panel._cfg.get("gadget", -1))
+	var panel_optic := String((panel._cfg.get("attachments", {}) as Dictionary).get("optic", ""))
+	# Corrupt the emitted copy (top-level scalar + nested dict).
+	emitted["gadget"] = 9999
+	(emitted.get("attachments", {}) as Dictionary)["optic"] = "TAMPERED"
+	assert_eq(int(panel._cfg.get("gadget", -1)), panel_gadget, "internal gadget unchanged by host mutation")
+	assert_eq(String((panel._cfg.get("attachments", {}) as Dictionary).get("optic", "")), panel_optic,
+		"internal nested attachments unchanged by host mutation")
+	panel.free()

@@ -213,10 +213,10 @@ func _refresh() -> void:
 ## Armor picker line built from Armor.speed_mult / Armor.body_mult (no invented numbers). body_mult
 ## is the fraction of damage that LANDS, so damage-reduction = (1 - body_mult).
 func _armor_label(tier: int) -> String:
-	var name: String = ["Light", "Medium", "Heavy"][tier] if tier >= 0 and tier <= 2 else "?"
+	var tier_name: String = ["Light", "Medium", "Heavy"][tier] if tier >= 0 and tier <= 2 else "?"
 	var speed_pct: int = int(round((Armor.speed_mult(tier) - 1.0) * 100.0))
 	var dr_pct: int = int(round((1.0 - Armor.body_mult(tier)) * 100.0))
-	return "%s  %+d%% speed, %d%% dmg reduction" % [name, speed_pct, dr_pct]
+	return "%s  %+d%% speed, %d%% dmg reduction" % [tier_name, speed_pct, dr_pct]
 
 ## Remove option buttons from a section, keeping the leading caption Label (child 0).
 func _clear_options(row: HBoxContainer) -> void:
