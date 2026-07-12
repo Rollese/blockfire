@@ -593,15 +593,26 @@ func _produce_input_frame(ss: EntityState, cmd: Dictionary) -> void:
 	# function can run TWICE off one gathered Input frame during a tick-lead catch-up tick
 	# (frame_repeats()==2), and is_action_just_pressed would read true both times, double-toggling
 	# _shield_held back to its original value and silently eating the press.
-	var shield_gadget_down: bool = Input.is_action_pressed("gadget")
+	# Gate the WHOLE block on not-menu-open, exactly like the build-mode shovel bit above: while a menu
+	# owns the keyboard, _physics_process feeds a zeroed mcmd and skips gather() so no keystroke reaches
+	# gameplay — reading the raw Input singleton here would flip the shield behind an open menu and
+	# resume play with it unexpectedly up. When paused we don't read the key, touch _shield_held, or set
+	# the bit (and we DON'T clear _shield_key_down, so no phantom press-edge fires on menu close).
 	var shield_equipped: bool = int(_loadout.get("gadget", -1)) == Loadout.GADGET_RIOT_SHIELD
-	if shield_equipped and shield_gadget_down and not _shield_key_down:
-		_shield_held = not _shield_held
-	_shield_key_down = shield_gadget_down
-	if not shield_equipped or _shield_hp_frac == 0:
-		_shield_held = false   # not the equipped gadget, or the shield is broken — never keep stale intent latched
-	if _shield_held and _in_vehicle() < 0 and _mounted_nest == 0 and not _photo_mode:
-		cmd["buttons"] = int(cmd["buttons"]) | InputCommand.BTN_SHIELD
+	if not _input_paused_by_menu():
+		var shield_gadget_down: bool = Input.is_action_pressed("gadget")
+		if shield_equipped and shield_gadget_down and not _shield_key_down:
+			_shield_held = not _shield_held
+		_shield_key_down = shield_gadget_down
+		if not shield_equipped or _shield_hp_frac == 0:
+			_shield_held = false   # not the equipped gadget, or the shield is broken — never keep stale intent latched
+		# Tighten prediction to the server's want_shield gate (server_main.gd): the shield never raises
+		# while downed / climbing / vaulting either, so mirror those here to avoid a transient
+		# shield-up misprediction the server would reject. (in_vehicle / mounted_nest / photo handled below.)
+		if _shield_held and (_pred.predicted.is_downed or _pred.predicted.climbing or _pred.predicted.vaulting):
+			_shield_held = false
+		if _shield_held and _in_vehicle() < 0 and _mounted_nest == 0 and not _photo_mode:
+			cmd["buttons"] = int(cmd["buttons"]) | InputCommand.BTN_SHIELD
 	# Mirror the server's per-tick "shielded" inject (server_main.gd) BEFORE record_cmd below —
 	# record_cmd's immediate _advance(cmd) runs Pawn.step synchronously, which reads cmd["shielded"] for
 	# the move/sprint cost; setting it any later would miss this tick's prediction (same idiom as the
@@ -1254,7 +1265,7 @@ func _process(_dt: float) -> void:
 		# before WELCOME seeds _loadout. The class-select UI (Tasks 2-3) will let a player edit
 		# _loadout's gadget choice before this read ever sees anything but the class default.
 		var equipped_gadget: int = int(_loadout.get("gadget", Loadout.default_gadget(_my_class)))
-		if Input.is_action_just_pressed("gadget") and not combat_locked and equipped_gadget != Loadout.GADGET_REPAIR and _mounted_nest == 0:
+		if Input.is_action_just_pressed("gadget") and not combat_locked and equipped_gadget != Loadout.GADGET_REPAIR and equipped_gadget != Loadout.GADGET_RIOT_SHIELD and _mounted_nest == 0:
 			var gadget_action: int = Protocol.GA_C4_DETONATE
 			var gdir := Vector3.ZERO
 			if equipped_gadget == Loadout.GADGET_BREACH:
