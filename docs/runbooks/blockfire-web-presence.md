@@ -8,6 +8,57 @@ email). Companion to the plan
 **No secrets in this file.** Tokens/passwords live only in `~/.cf_blockfire_token`
 (game2), `backend/.env` (untracked), and the owner's password manager.
 
+## Status & handoff (2026-07-12)
+
+**Fresh-agent TL;DR:** the marketing site + DNS + TLS + email are **live and
+done**; the site is served in dev by an nginx container on game2 and reverse-
+proxied by the edge Caddy on unraid. Remaining work is the numbered
+**Next milestones** below — pick one up.
+
+**Done & verified (live over TLS):**
+- **DNS** — apex/`www`/`stats` A records (Cloudflare-proxied); email
+  MX/SPF/DKIM/DMARC. See DNS table below.
+- **TLS** — valid live certs (Google Trust Services edge, SAN
+  `blockfire.cc` + `*.blockfire.cc`, through Oct 10 2026). Verified.
+- **Email** — `hello@blockfire.cc` mailbox + `@blockfire.cc` catch-all on the
+  VPS docker-mailserver.
+- **Edge Caddy** — blocks applied; reverse-proxies the game2 **dev** upstreams
+  (`:8080` static, `:8000` stats). See "Edge Caddy blocks".
+- **Cloudflare WAF** — tuned to **allow verified search crawlers** (Googlebot/
+  Bingbot → 200); generic non-browser clients still challenged.
+- **Marketing site** — landing page + friendly URLs (`/`, `/contact/`,
+  `/privacy/`, `/terms/`); legal pages carry the real operator identity
+  (**Blockfire Studios AB, Harlösa, Sweden**; governing law Sweden). Full SEO:
+  canonical, Open Graph + Twitter cards with a dedicated **1200×630 `og.jpg`**,
+  `VideoGame` JSON-LD, `robots.txt` + `sitemap.xml` (with `lastmod`). Also PWA
+  icons + `site.webmanifest`, branded **404**, a11y skip-links, and baseline
+  security headers. Gallery uses **placeholder SVGs** pending real images (see
+  milestone 1).
+
+**Where things live:**
+- Static site content: `web/site/` (bind-mounted read-only into the container).
+- Container: `web/docker-compose.yml` + `web/nginx-default.conf` (branded 404,
+  webmanifest MIME, security headers). Dev URL: game2 `localhost:8080`.
+- Image prompts for the owner: `web/IMAGE_PROMPTS.md`.
+- Search-indexing agent brief: `web/SEO_INDEXING_PROMPT.md`.
+- Ops values & DNS: this runbook.
+
+**Next milestones (in rough priority order):**
+1. **Gallery images.** 6 owner-generated marketing images are pending (prompts
+   in `web/IMAGE_PROMPTS.md`). When delivered: optimize to WebP, replace
+   `web/site/assets/shots/shot-01…06.svg`, keep the `<img>` `width/height`/alt,
+   verify locally, commit. (Optional: `<picture>` AVIF+WebP scaffold.)
+2. **Search indexing.** Google Search Console + Bing Webmaster — a separate
+   agent is on this (paused on Google rate-limiting). Brief +
+   commands in `web/SEO_INDEXING_PROMPT.md`; sitemap is crawlable.
+3. **Prod cutover (Phase 5).** Move `web/` + `backend/` compose to unraid;
+   re-point the two Caddy `reverse_proxy` upstreams from game2
+   `:8080`/`:8000` to unraid-local; `caddy validate` + `reload`; re-verify.
+   DNS/email unchanged. See "Prod cutover" below.
+4. **Steam Wishlist CTA.** `web/site/index.html` hero button is a disabled
+   "coming soon" `span`; swap to `<a href="https://store.steampowered.com/app/APPID">`
+   when the appid exists (one-line, commented in place).
+
 ## Concrete values
 
 | Key | Value |
