@@ -12,6 +12,10 @@ Stand up the public web presence for the newly-purchased **blockfire.cc** domain
    `stats.blockfire.cc` — no code changes.
 3. **Email** for the domain (send + receive) via the existing docker-mailserver on
    the `rapid.rolandot.com` VPS, with correct deliverability records.
+4. The **legal / compliance pages** the site is obligated to publish once it
+   processes player identifiers (SteamID64, IPs, Steam profile data): a **Privacy
+   Policy**, a **Contact / legal notice**, and a **Terms of Service** — see the
+   "Static site pages, legal & compliance" section.
 
 All of it reuses the **existing single unraid Caddy** as the internet edge and the
 existing MikroTik `:443` port-forward — no new ingress components, no tunnel.
@@ -66,14 +70,67 @@ applies it to production (no agent write to live prod config).
 ### Marketing site (`web/` — new dir in repo)
 
 - Hand-authored static **HTML/CSS**, minimal JS, no build step.
-- Sections: hero (logo + tagline + "Wishlist on Steam / Coming Soon" CTA), feature
-  highlights (128-player conquest · destructible buildings · tactical combat),
-  optimized screenshot gallery (from `~/bf-shots`), short "what is Blockfire" blurb,
-  footer (link to `stats.blockfire.cc`, `hello@blockfire.cc`).
+- Pages (multi-page static, shared header/footer):
+  - `index.html` — hero (logo + tagline + "Wishlist on Steam / Coming Soon" CTA),
+    feature highlights (128-player conquest · destructible buildings · tactical
+    combat), optimized screenshot gallery (from `~/bf-shots`), short "what is
+    Blockfire" blurb.
+  - `contact.html` — contact address + legal-notice / operator identity; lists
+    `hello@blockfire.cc` (general) and `privacy@blockfire.cc` (data requests).
+  - `privacy.html` — Privacy Policy (see compliance section).
+  - `terms.html` — Terms of Service / EULA.
+- Global footer on every page: links to `stats.blockfire.cc`, Contact, Privacy,
+  Terms, and the Steam/Valve trademark disclaimer.
 - Served by a tiny `caddy:*-alpine` `file_server` container — **same image dev and
   prod**, only the edge upstream differs.
 - Visual pass uses the frontend-design skill toward the BattleBit north-star look,
   iterated via the existing game2-Xvfb / desktop screenshot loop (`~/bf-shots`).
+
+### Static site pages, legal & compliance
+
+The moment `stats.blockfire.cc` serves player profiles, the site processes personal
+data (SteamID64 is an online identifier under GDPR; IPs appear in logs; Steam
+display-name/avatar are pulled via the Steam Web API). The site must therefore
+publish the following. **These are drafted as good-faith templates from the app's
+actual data behaviour — the owner is responsible for the final legal text and should
+have them reviewed; nothing here is legal advice.**
+
+**Required**
+
+- **Privacy Policy (`privacy.html`)** — disclose, grounded in what the code actually
+  does:
+  - _Data collected:_ SteamID64, in-game match/event stats, Steam display-name &
+    avatar (via Steam Web API enrichment, only when `STEAM_WEB_API_KEY` set), IP
+    addresses in server/web logs, the `bf_session` login cookie.
+  - _Purpose & legal basis:_ operating the game service, leaderboards/profiles,
+    anti-cheat/anomaly detection (legitimate interest).
+  - _Retention:_ raw events pruned per `RAW_EVENT_RETENTION_DAYS` (90d default);
+    aggregates retained while the service runs.
+  - _Sub-processors:_ Valve/Steam (OpenID auth + Web API), Cloudflare (edge/proxy),
+    self-hosted infra (unraid/game2, VPS mail).
+  - _Cookies:_ single strictly-necessary session cookie — **no consent banner
+    required**; disclosed here.
+  - _Data-subject rights:_ access / correction / **deletion** ("right to be
+    forgotten"), exercised by emailing `privacy@blockfire.cc`. Deletion is currently
+    a **manual** process (remove a player's rows by `player_key`); a self-serve
+    endpoint is out of scope for this milestone but noted as backend follow-up.
+- **Contact / legal notice (`contact.html`)** — operator identity + a reachable
+  address (satisfies EU *Impressum*-style requirements where applicable). Uses
+  `hello@` and `privacy@` (both land in the catch-all inbox).
+
+**Recommended**
+
+- **Terms of Service / EULA (`terms.html`)** — acceptable-conduct rules, the basis to
+  **ban / remove stats** for cheating (ties to P4 anomaly flags), and liability
+  disclaimers. Pre-launch this can be short.
+- **Steam/Valve trademark disclaimer** — footer line: "Not affiliated with or
+  endorsed by Valve Corporation. Steam and the Steam logo are trademarks of Valve
+  Corporation." Required because the site uses Steam login and Steam branding.
+
+**Owner inputs needed for the legal text** (placeholders in the plan until provided):
+operator/controller legal name, jurisdiction/governing law, and public contact
+address. Data-request routing (`privacy@blockfire.cc`) works out-of-the-box via the
+catch-all.
 
 ### M20 stats deploy (no code change)
 
@@ -96,8 +153,10 @@ Verify with mail-tester.com (target 10/10) and a live send+receive round-trip.
   over HTTPS through the domain (validates DNS + edge + cert).
 - **P2 — Stats live.** Deploy M20 on game2 with prod env; `stats.blockfire.cc` up;
   Steam OpenID round-trip succeeds; `/healthz` green through the domain.
-- **P3 — Front page.** Build the marketing site; deploy the `file_server` container
-  on game2; `blockfire.cc` live; `www` → apex redirect works.
+- **P3 — Front page + legal pages.** Build the marketing site *and* the
+  Privacy/Contact/Terms pages; deploy the `file_server` container on game2;
+  `blockfire.cc` live; `www` → apex redirect works. Privacy Policy must be published
+  **before** stats profiles are publicly reachable (or in the same rollout).
 - **P4 — Email.** Add domain + catch-all mailbox + DKIM on the VPS; publish
   DKIM/SPF/DMARC; verify deliverability (mail-tester) and a send/receive round-trip.
 - **Later — Prod cutover.** Move both compose stacks to unraid; re-point the two
@@ -109,7 +168,8 @@ Verify with mail-tester.com (target 10/10) and a live send+receive round-trip.
   placeholder.
 - P2: `curl https://stats.blockfire.cc/healthz` → ok; manual Steam login round-trip;
   `/admin` 403 for non-admin.
-- P3: front page loads, screenshots render, CTA link correct, `www`→apex redirect.
+- P3: front page loads, screenshots render, CTA link correct, `www`→apex redirect;
+  Privacy/Contact/Terms pages reachable and linked from every footer.
 - P4: mail-tester.com score; send from `hello@` to an external inbox and reply back.
 
 ## What lands in the repo vs. external systems
