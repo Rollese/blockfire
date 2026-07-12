@@ -162,6 +162,8 @@ var _collapse_test_bid := 0        # QA (--collapse-test=<bid>): force-collapse 
 var _fast_nades := false           # QA (--fast-nades): drop the grenade throw cooldown to ~1 tick so a playtester can level a building fast (destruction/ladder testing).
 var _stats_endpoint: String = ""
 var _stats_token: String = ""
+var _stats_signing_key_id: String = ""
+var _stats_signing_secret: String = ""
 var _stats_reporter: StatsReporter = null
 var _stats_match_started_at: String = ""
 var _fast_rpg := false             # QA (--fast-rpg): RPG fires with no cooldown and never depletes rockets (pairs with --human-rpg for fast destruction testing).
@@ -208,6 +210,8 @@ func configure(args: Dictionary) -> void:
 	_fast_nades = args.has("fast-nades")
 	_stats_endpoint = String(args.get("stats-endpoint", ""))
 	_stats_token = String(args.get("stats-token", ""))
+	_stats_signing_key_id = String(args.get("stats-signing-key-id", ""))
+	_stats_signing_secret = String(args.get("stats-signing-secret", ""))
 	_fast_rpg = args.has("fast-rpg")
 	# ADR-0003: --encoder=gd forces the GDScript reference encoder (A/B gate runs, debugging).
 	# Default is native when the gdext .so is present; absent .so falls back silently.
@@ -260,7 +264,8 @@ func _ready() -> void:
 		get_tree().quit(1); return
 	if not _stats_endpoint.is_empty():
 		_stats_reporter = StatsReporter.new()
-		_stats_reporter.configure(_stats_endpoint, _stats_token)
+		_stats_reporter.configure(_stats_endpoint, _stats_token,
+			"user://stats_spool.ndjson", _stats_signing_key_id, _stats_signing_secret)
 		add_child(_stats_reporter)
 		_stats_reporter.begin_match(_gen_match_id(), _stats_server_id(), _map_path.get_file().get_basename(), "conquest")
 		_stats_match_started_at = Time.get_datetime_string_from_system(true) + "Z"

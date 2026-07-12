@@ -42,9 +42,15 @@ async def _upsert_player(session: AsyncSession, key: str, steam_id: int | None,
             existing.steam_id = steam_id
 
 
-async def ingest_match_report(session: AsyncSession, report: MatchReportIn) -> None:
+async def ingest_match_report(session: AsyncSession, report: MatchReportIn,
+                              trusted: bool = False) -> None:
     """Upsert the match, its players, per-player summaries and per-weapon
-    counters. Idempotent: re-POSTing the same match overwrites the summary.
+    counters. `trusted` records whether the POST carried a valid official
+    signature (ADR-0011). Idempotent: re-POSTing the same match overwrites the
+    summary. Trust is the one exception — it is MONOTONIC (never downgraded), so an
+    unsigned re-POST of a match a signed report already marked trusted cannot evict
+    it from rating. NDJSON replay re-POSTs the identical signed report, so this
+    never blocks a legit flow.
 
     P1 limitation: this overwrites/inserts only rows present in the incoming
     report; it does NOT delete stale MatchPlayer/MatchPlayerWeapon rows from a
@@ -71,6 +77,9 @@ async def ingest_match_report(session: AsyncSession, report: MatchReportIn) -> N
     match_row.report_version = report.report_version
     match_row.complete = True
     match_row.ingested_at = now
+    # Monotonic: `or bool(match_row.trusted)` keeps a prior trusted=true. On the
+    # insert path match_row.trusted is None (pre-flush) → bool(None) is False.
+    match_row.trusted = bool(trusted) or bool(match_row.trusted)
 
     for p in report.players:
         key = player_key(p.steam_id, p.name)

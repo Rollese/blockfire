@@ -141,3 +141,51 @@ table.stats tbody tr:hover { background: var(--panel); }
   padding: 0.5rem 1rem;
   cursor: pointer;
 }
+
+.scan-form { margin: -0.75rem 0 1.5rem; }
+.scan-form button {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  color: var(--text);
+  font-weight: 600;
+  border-radius: 4px;
+  padding: 0.4rem 0.8rem;
+  cursor: pointer;
+}
+.scan-form button:hover { border-color: var(--accent); }
+
+.sev {
+  display: inline-block;
+  padding: 0.1rem 0.45rem;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+.sev-high { background: #5a1f22; color: #ff8a8a; }
+.sev-med { background: #5a4212; color: #ffcf7a; }
+.sev-low { background: var(--line); color: var(--subtle); }
+
+.flag-actions { display: inline-block; }
+.flag-actions form {
+  display: inline;
+  margin-right: 0.4rem;
+}
+.flag-actions input[type="text"] {
+  background: var(--bg);
+  border: 1px solid var(--line);
+  color: var(--text);
+  border-radius: 4px;
+  padding: 0.2rem 0.35rem;
+  width: 6rem;
+}
+.flag-actions button {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  color: var(--text);
+  font-weight: 600;
+  border-radius: 4px;
+  padding: 0.25rem 0.6rem;
+  cursor: pointer;
+}
+.flag-actions button:hover { border-color: var(--accent); }

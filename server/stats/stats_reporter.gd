@@ -15,14 +15,19 @@ var _token: String = ""
 var _spool: Spool = Spool.new()
 var _http: HTTPRequest
 var _inflight: bool = false
+var _signing_key_id: String = ""
+var _signing_secret: String = ""
 
 static func weapon_key(weapon_id: int) -> String:
 	return String(Weapon.get_def(weapon_id).get("name", "unknown")).to_lower()
 
-func configure(endpoint: String, token: String, spool_path: String = "user://stats_spool.ndjson") -> void:
+func configure(endpoint: String, token: String, spool_path: String = "user://stats_spool.ndjson",
+		signing_key_id: String = "", signing_secret: String = "") -> void:
 	_endpoint = endpoint.rstrip("/")
 	_token = token
 	_spool = Spool.new(spool_path)
+	_signing_key_id = signing_key_id
+	_signing_secret = signing_secret
 
 func _ready() -> void:
 	_http = HTTPRequest.new()
@@ -66,14 +71,30 @@ func _send_queue(items: Array) -> void:
 	_queue = items
 	_send_next()
 
+func _build_headers(body_str: String) -> PackedStringArray:
+	var headers := PackedStringArray([
+		"Authorization: Bearer %s" % _token,
+		"Content-Type: application/json",
+	])
+	# M9-P1 (ADR-0011): sign the EXACT bytes we transmit so the backend verifies
+	# against the same body it receives. No signing config -> unsigned (backward
+	# compatible; ingested as trusted=false).
+	if not _signing_key_id.is_empty() and not _signing_secret.is_empty():
+		var ts := int(Time.get_unix_time_from_system())
+		var sig := StatsSigner.sign(_signing_key_id, _signing_secret, ts, body_str.to_utf8_buffer())
+		if not sig.is_empty():
+			headers.append_array(StatsSigner.headers(_signing_key_id, ts, sig))
+	return headers
+
 func _send_next() -> void:
 	if _queue.is_empty():
 		return
 	var item: Dictionary = _queue[0]
-	var headers := ["Authorization: Bearer %s" % _token, "Content-Type: application/json"]
+	var body_str := JSON.stringify(item["body"])
+	var headers := _build_headers(body_str)
 	_inflight = true
 	var err := _http.request(_endpoint + String(item["path"]), headers,
-		HTTPClient.METHOD_POST, JSON.stringify(item["body"]))
+		HTTPClient.METHOD_POST, body_str)
 	if err != OK:
 		_inflight = false
 		# Transport could not even start — spool the whole queue and give up for now.

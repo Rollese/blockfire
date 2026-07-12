@@ -26,3 +26,9 @@ async def init_db(engine: AsyncEngine) -> None:
     async with engine.begin() as conn:
         await conn.exec_driver_sql("SELECT pg_advisory_xact_lock(4915301)")
         await conn.run_sync(Base.metadata.create_all)
+        # M9-P1: create_all makes the column on a fresh DB but never adds it to
+        # an existing `matches`. Idempotent guard for an already-provisioned DB.
+        await conn.exec_driver_sql(
+            "ALTER TABLE matches ADD COLUMN IF NOT EXISTS "
+            "trusted BOOLEAN NOT NULL DEFAULT FALSE"
+        )

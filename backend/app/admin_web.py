@@ -15,7 +15,8 @@ instance pointed at the same `app/templates` directory.
 
 import pathlib
 
-from fastapi import Depends, FastAPI, Request
+from fastapi import Depends, FastAPI, Form, HTTPException, Request
+from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from app.admin_auth import require_admin
@@ -27,6 +28,9 @@ def register_admin_web_routes(app: FastAPI) -> None:
     from app.admin_stats import (  # local import avoids import cycle
         admin_summary, hitzone_breakdown, kill_distance_stats, longest_kills,
         query_kill_events, weapon_balance,
+    )
+    from app.anomaly import (  # local import avoids import cycle
+        detect_anomalies, flag_summary, list_flags, set_flag_status,
     )
     from app.steam_openid import current_steam_id
 
@@ -83,3 +87,58 @@ def register_admin_web_routes(app: FastAPI) -> None:
             {"events": events, "filters": filters,
              "current_steam_id": current_steam_id(request)},
         )
+
+    @app.get("/admin/anomalies", dependencies=[Depends(require_admin)])
+    async def admin_anomalies_page(
+        request: Request,
+        status: str | None = "open",
+        metric: str | None = None,
+    ):
+        status_filter = status or None   # "" -> None (all)
+        sm = request.app.state.sessionmaker
+        async with sm() as session:
+            flags = await list_flags(
+                session, status=status_filter, metric=(metric or None),
+                limit=200,
+            )
+            summary = await flag_summary(session)
+        return templates.TemplateResponse(
+            request, "admin_anomalies.html",
+            {"flags": flags, "summary": summary,
+             "filters": {"status": status, "metric": metric},
+             "current_steam_id": current_steam_id(request)},
+        )
+
+    @app.post("/admin/anomalies/{flag_id}/review",
+              dependencies=[Depends(require_admin)])
+    async def admin_anomalies_review(
+        request: Request,
+        flag_id: int,
+        status: str = Form(...),
+        notes: str | None = Form(None),
+        back_status: str | None = Form(None),
+    ):
+        steam_id = current_steam_id(request)
+        reviewed_by = str(steam_id) if steam_id is not None else "dev"
+        sm = request.app.state.sessionmaker
+        try:
+            async with sm() as session:
+                updated = await set_flag_status(
+                    session, flag_id, status,
+                    reviewed_by=reviewed_by, notes=(notes or None),
+                )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+        if updated is None:
+            raise HTTPException(status_code=404, detail="anomaly flag not found")
+        dest = "/admin/anomalies"
+        if back_status:
+            dest += f"?status={back_status}"
+        return RedirectResponse(dest, status_code=303)
+
+    @app.post("/admin/anomalies/scan", dependencies=[Depends(require_admin)])
+    async def admin_anomalies_scan(request: Request):
+        sm = request.app.state.sessionmaker
+        async with sm() as session:
+            await detect_anomalies(session, request.app.state.settings)
+        return RedirectResponse("/admin/anomalies", status_code=303)

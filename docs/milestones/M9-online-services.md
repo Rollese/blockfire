@@ -1,6 +1,20 @@
 # M9 — Online Services (Accounts, Anti-Cheat Detection, Matchmaking)
 
-**Status:** **deferred — Beta / post-1.0** ([ADR-0007](../adr/0007-battlebit-divergences.md) §4, 2026-06-18) · **Blocked by:** M7 gate (needs Steam auth + rendered client) · **not considered until every other milestone is finished**
+**Status:** **STARTED 2026-07-12** (owner elected to start early, attaching trust-hardening to the shipped M20 stats datastore — [design](../superpowers/specs/2026-07-11-stats-analytics-backend-design.md)) · originally deferred Beta / post-1.0 ([ADR-0007](../adr/0007-battlebit-divergences.md) §4, 2026-06-18)
+
+**Objective:** Stand up the project's first persistent backend so players authenticate via Steam, get matched by skill into the right server tier, and cheaters are detected from server-side telemetry. Decision: [ADR-0004](../adr/0004-anti-cheat-and-skill-matchmaking.md). Design: [anti-cheat-matchmaking spec](../specs/anti-cheat-matchmaking.md).
+
+## Phasing (allocated 2026-07-12)
+
+M9 attaches rating + matchmaking + trust-hardening to the M20 `backend/` datastore (nothing there is discarded). Phases, smallest-and-most-foundational first:
+
+| Phase | Scope | Depends on | Status |
+|---|---|---|---|
+| **P1 — Signed match reports** | Game server signs `/ingest/events` + `/ingest/match`; backend verifies (HMAC-SHA256, per-server keys) and records a durable `matches.trusted` flag. Hardens the M20 ingest contract in place. Design: [`2026-07-12-m9-p1-signed-match-reports-design`](../superpowers/specs/2026-07-12-m9-p1-signed-match-reports-design.md) · Decision: [ADR-0011](../adr/0011-signed-match-reports.md). | M20 P1 | **done — master `13f7182`** |
+| **P2 — Rating service** | Objective-weighted hidden rating (Weng-Lin **OpenSkill**, two-team) + uncertainty + tier bucket over **P1-trusted** reports; fast-converging placement. Admin-only read surface. Design: [`2026-07-12-m9-p2-rating-service-design`](../superpowers/specs/2026-07-12-m9-p2-rating-service-design.md) · Decision: [ADR-0012](../adr/0012-rating-service.md). | P1 | **in-progress** |
+| **P3 — Layer-4 statistical detection** | Extend the M20-P4 anomaly engine (aim-snap/flick consistency, reaction-time, headshot ratio, fire-pattern regularity) over `events` → suspicion signal + review queue. | P1 (+ M20 P4) | planned |
+| **P4 — Steam auth gateway + ownership** | Client session ticket → server `BeginAuthSession` → backend auth-gateway → `steam:`-keyed session; `GetPlayerBans` hard signal + soft priors. Carries the GodotSteam + $100 Steam Direct external dependency. | P1 | planned |
+| **P5 — Matchmaker + tier-merge + shadow pool** | Soft rating buckets, dynamic tier-merge under low population, VAC-ban (`DaysSinceLastBan ≤ 1825`) + Layer-4-flag routing to a silent shadow pool. | P2, P3, P4 | planned |
 
 **Objective:** Stand up the project's first persistent backend so players authenticate via Steam, get matched by skill into the right server tier, and cheaters are detected from server-side telemetry. Decision: [ADR-0004](../adr/0004-anti-cheat-and-skill-matchmaking.md). Design: [anti-cheat-matchmaking spec](../specs/anti-cheat-matchmaking.md).
 

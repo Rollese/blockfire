@@ -1,0 +1,90 @@
+{% extends "admin_base.html" %}
+{% block title %}Admin Anomalies — Blockfire Stats{% endblock %}
+{% block admin_content %}
+<h1>Anomaly Review Queue</h1>
+
+<section class="stat-grid">
+  <div class="stat"><span class="label">Total</span><span class="value">{{ summary.total }}</span></div>
+  <div class="stat"><span class="label">Open</span><span class="value">{{ summary.by_status.open }}</span></div>
+  <div class="stat"><span class="label">Confirmed</span><span class="value">{{ summary.by_status.confirmed }}</span></div>
+  <div class="stat"><span class="label">Dismissed</span><span class="value">{{ summary.by_status.dismissed }}</span></div>
+  <div class="stat"><span class="label">Open (high)</span><span class="value">{{ summary.open_high }}</span></div>
+</section>
+
+<form method="get" action="/admin/anomalies" class="filter-form">
+  <label>Status
+    <select name="status">
+      <option value="" {% if not filters.status %}selected{% endif %}>All</option>
+      <option value="open" {% if filters.status == "open" %}selected{% endif %}>Open</option>
+      <option value="confirmed" {% if filters.status == "confirmed" %}selected{% endif %}>Confirmed</option>
+      <option value="dismissed" {% if filters.status == "dismissed" %}selected{% endif %}>Dismissed</option>
+    </select>
+  </label>
+  <label>Metric
+    <select name="metric">
+      <option value="" {% if not filters.metric %}selected{% endif %}>All</option>
+      <option value="kd" {% if filters.metric == "kd" %}selected{% endif %}>K/D</option>
+      <option value="headshot_rate" {% if filters.metric == "headshot_rate" %}selected{% endif %}>Headshot rate</option>
+      <option value="hit_rate" {% if filters.metric == "hit_rate" %}selected{% endif %}>Hit rate</option>
+    </select>
+  </label>
+  <button type="submit">Filter</button>
+</form>
+
+<form method="post" action="/admin/anomalies/scan" class="scan-form">
+  <button type="submit">Run scan now</button>
+</form>
+
+{% if flags %}
+<table class="stats">
+  <thead>
+    <tr>
+      <th>Player</th><th>Metric</th><th>Value</th><th>Threshold</th>
+      <th>Severity</th><th>Sample</th><th>Matches</th>
+      <th>First seen</th><th>Last seen</th><th>Status</th><th>Actions</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for flag in flags %}
+    <tr>
+      <td><a href="/players/{{ flag.player_key }}">{{ flag.player_key }}</a></td>
+      <td>{{ flag.metric }}</td>
+      <td>{{ "%.4f"|format(flag.value) if flag.value is not none else "—" }}</td>
+      <td>{{ "%.4f"|format(flag.threshold) if flag.threshold is not none else "—" }}</td>
+      <td><span class="sev sev-{{ flag.severity }}">{{ flag.severity }}</span></td>
+      <td>{{ flag.sample_size }}</td>
+      <td>{{ flag.context.get("matches_played", "") if flag.context else "" }}</td>
+      <td>{{ flag.created_at or "—" }}</td>
+      <td>{{ flag.last_seen_at or "—" }}</td>
+      <td>{{ flag.status }}</td>
+      <td>
+        {% if flag.status == "open" %}
+        <div class="flag-actions">
+          <form method="post" action="/admin/anomalies/{{ flag.flag_id }}/review">
+            <input type="hidden" name="status" value="confirmed">
+            <input type="hidden" name="back_status" value="{{ filters.status or '' }}">
+            <input type="text" name="notes" placeholder="notes" size="10">
+            <button type="submit">Confirm</button>
+          </form>
+          <form method="post" action="/admin/anomalies/{{ flag.flag_id }}/review">
+            <input type="hidden" name="status" value="dismissed">
+            <input type="hidden" name="back_status" value="{{ filters.status or '' }}">
+            <input type="text" name="notes" placeholder="notes" size="10">
+            <button type="submit">Dismiss</button>
+          </form>
+        </div>
+        {% else %}
+        <span class="subtle">
+          {{ flag.reviewed_by or "—" }}{% if flag.reviewed_at %} · {{ flag.reviewed_at }}{% endif %}
+          {% if flag.notes %}<br>{{ flag.notes }}{% endif %}
+        </span>
+        {% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="empty">No anomaly flags match.</p>
+{% endif %}
+{% endblock %}
