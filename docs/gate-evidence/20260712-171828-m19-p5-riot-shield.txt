@@ -1,0 +1,13 @@
+M19-P5 Riot Shield — 128-bot conquest_town fleet gate (game2, native encoder, TICKETS=200)
+Branch m19-p5-riot-shield @ 150eb39 ; VERSION 11 ; suite 1711/0
+
+=== M19-P5 Riot Shield — 128-bot conquest_town fleet gate (game2) ===
+server-1  | [match] OVER winner=1 t0=0 t1=156 elapsed=132s cap_events=1
+--- last telemetry line ---
+server-1  | [telemetry] players=128 alive=116 tick_mean=7.64ms tick_p99=9.04ms agg=13.7Mbit/s pktloss=4.58% kills=2 shots=35 hit_rate=0.49 starv=466 rewind_clamped=0 t0=-1 t1=149 pts=..1.. cap_events=0 struct=2377 bld=0 rmv=0 blk=6 pen=0 dmg=0 destroyed=0 collapsed=0 nades=0 splash=0 smoke=0 rockets=0 rstruct=0 proj=35 projhit=17 projlive=2 projdrop=0 downed=1 bleedouts=0 revives=3 bleeds=4 bandages=0 bleeddowns=0 c4=1 mines=0 heals=91 ammo=2 bags=1 bagx=0 climbs=0 vaults=0 dropblk=0 enters=0 exits=0 veh_dead=0 repairs=0 repair_oh=0 rkt_veh=0 transport_m=0.0 ac_viol=78 swaps=0 supp=75 melees=2 backstabs=0 sledge=0 flashes=0 flashblinds=0 impacts=0 built_small=0 built_large=0 bsolo=0 dismantled=0 repaired=0 fobs_built=0 fob_spawns=0 fob_disabled=0 fobs_destroyed=0 nests_dep=13 nests_man=19 nests_dead=0 shield_blk=238 shield_brk=12
+--- shield / key counters ---
+players=128 alive=116 tick_mean=7.64ms kills=2 downed=1 nests_dep=13 shield_blk=238 shield_brk=12 
+--- script errors ---
+script_error_lines=0
+
+=== VERDICT: PASS — winner=1, tick_mean 7.64ms<<33.3, script_errors=0; shield exercised at scale (blk=238 brk=12), LMG nests unregressed (dep=13) ===
