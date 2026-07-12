@@ -25,6 +25,7 @@ def register_admin_api_routes(app: FastAPI) -> None:
     from app.anomaly import (
         detect_anomalies, flag_summary, list_flags, set_flag_status,
     )
+    from app.rating_read import leaderboard, rating_summary
 
     @app.get("/admin/api/weapons", dependencies=[Depends(require_admin)])
     async def admin_weapons(request: Request) -> dict:
@@ -83,6 +84,30 @@ def register_admin_api_routes(app: FastAPI) -> None:
                                      limit=limit)
             summary = await flag_summary(session)
         return {"flags": flags, "summary": summary}
+
+    @app.get("/admin/api/ratings", dependencies=[Depends(require_admin)])
+    async def admin_ratings(
+        request: Request, limit: int = 100, offset: int = 0,
+    ) -> dict:
+        sm = request.app.state.sessionmaker
+        async with sm() as session:
+            rows = await leaderboard(session, limit=limit, offset=offset)
+        return {"players": [
+            {
+                "player_key": r.player_key, "mu": r.mu, "sigma": r.sigma,
+                "ordinal": r.ordinal, "tier": r.tier,
+                "matches_rated": r.matches_rated,
+                "last_match_id": r.last_match_id,
+            }
+            for r in rows
+        ]}
+
+    @app.get("/admin/api/ratings/summary",
+             dependencies=[Depends(require_admin)])
+    async def admin_ratings_summary(request: Request) -> dict:
+        sm = request.app.state.sessionmaker
+        async with sm() as session:
+            return await rating_summary(session)
 
     @app.post("/admin/api/anomaly/scan", dependencies=[Depends(require_admin)])
     async def admin_anomaly_scan(request: Request) -> dict:
