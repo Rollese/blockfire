@@ -141,9 +141,11 @@ var _stats := ServerStats.new()   # the [telemetry] counter wall — see server/
 var _fire := ServerFire.new(self)  # bullet pipeline + live projectile pool — see server/fire.gd
 var _support := ServerSupport.new(self)  # revive/give/repair/downed latches + steps — see server/support.gd
 var _build := ServerBuild.new(self)      # build sites + FOB lifecycle — see server/build.gd
+var _emplacements := ServerEmplacement.new(self)  # M19 P4 LMG-nest deploy/store/broadcast — see server/emplacement_server.gd
 
 var _roster_tick := 0
 var _gadget_rl := ReliableList.new()   # GADGET_LIST changed+heartbeat state (server/reliable_list.gd)
+var _emplacement_rl := ReliableList.new()   # EMPLACEMENT_LIST (M19 P4)
 # M12-P3: squad-leader FOB registry. "team:squad" -> {squad, team, id, cell, built: bool}
 var _transport_origin := {}   # id -> Vector3 boarding pos (transport-distance metric)
 var _pending_removes: Array = []   # [{id, cell}] removes awaiting send (degradation queue)
@@ -377,7 +379,9 @@ func _reset_match_state() -> void:
 	_fire = ServerFire.new(self)
 	_support = ServerSupport.new(self)
 	_build = ServerBuild.new(self)
+	_emplacements = ServerEmplacement.new(self)
 	_gadget_rl = ReliableList.new()
+	_emplacement_rl = ReliableList.new()
 	_support_rl = ReliableList.new()
 	_downed_rl = ReliableList.new()
 	_fob_rl = ReliableList.new()
@@ -398,6 +402,7 @@ func _reset_match_state() -> void:
 	_mines.clear()
 	_bags.clear()
 	_c4.clear()
+	_emplacements.clear()
 	_smoke_zones.clear()
 	_breaches.clear()
 	_prev_owners = []
@@ -493,6 +498,7 @@ func _physics_process(delta: float) -> void:
 	if _roster_tick % ROSTER_STRIDE_TICKS == 0:
 		_broadcast_roster()
 	_broadcast_gadget_list()
+	_broadcast_emplacement_list()
 	_broadcast_support_list()
 	_broadcast_downed_list()
 	_broadcast_bleeding_list()
@@ -1638,6 +1644,7 @@ func _handle_gadget_action(peer: ENetPacketPeer, bytes: PackedByteArray) -> void
 		Protocol.GA_REPAIR_STOP: _support.repairing.erase(id)
 		Protocol.GA_STIM_USE: _use_stim(id)
 		Protocol.GA_SMOKE_WALL_PLACE: _place_smoke_wall(id, p, d["pos"])
+		Protocol.GA_LMG_DEPLOY: _emplacements.deploy(id, p, d["pos"], d["dir"])
 		_: pass
 
 func _handle_vehicle_action(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
@@ -1753,6 +1760,15 @@ func _broadcast_gadget_list() -> void:
 	var list := GadgetList.build(_c4, _mines, _bags)
 	var pkt := Protocol.encode_gadget_list(list)
 	if not _gadget_rl.should_send(pkt, list.size() > 0, _sim.tick):
+		return
+	_broadcast_all(NetHost.CHANNEL_CONTROL, pkt, ENetPacketPeer.FLAG_RELIABLE)
+
+func _broadcast_emplacement_list() -> void:
+	if _clients.is_empty():
+		return
+	var list := _emplacements.build_list()
+	var pkt := Protocol.encode_emplacement_list(list)
+	if not _emplacement_rl.should_send(pkt, list.size() > 0, _sim.tick):
 		return
 	_broadcast_all(NetHost.CHANNEL_CONTROL, pkt, ENetPacketPeer.FLAG_RELIABLE)
 
