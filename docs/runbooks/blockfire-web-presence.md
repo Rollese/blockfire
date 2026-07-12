@@ -120,6 +120,21 @@ curl -sI  https://www.blockfire.cc/ | grep -i location   # -> https://blockfire.
 - 502 ⇒ edge can't reach the game2 upstream (container down / firewall).
 - TLS error ⇒ cert didn't issue (recheck Preflight token scope).
 
+- **✅ VERIFIED LIVE (2026-07-12):** TLS issues and serves correctly. Edge cert
+  = Google Trust Services (Cloudflare Universal SSL), `CN=blockfire.cc`, SAN
+  `blockfire.cc` + `*.blockfire.cc`, valid Jul 12 → Oct 10 2026; same cert on
+  `stats.`. Chain verifies (`ssl_verify_result=0`). Site opens correctly in a
+  browser (owner-confirmed).
+- **⚠️ Cloudflare managed challenge caveat:** a security setting (Bot Fight Mode
+  / managed challenge) challenges non-browser clients, so the `curl` checks above
+  return **`403` + `cf-mitigated: challenge`**, not `200` — this is expected and
+  does **not** indicate a cert/origin fault (the TLS handshake still succeeds).
+  Real browsers pass. To smoke-test the origin content itself, hit the game2
+  upstream directly: `curl -sI http://192.168.1.166:8080/` (bypasses the edge).
+  If you want unauthenticated crawlers/monitors to reach the marketing site,
+  relax the challenge for the apex in the Cloudflare dashboard (Security → Bots /
+  WAF) — owner's call; the DNS token here can't change security settings.
+
 ## Prod cutover (Phase 5 — when stacks move to unraid)
 
 _To be finalized in Phase 5._ Outline: run `backend/` + `web/` compose on unraid;
