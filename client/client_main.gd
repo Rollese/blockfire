@@ -211,6 +211,16 @@ var _am_bleeding: bool = false     # M16: own standing-bleed flag from SELF_STAT
 var _bandage_progress: int = 0     # M16: 0..255 server-authoritative bandage cast progress (owner as target)
 var _bleeding_ids: Dictionary = {} # M16: teammate ids currently standing-bleeding (from BLEEDING_LIST)
 var _bandage_target: int = 0       # M16: id the client is currently holding a BANDAGE_ACTION latch on (0 = none)
+# ---- M19 P4: manned LMG nest (mirror the vehicle-seat handling) -------------
+var _mounted_nest: int = 0         # id of the LMG nest we're manning (0 = on foot); gates seat-lock + arc-clamp + fire routing
+var _mg_heat: int = 0              # manned MG heat 0..255 from SELF_STATE (Task 13 HUD; stored now)
+var _mg_ammo: int = 0              # manned MG belt rounds remaining from SELF_STATE (Task 13 HUD; stored now)
+var _mg_overheated: bool = false   # manned MG overheat-lockout flag from SELF_STATE (Task 13 HUD; stored now)
+# Nest arc/pitch limits — must match data/gadgets.json "lmgnest" (client doesn't load the gadget catalog).
+const NEST_HALF_ARC := deg_to_rad(45.0)
+const NEST_PITCH_LO := deg_to_rad(20.0)
+const NEST_PITCH_HI := deg_to_rad(25.0)
+const NEST_MOUNT_RANGE := 1.6      # metres to a friendly, unoccupied nest to man it
 
 # ---- configure (called by bootstrap before add_child) -----------------------
 func configure(args: Dictionary) -> void:
@@ -546,6 +556,15 @@ func _produce_input_frame(ss: EntityState, cmd: Dictionary) -> void:
 		cmd["buttons"] = int(cmd["buttons"]) & InputCommand.BTN_FIRE
 		_pred.predicted.pos = ss.pos
 		_pred.predicted.velocity = Vector3.ZERO
+	elif _mounted_nest != 0:
+		# M19 P4: manning an LMG nest is the same "server-slaved seat" situation as a vehicle gunner —
+		# the server pins the pawn to the nest's seat_world() and meters fire through step_fire. Mask the
+		# buttons to FIRE only (that's the MG trigger the server heat-limits; jump/crouch/sprint/reload do
+		# nothing mounted), snap the predicted pawn onto ss.pos (the seat) so the POV rides the gun instead
+		# of rubber-banding, and zero velocity. Movement axes are irrelevant (an emplacement never moves).
+		cmd["buttons"] = int(cmd["buttons"]) & InputCommand.BTN_FIRE
+		_pred.predicted.pos = ss.pos
+		_pred.predicted.velocity = Vector3.ZERO
 	# M12 build tool: while build mode is active, the player never shoots/reloads — fire becomes
 	# place/shovel and reload becomes rotate. Mask those bits and set BTN_SHOVEL when holding the
 	# build tool on an under-construction site (the server advances it). Place/rotate/cycle are
@@ -732,7 +751,7 @@ func _process(_dt: float) -> void:
 	# Aim-down-sights (client-only visual zoom/pose). Held right-mouse ("aim") while deployed, not
 	# sprinting, not in a vehicle, menu closed. Eased so the zoom/pose glide rather than snap.
 	var weapon0: int = _wpred.weapon if _wpred != null else Weapon.AR
-	var ads_want: bool = (deployed0 and not menu_open0 and _in_vehicle() < 0 \
+	var ads_want: bool = (deployed0 and not menu_open0 and _in_vehicle() < 0 and _mounted_nest == 0 \
 		and not Input.is_action_pressed("sprint") and not _pred.predicted.climbing \
 		and (_ads_test or _scope_test or Input.is_action_pressed("aim")))
 	_ads_t = lerpf(_ads_t, 1.0 if ads_want else 0.0, clampf(_dt * ADS_RATE, 0.0, 1.0))
@@ -749,6 +768,19 @@ func _process(_dt: float) -> void:
 		_input_ctrl.update_look(_settings, look_scale)   # apply accumulated mouse delta at render rate
 	else:
 		_input_ctrl.drain_look()
+	# M19 P4: while manning a nest, clamp the local look to the gun's traverse arc so the camera reads as
+	# the gun (the server clamps authoritatively — emplacement_server.step sets turret_yaw/pitch from the
+	# gunner's p.yaw/p.pitch — this just keeps the client reticle coherent). _input_ctrl.yaw is CAMERA yaw,
+	# but the nest facing_yaw is stored in AIM space (server forward=(sin,0,cos)=camera_yaw+PI, see
+	# emplacement_server.deploy's atan2 + its clamp of p.yaw), so convert to aim space, clamp, convert back.
+	# Pitch is sent unchanged (cmd.pitch == _input_ctrl.pitch == p.pitch), so it clamps directly.
+	if _mounted_nest != 0:
+		var mn := _find_emplacement(_mounted_nest)
+		if not mn.is_empty():
+			var aim: float = wrapf(_input_ctrl.yaw + PI, -PI, PI)
+			aim = Emplacement.clamp_yaw(aim, float(mn["facing_yaw"]), NEST_HALF_ARC)
+			_input_ctrl.yaw = wrapf(aim - PI, -PI, PI)
+			_input_ctrl.pitch = Emplacement.clamp_pitch(_input_ctrl.pitch, NEST_PITCH_LO, NEST_PITCH_HI)
 	_pos_err = _pos_err.lerp(Vector3.ZERO, clampf(_dt * RECON_SMOOTH, 0.0, 1.0))
 	_recoil_kick = lerpf(_recoil_kick, 0.0, clampf(_dt * RECOIL_KICK_RECOVER, 0.0, 1.0))   # C1a: recover the visual recoil
 	var eye: Vector3 = _prev_eye.lerp(_curr_eye, Engine.get_physics_interpolation_fraction()) + _pos_err
@@ -829,6 +861,8 @@ func _process(_dt: float) -> void:
 		"bleeding_mates": _bleeding_mates(),   # M16: standing-bleeding teammates in bandage range
 		"am_bleeding": _am_bleeding,           # M16: offer self-bandage when no world prompt applies
 		"vehicles_near": _vehicles_near(),
+		"mounted_nest": _mounted_nest,      # M19 P4: id of the nest we're manning (0 = on foot) -> dismount prompt
+		"nests_near": _nests_near(),        # M19 P4: friendly unoccupied nests in mount range -> mount prompt
 		"repair_heat": _repair_heat,
 		"repair_cooldown": _repair_cooldown,
 		"throw_charge": _throw_charge if _throw_charging else 0.0,   # C3 grenade charge bar (0 when idle)
@@ -968,6 +1002,18 @@ func _process(_dt: float) -> void:
 			_net.send_to(_peer, NetHost.CHANNEL_CONTROL,
 				Protocol.encode_vehicle_action(Protocol.VA_EXIT, int(ip["target"]), 0),
 				ENetPacketPeer.FLAG_RELIABLE)
+		# M19 P4: mount an LMG nest — single F press when the prompt offers a friendly, in-range nest.
+		if ip != null and String(ip.get("action", "")) == "mount_nest" \
+				and Input.is_action_just_pressed("interact") and _peer != null:
+			_net.send_to(_peer, NetHost.CHANNEL_CONTROL,
+				Protocol.encode_emplacement_action(Protocol.EA_MOUNT, int(ip["target"])),
+				ENetPacketPeer.FLAG_RELIABLE)
+		# M19 P4: dismount — single F press while manning (the prompt switched to "dismount_nest").
+		if ip != null and String(ip.get("action", "")) == "dismount_nest" \
+				and Input.is_action_just_pressed("interact") and _peer != null:
+			_net.send_to(_peer, NetHost.CHANNEL_CONTROL,
+				Protocol.encode_emplacement_action(Protocol.EA_DISMOUNT, int(ip["target"])),
+				ENetPacketPeer.FLAG_RELIABLE)
 		if ip != null and String(ip.get("action", "")) == "revive" and interact_held and _peer != null:
 			_revive_hold += _dt
 			# Match the SERVER's completion time: a medic revives in half the ticks — the bar used to
@@ -1030,7 +1076,11 @@ func _process(_dt: float) -> void:
 		# climbing) — lock the one-shots too so the local player sees no phantom action. A1 playtest.
 		# _photo_mode (F8 free-fly): the soldier is frozen and hidden, so no combat input reaches it —
 		# else an RPG/grenade/C4 fires from the invisible pawn while you fly the camera around (playtest).
-		var combat_locked: bool = building or menu_open0 or _pred.predicted.climbing or _photo_mode
+		# M19 P4: manning a nest also locks the combat one-shots (throw / melee / fire-select / gadget /
+		# RPG-fire). Those are separate CONTROL sends, NOT covered by the BTN_FIRE-only input mask, so a
+		# habitual keypress would otherwise lob a grenade or fire an RPG while riding the gun. The MG
+		# trigger flows through the masked input buttons instead (server step_fire reads it).
+		var combat_locked: bool = building or menu_open0 or _pred.predicted.climbing or _photo_mode or _mounted_nest != 0
 
 		# Throwable cycle
 		if Input.is_action_just_pressed("throwable_cycle") and not combat_locked:
@@ -1053,7 +1103,7 @@ func _process(_dt: float) -> void:
 		# Quick-swap primary/secondary (mouse wheel): toggle the slot; the swap anim plays when the
 		# weapon actually changes (SELF_STATE → set_viewmodel_weapon), so client and server stay in step.
 		# Suppressed in build mode, where the wheel cycles the selected piece instead.
-		if Input.is_action_just_pressed("swap_weapon") and not _build_ctrl.active:
+		if Input.is_action_just_pressed("swap_weapon") and not _build_ctrl.active and _mounted_nest == 0:
 			_active_slot = 1 - _active_slot
 			_net.send_to(_peer, NetHost.CHANNEL_CONTROL,
 				Protocol.encode_swap_weapon(_active_slot), ENetPacketPeer.FLAG_RELIABLE)
@@ -1168,7 +1218,7 @@ func _process(_dt: float) -> void:
 		# before WELCOME seeds _loadout. The class-select UI (Tasks 2-3) will let a player edit
 		# _loadout's gadget choice before this read ever sees anything but the class default.
 		var equipped_gadget: int = int(_loadout.get("gadget", Loadout.default_gadget(_my_class)))
-		if Input.is_action_just_pressed("gadget") and not combat_locked and equipped_gadget != Loadout.GADGET_REPAIR:
+		if Input.is_action_just_pressed("gadget") and not combat_locked and equipped_gadget != Loadout.GADGET_REPAIR and _mounted_nest == 0:
 			var gadget_action: int = Protocol.GA_C4_DETONATE
 			var gdir := Vector3.ZERO
 			if equipped_gadget == Loadout.GADGET_BREACH:
@@ -1186,6 +1236,14 @@ func _process(_dt: float) -> void:
 				gdir = -Vector3(sin(_input_ctrl.yaw), 0.0, cos(_input_ctrl.yaw)).normalized()
 				var wpitch: float = _input_ctrl.pitch
 				gdir = Vector3(gdir.x * cos(wpitch), sin(wpitch), gdir.z * cos(wpitch)).normalized()
+			elif equipped_gadget == Loadout.GADGET_LMG_NEST:
+				# M19 P4: deploy a manned LMG nest at the player's feet, facing where they aim (like BREACH).
+				# The nest's traverse arc is centred on this facing, so the deploy dir matters. Blocked while
+				# already manning one — combat_locked includes _mounted_nest != 0.
+				gadget_action = Protocol.GA_LMG_DEPLOY
+				gdir = -Vector3(sin(_input_ctrl.yaw), 0.0, cos(_input_ctrl.yaw)).normalized()
+				var npitch: float = _input_ctrl.pitch
+				gdir = Vector3(gdir.x * cos(npitch), sin(npitch), gdir.z * cos(npitch)).normalized()
 			_net.send_to(_peer, NetHost.CHANNEL_CONTROL,
 				Protocol.encode_gadget_action(gadget_action, _pred.predicted.pos, gdir, 0), ENetPacketPeer.FLAG_RELIABLE)
 
@@ -1604,13 +1662,19 @@ func _handle_self_state(bytes: PackedByteArray) -> void:
 	_self_vault_tick = int(d.get("vault_tick", 0))
 	_self_regen_cooldown = float(d.get("regen_cooldown", 0.0)) # authoritative stamina regen-cooldown (C6 reconcile)
 	_self_sprint_locked = bool(d.get("sprint_locked", false))  # authoritative sprint-lockout flag (hysteresis reconcile)
+	# M19 P4: manned LMG-nest state. _mounted_nest gates the seat-lock + arc-clamp below (0 = on foot);
+	# _mg_* are stored for the Task 13 MG HUD (heat/ammo/overheat). Server-authoritative each tick.
+	_mounted_nest = int(d.get("mounted_nest", 0))
+	_mg_heat = int(d.get("mg_heat", 0))
+	_mg_ammo = int(d.get("mg_ammo", 0))
+	_mg_overheated = bool(d.get("mg_overheated", false))
 	# Tick-lead: feed the post-drain buffer depth to the input-clock loop. Only while input is
 	# actually being produced (deployed, on foot; menus now keep producing zeroed frames — A5) —
 	# a dead client sends no frames, so its depth reads 0 and would wrongly integrate catch-up
 	# phase (windup); seated pawns are server-slaved. -1 = absent byte (old/short packet): idle.
 	var ibd := int(d.get("input_buf_depth", -1))
 	var lss: EntityState = _wv.self_state()
-	if ibd >= 0 and lss != null and lss.alive and _in_vehicle() < 0:
+	if ibd >= 0 and lss != null and lss.alive and _in_vehicle() < 0 and _mounted_nest == 0:
 		_tick_lead.on_depth(ibd)
 
 # ---- MATCH_STATE ------------------------------------------------------------
@@ -2030,6 +2094,41 @@ func _vehicles_near() -> Array:
 			# Use seat 0 as default; server validates and assigns the actual free seat on VA_ENTER.
 			out.append({"vid": int(vid), "seat": 0, "dist": dist})
 	return out
+
+## M19 P4: friendly, unoccupied LMG nests within mount range of the local pawn (mount-prompt candidates).
+## Mirrors _vehicles_near: gated on alive + not-downed + not-already-mounted; the server re-validates on
+## EA_MOUNT. Reads the Task 11 _emplacements cache (id/pos/facing_yaw/occupant/team per entry).
+func _nests_near() -> Array:
+	if _mounted_nest != 0:
+		return []   # already manning one -> no mount prompt (the dismount prompt takes over)
+	var sself: EntityState = _wv.self_state()
+	if sself == null or not sself.alive or sself.is_downed:
+		return []
+	var self_pos: Vector3 = _pred.predicted.pos
+	var my_team: int = _local_team()
+	var out: Array = []
+	for e in _emplacements:
+		if int(e.get("occupant", 0)) != 0:
+			continue   # someone's already on it
+		if int(e.get("team", -1)) != my_team:
+			continue   # enemy nest -> can't man it
+		# Measure to the SEAT, not the pivot: the server's Emplacement.can_mount checks range to
+		# seat_world() (SEAT_BACK behind the pivot along facing). Measuring to e["pos"] would surface
+		# "F to man the gun" from the front at 1.0-1.6 m yet get the EA_MOUNT silently rejected.
+		var f: float = float(e.get("facing_yaw", 0.0))
+		var seat: Vector3 = (e["pos"] as Vector3) - Vector3(sin(f), 0.0, cos(f)) * Emplacement.SEAT_BACK
+		var dist: float = self_pos.distance_to(seat)
+		if dist <= NEST_MOUNT_RANGE:
+			out.append({"id": int(e["id"]), "dist": dist})
+	return out
+
+## M19 P4: scan the cached nest list for a specific id; {} if absent. Used to arc-clamp the reticle
+## against the manned nest's facing (E) without re-decoding.
+func _find_emplacement(nest_id: int) -> Dictionary:
+	for e in _emplacements:
+		if int(e.get("id", 0)) == nest_id:
+			return e
+	return {}
 
 ## Per-weapon gunfire cue, mapping the equipped weapon to its CC0 caliber sample. Unknown weapons
 ## fall back to the AR report ("gunfire"). RPG fires via the gadget path, not here.

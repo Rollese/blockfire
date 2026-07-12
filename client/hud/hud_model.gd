@@ -259,6 +259,10 @@ func _ammo(ctx: Dictionary) -> Dictionary:
 	}
 
 func _interaction_prompt(ctx: Dictionary):
+	# M19 P4: manning an LMG nest -> the F prompt becomes "dismount" (top priority, like exit_vehicle).
+	var mounted := int(ctx.get("mounted_nest", 0))
+	if mounted != 0:
+		return {"action": "dismount_nest", "target": mounted}
 	# Already seated in a vehicle -> the F prompt becomes "exit" (takes priority over revive/enter).
 	var in_veh := int(ctx.get("in_vehicle", -1))
 	if in_veh >= 0:
@@ -285,6 +289,14 @@ func _interaction_prompt(ctx: Dictionary):
 			if float(v["dist"]) < float(bv["dist"]):
 				bv = v
 		return {"action": "enter_vehicle", "target": int(bv["vid"]), "seat": int(bv["seat"])}
+	# M19 P4: a friendly, unoccupied LMG nest in mount range -> offer to man it (below vehicles).
+	var nests: Array = ctx.get("nests_near", [])
+	if not nests.is_empty():
+		var bn: Dictionary = nests[0]
+		for n in nests:
+			if float(n["dist"]) < float(bn["dist"]):
+				bn = n
+		return {"action": "mount_nest", "target": int(bn["id"])}
 	# M16: no world prompt applies — offer self-bandage while you are standing-bleeding (lowest priority).
 	if bool(ctx.get("am_bleeding", false)):
 		return {"action": "self_bandage", "target": int(ctx.get("self_id", 0))}

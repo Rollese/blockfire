@@ -1314,6 +1314,16 @@ func _render_interaction_prompt(prompt) -> void:
 			_interact_label.visible = true
 			if _revive_bar_bg != null:
 				_revive_bar_bg.visible = false
+		"mount_nest":
+			_interact_label.text = "F to man the gun"
+			_interact_label.visible = true
+			if _revive_bar_bg != null:
+				_revive_bar_bg.visible = false
+		"dismount_nest":
+			_interact_label.text = "F to leave the gun"
+			_interact_label.visible = true
+			if _revive_bar_bg != null:
+				_revive_bar_bg.visible = false
 		_:
 			_interact_label.visible = false
 			if _revive_bar_bg != null:

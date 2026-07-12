@@ -226,6 +226,34 @@ func test_prompt_exit_vehicle_when_seated() -> void:
 	assert_eq(p["action"], "exit_vehicle", "seated -> F exits")
 	assert_eq(p["target"], 9)
 
+func test_prompt_mount_nest_when_friendly_nest_in_range() -> void:
+	var m := HudModel.new()
+	# M19 P4: on foot, a friendly unoccupied nest in mount range -> "man the gun" (below vehicles).
+	var out := m.build({"downed_mates": [], "vehicles_near": [],
+		"nests_near": [{"id": 0x50000001, "dist": 1.2}], "tick": 0})
+	var p: Dictionary = out["interaction_prompt"]
+	assert_eq(p["action"], "mount_nest")
+	assert_eq(p["target"], 0x50000001)
+
+func test_prompt_dismount_nest_when_mounted() -> void:
+	var m := HudModel.new()
+	# M19 P4: manning a nest -> the prompt is "dismount".
+	var out := m.build({"mounted_nest": 0x50000002, "tick": 0})
+	var p: Dictionary = out["interaction_prompt"]
+	assert_eq(p["action"], "dismount_nest")
+	assert_eq(p["target"], 0x50000002)
+
+func test_prompt_dismount_nest_priority_over_everything() -> void:
+	var m := HudModel.new()
+	# M19 P4: while mounted, dismount overrides a downed mate / nearby vehicle / nearby nest.
+	var out := m.build({"mounted_nest": 0x50000003, "in_vehicle": -1,
+		"downed_mates": [{"id": 5, "dist": 1.0}],
+		"vehicles_near": [{"vid": 9, "seat": 0, "dist": 0.5}],
+		"nests_near": [{"id": 0x50000009, "dist": 0.4}], "tick": 0})
+	var p: Dictionary = out["interaction_prompt"]
+	assert_eq(p["action"], "dismount_nest", "mounted -> dismount beats all")
+	assert_eq(p["target"], 0x50000003)
+
 func test_throwables_passthrough_and_active_cycle() -> void:
 	var m := HudModel.new()
 	var thr := [{"kind": 0, "count": 1}, {"kind": 1, "count": 2}, {"kind": 2, "count": 0}]
