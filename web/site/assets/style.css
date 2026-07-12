@@ -46,6 +46,17 @@ img { display: block; max-width: 100%; height: auto; }
 a { color: inherit; text-decoration: none; }
 :focus-visible { outline: 2px solid var(--amber); outline-offset: 3px; }
 
+/* skip-to-content: off-screen until keyboard-focused */
+.skip-link {
+  position: absolute; left: .6rem; top: -4rem; z-index: 100;
+  background: var(--amber); color: #1a0e02;
+  font-family: var(--display); font-weight: 800;
+  text-transform: uppercase; letter-spacing: .1em;
+  padding: .6rem 1rem;
+  transition: top .15s;
+}
+.skip-link:focus { top: .6rem; }
+
 /* faint HUD grid on the page base */
 body::before {
   content: "";
