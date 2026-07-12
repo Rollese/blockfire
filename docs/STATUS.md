@@ -24,7 +24,7 @@ _Last refreshed: 2026-07-11 (documentation compaction). If this disagrees with `
 - **Perf & netcode track** — native Rust snapshot encoder (ADR-0003 Phase A + A.5: `snap` ~24 ms→~2.8 ms on budget hardware), full 30 Hz snapshots, reliable BULK anti-HOL channel, adaptive tick-lead input clock. **Servers must `cargo build --release --manifest-path native/snapshot_encoder/Cargo.toml` before fleet gates** (`ENCODER=gd` opts out).
 
 ## In flight 🚧 (active agents — coordinate, don't collide)
-- **M19 — Class Select & Player Loadouts** — spec [`specs/class-select-loadout.md`](specs/class-select-loadout.md). P1a data model done; P1b wire/variant seam landing. Couples to the **weapon-variants registry**.
+- **M19 — Class Select & Player Loadouts** — spec [`specs/class-select-loadout.md`](specs/class-select-loadout.md). **P1–P5 all done** (data model + wire framework + traits + cheap/medic gadgets + client class-select screen + LMG Nest + **Riot Shield**, `Protocol.VERSION` now 11). Only the **Grapple (Assault)** heavy gadget remains, deferred to its own phase. Gate evidence in `docs/gate-evidence/`.
 - **M20 — Stats & Analytics backend** — design [`superpowers/specs/2026-07-11-stats-analytics-backend-design.md`](superpowers/specs/2026-07-11-stats-analytics-backend-design.md). P1 ingest API + StatsReporter.
 
 ## Partial / blocked
