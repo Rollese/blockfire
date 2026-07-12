@@ -16,7 +16,8 @@ extends Object
 ## tail). History: VERSION sat at 1 through M1–M12 while the wire changed dozens of times,
 ## so the check protected nothing; real from 2 onward.
 
-const VERSION := 10   # 10: M19 P4 LMG Nest — EMPLACEMENT_ACTION/EMPLACEMENT_LIST + GA_LMG_DEPLOY + SELF_STATE mount tail (2026-07-12)
+const VERSION := 11   # 11: M19 P5 riot shield — BTN_SHIELD bit + SELF_STATE trailing shield_hp_frac u8 (2026-07-12)
+                     # 10: M19 P4 LMG Nest — EMPLACEMENT_ACTION/EMPLACEMENT_LIST + GA_LMG_DEPLOY + SELF_STATE mount tail (2026-07-12)
                      # 9: M19 P2b-medic — STIM charges/ticks in SELF_STATE + GA_STIM_USE/GA_SMOKE_WALL_PLACE (2026-07-11)
                      # 7: reliable BULK channel (3) for structure traffic — transport-topology change,
                      # old clients must be rejected (channel-count mismatch); no message format change (2026-07-10)
@@ -896,7 +897,7 @@ static func decode_damage_event(bytes: PackedByteArray) -> Dictionary:
 	return {"bearing": Quantize.dec_angle(r.get_u16()), "amount": r.get_u8()}
 
 
-static func encode_self_state(mag: int, reloading: bool, reload_remaining: int, weapon: int, throwables: Array = [], being_revived: bool = false, suppression: float = 0.0, blind_ticks: int = 0, bandage_count: int = 0, bleed_halted: bool = false, repair_heat: float = 0.0, repair_cooldown: float = 0.0, stamina: float = 100.0, vel_y: float = 0.0, grounded: bool = true, vaulting: bool = false, vault_tick: int = 0, regen_cooldown: float = 0.0, sprint_locked: bool = false, input_buf_depth: int = 0, bleeding: bool = false, bandage_progress: int = 0, reserve: int = 0, stim_charges: int = 0, stim_ticks: int = 0, mounted_nest: int = 0, mg_heat: int = 0, mg_ammo: int = 0, mg_overheated: bool = false) -> PackedByteArray:
+static func encode_self_state(mag: int, reloading: bool, reload_remaining: int, weapon: int, throwables: Array = [], being_revived: bool = false, suppression: float = 0.0, blind_ticks: int = 0, bandage_count: int = 0, bleed_halted: bool = false, repair_heat: float = 0.0, repair_cooldown: float = 0.0, stamina: float = 100.0, vel_y: float = 0.0, grounded: bool = true, vaulting: bool = false, vault_tick: int = 0, regen_cooldown: float = 0.0, sprint_locked: bool = false, input_buf_depth: int = 0, bleeding: bool = false, bandage_progress: int = 0, reserve: int = 0, stim_charges: int = 0, stim_ticks: int = 0, mounted_nest: int = 0, mg_heat: int = 0, mg_ammo: int = 0, mg_overheated: bool = false, shield_hp_frac: int = 0) -> PackedByteArray:
 	var buf := StreamPeerBuffer.new()
 	buf.put_u8(Msg.SELF_STATE)
 	buf.put_u8(clampi(mag, 0, 255))
@@ -974,6 +975,8 @@ static func encode_self_state(mag: int, reloading: bool, reload_remaining: int, 
 	buf.put_u8(clampi(mg_heat, 0, 255))
 	buf.put_u16(clampi(mg_ammo, 0, 65535))
 	buf.put_u8(1 if mg_overheated else 0)
+	# M19 P5: owner-only shield-HP fraction (0-255), appended last so older decoders ignore it.
+	buf.put_u8(shield_hp_frac & 0xFF)
 	return buf.data_array
 
 static func decode_self_state(bytes: PackedByteArray) -> Dictionary:
@@ -1060,7 +1063,12 @@ static func decode_self_state(bytes: PackedByteArray) -> Dictionary:
 		mg_heat = r.get_u8()
 		mg_ammo = r.get_u16()
 		mg_overheated = r.get_u8() == 1
-	return {"mag": mag, "reloading": reloading, "reload_remaining": reload_remaining, "weapon": weapon, "throwables": throwables, "being_revived": being_revived, "suppression": suppression, "blind_ticks": blind_ticks, "bandage_count": bandage_count, "bleed_halted": bleed_halted, "repair_heat": repair_heat, "repair_cooldown": repair_cooldown, "stamina": stamina, "vel_y": vel_y, "grounded": grounded, "vaulting": vaulting, "vault_tick": vault_tick, "regen_cooldown": regen_cooldown, "sprint_locked": sprint_locked, "input_buf_depth": input_buf_depth, "bleeding": bleeding, "bandage_progress": bandage_progress, "reserve": reserve, "stim_charges": stim_charges, "stim_ticks": stim_ticks, "mounted_nest": mounted_nest, "mg_heat": mg_heat, "mg_ammo": mg_ammo, "mg_overheated": mg_overheated}
+	# M19 P5 riot shield: owner-only shield-HP fraction, appended last so an older/short packet
+	# just leaves it at 0 (no shield) rather than misaligning the read.
+	var shield_hp_frac := 0
+	if r.get_available_bytes() >= 1:
+		shield_hp_frac = r.get_u8()
+	return {"mag": mag, "reloading": reloading, "reload_remaining": reload_remaining, "weapon": weapon, "throwables": throwables, "being_revived": being_revived, "suppression": suppression, "blind_ticks": blind_ticks, "bandage_count": bandage_count, "bleed_halted": bleed_halted, "repair_heat": repair_heat, "repair_cooldown": repair_cooldown, "stamina": stamina, "vel_y": vel_y, "grounded": grounded, "vaulting": vaulting, "vault_tick": vault_tick, "regen_cooldown": regen_cooldown, "sprint_locked": sprint_locked, "input_buf_depth": input_buf_depth, "bleeding": bleeding, "bandage_progress": bandage_progress, "reserve": reserve, "stim_charges": stim_charges, "stim_ticks": stim_ticks, "mounted_nest": mounted_nest, "mg_heat": mg_heat, "mg_ammo": mg_ammo, "mg_overheated": mg_overheated, "shield_hp_frac": shield_hp_frac}
 
 
 static func encode_roster(rows: Array) -> PackedByteArray:
