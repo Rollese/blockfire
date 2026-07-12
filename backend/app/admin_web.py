@@ -32,6 +32,7 @@ def register_admin_web_routes(app: FastAPI) -> None:
     from app.anomaly import (  # local import avoids import cycle
         detect_anomalies, flag_summary, list_flags, set_flag_status,
     )
+    from app.rating_read import leaderboard, rating_summary
     from app.steam_openid import current_steam_id
 
     templates = Jinja2Templates(directory=str(_HERE / "templates"))
@@ -142,3 +143,18 @@ def register_admin_web_routes(app: FastAPI) -> None:
         async with sm() as session:
             await detect_anomalies(session, request.app.state.settings)
         return RedirectResponse("/admin/anomalies", status_code=303)
+
+    @app.get("/admin/ratings", dependencies=[Depends(require_admin)])
+    async def admin_ratings_page(
+        request: Request, limit: int = 100, offset: int = 0,
+    ):
+        sm = request.app.state.sessionmaker
+        async with sm() as session:
+            players = await leaderboard(session, limit=limit, offset=offset)
+            summary = await rating_summary(session)
+        return templates.TemplateResponse(
+            request, "admin_ratings.html",
+            {"players": players, "summary": summary,
+             "filters": {"limit": limit, "offset": offset},
+             "current_steam_id": current_steam_id(request)},
+        )

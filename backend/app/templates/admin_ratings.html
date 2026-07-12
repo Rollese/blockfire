@@ -1,0 +1,39 @@
+{% extends "admin_base.html" %}
+{% block title %}Admin Ratings — Blockfire Stats{% endblock %}
+{% block admin_content %}
+<h1>Rating Leaderboard</h1>
+
+<section class="stat-grid">
+  <div class="stat"><span class="label">Rated players</span><span class="value">{{ summary.total_rated_players }}</span></div>
+  <div class="stat"><span class="label">Rating applications</span><span class="value">{{ summary.total_rating_applications }}</span></div>
+  {% for tier, count in summary.tiers.items() %}
+  <div class="stat"><span class="label">{{ tier }}</span><span class="value">{{ count }}</span></div>
+  {% endfor %}
+</section>
+
+{% if players %}
+<table class="stats">
+  <thead>
+    <tr>
+      <th>Rank</th><th>Player</th><th>Tier</th><th>Ordinal</th>
+      <th>&mu;</th><th>&sigma;</th><th>Matches rated</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for p in players %}
+    <tr>
+      <td>{{ loop.index + filters.offset }}</td>
+      <td><a href="/players/{{ p.player_key }}">{{ p.player_key }}</a></td>
+      <td>{{ p.tier }}</td>
+      <td>{{ "%.2f"|format(p.ordinal) }}</td>
+      <td>{{ "%.2f"|format(p.mu) }}</td>
+      <td>{{ "%.2f"|format(p.sigma) }}</td>
+      <td>{{ p.matches_rated }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="empty">No rated players yet.</p>
+{% endif %}
+{% endblock %}

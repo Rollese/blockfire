@@ -5,7 +5,7 @@ from sqlalchemy import func, select
 from app.config import Settings
 from app.models import (
     AnomalyFlag, Event, Match, MatchPlayer, MatchPlayerWeapon, Player,
-    PlayerProfile,
+    PlayerProfile, PlayerRating,
 )
 from worker import run
 
@@ -49,6 +49,25 @@ async def _seed_cheater(sm):
         s.add(MatchPlayerWeapon(match_id="mc", player_key="name:CHEAT",
                                 weapon_id="ar", shots=300, hits=285, kills=200,
                                 headshots=270))
+        await s.commit()
+
+
+async def _seed_trusted_two_team_match(sm):
+    """Seed a trusted+complete two-team match so update_ratings has real work
+    to do (mirrors test_rating_apply.py's _insert_match)."""
+    async with sm() as s:
+        s.add(Match(match_id="mr1", server_id="s1", map="dust", mode="conquest",
+                    report_version=1, complete=True, trusted=True, winner="team_a",
+                    ingested_at=NOW, started_at=NOW, ended_at=NOW))
+        s.add(Player(player_key="name:RA", steam_id=None, name="RA",
+                     first_seen=NOW, last_seen=NOW))
+        s.add(Player(player_key="name:RB", steam_id=None, name="RB",
+                     first_seen=NOW, last_seen=NOW))
+        await s.flush()
+        s.add(MatchPlayer(match_id="mr1", player_key="name:RA", team="team_a",
+                          kills=10, deaths=4, result="win"))
+        s.add(MatchPlayer(match_id="mr1", player_key="name:RB", team="team_b",
+                          kills=4, deaths=10, result="loss"))
         await s.commit()
 
 
@@ -129,3 +148,19 @@ async def test_run_cycle_detection_isolation(app_and_sessionmaker, monkeypatch):
     assert result["profiles"] >= 1   # rollup unaffected
     assert result["enriched"] == 0
     assert result["anomalies"] == 0  # detection raised -> 0
+
+
+async def test_run_cycle_reports_rated_count(app_and_sessionmaker):
+    _, sm = app_and_sessionmaker
+    await _seed_trusted_two_team_match(sm)
+
+    result = await run.run_cycle(sm, _settings())
+
+    assert "rated" in result
+    assert result["rated"] >= 1
+
+    async with sm() as s:
+        m = await s.get(Match, "mr1")
+        assert m.rated is True
+        ratings = (await s.execute(select(PlayerRating))).scalars().all()
+        assert {r.player_key for r in ratings} == {"name:RA", "name:RB"}

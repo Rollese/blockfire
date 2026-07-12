@@ -32,3 +32,9 @@ async def init_db(engine: AsyncEngine) -> None:
             "ALTER TABLE matches ADD COLUMN IF NOT EXISTS "
             "trusted BOOLEAN NOT NULL DEFAULT FALSE"
         )
+        # M9-P2: same idempotent guard for the `rated` column added alongside
+        # the new player_ratings table.
+        await conn.exec_driver_sql(
+            "ALTER TABLE matches ADD COLUMN IF NOT EXISTS "
+            "rated BOOLEAN NOT NULL DEFAULT FALSE"
+        )
