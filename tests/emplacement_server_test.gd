@@ -33,6 +33,7 @@ func test_deploy_facing_from_dir() -> void:
 	h.add_support(Vector3(0, 0, 0))
 	h.deploy(Vector3(0, 0, 5), Vector3(1, 0, 0))   # facing +X -> yaw = atan2(1,0) = PI/2
 	assert_almost_eq(h.first_nest().facing_yaw, PI / 2.0, 0.01)
+	assert_eq(h._stats.nests_deployed, 1, "telemetry: successful deploy counted")
 
 func test_mount_binds_and_clamps_aim() -> void:
 	var h := EmplacementHarness.new()
@@ -43,6 +44,7 @@ func test_mount_binds_and_clamps_aim() -> void:
 	h.mount(nid)
 	assert_eq(h.pawn().mounted_nest, nid)
 	assert_eq(h.first_nest().occupant, h.pawn_id())
+	assert_eq(h._stats.nests_manned, 1, "telemetry: successful mount counted")
 	# aim 80 deg right -> turret clamps to +45 after a slave tick
 	h.set_pawn_yaw(deg_to_rad(80)); h.tick()
 	assert_almost_eq(h.first_nest().turret_yaw, deg_to_rad(45), 0.01)

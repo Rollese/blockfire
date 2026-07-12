@@ -42,6 +42,7 @@ func deploy(owner_id: int, p: Pawn, pos: Vector3, dir: Vector3) -> void:
 	e.owner_id = owner_id
 	nests[e.id] = e
 	_next_index += 1
+	srv._stats.nests_deployed += 1
 
 func get_nest(nest_id: int) -> Emplacement:
 	return nests.get(nest_id)
@@ -65,6 +66,7 @@ func mount(id: int, p: Pawn, nest_id: int) -> void:
 	if not Emplacement.can_mount(e, p, p.pos.distance_to(e.seat_world()), mr): return
 	e.occupant = id
 	p.mounted_nest = nest_id
+	srv._stats.nests_manned += 1
 
 func dismount(id: int, p: Pawn) -> void:
 	if p == null or p.mounted_nest == 0: return
@@ -161,6 +163,7 @@ func damage(nest_id: int, amount: int, attacker_id: int) -> void:
 	if e == null or not e.alive: return
 	var occ := e.occupant
 	e.hit(amount, srv._sim.tick)   # floors hp; on death sets alive=false, occupant=0
+	if not e.alive: srv._stats.nests_destroyed += 1
 	if not e.alive and occ != 0:
 		var p: Pawn = srv._sim.world.get_pawn(occ)
 		if p != null:

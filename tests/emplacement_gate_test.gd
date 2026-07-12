@@ -16,6 +16,7 @@ func test_explosion_destroys_nest_and_ejects_gunner() -> void:
 	assert_false(h.nest(nid).alive, "nest destroyed")
 	assert_eq(h.pawn().mounted_nest, 0, "gunner ejected on destruction")
 	assert_true(h.pawn().health < 100 or h.pawn().is_downed, "gunner punished by the blast")
+	assert_eq(h._stats.nests_destroyed, 1, "telemetry: nest destruction counted")
 
 func test_bullets_chip_nest_hp() -> void:
 	var h := EmplacementHarness.new()

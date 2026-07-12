@@ -11,6 +11,7 @@ var emp: ServerEmplacement
 var _fire                          # StubFire — deterministic stand-in for ServerFire.emplacement_hitscan
 var dmg_log: Array = []            # records _apply_pawn_damage calls (for Task 9)
 var _support_id := 7               # the manning Support player's pawn id
+var _stats := ServerStats.new()    # M19 P4: real counter wall so nest telemetry increments are testable
 
 func _init() -> void:
 	_sim = SimLoop.new()
