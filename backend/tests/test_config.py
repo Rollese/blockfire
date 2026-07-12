@@ -145,3 +145,24 @@ def test_signing_defaults():
     assert s.require_signed_ingest is False
     assert s.ingest_max_skew_s == 300
     assert s.signing_key_map() == {}
+
+
+def test_rating_defaults():
+    from app.config import Settings
+    s = Settings()
+    assert s.rating_require_trusted is True
+    assert s.rating_mu_init == 25.0
+    assert abs(s.rating_sigma_init - 25.0 / 3.0) < 1e-9
+    assert abs(s.rating_beta - 25.0 / 6.0) < 1e-9
+    assert s.rating_ordinal_z == 3.0
+    assert s.rating_w_capture == 3.0
+    bps = s.rating_tier_breakpoints()
+    assert bps[0][1] == "Bronze"
+    assert all(bps[i][0] <= bps[i + 1][0] for i in range(len(bps) - 1))
+
+
+def test_rating_tier_breakpoints_parse_override(monkeypatch):
+    from app.config import Settings
+    s = Settings(rating_tier_thresholds="0:Wood,50:Iron")
+    bps = s.rating_tier_breakpoints()
+    assert bps == [(0.0, "Wood"), (50.0, "Iron")]

@@ -41,6 +41,34 @@ class Settings(BaseSettings):
     anomaly_min_population: int = 5
     anomaly_mad_k: float = 3.5
 
+    # --- M9-P2 rating knobs (ADR-0012) ---
+    rating_require_trusted: bool = True
+    rating_mu_init: float = 25.0
+    rating_sigma_init: float = 25.0 / 3.0
+    rating_beta: float = 25.0 / 6.0
+    rating_tau: float = 25.0 / 300.0
+    rating_ordinal_z: float = 3.0
+    rating_draw_margin: float = 0.1
+    rating_perf_floor: float = 1.0
+    rating_w_kill: float = 1.0
+    rating_w_assist: float = 0.5
+    rating_w_capture: float = 3.0
+    rating_w_neutralize: float = 2.0
+    rating_w_revive: float = 1.5
+    rating_w_death: float = 0.5
+    rating_tier_thresholds: str = "0:Bronze,10:Silver,17:Gold,24:Platinum,31:Diamond"
+
+    def rating_tier_breakpoints(self) -> list[tuple[float, str]]:
+        out: list[tuple[float, str]] = []
+        for part in self.rating_tier_thresholds.split(","):
+            part = part.strip()
+            if not part:
+                continue
+            lo, _, name = part.partition(":")
+            out.append((float(lo), name.strip()))
+        out.sort(key=lambda t: t[0])
+        return out
+
     def admin_steam_id_set(self) -> frozenset[int]:
         tokens = self.admin_steam_ids.replace(",", " ").split()
         # SteamID64s are always positive integers, so isdigit() is a clean,
