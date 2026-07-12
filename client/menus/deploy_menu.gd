@@ -8,6 +8,9 @@ signal deploy_requested(spawn_ref: int)
 ## Emitted when the player clicks a squad button (0-based squad_id).
 ## client_main's _on_squad_selected sends Protocol.encode_set_squad(squad_id).
 signal squad_selected(squad_id: int)
+## M19 P3: re-emitted from the embedded ClassSelectPanel whenever the player edits their loadout.
+## client_main's _on_loadout_changed adopts the (already-sanitized) cfg and sends SET_LOADOUT.
+signal loadout_changed(cfg: Dictionary)
 
 ## The refs currently shown, in order. Populated by populate(). Used by tests.
 var refs: Array = []
@@ -16,6 +19,8 @@ var _vbox: VBoxContainer       # holds the spawn buttons
 var _cooldown_label: Label     # "Respawn in N…" — shown during the post-death respawn cooldown
 var _squad_hbox: HBoxContainer # holds the squad selection buttons
 var _await_label: Label
+var _class_select: ClassSelectPanel  # M19 P3: full-screen loadout editor, toggled by _loadout_btn
+var _loadout_btn: Button             # reveals/hides the loadout editor overlay
 
 ## Number of squad slots to show in the squad selection row.
 ## Matches the server's dynamic squad model — show enough slots for a typical game.
@@ -49,6 +54,14 @@ func _build_layout() -> void:
 	title.text = "DEPLOY — choose a spawn"
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	panel.add_child(title)
+	# M19 P3: a "Loadout" toggle that reveals the class-select editor overlay. Resolves the old
+	# TODO below (the class-select screen now exists). The deploy/spawn buttons keep their behavior;
+	# deploying uses whatever loadout the editor last emitted (client_main tracks it via _loadout).
+	_loadout_btn = Button.new()
+	_loadout_btn.text = "Loadout…"
+	_loadout_btn.custom_minimum_size = Vector2(260, 40)
+	_loadout_btn.pressed.connect(_on_loadout_btn_pressed)
+	panel.add_child(_loadout_btn)
 	_await_label = Label.new()
 	_await_label.text = "Awaiting deploy…"
 	_await_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -63,8 +76,17 @@ func _build_layout() -> void:
 	panel.add_child(_vbox)
 	# D3: squad selection is NOT on the deploy/spawn screen — you rarely change squads on death, and it
 	# cluttered the spawn list. Squad changes live on the in-game squad menu (the "squad_menu" key,
-	# set_squad_menu_open) instead; move to a class-select screen when that exists. The squad_selected
-	# signal + _on_squad_pressed handler remain for that future host.
+	# set_squad_menu_open) instead. (Loadout, by contrast, DOES live here now — see _loadout_btn.) The
+	# squad_selected signal + _on_squad_pressed handler remain for that future host.
+
+	# M19 P3: the class-select / loadout editor, a full-screen overlay hidden until _loadout_btn is
+	# toggled on. It emits an already-sanitized cfg; we re-emit it up as loadout_changed so client_main
+	# can push SET_LOADOUT. client_main seeds it via setup_loadout() on every (re)populate.
+	_class_select = ClassSelectPanel.new()
+	_class_select.visible = false
+	add_child(_class_select)
+	_class_select.loadout_changed.connect(_on_class_select_changed)
+	_class_select.closed.connect(_on_class_select_closed)
 
 ## Populate the spawn list. Clears any previous buttons.
 ## squadmates: Array of {pos, team, alive, downed, ...} — may include an optional "name" key
@@ -78,6 +100,11 @@ func populate(team: int, map: MapDef, conquest: ConquestState, squadmates: Array
 	# Ensure the layout exists even when called before _ready (e.g. DeployMenu.new() in tests).
 	if _vbox == null:
 		_build_layout()
+	# M19 P3: the deploy menu is (re)showing — always start with the loadout editor closed. Without
+	# this, a sibling overlay (e.g. Settings) that hid the deploy menu while the editor was open would
+	# leave the editor stuck visible over the spawn list when the deploy menu reappears.
+	if _class_select != null:
+		_class_select.visible = false
 	# Fresh spawn list -> not awaiting. Without this, a populate() after death (the alive->dead
 	# repopulate) leaves the post-click "Awaiting deploy…" state up with the buttons hidden, and
 	# the player is stuck on a buttonless deploy screen.
@@ -152,3 +179,25 @@ func _on_deploy_pressed(ref: int) -> void:
 
 func _on_squad_pressed(squad_id: int) -> void:
 	squad_selected.emit(squad_id)
+
+# ---- M19 P3 loadout editor --------------------------------------------------
+## Seed the embedded class-select panel with the client's current loadout + attachment catalog.
+## client_main calls this whenever it (re)populates the deploy screen, so the editor is pre-filled
+## with what's actually equipped. setup() is silent (no loadout_changed), so no feedback loop.
+func setup_loadout(cfg: Dictionary, attach) -> void:
+	if _class_select == null:
+		_build_layout()
+	if _class_select != null:
+		_class_select.setup(cfg, attach)
+
+func _on_loadout_btn_pressed() -> void:
+	if _class_select != null:
+		_class_select.visible = true
+
+func _on_class_select_closed() -> void:
+	if _class_select != null:
+		_class_select.visible = false
+
+## Re-emit the editor's sanitized cfg up to client_main.
+func _on_class_select_changed(cfg: Dictionary) -> void:
+	loadout_changed.emit(cfg)

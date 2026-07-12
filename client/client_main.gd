@@ -1528,6 +1528,7 @@ func _handle_snapshot(bytes: PackedByteArray) -> void:
 					_build_squadmate_candidates(ss.team, my_squad),
 					_build_vehicle_candidates(ss.team),
 					_build_fob_candidates())
+				_deploy_menu.setup_loadout(_loadout.duplicate(true), _attachments)  # M19 P3: pre-fill the editor
 				_deploy_menu_populated = true
 			_deploy_menu.visible = false
 			_awaiting_deploy = false   # deploy confirmed — clear awaiting state
@@ -1550,6 +1551,7 @@ func _handle_snapshot(bytes: PackedByteArray) -> void:
 					_build_squadmate_candidates(ss.team, my_squad),
 					_build_vehicle_candidates(ss.team),
 					_build_fob_candidates())
+				_deploy_menu.setup_loadout(_loadout.duplicate(true), _attachments)  # M19 P3: pre-fill the editor
 				_deploy_menu_populated = true
 			_deploy_menu.visible = true
 			if not _awaiting_deploy:
@@ -1694,6 +1696,9 @@ func _build_scene() -> void:
 	# C3 squad hook: Task 20 may add squad_selected(squad_id) to DeployMenu; wire it here.
 	if _deploy_menu.has_signal("squad_selected"):
 		_deploy_menu.squad_selected.connect(_on_squad_selected)
+	# M19 P3: the deploy screen hosts the class-select / loadout editor; adopt its edits + push them.
+	if _deploy_menu.has_signal("loadout_changed"):
+		_deploy_menu.loadout_changed.connect(_on_loadout_changed)
 
 	# SettingsMenu
 	_settings_menu = SettingsMenu.new()
@@ -2153,6 +2158,13 @@ func _build_fob_candidates() -> Array:
 	return out
 
 ## Called when the deploy menu emits squad_selected(squad_id) (Task 20 hook).
+## M19 P3: the deploy screen's class-select panel emitted an edited loadout. Adopt a private deep
+## copy (the panel emits its own deep copy, but duplicate again so nothing aliases our _loadout) and
+## push it. _send_loadout() re-sanitizes against our attachment catalog before sending SET_LOADOUT.
+func _on_loadout_changed(cfg: Dictionary) -> void:
+	_loadout = cfg.duplicate(true)
+	_send_loadout()
+
 func _on_squad_selected(squad_id: int) -> void:
 	if _peer != null:
 		_net.send_to(_peer, NetHost.CHANNEL_CONTROL,
