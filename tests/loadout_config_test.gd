@@ -177,8 +177,10 @@ func test_sanitize_rpg_never_a_primary() -> void:
 	assert_ne(int(out["primary"]), Weapon.RPG)
 
 func test_sanitize_unbuilt_gadget_falls_to_default() -> void:
-	var out := Loadout.sanitize({"class": Loadout.SUPPORT, "gadget": Loadout.GADGET_RIOT_SHIELD}, _attach())
-	assert_eq(int(out["gadget"]), Loadout.GADGET_AMMO)
+	# M19-P5 Task 5 implemented RIOT_SHIELD, so GRAPPLE (Assault's still-unbuilt option) is now the
+	# stand-in for "offered but not yet built."
+	var out := Loadout.sanitize({"class": Loadout.ASSAULT, "gadget": Loadout.GADGET_GRAPPLE}, _attach())
+	assert_eq(int(out["gadget"]), Loadout.GADGET_C4)
 
 func test_sanitize_out_of_set_gadget_falls_to_default() -> void:
 	var out := Loadout.sanitize({"class": Loadout.SUPPORT, "gadget": Loadout.GADGET_HEAL}, _attach())
