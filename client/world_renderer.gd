@@ -3439,7 +3439,8 @@ func _make_ladder(ladder: Dictionary) -> Node3D:
 # =============================================================================
 #  M19 grapple: deployed-rope climb markers — identity-keyed by ladder id, self-heals off the
 #  authoritative DEPLOYED_LADDER_LIST (ropes missing from the list are freed). View-only (AGENTS.md §7).
-#  Reuses _make_ladder for the visible climb line; the physics ROPE visual hangs off these in Task 10.
+#  DEPLOYED_LADDER_LIST is exclusively grapple-origin, so each entry renders as a client-only verlet
+#  GrappleRope (G1) — NOT a ladder mesh. Map roof ladders keep their _make_ladder mesh (separate path).
 # =============================================================================
 func set_deployed_ladders(list: Array, my_id: int = 0) -> void:
 	# my_id accepted for signature parity (a future pass could tint the owner's own rope); unused today.
@@ -3463,14 +3464,14 @@ func set_deployed_ladders(list: Array, my_id: int = 0) -> void:
 		if _deployed_ladder_nodes.has(lid):
 			continue
 		var x := float(l["x"]); var z := float(l["z"])
-		var node := _make_ladder({"bottom": Vector3(x, float(l["bottom_y"]), z),
-			"top": Vector3(x, float(l["top_y"]), z), "yaw": 0.0})
-		MeshMerge.merge_by_material(node)   # collapse the rail/rung instances to one draw call, like map ladders
+		# G1: a deployed grapple is a hanging ROPE, not a ladder. Host node carries no ladder mesh —
+		# just an empty anchor Node3D so the id can be tracked and freed off DEPLOYED_LADDER_LIST.
+		var node := Node3D.new()
+		node.position = Vector3(x, float(l["bottom_y"]), z)
 		add_child(node)
-		# Task 10: GrappleRope per ladder — cosmetic verlet rope, parented to the ladder's own render
-		# node so it self-heals (freed) alongside it when the ladder id leaves DEPLOYED_LADDER_LIST.
-		# Added AFTER merge_by_material: that call queue_frees every material_override'd MeshInstance3D
-		# under `node` to fold it into a merged instance, which would otherwise eat the rope's own mesh.
+		# GrappleRope per rope — cosmetic verlet line, parented to the marker node so it self-heals
+		# (freed) alongside it when the rope's id leaves DEPLOYED_LADDER_LIST. setup() takes WORLD
+		# endpoints (the rope draws in local space via to_local), so the node's own pose is irrelevant.
 		var rope := GrappleRope.new()
 		node.add_child(rope)
 		rope.setup(Vector3(x, float(l["top_y"]), z), Vector3(x, float(l["bottom_y"]), z))
