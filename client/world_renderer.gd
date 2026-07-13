@@ -515,6 +515,40 @@ func _grass_clump_mesh() -> ArrayMesh:
 	mesh.surface_set_material(0, gm)
 	return mesh
 
+## Draw a whole scenery kind (trees, rocks) as a HANDFUL of MultiMesh instances instead of one node per
+## placement. `builder` maps a seed -> a freshly built kit node; `n` is the prototype-pool size. For each
+## non-empty (prototype × material) bucket we create ONE MultiMeshInstance3D of that prototype's baked mesh,
+## instanced at every assigned placement's transform (world pos × yaw × per-instance scale). See TreePool.
+## Preserves visuals: the bucket's material IS the kit's shared cached material (NEAREST alpha-scissor
+## fronds / bark / triplanar stone), applied via material_override; trees/rocks cast shadows (default ON).
+func _build_scenery_batch(placements: Array, n: int, builder: Callable, half: float) -> void:
+	if placements.is_empty():
+		return
+	var pool := TreePool.build(n, builder)
+	var buckets := TreePool.assign(placements, n)
+	# Map-spanning AABB so the MultiMesh's auto-bounds can't collapse to the origin and frustum-cull the
+	# whole field when the camera is far from (0,0). And NEVER a visibility_range on a map-wide MultiMesh
+	# node: it measures from the NODE origin, not per-instance, so it would cull the ENTIRE forest at once
+	# (same node-origin gotcha documented on the grass MultiMesh above).
+	var aabb := AABB(Vector3(-half, -60.0, -half), Vector3(half * 2.0, 120.0, half * 2.0))
+	for idx in buckets:
+		var xforms: Array = buckets[idx]
+		if xforms.is_empty():
+			continue
+		var meshes: Dictionary = pool[idx]["meshes"]
+		for mat in meshes:
+			var mm := MultiMesh.new()
+			mm.transform_format = MultiMesh.TRANSFORM_3D
+			mm.mesh = meshes[mat]
+			mm.instance_count = xforms.size()
+			for i in xforms.size():
+				mm.set_instance_transform(i, xforms[i])
+			var mmi := MultiMeshInstance3D.new()
+			mmi.multimesh = mm
+			mmi.material_override = mat as Material   # the baked mesh carries no surface material
+			mmi.custom_aabb = aabb
+			add_child(mmi)
+
 ## One chunk mesh: two triangles per grid quad over [x0,x1)×[z0,z1], world-space vertices at sample
 ## heights. Each vertex carries a planar UV (world XZ mapped 0..1 across the map, exactly like the flat
 ## PlaneMesh's auto-UVs) so the shared two-tone ground texture tiles — WITHOUT UVs the material samples
@@ -653,24 +687,40 @@ func setup(map: MapDef, camera: Camera3D) -> void:
 	# Scenery — procedural trees/rocks (TreeKit/RockKit) + imported GLB props, placed from map JSON
 	# (cosmetic, no collision). Trees/rocks are seeded per-placement (stable id+position hash) so each
 	# is deterministic but varied across the map.
+	#
+	# Draw-call optimiser: a TreeKit tree is ~50 discrete frond/limb MeshInstances; MeshMerge collapses each
+	# to ~5 draws, but 107 trees are still ~535 SEPARATE, un-cross-batched draws (brutal on an iGPU) and the
+	# 55 rocks add 55 more. Instead we batch them: gather tree/rock PLACEMENTS here, then draw the whole
+	# forest as a handful of MultiMesh instances over a small POOL of prototype shapes (see TreePool + the
+	# _build_scenery_batch calls after this loop). GLB props keep per-surface materials and stay per-node.
+	var tree_placements: Array = []
+	var rock_placements: Array = []
 	for sc: Dictionary in map.scenery:
 		var sc_pos: Vector3 = sc["pos"] as Vector3
-		var sc_seed := hash(String(sc["id"]) + str(sc_pos))
-		var node := SceneryKit.build(String(sc["id"]), map.scenery_palette, String(sc.get("palette", "")), sc_seed)
+		var sid := String(sc["id"])
+		var sc_seed := hash(sid + str(sc_pos))
+		var world_pos := Vector3(sc_pos.x, _terrain_y(sc_pos.x, sc_pos.z) + sc_pos.y, sc_pos.z)
+		var sc_yaw := float(sc.get("yaw", 0.0))
+		var sc_scale := float(sc.get("scale", 1.0))
+		if sid.begins_with("tree_"):
+			tree_placements.append({"pos": world_pos, "yaw": sc_yaw, "scale": sc_scale, "seed": sc_seed})
+			continue
+		if sid.begins_with("rock_"):
+			rock_placements.append({"pos": world_pos, "yaw": sc_yaw, "scale": sc_scale, "seed": sc_seed})
+			continue
+		var node := SceneryKit.build(sid, map.scenery_palette, String(sc.get("palette", "")), sc_seed)
 		if node == null:
 			continue
-		# Draw-call optimiser: a TreeKit tree is ~50 discrete frond/limb MeshInstances (≈5.8k draw calls
-		# for a town's worth of trees — brutal on an iGPU). Collapse each tree into one merged instance per
-		# material (byte-identical geometry, same cutout/NEAREST materials). Rocks are already one mesh;
-		# GLB props keep per-surface materials, so MeshMerge leaves both untouched.
-		if String(sc["id"]).begins_with("tree_"):
-			MeshMerge.merge_by_material(node)
-		node.position = Vector3(sc_pos.x, _terrain_y(sc_pos.x, sc_pos.z) + sc_pos.y, sc_pos.z)
-		node.rotation.y = float(sc.get("yaw", 0.0))
-		var sc_scale := float(sc.get("scale", 1.0))
+		node.position = world_pos
+		node.rotation.y = sc_yaw
 		if absf(sc_scale - 1.0) > 0.001:
 			node.scale = Vector3(sc_scale, sc_scale, sc_scale)
 		add_child(node)
+
+	# Batch trees + rocks into MultiMesh instances over a prototype pool (see TreePool). ~535 tree draws +
+	# ~55 rock draws collapse to ~N*(materials-per-tree) + ~N draws. Trees cast shadows (default ON).
+	_build_scenery_batch(tree_placements, 12, func(s: int) -> Node3D: return TreeKit.build(s), map.world_half)
+	_build_scenery_batch(rock_placements, 8, func(s: int) -> Node3D: return RockKit.build(s), map.world_half)
 
 	# Capture point markers — just a flat ground RING at the true capture radius (BattleBit zone read).
 	# The towering beacon columns were replaced by the screen-space capture-point markers (letter +
