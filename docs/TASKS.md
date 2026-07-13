@@ -226,6 +226,21 @@ Owner ran a full desktop playtest of the accumulated M16/M17/M19 + graphics/FSR 
 | G3 | LMG nest: no forced prone; own gun hidden by turret; bots sky-fire | **done ✅** | `0dd796a`/`79ca2dc`/`3bc75ba` — (a) force PRONE while manning (server + client prediction); (b) hide turret barrel for the local gunner; (c) bots hold fire without an in-arc/in-range/in-pitch-band target (no more 30° sky-fire). |
 | M3 | Collapse rubble had NO collision (walk-through, prone-hide) | **done ✅** | `b88d187` — root cause: `brubble` had `"surface": true` → resolver's `is_flat_surface` short-circuit treated it as a walk-on floor. Removed it; rubble now blocks all stances yet stays vaultable/shoot-over low cover. |
 
+### Round 2 — 2026-07-13 (owner LAPTOP re-playtest of the round-1 build)
+
+Confirmed OK by owner: A4 (fixed size), M3 (rubble blocks), Z1 exterior z-fighting gone. Remaining feedback + two new bugs fixed below. Landed on branch `playtest-fixes-round2` (based on `origin/master`), subagent-driven TDD + two-stage review per task, suite **1859/0**. Each of the three "investigate" items got a read-only root-cause pass first (systematic-debugging).
+
+| Code | Item | Status | Commit / root cause |
+|---|---|---|---|
+| A4 | Loadout window sometimes closes itself | **done ✅** | `a8fa49f` — `DeployMenu.populate()` force-hid the loadout editor, and populate re-runs on every FOB_LIST content change (teammate FOB churn) → yanked an open editor shut. Decoupled spawn-list rebuild from editor-close (`close_loadout_editor()` only on alive→dead). |
+| M1 | Bandage HUD was green "BANDAGES" text | **done ✅** | `4707d8e` — replaced with a procedurally-drawn bandage glyph + WHITE count number (matches HUD style). |
+| G1 | Grapple rope ~1px thin | **done ✅** | `3f7081b` — rope was a `PRIMITIVE_LINE_STRIP` (1px GPU line); now a shaded low-poly tube (radius 0.045, 6 sides, real normals). |
+| G2 | Shield covered top of view; no see-through | **done ✅** | `40d8fe1` — viewmodel shorter (0.60→0.42) + lowered so sky shows above; solid plate replaced by an opaque frame around a genuinely transparent center window (tactical shield). Cosmetic "riot shield" wording left for a later graphics-polish pass. |
+| G3 | LMG nest looked bad (color/texture/height/view/turret) | **done ✅** | `0150467` — full art redesign: curved SANDBAG parapet (sandy STRUCT_SAND + NEAREST `_sandbag` texture), tall enough to cover the gunner (top 1.92 m), a firing EMBRASURE slit at the prone gunner's real eye (local (0,0.45,−0.6)) open across the ±45° yaw arc, gun turret + tripod removed (gunner uses own weapon). Presentation-only; `set_emplacements` Barrel-guard null-safe; HP-tint darkens the sandbag meshes. Nest is no longer team-colored. |
+| Z1 | Round-1 inset opened gaps between roof slabs | **done ✅** | `b309bf2` (+ `bae70e4` comment) — round-1 shrank each slab (`CELL−0.02`) → 0.02 m inter-slab gaps. Now OVERSIZED (`CELL+0.02`, `ROOF_FLOOR_OVERLAP`): neighbors overlap (no gap, coplanar tops invisible via world-triplanar), perimeter edge sits 0.01 m past the wall exterior (non-coplanar → no z-fight). Wall exterior lands exactly on the cell boundary, so oversize is the only zero-gap option. Mesh-only. |
+| Bug1 | Invisible walls block shots inside buildings | **done ✅** | `ee41528` + `0534638` — root cause (empirically verified): `bfloor`/`surface` pieces collided against bullets as a full 2.4 m cube in `structure.gd _ray_piece` but render as a ~0.32 m slab → ~2 m of open air above every floor tile silently ate shots (worst upstairs). Now capped to a thin `FLOOR_COLLISION_THICK=0.35` slab via a shared `_piece_ray_height` helper used by BOTH `_ray_piece` (LOS) and `march_normal` (grenade bounce, so grenades don't fall through decks). Vertical LOS through floors still blocked; `_face_height`/carving/vault/movement untouched. |
+| Bug2 | Tracers shoot through all walls | **done ✅** | `503a313` + `2119829` — tracer was a fixed 80 m box never clipped to impact. Now clipped to the first structure/terrain hit via the synced client `struct_store.march`. Review caught a `Basis.scaled()` (global-frame) bug that only clipped world-Z shots → fixed to local `* Basis.from_scale()` so east-west shots clip too. Client-only, no wire change. |
+
 **Deferred — post-alpha client polish / later milestones (owner-directed):**
 | Code | Item | Why deferred |
 |---|---|---|
