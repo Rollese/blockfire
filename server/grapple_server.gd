@@ -32,6 +32,10 @@ func deploy(owner_id: int, p: Pawn, pos: Vector3, dir: Vector3) -> void:
 	if int(c.get("grapple_charges", 0)) <= 0: return
 	if p.is_downed or p.climbing or p.vaulting or p.mounted_nest != 0 or p.in_vehicle != 0: return
 	if srv._store == null: return
+	# Zero-dir fallback = pawn forward. NON-negated on purpose: the server pawn's yaw is camera_yaw+PI
+	# (client sends yaw+PI so Combat._forward(p.yaw) matches the crosshair), and the client's gadget dir
+	# `-Vector3(sin(camera_yaw),0,cos(camera_yaw))` reduces to +Vector3(sin(p.yaw),0,cos(p.yaw)) in server
+	# terms. So this matches a real client dir, the bullet-fire convention, and siblings _place_mine/_place_breach.
 	var d := dir.normalized() if dir.length() > 0.001 else Vector3(sin(p.yaw), 0.0, cos(p.yaw))
 	var m = srv._store.march(p.eye_position(), d, Grapple.MAX_RANGE)
 	if not bool(m["hit"]): return
