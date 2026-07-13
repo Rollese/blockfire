@@ -168,6 +168,57 @@ def gen_surface_map(res=1024):
     rgb[..., 1] = np.where(sidewalk, 255, 0)
     return rgb, res
 
+# ---------------------------------------------------------------- buildings per flag
+# B Checkpoint — most-developed border post (west of the crossing)
+place("guardhouse", -120, -60)
+place("guardhouse", -120, -20)
+place("barracks",   -150, -55)
+place("shed",       -150, -20)
+# A Antenna — guardhouse at the mast base (tower/ladders added in Task 6 + Phase 2)
+place("guardhouse", 158, -92)
+place("bunker",     182, -70)
+# C Forest — NO emplacement (canon). One portable building near the gate crossing.
+place("shed", 96, 24)
+# D Hilltop — minimal; radio tower is Phase 2. A lone bunker for hard cover.
+place("bunker", -58, 62)
+# E Gas Station — village + fuel
+place("gas_station",    18, 196)
+place("house",          58, 196)
+place("twostory_house", 58, 224)
+place("cottage",        18, 236)
+place("silo",           -6, 208)          # fuel tank (approx water tower until Phase 2)
+# US deploy (north) — staging
+place("shed", -60, -390)
+place("shed", -20, -390)
+# RU deploy (SW) — industrial fuel depot
+place("warehouse", -340, 360)
+place("factory",   -300, 360)
+place("silo",      -348, 396)
+
+# ---------------------------------------------------------------- validation
+def aabb(b):
+    minx, maxx, minz, maxz = extent(b["prefab"])
+    cx, _cy, cz = b["origin_cell"]
+    return ((cx + minx) * CELL, (cz + minz) * CELL,
+            (cx + maxx + 1) * CELL, (cz + maxz + 1) * CELL)
+
+def overlap(a, b):
+    return a[0] < b[2] and b[0] < a[2] and a[1] < b[3] and b[1] < a[3]
+
+def validate_and_bake():
+    boxes = [(b["prefab"], aabb(b)) for b in buildings]
+    problems = []
+    for i in range(len(boxes)):
+        for j in range(i + 1, len(boxes)):
+            if overlap(boxes[i][1], boxes[j][1]):
+                problems.append("BUILDING OVERLAP: %s <-> %s" % (boxes[i][0], boxes[j][0]))
+    for b in buildings:
+        x0, z0, x1, z1 = aabb(b)
+        b["footprint"] = {"min_x": x0, "max_x": x1, "min_z": z0, "max_z": z1}
+    for p in problems:
+        print("  ! " + p)
+    return problems
+
 def build_map():
     out = {
         "name": "Caspian Border",
@@ -204,11 +255,13 @@ def main():
     _write_gray_png(os.path.join(hm_dir, "conquest_caspian.png"), n, n, px.tobytes())
     rgb, res = gen_surface_map(1024)
     _write_rgb_png(os.path.join(hm_dir, "conquest_caspian_surface.png"), res, res, rgb.tobytes())
+    problems = validate_and_bake()
     out = build_map()
     out["terrain"]["height_min"] = float(hmin)
     out["terrain"]["height_scale"] = float(hscale)
     write_map(out)
-    print("heightmap %dx%d, height_min=%.1f height_scale=%.1f" % (n, n, hmin, hscale))
+    print("heightmap %dx%d, height_min=%.1f height_scale=%.1f, %d overlap problems"
+          % (n, n, hmin, hscale, len(problems)))
 
 if __name__ == "__main__":
     main()

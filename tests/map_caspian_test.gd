@@ -44,8 +44,21 @@ func test_has_terrain_block() -> void:
 
 func test_terrain_grid_loads() -> void:
 	var m := _map()
-	var grid := Terrain.load_for_map(m, "res://maps", func(_i): return {})
+	var grid := Terrain.load_for_map(m, "res://maps", Callable())
 	assert_true(grid != null, "Terrain builds from the heightmap")
 	var h_hill := Terrain.height_at(grid, -45.0, 74.0)
 	var h_base := Terrain.height_at(grid, -34.0, -375.0)
 	assert_true(h_hill > h_base, "Hilltop rises above the northern base")
+
+func test_has_buildings_at_flags() -> void:
+	var m := _map()
+	assert_true(m.buildings.size() >= 8, "flags/bases have structures")
+	for b in m.buildings:
+		assert_true(b.has("footprint"), "%s has a baked footprint" % b["prefab"])
+
+func test_gas_station_prefab_present() -> void:
+	var m := _map()
+	var names := []
+	for b in m.buildings:
+		names.append(b["prefab"])
+	assert_true(names.has("gas_station"), "Gas Station uses the gas_station prefab")
