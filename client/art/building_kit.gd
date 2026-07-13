@@ -5,6 +5,14 @@ extends Object
 
 const CELL := 2.4  # BuildGrid.CELL_SIZE
 const TEX_WORLD_SCALE := 1.0   # texture tiles per metre (world-triplanar) — shared by walls + hole chunks
+# Roof-floor / deck slabs are full-cell wide, but a `bwall*` directly below is ALSO full-cell wide in X,
+# so a full-CELL slab's outer vertical edges land exactly on the wall's exterior faces -> two coplanar
+# vertical faces z-fight in a dithered band under the roof soffit (owner screenshot). Shrink the slab
+# footprint by this much (total, split evenly both sides) so its edges sit just INSIDE the wall faces.
+# 0.04 -> 0.02 m clear per side: reliably beats depth precision at play distances, while the resulting
+# deck-to-deck seam (0.04 m, mid-floor) stays invisible. MESH-ONLY: collision is server-side
+# (structure.gd floor_height_at, cell-base plane) and never reads this.
+const ROOF_FLOOR_INSET := 0.04
 
 # Per-piece palette — distinct tones so a building reads as walls/floors/columns/trim instead of a
 # uniform grey blob (playtest feedback 2026-06-18). Tints still modulate by damage bucket in _box().
@@ -38,7 +46,7 @@ static func build(piece_id: String, bucket: int, floor_skirt: bool = false, yaw_
 		var is_prop := piece_id.begins_with("prop_")
 		var skirt_col := COL_FLOOR if is_prop else COL_FOUND
 		var skirt_tex := "wood" if is_prop else "concrete"
-		root.add_child(_box("Skirt", Vector3(CELL, 0.32, CELL), Vector3(0, -0.12, 0), 3, skirt_col, skirt_tex))
+		root.add_child(_box("Skirt", Vector3(CELL - ROOF_FLOOR_INSET, 0.32, CELL - ROOF_FLOOR_INSET), Vector3(0, -0.12, 0), 3, skirt_col, skirt_tex))
 	match piece_id:
 		"bcolumn":
 			root.add_child(_box("Col", Vector3(0.5, CELL, 0.5), Vector3(0, CELL * 0.5, 0), bucket, COL_STRUCT))
@@ -47,7 +55,9 @@ static func build(piece_id: String, bucket: int, floor_skirt: bool = false, yaw_
 			# rest on the visible top.
 			# Slab top sits a hair ABOVE the cell base so a roof slab swallows the wall top below it
 			# (was coplanar -> z-fight "walls clipping the roof"). Walkable surface stays ~cell base.
-			root.add_child(_box("Floor", Vector3(CELL, 0.32, CELL), Vector3(0, -0.12, 0), bucket, COL_FLOOR, "wood"))
+			# Footprint is inset by ROOF_FLOOR_INSET so the slab's vertical edges clear the wall exterior
+			# faces below (kills the dithered wall/roof band). Collision unchanged (server-side).
+			root.add_child(_box("Floor", Vector3(CELL - ROOF_FLOOR_INSET, 0.32, CELL - ROOF_FLOOR_INSET), Vector3(0, -0.12, 0), bucket, COL_FLOOR, "wood"))
 		"brailing":
 			root.add_child(_box("Rail", Vector3(CELL, 0.1, 0.1), Vector3(0, CELL * 0.5, 0), bucket, COL_METAL))
 		"prop_table":

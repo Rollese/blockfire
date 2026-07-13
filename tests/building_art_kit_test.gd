@@ -53,6 +53,28 @@ func test_corner_is_l_not_centred_cross() -> void:
 	assert_true("ArmS" in names or "ArmN" in names, "has a span arm")
 	assert_false("CornX" in names, "no centred cross slab")
 
+func test_roof_floor_slab_inset_prevents_wall_zfight() -> void:
+	# Anti-z-fight guard (Z1): the bfloor deck slab must be strictly narrower than a full cell in X and Z
+	# so its outer vertical edges sit INSIDE the full-cell wall exterior faces below it, instead of exactly
+	# coplanar (which dithered a band under the roof soffit). Mesh-only — collision stays server-side.
+	var root: Node3D = autofree(BuildingKit.build("bfloor", 3))
+	var slab := _find_mesh(root, "Floor")
+	assert_true(slab != null, "bfloor builds a Floor slab")
+	var sz := (slab.mesh as BoxMesh).size
+	assert_true(sz.x < BuildingKit.CELL - 0.001, "floor slab X inset below full cell")
+	assert_true(sz.z < BuildingKit.CELL - 0.001, "floor slab Z inset below full cell")
+	# Keep the seam invisible: inset must stay small (no visible gap to adjacent decks).
+	assert_true(sz.x >= BuildingKit.CELL - 0.1, "floor slab inset stays small (no visible floor gap)")
+
+func _find_mesh(root: Node3D, mesh_name: String) -> MeshInstance3D:
+	var stack: Array = [root]
+	while not stack.is_empty():
+		var n: Node = stack.pop_back()
+		if n is MeshInstance3D and n.name == mesh_name:
+			return n
+		for c in n.get_children(): stack.append(c)
+	return null
+
 func _albedo(node: Node3D) -> Color:
 	var stack: Array = [node]
 	while not stack.is_empty():
