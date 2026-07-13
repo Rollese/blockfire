@@ -29,7 +29,7 @@ The Assault **Grappling Hook** gadget deploys a **vertical, climbable rope-ladde
 
 ### Economy & lifetime
 - **`GRAPPLE_CHARGES` = 1** charge — **single-use per life**. Reset to full (1) on spawn; a deploy spends the charge; once spent, the player **cannot deploy again until they restock from support** (ammo box / `ServerSupport.give_ammo`, same seam as reserve ammo & stim charges — refills up to the cap of 1). This makes the grapple a resource the player coordinates with their support class for.
-- **Max one active ladder per owner.** Redeploying (only possible with a charge, i.e. after a restock or a fresh spawn) **moves it** — removes the owner's previous ladder and places the new one.
+- **Max one active ladder per owner — across lives.** "Owner" is the **persistent client/peer id** (the `id` in `_on_peer_disconnected`/`_clients`), *not* the per-life pawn — a player's pawn despawns and respawns on death but their id is stable. So: deploy in life 1 → use → die (rope stays); redeploy in life 2 → the life-1 rope is removed and replaced. **A player only ever has one rope in the world at a time, even when the two deploys happened in different lives.** Redeploy is only possible with a charge (fresh spawn or restock).
 - **No lifespan timer** — a deployed ladder is a **persistent map feature** and survives the owner's death/respawn. It is removed only on the **first** of:
   1. owner redeploys (their previous ladder is replaced),
   2. owner **disconnects** / leaves the server (housekeeping — the record would otherwise be un-ownable),
@@ -85,6 +85,7 @@ The **gameplay climb volume is a straight vertical line**; the **visual rope is 
   - Per-tick: flip each ladder's `cuttable` once `tick - deploy_tick ≥ GRAPPLE_CUT_ARM_TICKS`.
   - `CUT_LADDER` handler → validate (exists, cuttable, requester within `GRAPPLE_CUT_RADIUS`, alive) → remove from `deployed_ladders`.
   - `DEPLOYED_LADDER_LIST` send (incl. `cuttable`); `grapple_charges` into `SELF_STATE`; resupply refill in `give_ammo`; charge reset on spawn.
+  - **Disconnect cleanup (extend `_on_peer_disconnected`, `server_main.gd:2738`)** — drop the leaver's deployed ladders by owner id, exactly like the existing C4/mine cleanup there. **Companion fix (owner-requested):** the same handler must also drop the leaver's **LMG nest / emplacements** (`_emplacements`, keyed by the same owner id) — currently a gap: a disconnecting player's nest lingers for the match while their C4 and mines are already cleaned. Bringing all owner-deployables (ladder, nest, C4, mine) under one consistent disconnect sweep.
 - **Client (`client_main.gd` / `world_renderer.gd` / class-select / HUD)**:
   - Gadget input for the Grapple gadget → emit `GA_GRAPPLE_FIRE` (pos + aim dir), routed off `_loadout["gadget"]` like the other P2/P3 gadgets.
   - Decode `DEPLOYED_LADDER_LIST` → inject volumes into the client's ladder set (for own-climb prediction) + spawn/update/despawn the rope render nodes.
@@ -98,7 +99,8 @@ The **gameplay climb volume is a straight vertical line**; the **visual rope is 
 
 - **Deterministic unit tests** (`tests/*_test.gd`, extend `TestCase`):
   - `grapple_test.gd` — anchor resolution: valid surface within range → correct `{x,z,bottom_y,top_y}`; out-of-range reject; below-min-height reject; downed/vehicle/mounted gate; ground baseline (M15 sub-zero terrain safe). Cut eligibility: `can_cut` false before arm delay / outside radius, true after arm delay within radius.
-  - Server-integration — deploy spends the (single) charge; a second deploy at 0 charges is rejected until restock; resupply refills the charge; spawn resets the charge to full; max-1 evicts the owner's old ladder on redeploy; the ladder **survives the owner's death/respawn**; owner disconnect removes it; anchor-building collapse removes it.
+  - Server-integration — deploy spends the (single) charge; a second deploy at 0 charges is rejected until restock; resupply refills the charge; spawn resets the charge to full; max-1 evicts the owner's old ladder on redeploy **(including a redeploy in a later life — keyed by client id, not pawn)**; the ladder **survives the owner's death/respawn**; owner disconnect removes it; anchor-building collapse removes it.
+  - Disconnect sweep — `_on_peer_disconnected` drops the leaver's deployed ladder **and their LMG nest/emplacement** (the companion fix), alongside the existing C4/mine cleanup.
   - Cut — a `CUT_LADDER` before the arm delay is ignored; after the arm delay from within radius it removes the ladder for everyone; from outside radius it is ignored; the cut does not refund the owner's charge; a pawn climbing the cut ladder is released to gravity/`Fall`.
   - Climb-via-deployed-ladder — a deployed volume is captured and climbed by `Ladder` helpers (owner + a second pawn), confirming "anyone climbs"; **fire input is suppressed while the `climbing` flag is set** (no-fire rule).
   - Wire round-trip — `DEPLOYED_LADDER_LIST` (incl. `cuttable`) encode/decode; `CUT_LADDER` encode/decode; `SELF_STATE` `grapple_charges` trailing byte append/absent.
