@@ -48,6 +48,8 @@ func test_trees_batch_into_a_handful_of_multimeshes() -> void:
 		# map-spanning aabb, no per-node visibility_range (would cull the whole field)
 		assert_gt(mmi.custom_aabb.size.x, 100.0, "map-spanning custom_aabb")
 		assert_true(mmi.visibility_range_end == 0.0, "no visibility_range on a map-wide MultiMesh node")
+		# trees deliberately keep shadow casting (grass forces OFF; a copy-paste must not silently drop it)
+		assert_eq(mmi.cast_shadow, GeometryInstance3D.SHADOW_CASTING_SETTING_ON, "batched trees still cast shadows")
 		var m := mmi.material_override
 		if m is StandardMaterial3D and (m as StandardMaterial3D).transparency != BaseMaterial3D.TRANSPARENCY_ALPHA_SCISSOR:
 			bark_total += mm.instance_count

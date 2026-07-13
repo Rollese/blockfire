@@ -522,7 +522,7 @@ func _grass_clump_mesh() -> ArrayMesh:
 ## Preserves visuals: the bucket's material IS the kit's shared cached material (NEAREST alpha-scissor
 ## fronds / bark / triplanar stone), applied via material_override; trees/rocks cast shadows (default ON).
 func _build_scenery_batch(placements: Array, n: int, builder: Callable, half: float) -> void:
-	if placements.is_empty():
+	if placements.is_empty() or n <= 0:
 		return
 	var pool := TreePool.build(n, builder)
 	var buckets := TreePool.assign(placements, n)

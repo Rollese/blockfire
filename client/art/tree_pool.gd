@@ -41,16 +41,14 @@ static func build(count: int, builder: Callable = Callable()) -> Array:
 ## same frond/bark/stone material maps to the SAME key across every prototype.
 static func _bake_by_material(root: Node3D) -> Dictionary:
 	var jobs: Array = []
-	_gather(root, Transform3D.IDENTITY, root, jobs)
+	MeshMerge._gather(root, Transform3D.IDENTITY, root, jobs)   # shares MeshMerge's mesh+override collector
 	var order: Array = []            # Array[Material], first-seen order (stable output)
 	var by_mat: Dictionary = {}      # Material -> SurfaceTool
 	for job: Dictionary in jobs:
 		var mi: MeshInstance3D = job["mi"]
 		var xform: Transform3D = job["xform"]
-		var mesh: Mesh = mi.mesh
+		var mesh: Mesh = mi.mesh     # _gather already filtered mesh+material_override non-null
 		var mat: Material = mi.material_override
-		if mesh == null or mat == null:
-			continue
 		for si in mesh.get_surface_count():
 			if not by_mat.has(mat):
 				var st := SurfaceTool.new()
@@ -64,18 +62,6 @@ static func _bake_by_material(root: Node3D) -> Dictionary:
 		if merged != null:
 			out[mat] = merged
 	return out
-
-## Recursively collect (MeshInstance3D, transform-to-root) for every mesh that carries a material_override.
-static func _gather(node: Node, xform_to_root: Transform3D, root: Node, jobs: Array) -> void:
-	var here := xform_to_root
-	if node != root and node is Node3D:
-		here = xform_to_root * (node as Node3D).transform
-	if node is MeshInstance3D:
-		var mi := node as MeshInstance3D
-		if mi.mesh != null and mi.material_override != null:
-			jobs.append({"mi": mi, "xform": here})
-	for child in node.get_children():
-		_gather(child, here, root, jobs)
 
 ## Pure bucketing math (unit-tested headless). Assign each placement to a prototype by hashing its seed,
 ## and compose its world Transform3D = translate(pos) * rotate_y(yaw) * uniform_scale. Returns
