@@ -1160,6 +1160,16 @@ static func clipped_tracer_length(struct_store, origin: Vector3, fwd: Vector3) -
 	return TRACER_LEN
 
 
+## Pure transform for the pooled TRACER_LEN box so it spans origin -> origin+fwd*length. The scale
+## MUST be applied in the beam's LOCAL frame (`B * Basis.from_scale`) — Basis.scaled() is a
+## global-frame scale (diag(s)*B) that would squish a thickness axis for any non-world-Z shot,
+## leaving the length untouched (so east-west shots would still punch through walls). Mirrors the
+## heal-beam idiom below. Static so the transform math is unit-testable without a SceneTree.
+static func tracer_transform(origin: Vector3, fwd: Vector3, up: Vector3, length: float) -> Transform3D:
+	var basis := Basis.looking_at(fwd, up) * Basis.from_scale(Vector3(1.0, 1.0, length / TRACER_LEN))
+	return Transform3D(basis, origin + fwd * (length * 0.5))
+
+
 func _spawn_tracer(origin: Vector3, fwd: Vector3, now: float, flash_scale: float = 1.0) -> void:
 	if _tracers.is_empty():
 		return
@@ -1172,8 +1182,7 @@ func _spawn_tracer(origin: Vector3, fwd: Vector3, now: float, flash_scale: float
 	# origin at the beam's midpoint. Must set the full basis (incl. scale) every spawn — the node is
 	# pooled/reused, so a previous short length would otherwise leak into a later long shot.
 	var length := clipped_tracer_length(_fx.struct_store if _fx != null else null, origin, fwd)
-	var basis := Basis.looking_at(fwd, up).scaled(Vector3(1.0, 1.0, length / TRACER_LEN))
-	node.global_transform = Transform3D(basis, origin + fwd * (length * 0.5))
+	node.global_transform = tracer_transform(origin, fwd, up, length)
 	(t["mat"] as StandardMaterial3D).albedo_color = TRACER_COLOR
 	node.visible = true
 	t["die"] = now + TRACER_TTL
