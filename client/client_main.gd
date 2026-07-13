@@ -1499,7 +1499,7 @@ func _on_packet(_from: ENetPacketPeer, _channel: int, bytes: PackedByteArray) ->
 				_emplacement_bytes = bytes   # skip the rebuild on an unchanged tick
 				_emplacements = Protocol.decode_emplacement_list(bytes)
 				if _renderer != null:
-					_renderer.set_emplacements(_emplacements, _local_team())
+					_renderer.set_emplacements(_emplacements, _local_team(), my_id)
 		Protocol.Msg.DEPLOYED_LADDER_LIST:
 			# M19 grapple: self-healing list of live deployed ropes (like EMPLACEMENT_LIST). Inject the
 			# climb volumes into local prediction so the owner climbs their own rope with no round-trip,
