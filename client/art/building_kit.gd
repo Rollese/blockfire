@@ -15,8 +15,8 @@ const TEX_WORLD_SCALE := 1.0   # texture tiles per metre (world-triplanar) — s
 # symmetric footprint is both gap-free AND coplanar-free — we must pick which side of the boundary to
 # break on. OVERSIZE (edge to ±1.21) is the round-2 fix: adjacent decks now OVERLAP by 0.02 m total
 # (coplanar tops -> the overlap is invisible from above, NO gap), and the edge is 0.01 m PAST the wall
-# exterior plane rather than on it, so the coplanar z-fight is gone (the slab just interpenetrates the
-# wall solid, which never z-fights). Residual cost: a 0.01 m poke past the exterior on perimeter/roof
+# exterior plane rather than on it, so the coplanar z-fight is gone (the two faces are now 0.01 m apart
+# instead of coincident). Residual cost: a 0.01 m poke past the exterior on perimeter/roof
 # edges — half the owner-flagged gap, hidden under the roof coping's 0.06 m eave on capped walls, and
 # sub-visible (equal to round-1's accepted inset) on open edges. MESH-ONLY: collision is server-side
 # (structure.gd floor_height_at, cell-base plane) and never reads this.
