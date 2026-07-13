@@ -67,6 +67,7 @@ var _flash_idx: int = 0
 
 var _fx := FxPoolRef.new(self)    # rockets/thrown/puffs/blasts/debris — see client/fx_pool.gd
 var _ladder_nodes: Dictionary = {}   # building_id -> [Node3D]; freed when the building collapses (H1)
+var _deployed_ladder_nodes: Dictionary = {}   # M19 grapple: ladder id(int) -> Node3D climb marker; self-heals off DEPLOYED_LADDER_LIST
 var _casings: Array = []          # [{node, vel, spin, die}] — ejected brass shell casings (local gun)
 var _casing_i := 0                # rotates per-shot variation without per-frame RNG
 var _casing_mat: StandardMaterial3D = null
@@ -3383,6 +3384,41 @@ func _make_ladder(ladder: Dictionary) -> Node3D:
 		rung.position = Vector3(0.0, height * float(i) / float(rungs), 0.0)
 		root.add_child(rung)
 	return root
+
+
+# =============================================================================
+#  M19 grapple: deployed-rope climb markers — identity-keyed by ladder id, self-heals off the
+#  authoritative DEPLOYED_LADDER_LIST (ropes missing from the list are freed). View-only (AGENTS.md §7).
+#  Reuses _make_ladder for the visible climb line; the physics ROPE visual hangs off these in Task 10.
+# =============================================================================
+func set_deployed_ladders(list: Array, my_id: int = 0) -> void:
+	# my_id accepted for signature parity (a future pass could tint the owner's own rope); unused today.
+	var seen: Dictionary = {}
+	for l: Dictionary in list:
+		seen[int(l["id"])] = true
+	# Free markers whose rope id left the list (cut / collapsed / owner left).
+	var to_free: Array = []
+	for lid: int in _deployed_ladder_nodes:
+		if not seen.has(lid):
+			to_free.append(lid)
+	for lid: int in to_free:
+		var n: Node3D = _deployed_ladder_nodes[lid] as Node3D
+		if is_instance_valid(n):
+			n.queue_free()
+		_deployed_ladder_nodes.erase(lid)
+	# Acquire a marker for each newly-seen rope. Geometry is fixed for a rope's life (vertical anchor
+	# line), so an existing node needs no re-pose — only add for ids we don't already track.
+	for l: Dictionary in list:
+		var lid := int(l["id"])
+		if _deployed_ladder_nodes.has(lid):
+			continue
+		var x := float(l["x"]); var z := float(l["z"])
+		var node := _make_ladder({"bottom": Vector3(x, float(l["bottom_y"]), z),
+			"top": Vector3(x, float(l["top_y"]), z), "yaw": 0.0})
+		MeshMerge.merge_by_material(node)   # collapse the rail/rung instances to one draw call, like map ladders
+		add_child(node)
+		# Task 10: GrappleRope per ladder — hang the physics/visual rope off `node` here.
+		_deployed_ladder_nodes[lid] = node
 
 
 # =============================================================================

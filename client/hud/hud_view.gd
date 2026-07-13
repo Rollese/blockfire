@@ -30,6 +30,7 @@ const _THROWABLE_LABELS: Dictionary = {
 var _repair_gauge: _RepairGauge   # Engineer repair-tool heat/overheat gauge (bottom-centre)
 var _mg_gauge: _MgGauge           # M19 P4 Task 13: manned LMG-nest heat/belt gauge (bottom-centre, above repair gauge)
 var _shield_bar: _ShieldBar       # M19 P5: Support riot-shield HP bar (bottom-centre, above the mg gauge)
+var _grapple_label: Label         # M19 grapple: "GRAPPLE xN" charges readout (bottom-centre, above the shield bar)
 var _ammo_label: Label
 var _reload_label: Label
 var _firemode_label: Label   # AUTO/SEMI/BURST glyph above the ammo count (M5.5-P1 fire-mode)
@@ -146,6 +147,7 @@ func render(model: Dictionary) -> void:
 	_render_repair_gauge(model.get("repair_heat", {}))
 	_render_mg_gauge(model.get("mg_gauge", {}))
 	_render_shield_bar(model.get("shield_bar", {}))
+	_render_grapple_charges(model.get("grapple_charges", {}))
 	_render_throw_charge(model.get("throw_charge", {}))
 	_render_stamina(model.get("stamina", {}))
 
@@ -179,6 +181,7 @@ func _build_tree() -> void:
 	_build_repair_gauge()
 	_build_mg_gauge()
 	_build_shield_bar()
+	_build_grapple_label()
 	_build_ammo()
 	_build_compass()
 	_build_objective_markers()
@@ -1330,6 +1333,11 @@ func _render_interaction_prompt(prompt) -> void:
 			_interact_label.visible = true
 			if _revive_bar_bg != null:
 				_revive_bar_bg.visible = false
+		"cut_rope":
+			_interact_label.text = "F to cut rope"
+			_interact_label.visible = true
+			if _revive_bar_bg != null:
+				_revive_bar_bg.visible = false
 		_:
 			_interact_label.visible = false
 			if _revive_bar_bg != null:
@@ -1465,6 +1473,37 @@ func _render_shield_bar(sb: Dictionary) -> void:
 	_shield_bar.visible = vis
 	if vis:
 		_shield_bar.set_state(float(sb.get("frac", 0.0)))
+
+
+func _build_grapple_label() -> void:
+	# M19 grapple: minimal "GRAPPLE xN" charges readout, bottom-centre just above the shield-bar slot.
+	# Plain functional label (styling deferred to owner playtest, like the tool gauges).
+	_grapple_label = Label.new()
+	_grapple_label.anchor_left = 0.5
+	_grapple_label.anchor_right = 0.5
+	_grapple_label.anchor_top = 1.0
+	_grapple_label.anchor_bottom = 1.0
+	_grapple_label.offset_left = -70.0
+	_grapple_label.offset_right = 70.0
+	_grapple_label.offset_top = -214.0
+	_grapple_label.offset_bottom = -192.0
+	_grapple_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_grapple_label.add_theme_font_size_override("font_size", 16)
+	_grapple_label.add_theme_color_override("font_color", Color(1, 1, 1))
+	_grapple_label.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.9))
+	_grapple_label.add_theme_constant_override("outline_size", 4)
+	_grapple_label.mouse_filter = MOUSE_FILTER_IGNORE
+	_grapple_label.visible = false
+	add_child(_grapple_label)
+
+
+func _render_grapple_charges(gc: Dictionary) -> void:
+	if _grapple_label == null:
+		return
+	var vis := bool(gc.get("visible", false))
+	_grapple_label.visible = vis
+	if vis:
+		_grapple_label.text = "GRAPPLE x%d" % int(gc.get("charges", 0))
 
 
 func _build_death_recap() -> void:

@@ -26,6 +26,15 @@ var terrain:
 	get:
 		return _loop.terrain
 
+# M19 grapple: runtime deployed-rope volumes (set by client_main from DEPLOYED_LADDER_LIST), forwarded
+# to the loop so the OWNER climbs their own freshly-fired rope in local prediction without a round-trip.
+# Same {bottom,top,radius} shape as static map ladders; SimLoop.capture checks these after map ladders.
+var deployed_ladders:
+	set(v):
+		_loop.deployed_ladders = v
+	get:
+		return _loop.deployed_ladders
+
 func _init() -> void:
 	predicted = Pawn.new(0)
 	predicted.auto_vault = false   # the local pawn is always a human: vault only on jump (matches the server)

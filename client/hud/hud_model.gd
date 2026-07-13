@@ -134,7 +134,7 @@ func _grenade_danger(ctx: Dictionary):
 
 func build(ctx: Dictionary) -> Dictionary:
 	var dmg := _damage(ctx)
-	return {"ammo": _ammo(ctx), "compass": _compass(ctx), "tickets": _tickets(ctx), "capture": _capture(ctx), "killfeed": _killfeed_current(ctx), "damage_arcs": dmg["arcs"], "vignette": dmg["vignette"], "scoreboard": _scoreboard(ctx), "squad_roster": _squad_roster(ctx), "interaction_prompt": _interaction_prompt(ctx), "throwables": _throwables(ctx), "death_recap": _death_recap(ctx), "grenade_danger": _grenade_danger(ctx), "capture_feed": _capture_feed_current(ctx), "repair_heat": _repair_heat(ctx), "throw_charge": _throw_charge(ctx), "stamina": _stamina(ctx), "mg_gauge": _mg_gauge(ctx), "shield_bar": _shield_bar(ctx)}
+	return {"ammo": _ammo(ctx), "compass": _compass(ctx), "tickets": _tickets(ctx), "capture": _capture(ctx), "killfeed": _killfeed_current(ctx), "damage_arcs": dmg["arcs"], "vignette": dmg["vignette"], "scoreboard": _scoreboard(ctx), "squad_roster": _squad_roster(ctx), "interaction_prompt": _interaction_prompt(ctx), "throwables": _throwables(ctx), "death_recap": _death_recap(ctx), "grenade_danger": _grenade_danger(ctx), "capture_feed": _capture_feed_current(ctx), "repair_heat": _repair_heat(ctx), "throw_charge": _throw_charge(ctx), "stamina": _stamina(ctx), "mg_gauge": _mg_gauge(ctx), "shield_bar": _shield_bar(ctx), "grapple_charges": _grapple_charges(ctx)}
 
 ## C3 grenade hold-to-charge: a 0..1 throw-strength meter, shown only while charging.
 func _throw_charge(ctx: Dictionary) -> Dictionary:
@@ -179,6 +179,12 @@ func _mg_gauge(ctx: Dictionary) -> Dictionary:
 func _shield_bar(ctx: Dictionary) -> Dictionary:
 	var equipped := bool(ctx.get("shield_equipped", false))
 	return {"visible": equipped, "frac": clampf(float(ctx.get("shield_hp_frac", 0)) / 255.0, 0.0, 1.0)}
+
+## M19 grapple: remaining grapple-charge readout. Visible only while the hook is the equipped gadget
+## (a plain functional "GRAPPLE xN" label — feel/styling deferred to owner playtest, like the gauges above).
+func _grapple_charges(ctx: Dictionary) -> Dictionary:
+	var equipped := bool(ctx.get("grapple_equipped", false))
+	return {"visible": equipped, "charges": int(ctx.get("grapple_charges", 0))}
 
 func cycle_throwable(count: int) -> void:
 	if count <= 0:
@@ -321,6 +327,11 @@ func _interaction_prompt(ctx: Dictionary):
 			if float(n["dist"]) < float(bn["dist"]):
 				bn = n
 		return {"action": "mount_nest", "target": int(bn["id"])}
+	# M19 grapple: an aged, cuttable deployed rope within reach -> offer to cut it (below mount, above
+	# self-bandage). client_main precomputes the nearest cuttable rope id (0 = none) into cuttable_rope.
+	var cut_rope := int(ctx.get("cuttable_rope", 0))
+	if cut_rope != 0:
+		return {"action": "cut_rope", "target": cut_rope}
 	# M16: no world prompt applies — offer self-bandage while you are standing-bleeding (lowest priority).
 	if bool(ctx.get("am_bleeding", false)):
 		return {"action": "self_bandage", "target": int(ctx.get("self_id", 0))}

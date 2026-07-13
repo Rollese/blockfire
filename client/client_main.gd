@@ -146,6 +146,8 @@ var _gadget_test := false           # --gadget-test: place sample deployed gadge
 var _gadget_bytes := PackedByteArray()   # last GADGET_LIST bytes — skip the rebuild on an unchanged heartbeat
 var _emplacement_bytes := PackedByteArray()  # last EMPLACEMENT_LIST bytes — skip the rebuild on an unchanged tick
 var _emplacements: Array = []            # M19 P4: last decoded LMG-nest list (mount targeting / debug)
+var _deployed_ladder_bytes := PackedByteArray()  # M19 grapple: last DEPLOYED_LADDER_LIST bytes — skip rebuild on unchanged tick
+var _deployed_ladders: Array = []        # M19 grapple: last decoded deployed-rope list [{id,x,z,bottom_y,top_y,cuttable}]
 var _support_bytes := PackedByteArray()  # last SUPPORT_LIST bytes — skip the rebuild on an unchanged heartbeat
 var _downed_bytes := PackedByteArray()   # last DOWNED_LIST bytes — skip the rebuild on an unchanged heartbeat
 var _fob_bytes := PackedByteArray()      # last FOB_LIST bytes — skip rework on an unchanged heartbeat
@@ -218,6 +220,7 @@ var _mg_ammo: int = 0              # manned MG belt rounds remaining from SELF_S
 var _mg_overheated: bool = false   # manned MG overheat-lockout flag from SELF_STATE (Task 13 HUD; stored now)
 # ---- M19 P5: riot shield (Support) ------------------------------------------
 var _shield_hp_frac: int = 0       # latest shield HP 0..255 from SELF_STATE (0 = no shield/broken; HUD bar + break-forces-down)
+var _grapple_charges: int = 0      # M19 grapple: remaining grapple charges from SELF_STATE (HUD readout)
 var _shield_held := false          # local toggle intent: true = player wants the shield raised (OR'd into BTN_SHIELD)
 var _shield_key_down := false      # previous-frame "gadget" action state — own edge detector (see _produce_input_frame:
                                     # is_action_just_pressed() would double-toggle on a frame_repeats()==2 catch-up tick,
@@ -905,11 +908,14 @@ func _process(_dt: float) -> void:
 		"vehicles_near": _vehicles_near(),
 		"mounted_nest": _mounted_nest,      # M19 P4: id of the nest we're manning (0 = on foot) -> dismount prompt
 		"nests_near": _nests_near(),        # M19 P4: friendly unoccupied nests in mount range -> mount prompt
+		"cuttable_rope": _nearest_cuttable_ladder_id(_pred.predicted.pos),  # M19 grapple: id of an aged rope in cut range (0 = none) -> "F to cut rope" prompt
 		"mg_heat": _mg_heat,                # M19 P4 Task 13: manned MG heat 0..255 -> HUD heat bar
 		"mg_ammo": _mg_ammo,                # M19 P4 Task 13: manned MG belt rounds remaining -> HUD belt counter
 		"mg_overheated": _mg_overheated,    # M19 P4 Task 13: manned MG overheat-lockout -> HUD overheat flash
 		"shield_equipped": int(_loadout.get("gadget", -1)) == Loadout.GADGET_RIOT_SHIELD,  # M19 P5: gates the shield HUD bar
 		"shield_hp_frac": _shield_hp_frac,  # M19 P5: shield HP 0..255 from SELF_STATE -> HUD bar
+		"grapple_equipped": int(_loadout.get("gadget", -1)) == Loadout.GADGET_GRAPPLE,  # M19 grapple: gates the charges label
+		"grapple_charges": _grapple_charges,  # M19 grapple: remaining charges from SELF_STATE -> HUD readout
 		"repair_heat": _repair_heat,
 		"repair_cooldown": _repair_cooldown,
 		"throw_charge": _throw_charge if _throw_charging else 0.0,   # C3 grenade charge bar (0 when idle)
@@ -1061,6 +1067,12 @@ func _process(_dt: float) -> void:
 			_net.send_to(_peer, NetHost.CHANNEL_CONTROL,
 				Protocol.encode_emplacement_action(Protocol.EA_DISMOUNT, int(ip["target"])),
 				ENetPacketPeer.FLAG_RELIABLE)
+		# M19 grapple: cut a nearby aged rope — single F press when the prompt offers a cuttable rope.
+		# The server re-validates range + arm-time in _grapples.cut; a stale id is harmlessly ignored.
+		if ip != null and String(ip.get("action", "")) == "cut_rope" \
+				and Input.is_action_just_pressed("interact") and _peer != null:
+			_net.send_to(_peer, NetHost.CHANNEL_CONTROL,
+				Protocol.encode_cut_ladder(int(ip["target"])), ENetPacketPeer.FLAG_RELIABLE)
 		if ip != null and String(ip.get("action", "")) == "revive" and interact_held and _peer != null:
 			_revive_hold += _dt
 			# Match the SERVER's completion time: a medic revives in half the ticks — the bar used to
@@ -1291,6 +1303,15 @@ func _process(_dt: float) -> void:
 				gdir = -Vector3(sin(_input_ctrl.yaw), 0.0, cos(_input_ctrl.yaw)).normalized()
 				var npitch: float = _input_ctrl.pitch
 				gdir = Vector3(gdir.x * cos(npitch), sin(npitch), gdir.z * cos(npitch)).normalized()
+			elif equipped_gadget == Loadout.GADGET_GRAPPLE:
+				# M19 grapple: fire the hook along the eye ray. The server (grapple_server.deploy) marches
+				# p.eye_position() along this dir for an anchor, so the aim vector must be the camera FORWARD.
+				# Use the SAME negated yaw+pitch forward every sibling gadget builds (BREACH/STIM/SMOKE/LMG
+				# above, and the RPG/grenade throws) so "aim at the ledge, fire, climb" lines up with the view.
+				gadget_action = Protocol.GA_GRAPPLE_FIRE
+				gdir = -Vector3(sin(_input_ctrl.yaw), 0.0, cos(_input_ctrl.yaw)).normalized()
+				var ggpitch: float = _input_ctrl.pitch
+				gdir = Vector3(gdir.x * cos(ggpitch), sin(ggpitch), gdir.z * cos(ggpitch)).normalized()
 			_net.send_to(_peer, NetHost.CHANNEL_CONTROL,
 				Protocol.encode_gadget_action(gadget_action, _pred.predicted.pos, gdir, 0), ENetPacketPeer.FLAG_RELIABLE)
 
@@ -1468,6 +1489,14 @@ func _on_packet(_from: ENetPacketPeer, _channel: int, bytes: PackedByteArray) ->
 				_emplacements = Protocol.decode_emplacement_list(bytes)
 				if _renderer != null:
 					_renderer.set_emplacements(_emplacements, _local_team())
+		Protocol.Msg.DEPLOYED_LADDER_LIST:
+			# M19 grapple: self-healing list of live deployed ropes (like EMPLACEMENT_LIST). Inject the
+			# climb volumes into local prediction so the owner climbs their own rope with no round-trip,
+			# and hand the geometry to the renderer for the climb marker.
+			if bytes != _deployed_ladder_bytes:
+				_deployed_ladder_bytes = bytes   # skip the rebuild on an unchanged tick
+				_deployed_ladders = Protocol.decode_deployed_ladder_list(bytes)
+				_apply_deployed_ladders()
 		Protocol.Msg.SUPPORT_LIST:
 			if bytes != _support_bytes:
 				_support_bytes = bytes   # skip the rebuild on an unchanged 1 Hz heartbeat
@@ -1670,6 +1699,36 @@ func _handle_snapshot(bytes: PackedByteArray) -> void:
 			if not _awaiting_deploy:
 				_deploy_menu.set_respawn_cooldown(_respawn_cooldown_left())
 
+# ---- M19 grapple: deployed-rope list -> local climb prediction + renderer -----
+# Called when a fresh DEPLOYED_LADDER_LIST arrives. Builds {bottom,top,radius} climb volumes from the
+# wire rows and (a) feeds them into the local prediction loop so the OWNER climbs their own freshly-fired
+# rope without waiting on a server round-trip, and (b) hands the raw list to the renderer for the marker.
+func _apply_deployed_ladders() -> void:
+	var vols: Array = []
+	for l in _deployed_ladders:
+		var x := float(l["x"]); var z := float(l["z"])
+		vols.append({"bottom": Vector3(x, float(l["bottom_y"]), z),
+			"top": Vector3(x, float(l["top_y"]), z), "radius": Grapple.LADDER_RADIUS})
+	if _pred != null:
+		_pred.deployed_ladders = vols   # forwarded into SimLoop.deployed_ladders (climb-capture mirror)
+	if _renderer != null:
+		_renderer.set_deployed_ladders(_deployed_ladders, my_id)
+
+# M19 grapple: id of the nearest cuttable deployed rope within CUT_RADIUS of `pos` (x,z), 0 if none.
+# Only ropes the server has flagged `cuttable` (aged past the arm window) count; the server re-checks
+# range + arm-time on receipt, so this is just the client-side prompt/emit gate.
+func _nearest_cuttable_ladder_id(pos: Vector3) -> int:
+	var best_id := 0
+	var best_d := Grapple.CUT_RADIUS
+	for l in _deployed_ladders:
+		if not bool(l["cuttable"]):
+			continue
+		var dxz := Vector2(pos.x - float(l["x"]), pos.z - float(l["z"])).length()
+		if dxz <= best_d:
+			best_d = dxz; best_id = int(l["id"])
+	return best_id
+
+
 # ---- SELF_STATE -------------------------------------------------------------
 func _handle_self_state(bytes: PackedByteArray) -> void:
 	var d: Dictionary = Protocol.decode_self_state(bytes)
@@ -1716,6 +1775,7 @@ func _handle_self_state(bytes: PackedByteArray) -> void:
 	_mg_ammo = int(d.get("mg_ammo", 0))
 	_mg_overheated = bool(d.get("mg_overheated", false))
 	_shield_hp_frac = int(d.get("shield_hp_frac", 0))   # M19 P5: authoritative shield HP 0..255 (HUD bar; 0 forces _shield_held off)
+	_grapple_charges = int(d.get("grapple_charges", 0))  # M19 grapple: remaining charges (HUD readout)
 	# Tick-lead: feed the post-drain buffer depth to the input-clock loop. Only while input is
 	# actually being produced (deployed, on foot; menus now keep producing zeroed frames — A5) —
 	# a dead client sends no frames, so its depth reads 0 and would wrongly integrate catch-up
