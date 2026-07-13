@@ -3417,7 +3417,13 @@ func set_deployed_ladders(list: Array, my_id: int = 0) -> void:
 			"top": Vector3(x, float(l["top_y"]), z), "yaw": 0.0})
 		MeshMerge.merge_by_material(node)   # collapse the rail/rung instances to one draw call, like map ladders
 		add_child(node)
-		# Task 10: GrappleRope per ladder — hang the physics/visual rope off `node` here.
+		# Task 10: GrappleRope per ladder — cosmetic verlet rope, parented to the ladder's own render
+		# node so it self-heals (freed) alongside it when the ladder id leaves DEPLOYED_LADDER_LIST.
+		# Added AFTER merge_by_material: that call queue_frees every material_override'd MeshInstance3D
+		# under `node` to fold it into a merged instance, which would otherwise eat the rope's own mesh.
+		var rope := GrappleRope.new()
+		node.add_child(rope)
+		rope.setup(Vector3(x, float(l["top_y"]), z), Vector3(x, float(l["bottom_y"]), z))
 		_deployed_ladder_nodes[lid] = node
 
 
