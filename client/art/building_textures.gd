@@ -19,6 +19,7 @@ static func tex(kind: String) -> Texture2D:
 		"brick": _brick(img, rng)
 		"metal": _metal(img, rng)
 		"wood": _wood(img, rng)
+		"sandbag": _sandbag(img, rng)
 		_: _concrete(img, rng)
 	var t := ImageTexture.create_from_image(img)
 	_cache[kind] = t
@@ -55,6 +56,23 @@ static func _metal(img: Image, rng: RandomNumberGenerator) -> void:
 			var seam := (x % pw) == 0
 			var base := 0.78 + rng.randf_range(-0.02, 0.02)
 			_v(img, x, y, 0.55 if seam else base)
+
+## Stacked sandbags: running-bond rows of bulging bags. Each bag is brightest at its centre and
+## darkens toward its edges/seams, so tinted by a sandy albedo it reads as a wall of filled bags.
+static func _sandbag(img: Image, rng: RandomNumberGenerator) -> void:
+	var bh := 16   # bag row height (px)
+	var bw := 32   # bag length (px)
+	for y in SIZE:
+		var row := y / bh
+		var off := (bw / 2) if (row % 2 == 1) else 0
+		var fy := float(y % bh) / float(bh - 1)          # 0..1 within the row
+		for x in SIZE:
+			var fx := float((x + off) % bw) / float(bw - 1)  # 0..1 within the bag
+			# rounded bulge: 1 at the bag centre -> 0 at its rim (a soft dome), plus the mortar gap
+			var dome := (1.0 - absf(fx - 0.5) * 2.0) * (1.0 - absf(fy - 0.5) * 2.0)
+			var seam := (y % bh) == 0 or ((x + off) % bw) == 0
+			var v := 0.60 + 0.30 * dome + rng.randf_range(-0.03, 0.03)
+			_v(img, x, y, 0.48 if seam else clampf(v, 0.0, 1.0))
 
 ## Horizontal planks with seam lines + lengthwise grain.
 static func _wood(img: Image, rng: RandomNumberGenerator) -> void:

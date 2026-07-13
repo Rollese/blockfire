@@ -5,8 +5,8 @@ extends SceneTree
 ## this harness needs) has no dependency on the structure/piece pipeline. Feeds one hand-built
 ## emplacement dict straight to WorldRenderer.set_emplacements() (the same wire shape
 ## Protocol.decode_emplacement_list() hands the real client) and drives it through four stages —
-## intact/unmanned, manned (turret traversed off its resting facing), damaged (scorched tint), and an
-## approximate first-person "manning" view down the barrel. Captures a PNG per stage.
+## intact/unmanned, manned, damaged (scorched tint), and a first-person "manning" view OUT through the
+## firing embrasure from the prone gunner's eye. Captures a PNG per stage.
 ##   godot --path . -s res://tools/render_nest_shots.gd --rendering-driver <opengl3|vulkan>
 ##   (on a headless host: Xvfb :99 -screen 0 1280x720x24 & DISPLAY=:99 godot --path . -s ...)
 ## Deterministic (no networking, no bots, no live gunner pawn — see NOTE below). A QA tool, not a
@@ -16,8 +16,8 @@ extends SceneTree
 ## WorldRenderer.update()'s full entity pipeline (WorldView remotes_at/self_state, a Prediction, and
 ## SeatPose/_nest_occupants cross-referencing — see world_renderer.gd:900-924), which in turn wants a
 ## live replicated pawn EntityState. That is the live-game path, not a light standalone harness, so
-## the "manned" stage here only sets occupant != 0 and traverses the turret — it proves the barrel
-## re-aims and the nest is flagged manned, but does NOT render a crouched gunner body.
+## the "manned" stage here only sets occupant != 0 — it flags the nest manned, but does NOT render a
+## prone gunner body (the nest has no turret; the gunner fires their own weapon).
 
 const MAP_PATH := "res://maps/conquest_town.json"
 const NEST_POS := Vector3(10.0, 0.0, 10.0)   # arbitrary open spot; building stamping is skipped (see header)
@@ -48,7 +48,10 @@ func _initialize() -> void:
 
 	var nest_y := Terrain.height_at(grid, NEST_POS.x, NEST_POS.z) if grid != null else 0.0
 	var pos := Vector3(NEST_POS.x, nest_y, NEST_POS.z)
-	var muzzle := pos + Vector3(0, LmgNestKit.MUZZLE_UP, 0)
+	# Prone gunner eye: SEAT_BACK behind the pivot, at the PRONE eye height — the vantage the firing
+	# embrasure must clear (G3 round-2). Used for the first-person "manning" stage.
+	var facing_fwd := Vector3(sin(FACING_YAW), 0.0, cos(FACING_YAW))
+	var gunner_eye := pos - facing_fwd * Emplacement.SEAT_BACK + Vector3(0, Stance.eye_height(Stance.PRONE), 0)
 
 	var dir := "user://nest_shots"
 	DirAccess.make_dir_recursive_absolute(dir)
@@ -62,8 +65,8 @@ func _initialize() -> void:
 	await _settle()
 	await _capture(cam, dir, "0_intact_unmanned")
 
-	# --- Stage 1: manned — occupant set, turret traversed off the resting facing (see header NOTE:
-	# no live gunner body, just the flagged-manned nest + traversed barrel).
+	# --- Stage 1: manned — occupant set (see header NOTE: no live gunner body). manned_turret is the
+	# gunner's aim, used by the first-person stage below to look out through the embrasure at an angle.
 	var manned_turret := FACING_YAW + TURRET_OFFSET
 	r.set_emplacements([{
 		"id": 1, "pos": pos, "facing_yaw": FACING_YAW, "turret_yaw": manned_turret,
@@ -82,11 +85,11 @@ func _initialize() -> void:
 	await _settle()
 	await _capture(cam, dir, "2_damaged")
 
-	# --- Stage 3: approximate first-person "manning" view — camera just behind/above the muzzle,
-	# looking out along the traversed turret aim (a stand-in for the real ADS-at-the-gun camera).
+	# --- Stage 3: first-person "manning" view — camera at the prone gunner's eye, looking OUT along
+	# the aim. This is the shot that proves the firing embrasure is open (the gunner can see out).
 	var aim := Vector3(sin(manned_turret), 0.0, cos(manned_turret))
-	cam.global_position = muzzle - aim * 0.3 + Vector3(0, 0.15, 0)
-	cam.look_at(muzzle + aim * 10.0, Vector3.UP)
+	cam.global_position = gunner_eye
+	cam.look_at(gunner_eye + aim * 10.0, Vector3.UP)
 	await _settle()
 	await _capture(cam, dir, "3_fp_sight")
 
@@ -95,7 +98,7 @@ func _initialize() -> void:
 
 
 ## Third-person 3/4 view: camera pulled back+up from the nest, biased toward the front (facing) side
-## so the sandbag berm + mounted gun both read clearly in frame.
+## so the curved sandbag parapet + its firing embrasure both read clearly in frame.
 func _frame_third_person(cam: Camera3D, pos: Vector3, facing_yaw: float) -> void:
 	var fwd := Vector3(sin(facing_yaw), 0.0, cos(facing_yaw))
 	cam.global_position = pos + fwd * 3.0 + Vector3(3.0, 2.2, 0.0)

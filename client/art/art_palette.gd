@@ -10,6 +10,7 @@ const NEUTRAL := Color(0.6, 0.6, 0.6)
 const GUN_METAL := Color(0.08, 0.08, 0.08)
 const STRUCT_CONCRETE := Color(0.62, 0.62, 0.60)
 const STRUCT_METAL_THIN := Color(0.45, 0.40, 0.30)
+const STRUCT_SAND := Color(0.76, 0.66, 0.45)      # warm sandbag tan (LMG-nest parapet; r>g>b)
 # Player models are NOT team-tinted (BattleBit-style): everyone wears the same muted uniform and
 # friend/foe is read from the FRIENDLY marker above friendlies' heads, not from body colour.
 const UNIFORM := Color(0.30, 0.32, 0.28)          # muted olive-grey — same for all players

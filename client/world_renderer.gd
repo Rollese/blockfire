@@ -3676,9 +3676,10 @@ func _make_vehicle_mesh() -> Node3D:
 
 
 # =============================================================================
-#  LMG-nest pool (M19 P4) — identity-keyed, so a manned nest's changing turret_yaw re-poses the
-#  same node's "Barrel" pivot instead of the free-and-rebuild set_gadgets style. Self-heals off the
-#  authoritative EMPLACEMENT_LIST: nests missing from the list are freed. View-only (AGENTS.md §7).
+#  LMG-nest pool (M19 P4) — identity-keyed, so a nest re-poses the same node across ticks instead of
+#  the free-and-rebuild set_gadgets style. The nest is a curved sandbag parapet with no turret (the
+#  gunner fires their own weapon), tinted by HP. Self-heals off the authoritative EMPLACEMENT_LIST:
+#  nests missing from the list are freed. View-only (AGENTS.md §7).
 # =============================================================================
 func set_emplacements(list: Array, local_team: int = -1, my_id: int = 0) -> void:
 	# local_team is accepted for signature parity with set_gadgets (friend/foe tint could key off it
@@ -3711,10 +3712,10 @@ func set_emplacements(list: Array, local_team: int = -1, my_id: int = 0) -> void
 			add_child(node)
 			_emplacement_active[nid] = node
 		node.position = pos
-		node.rotation.y = facing   # orient the sandbag body to the deploy facing
-		# Traverse the gun: the body already carries facing, so the Barrel child's LOCAL yaw is the
-		# difference to the world-space turret aim (mirrors the vehicle turret pivot). Snap is fine — the
-		# list re-arrives each tick while a gunner aims.
+		node.rotation.y = facing   # orient the sandbag parapet to the deploy facing
+		# G3 round-2: the nest has NO mounted turret (the gunner fires their own weapon), so LmgNestKit
+		# builds no "Barrel" child and this block no-ops. Guarded for legacy/other kits that might carry
+		# a traversable turret; snap is fine — the list re-arrives each tick while a gunner aims.
 		var barrel: Node3D = node.get_node_or_null("Barrel") as Node3D
 		if barrel != null:
 			barrel.rotation.y = wrapf(turret - facing, -PI, PI)
@@ -3726,16 +3727,14 @@ func set_emplacements(list: Array, local_team: int = -1, my_id: int = 0) -> void
 		_apply_nest_damage(node, team, float(e.get("hp_frac", 1.0)))
 
 
-## Darken the sandbag body toward scorched as hp_frac -> 0 (persistent, self-correcting off replicated
-## HP). Walks the body meshes (skips the "Barrel" pivot — the gun stays gun-metal). Pure re-tint from
-## the base team colour each call, so it never compounds.
-func _apply_nest_damage(node: Node3D, team: int, hp_frac: float) -> void:
-	var base: Color = ArtPalette.NEUTRAL
-	if team >= 0 and team < ArtPalette.TEAM_COLOR.size():
-		base = ArtPalette.TEAM_COLOR[team]
+## Darken the sandbag parapet toward scorched as hp_frac -> 0 (persistent, self-correcting off
+## replicated HP). Walks the body meshes (every block is named "Sand…"); the sandbag TEXTURE stays,
+## only its albedo tint drops. Pure re-tint from the sandy base each call, so it never compounds.
+## `team` is kept for signature parity — the parapet reads as sandbags, not a team colour.
+func _apply_nest_damage(node: Node3D, _team: int, hp_frac: float) -> void:
+	var base: Color = ArtPalette.STRUCT_SAND
 	var factor: float = lerpf(0.4, 1.0, clampf(hp_frac, 0.0, 1.0))
 	var tint := Color(base.r * factor, base.g * factor, base.b * factor)
-	# Only the team-tinted sandbag meshes darken; the gun-metal Mount post and Barrel stay dark.
 	for child in node.get_children():
 		if not String(child.name).begins_with("Sand"):
 			continue
