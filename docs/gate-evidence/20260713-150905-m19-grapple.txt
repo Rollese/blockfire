@@ -1,0 +1,8 @@
+gate: m19-grapple
+date: 2026-07-13T15:09:05+02:00
+host: game2
+git: cc9000c
+verdict: PASS
+summary: winner=1 elapsed=132s peak_tick=13.56ms budget=33.3ms agg=47.8Mbit/s players=128 kills=20 cap_events=3 ai_us_mean=9975.4us map=conquest_town
+srvlog: srvlog-m19-grapple-20260713-150905.log
+srvlog_sha256: 0e2dda78520a5ca5c23e870995674364077a05997e5140fbf3ee91e748f2e707
