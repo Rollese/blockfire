@@ -165,6 +165,52 @@ func test_mounted_holds_fire_only_within_real_arc() -> void:
 	var frame: Dictionary = (InputCommand.decode(_sends_of(bot, Protocol.Msg.INPUT)[0])["frames"] as Array)[0]
 	assert_true(int(frame["buttons"]) & InputCommand.BTN_FIRE == 0, "60° off facing is outside the real 45° arc -> no fire")
 
+func test_mounted_gunner_holds_fire_beyond_max_range() -> void:
+	# G3c: an in-arc, level enemy that is far beyond the sane engage range must NOT draw fire — the MG
+	# would just burn belt/heat at a speck it can't meaningfully hit.
+	var bd := BotDriver.new(); autofree(bd)
+	var bot := _make_bot(NEST_SUPPORT_ID, 0, 1000)
+	var nest_id := Emplacement.id_for(0)
+	bot["self_state"] = {"mounted_nest": nest_id}
+	# Nest faces +x; enemy dead ahead (in arc, level) but 300 m out — past LMG_NEST_MAX_FIRE_RANGE.
+	bot["nests"] = [{"id": nest_id, "pos": Vector3.ZERO, "facing_yaw": PI / 2.0, "occupant": NEST_SUPPORT_ID, "hp_frac": 1.0, "team": 0}]
+	bot["view"] = {NEST_SUPPORT_ID: _es(0, Vector3.ZERO), 20: _es(1, Vector3(300, 0, 0))}
+	bd._ex.drive_mounted_nest(bot, _es(0, Vector3.ZERO))
+	var frame: Dictionary = (InputCommand.decode(_sends_of(bot, Protocol.Msg.INPUT)[0])["frames"] as Array)[0]
+	assert_true(int(frame["buttons"]) & InputCommand.BTN_FIRE == 0, "beyond max range -> hold fire")
+
+func test_mounted_gunner_holds_fire_above_pitch_band() -> void:
+	# G3c (the sky-fire bug): an in-arc, in-range enemy that sits high above the muzzle needs a pitch
+	# beyond the turret's up-clamp. Firing there pins the barrel at the clamp and the burst sails into the
+	# SKY over the target, so the bot must HOLD FIRE rather than fire at the clamp.
+	var bd := BotDriver.new(); autofree(bd)
+	var bot := _make_bot(NEST_SUPPORT_ID, 0, 1000)
+	var nest_id := Emplacement.id_for(0)
+	bot["self_state"] = {"mounted_nest": nest_id}
+	# Nest faces +x; enemy 5 m ahead but 10 m UP -> required pitch ~63° >> pitch_hi (25°).
+	bot["nests"] = [{"id": nest_id, "pos": Vector3.ZERO, "facing_yaw": PI / 2.0, "occupant": NEST_SUPPORT_ID, "hp_frac": 1.0, "team": 0}]
+	bot["view"] = {NEST_SUPPORT_ID: _es(0, Vector3.ZERO), 20: _es(1, Vector3(5, 10, 0))}
+	bd._ex.drive_mounted_nest(bot, _es(0, Vector3.ZERO))
+	var frame: Dictionary = (InputCommand.decode(_sends_of(bot, Protocol.Msg.INPUT)[0])["frames"] as Array)[0]
+	assert_true(int(frame["buttons"]) & InputCommand.BTN_FIRE == 0, "target above the pitch band -> no sky-fire")
+
+func test_mounted_gunner_fires_level_target_with_pitch_in_band() -> void:
+	# G3c: an in-arc, in-range, roughly-level enemy DOES draw fire, and the aimed pitch sits INSIDE the
+	# turret band (not pinned to the +25° up-clamp) — proves we aim at the body, not the sky.
+	var bd := BotDriver.new(); autofree(bd)
+	var bot := _make_bot(NEST_SUPPORT_ID, 0, 1000)
+	var nest_id := Emplacement.id_for(0)
+	bot["self_state"] = {"mounted_nest": nest_id}
+	# Nest faces +x; enemy 30 m ahead, ~1 m below (a body, near-level) -> in arc, in range, pitch tiny.
+	bot["nests"] = [{"id": nest_id, "pos": Vector3.ZERO, "facing_yaw": PI / 2.0, "occupant": NEST_SUPPORT_ID, "hp_frac": 1.0, "team": 0}]
+	bot["view"] = {NEST_SUPPORT_ID: _es(0, Vector3.ZERO), 20: _es(1, Vector3(30, -1, 0))}
+	bd._ex.drive_mounted_nest(bot, _es(0, Vector3.ZERO))
+	var frame: Dictionary = (InputCommand.decode(_sends_of(bot, Protocol.Msg.INPUT)[0])["frames"] as Array)[0]
+	assert_true(int(frame["buttons"]) & InputCommand.BTN_FIRE != 0, "level, in-arc, in-range enemy -> fire")
+	var pitch := wrapf(float(frame["pitch"]), -PI, PI)   # wire angle is unsigned [0,TAU) -> signed
+	assert_true(pitch >= -bd.LMG_NEST_PITCH_LO and pitch <= bd.LMG_NEST_PITCH_HI,
+		"aimed pitch is inside the turret band, not pinned to the up-clamp")
+
 func test_mounted_gunner_dismounts_after_no_target_window() -> void:
 	var bd := BotDriver.new(); autofree(bd)
 	var bot := _make_bot(NEST_SUPPORT_ID, 0, 1000)

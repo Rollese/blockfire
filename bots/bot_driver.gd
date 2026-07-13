@@ -88,6 +88,12 @@ const LMG_NEST_FIRE_ARC := deg_to_rad(45)     # rad — MUST match data/gadgets.
                                               # server pins the turret to ±half_arc (Emplacement.clamp_yaw) and
                                               # fires along that clamped yaw, so a target beyond it is unhittable —
                                               # opening fire there just wastes the belt at the arc edge.
+const LMG_NEST_PITCH_LO := deg_to_rad(20)     # rad — MUST match data/gadgets.json lmgnest.pitch_lo_deg (down clamp)
+const LMG_NEST_PITCH_HI := deg_to_rad(25)     # rad — MUST match data/gadgets.json lmgnest.pitch_hi_deg (up clamp): a
+                                              # target needing more elevation than this pins the barrel at the clamp
+                                              # and the burst sails into the sky OVER it — hold fire instead (G3c).
+const LMG_NEST_MAX_FIRE_RANGE := 120.0        # m — conservative engage range (well within the MG's 220 m reach); a
+                                              # speck past it isn't worth burning belt/heat on.
 
 # M19 P5 Task 7: SUPPORT riot-shield exerciser (bots/exercisers.gd maybe_riot_shield). ~1/3 of Support
 # bots roll GADGET_RIOT_SHIELD (Loadout.bot_gadget id%3==2), so the fleet gate exercises the shield's

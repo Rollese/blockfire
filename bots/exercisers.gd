@@ -726,13 +726,19 @@ func drive_mounted_nest(bot: Dictionary, me: EntityState) -> void:
 		bot["lmg_notarget_since"] = -1
 		var aim := target.pos - me.pos
 		var desired_yaw := atan2(aim.x, aim.z)
+		var desired_pitch := asin(clampf(aim.y / maxf(aim.length(), 0.001), -1.0, 1.0))   # aim at the BODY
 		bot["yaw"] = desired_yaw
-		bot["pitch"] = clampf(asin(clampf(aim.y / maxf(aim.length(), 0.001), -1.0, 1.0)), -Pawn.MAX_PITCH, Pawn.MAX_PITCH)
-		# Only open fire when the enemy is roughly within the traverse arc — a target behind the nest
-		# just pins the turret at the arc edge and wastes the belt. Facing comes from our nest mirror.
+		bot["pitch"] = clampf(desired_pitch, -Pawn.MAX_PITCH, Pawn.MAX_PITCH)
+		# Open fire ONLY when the shot can actually reach the target BODY, else hold — a mis-gated shot just
+		# pins the turret at a clamp (yaw arc edge or pitch up-limit) and sprays open sky/ground (the sky-fire
+		# bug), wasting belt+heat. Three gates: (i) within the traverse arc (facing from our nest mirror),
+		# (ii) within a sane engage range, and (iii) the required pitch fits the turret band WITHOUT pinning
+		# to the up/down clamp — a target above the band would otherwise send the burst over its head.
 		var facing := mounted_nest_facing(bot.get("nests", []), mounted)
 		var in_arc: bool = is_nan(facing) or absf(Emplacement.ang_diff(desired_yaw, facing)) <= d.LMG_NEST_FIRE_ARC
-		if in_arc:
+		var in_range: bool = best <= d.LMG_NEST_MAX_FIRE_RANGE
+		var in_pitch: bool = desired_pitch >= -d.LMG_NEST_PITCH_LO and desired_pitch <= d.LMG_NEST_PITCH_HI
+		if in_arc and in_range and in_pitch:
 			buttons |= InputCommand.BTN_FIRE   # server heat/belt/overheat + arc-clamp gate the actual rounds
 	else:
 		# No target — after a grace window, leave the seat so the bot rejoins the objective push.
