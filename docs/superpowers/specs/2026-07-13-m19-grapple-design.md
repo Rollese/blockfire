@@ -28,13 +28,12 @@ The Assault **Grappling Hook** gadget deploys a **vertical, climbable rope-ladde
 - Radius = the shared `Ladder.LADDER_CAPTURE_RADIUS` const (not sent on the wire).
 
 ### Economy & lifetime
-- **`GRAPPLE_CHARGES` = 2** charges. Reset to full on spawn/deploy; refilled by ammo boxes / support resupply (`ServerSupport.give_ammo`, same seam as reserve ammo & stim charges).
-- **Max one active ladder per owner.** Redeploying while one is active **moves it** (removes the old, spends a charge for the new).
-- A deployed ladder persists until the **first** of:
-  1. owner redeploys (replaced),
-  2. owner dies / disconnects / despawns,
-  3. the anchor building **collapses** (hooks the existing collapse → ladder-cleanup pass at `server_main.gd:2589`; a grapple ladder anchored to a collapsed `building_id` is dropped with the static ones),
-  4. a **safety timer** `GRAPPLE_LIFETIME_TICKS` (≈ 90 s @ 30 Hz) elapses.
+- **`GRAPPLE_CHARGES` = 1** charge — **single-use per life**. Reset to full (1) on spawn; a deploy spends the charge; once spent, the player **cannot deploy again until they restock from support** (ammo box / `ServerSupport.give_ammo`, same seam as reserve ammo & stim charges — refills up to the cap of 1). This makes the grapple a resource the player coordinates with their support class for.
+- **Max one active ladder per owner.** Redeploying (only possible with a charge, i.e. after a restock or a fresh spawn) **moves it** — removes the owner's previous ladder and places the new one.
+- **No lifespan timer** — a deployed ladder is a **persistent map feature** and survives the owner's death/respawn. It is removed only on the **first** of:
+  1. owner redeploys (their previous ladder is replaced),
+  2. owner **disconnects** / leaves the server (housekeeping — the record would otherwise be un-ownable),
+  3. the anchor building **collapses** (hooks the existing collapse → ladder-cleanup pass at `server_main.gd:2589`; a grapple ladder anchored to a collapsed `building_id` is dropped with the static ones).
 - **Anyone climbs it** — it is a world ladder, identical to static map ladders once deployed (climb uses the unchanged `Ladder` helpers).
 
 ### Climb
@@ -70,7 +69,7 @@ The **gameplay climb volume is a straight vertical line**; the **visual rope is 
 - **New pure module `shared/sim/grapple.gd`** — anchor resolution + validation rules (range march result → `{ok, x, z, bottom_y, top_y, building_id}` or reject reason; range clamp; min-height; surface-hit classification). Side-effect-free, unit-tested like `riot_shield.gd`.
 - **Server (`server_main.gd` + support seam)**:
   - `GA_GRAPPLE_FIRE` handler → `Grapple.resolve_anchor` → charge/gate checks → append to `deployed_ladders`.
-  - `deployed_ladders` lifecycle: max-1-per-owner (evict old), safety-timer expiry, death/disconnect cleanup, collapse cleanup (extend the `2589` filter to drop ladders on the collapsed `building_id`).
+  - `deployed_ladders` lifecycle: max-1-per-owner (evict old on redeploy), disconnect cleanup, collapse cleanup (extend the `2589` filter to drop ladders on the collapsed `building_id`). **No timer; the ladder survives owner death/respawn.**
   - Feed `deployed_ladders` into the ladder-capture query (concatenate with static `_sim.ladders`; keep them a **separate list** so only deployed ones replicate).
   - `DEPLOYED_LADDER_LIST` send; `grapple_charges` into `SELF_STATE`; resupply refill in `give_ammo`; charge reset on spawn.
 - **Client (`client_main.gd` / `world_renderer.gd` / class-select / HUD)**:
@@ -85,7 +84,7 @@ The **gameplay climb volume is a straight vertical line**; the **visual rope is 
 
 - **Deterministic unit tests** (`tests/*_test.gd`, extend `TestCase`):
   - `grapple_test.gd` — anchor resolution: valid surface within range → correct `{x,z,bottom_y,top_y}`; out-of-range reject; below-min-height reject; downed/vehicle/mounted gate; ground baseline (M15 sub-zero terrain safe).
-  - Server-integration — deploy spends a charge; deploy at 0 charges rejected; max-1 evicts the old; safety-timer expiry removes it; anchor-building collapse removes it; resupply refills; spawn resets charges.
+  - Server-integration — deploy spends the (single) charge; a second deploy at 0 charges is rejected until restock; resupply refills the charge; spawn resets the charge to full; max-1 evicts the owner's old ladder on redeploy; the ladder **survives the owner's death/respawn**; owner disconnect removes it; anchor-building collapse removes it.
   - Climb-via-deployed-ladder — a deployed volume is captured and climbed by `Ladder` helpers (owner + a second pawn), confirming "anyone climbs".
   - Wire round-trip — `DEPLOYED_LADDER_LIST` encode/decode; `SELF_STATE` `grapple_charges` trailing byte append/absent.
 - **Fleet gate:** 128-bot `conquest_town` on game2 (native encoder built), same bar as Riot Shield — **peak tick < 33.3 ms, 0 script errors, `grapples_deployed` > 0 and `grapple_climbs` > 0** (bot exerciser), nests/shield counters unregressed. Evidence committed to `docs/gate-evidence/`.
