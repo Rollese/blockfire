@@ -179,8 +179,7 @@ func _ensure_built() -> void:
 	body.add_child(right)
 
 	# --- left column ---
-	var primary_caption := _caption(left, "PRIMARY", "ar", 16)
-	primary_caption.add_theme_font_size_override("font_size", 16)
+	_caption(left, "PRIMARY", "ar", 16)
 	_primary_box = VBoxContainer.new()   # per-archetype category sections, rebuilt on _refresh()
 	_primary_box.add_theme_constant_override("separation", 4)
 	left.add_child(_primary_box)
@@ -223,15 +222,17 @@ func _add_section(parent: VBoxContainer, caption: String, icon_key: String) -> H
 	return row
 
 ## A standalone caption Label (optionally icon-prefixed), used for the PRIMARY / PERKS / SUMMARY
-## headers that sit above a VBox rather than beside inline options. Returns the Label.
-func _caption(parent: VBoxContainer, text: String, icon_key: String, _size: int) -> Label:
+## headers that sit above a VBox rather than beside inline options. `size` sets the header font size
+## so all three captions render consistently. Returns the Label.
+func _caption(parent: VBoxContainer, text: String, icon_key: String, size: int) -> Label:
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 6)
 	_add_icon(row, icon_key)
 	var lbl := Label.new()
 	lbl.text = text
-	parent.add_child(row)
+	lbl.add_theme_font_size_override("font_size", size)
 	row.add_child(lbl)
+	parent.add_child(row)
 	return lbl
 
 ## Append a small icon TextureRect to `row` for `icon_key` (a _SLOT_ICON/_ARCH_ICON filename stem, or
@@ -339,6 +340,9 @@ func _refresh_primary(cls: int, primary: int) -> void:
 		_primary_box.remove_child(c)
 		c.queue_free()
 	for arch in Loadout.allowed_archetypes(cls):
+		var variants := Weapon.variants_of(arch)
+		if variants.is_empty():
+			continue   # a data change could leave an allowed archetype with no variants — no lonely header
 		var header := HBoxContainer.new()
 		header.add_theme_constant_override("separation", 6)
 		_add_icon(header, String(_ARCH_ICON.get(arch, "")))
@@ -350,7 +354,7 @@ func _refresh_primary(cls: int, primary: int) -> void:
 
 		var row := HBoxContainer.new()
 		row.add_theme_constant_override("separation", 6)
-		for wid: int in Weapon.variants_of(arch):
+		for wid: int in variants:
 			var btn := _add_button(row, Weapon.display_name(wid), wid == primary, false,
 				_on_primary_pressed.bind(wid))
 			btn.set_meta("weapon_id", wid)
@@ -387,14 +391,13 @@ func _refresh_summary(cls: int, primary: int, armor: int, grenade: int, gadget: 
 	for c in _summary_box.get_children():
 		_summary_box.remove_child(c)
 		c.queue_free()
-	var armor_name: String = ["Light", "Medium", "Heavy"][armor] if armor >= 0 and armor <= 2 else "?"
 	var lines := [
 		"Class: %s" % String(_CLASS_LABELS.get(cls, "?")),
 		"Primary: %s" % Weapon.display_name(primary),
 		"Optic: %s" % _attach_label(String(attachments.get("optic", ""))),
 		"Barrel: %s" % _attach_label(String(attachments.get("barrel", ""))),
 		"Underbarrel: %s" % _attach_label(String(attachments.get("underbarrel", ""))),
-		"Armor: %s" % armor_name,
+		"Armor: %s" % _armor_name(armor),
 		"Grenade: %s" % String(_GRENADE_LABELS.get(grenade, "?")),
 		"Gadget: %s" % String(_GADGET_LABELS.get(gadget, "Gadget %d" % gadget)).split(" —")[0],
 	]
@@ -405,13 +408,17 @@ func _refresh_summary(cls: int, primary: int, armor: int, grenade: int, gadget: 
 		lbl.custom_minimum_size = Vector2(300, 0)
 		_summary_box.add_child(lbl)
 
+## Tier display name (Armor.gd exposes no name authority, so this is the panel's single source; both
+## the armor picker line and the summary route through it rather than duplicating the array).
+func _armor_name(tier: int) -> String:
+	return ["Light", "Medium", "Heavy"][tier] if tier >= 0 and tier <= 2 else "?"
+
 ## Armor picker line built from Armor.speed_mult / Armor.body_mult (no invented numbers). body_mult
 ## is the fraction of damage that LANDS, so damage-reduction = (1 - body_mult).
 func _armor_label(tier: int) -> String:
-	var tier_name: String = ["Light", "Medium", "Heavy"][tier] if tier >= 0 and tier <= 2 else "?"
 	var speed_pct: int = int(round((Armor.speed_mult(tier) - 1.0) * 100.0))
 	var dr_pct: int = int(round((1.0 - Armor.body_mult(tier)) * 100.0))
-	return "%s  %+d%% speed, %d%% dmg reduction" % [tier_name, speed_pct, dr_pct]
+	return "%s  %+d%% speed, %d%% dmg reduction" % [_armor_name(tier), speed_pct, dr_pct]
 
 ## Attachment button label. The catalog carries no display names, so ids are title-cased; the
 ## per-slot empty option (e.g. "none_ub") renders as a plain "None" rather than the raw id.

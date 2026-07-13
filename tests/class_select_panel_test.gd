@@ -118,6 +118,32 @@ func test_never_visited_class_starts_at_default() -> void:
 		"never-visited class -> default gadget")
 	panel.free()
 
+func test_stored_invalid_loadout_is_sanitized_on_switch() -> void:
+	# "Trust persisted data across data changes" contract: a stored loadout that is illegal for its
+	# class (e.g. a class remembered a DMR primary + a bogus gadget, then class rules changed) must be
+	# sanitized back to legal values when the panel switches to that class — never surfaced raw.
+	var store := ClientSettings.new()
+	var illegal_dmr: int = int(Weapon.variants_of(Weapon.DMR)[0])   # DMR is Assault-only; Medic can't field it
+	assert_false(Loadout.is_primary_allowed(Loadout.MEDIC, illegal_dmr), "test picks a Medic-illegal primary")
+	store.set_class_loadout(Loadout.MEDIC, {
+		"class": Loadout.MEDIC, "primary": illegal_dmr, "gadget": 9999,   # bogus gadget id
+		"armor": Armor.MEDIUM, "grenade": Grenade.FRAG,
+	})
+	var panel := ClassSelectPanel.new()
+	panel.set_store(store)
+	panel.setup(Loadout.default_loadout(Loadout.ASSAULT), _attach())
+	panel._on_class_pressed(Loadout.MEDIC)
+	# Working copy came back legal — and matches what Loadout.sanitize (the authority) would produce.
+	assert_true(Loadout.is_primary_allowed(Loadout.MEDIC, int(panel._cfg.get("primary", -1))),
+		"stored illegal primary sanitized to a Medic-legal one")
+	assert_ne(int(panel._cfg.get("primary", -1)), illegal_dmr, "the DMR was actually replaced")
+	assert_true(int(panel._cfg.get("gadget", -1)) in Loadout.IMPLEMENTED_GADGETS,
+		"bogus stored gadget sanitized to an implemented one")
+	var expected := Loadout.sanitize(store.get_class_loadout(Loadout.MEDIC), _attach())
+	assert_eq(int(panel._cfg.get("primary", -1)), int(expected["primary"]), "matches Loadout.sanitize primary")
+	assert_eq(int(panel._cfg.get("gadget", -1)), int(expected["gadget"]), "matches Loadout.sanitize gadget")
+	panel.free()
+
 func test_edit_persists_to_store() -> void:
 	# Task 3/5: every edit writes the sanitized cfg back to the injected store for its class.
 	var store := ClientSettings.new()

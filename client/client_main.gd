@@ -2383,12 +2383,9 @@ func _build_fob_candidates() -> Array:
 ## push it. _send_loadout() re-sanitizes against our attachment catalog before sending SET_LOADOUT.
 func _on_loadout_changed(cfg: Dictionary) -> void:
 	_loadout = cfg.duplicate(true)
-	# Loadout-UI redesign: persist the edited loadout under its class so it survives this match, future
-	# matches, and reconnects to other servers. (The panel also writes the store directly; this keeps
-	# the persistence correct even if the panel had no store injected.)
-	if _settings != null:
-		_settings.set_class_loadout(int(_loadout.get("class", Loadout.ASSAULT)), _loadout)
-		_settings.save_to()
+	# Persistence is single-owner: the class-select panel (always injected with _settings as its store)
+	# writes+saves the per-class loadout on each edit — it is the sole origin of loadout_changed — so we
+	# do NOT persist again here. WELCOME seeding only READS the store, so no save path is missed.
 	_send_loadout()
 
 func _on_squad_selected(squad_id: int) -> void:
