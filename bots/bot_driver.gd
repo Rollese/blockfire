@@ -100,11 +100,14 @@ const RIOT_SHIELD_FRONT_ARC := deg_to_rad(90) # rad — half-angle off the bot's
 # M19 P6 Task 11: ASSAULT grapple exerciser (bots/exercisers.gd maybe_grapple). ~1/3 of Assault bots
 # roll GADGET_GRAPPLE (Loadout.bot_gadget ASSAULT branch id%3==2), so the fleet gate exercises the
 # deploy (GA_GRAPPLE_FIRE -> climbable rope) + cut (CUT_LADDER -> sever an aged enemy rope) paths.
-# DEPLOY needs a spendable charge (Grapple.CHARGES = single-use per life, restocked from support) + a
-# target ahead + the cadence elapsed (occasional, mirroring the LMG-nest/BREACH restraint); CUT fires
-# whenever the bot stands within Grapple.CUT_RADIUS of a server-armed (cuttable) rope. The server
-# re-validates the charge/anchor (deploy) and range/arm-time (cut), so a rejected request is harmless.
-const GRAPPLE_DEPLOY_COOLDOWN_TICKS := 300     # ~10 s @30Hz between deploy attempts (charge-gated anyway; avoids per-tick spam)
+# DEPLOY needs a spendable charge (Grapple.CHARGES = single-use per life, restocked from support) and a
+# tall BUILDING wall within reach — the bot fires the instant one comes into range (grapple hooks anchor
+# on structure, so aiming at a distant enemy just sailed the ray over open ground); CUT fires whenever
+# ANY bot stands within Grapple.CUT_RADIUS of a server-armed (cuttable) rope, and CLIMB is driven by
+# feeding deployed ropes into the climb_seek + driller paths below. The server re-validates the
+# charge/anchor (deploy) and range/arm-time (cut), so a rejected request is harmless.
+const GRAPPLE_DEPLOY_COOLDOWN_TICKS := 60      # ~2 s @30Hz retry limiter between fires; only advances on an actual fire (near a wall), so a bot fires the instant a building comes into range and gets a few retries during a pass-by — the 1-charge-per-life gate is the real spam guard
+const GRAPPLE_DRILL_RANGE := 16.0              # m: a CLIMB-driller within this of a deployed rope drills (force-climbs) it instead of its map ladder — drives grapple_climbs reliably (climb_seek alone under-engages, see below)
 
 ## M15: bot-only slope-avoidance (NOT pathfinding, NOT sim-authoritative — the server still
 ## authoritatively clips a bot's movement via Terrain.resolve_movement exactly like a human; see
@@ -542,6 +545,17 @@ func _drive(bot: Dictionary, delta: float) -> void:
 			var dl := Vector2(lb.x - me.pos.x, lb.z - me.pos.z).length()
 			if dl < best_ld:
 				best_ld = dl; _drill_ladder = l
+		# M19 P6: a driller whose route passes a DEPLOYED grapple rope (within GRAPPLE_DRILL_RANGE) drills
+		# it instead — the driller's force-climb reliably ENGAGES the rope (the plain climb_seek path often
+		# fails to, because obstacle-avoidance sidesteps the wall and drops move_y below the engage
+		# threshold). Additive + range-gated: only fires once ropes exist (conquest_town, mid-match) and one
+		# is genuinely near, so a driller far from any rope keeps its map-ladder station (M4.5 gate intact).
+		for rope in (bot["deployed_ladders"] as Array):
+			var dl := Vector2(float(rope["x"]) - me.pos.x, float(rope["z"]) - me.pos.z).length()
+			if dl < GRAPPLE_DRILL_RANGE and dl < best_ld:
+				best_ld = dl
+				_drill_ladder = {"bottom": Vector3(float(rope["x"]), float(rope["bottom_y"]), float(rope["z"])),
+					"top": Vector3(float(rope["x"]), float(rope["top_y"]), float(rope["z"])), "radius": Grapple.LADDER_RADIUS}
 		var best_sb := INF
 		for pb in _map.prebuilt:
 			if String(pb["type"]) != "sandbag":
@@ -571,7 +585,15 @@ func _drive(bot: Dictionary, delta: float) -> void:
 		var ai: AiDriver = bot["ai"]
 		# M7.5-P3 (§E): map ladders reach the march path (climb_seek) — same MapDef source
 		# the climb-driller cohort already drills on.
-		var map_ladders: Array = _map.ladders if _map != null else []
+		var map_ladders: Array = (_map.ladders if _map != null else []).duplicate()
+		# M19 P6: deployed grapple ropes are climbable too — feed the synced DEPLOYED_LADDER_LIST mirror
+		# into the SAME climb_seek path (converted to its {bottom,top} shape) so a bot whose objective lies
+		# beyond a nearby rope steers onto it and starts a climb (drives grapple_climbs, not just deploys).
+		# Cheap: the mirror is already decoded each tick and is bounded by MAX_LADDERS.
+		for rope in (bot["deployed_ladders"] as Array):
+			map_ladders.append({
+				"bottom": Vector3(float(rope["x"]), float(rope["bottom_y"]), float(rope["z"])),
+				"top": Vector3(float(rope["x"]), float(rope["top_y"]), float(rope["z"]))})
 		ai.observe(int(bot["id"]), view, bot["vview"], bot["structs"], _match_points, int(bot["server_tick"]), obj, map_ladders,
 			bot["self_state"], bot["gadgets"], bot["grenade_events"])
 		var intent := ai.decide()

@@ -32,9 +32,15 @@ func _make_bot(id: int, cls: int, server_tick: int, charges := 1) -> Dictionary:
 		"net": net, "peer": null, "id": id, "class": cls, "team": 0,
 		"server_tick": server_tick, "tick": server_tick, "last_seq": 0,
 		"yaw": 0.0, "pitch": 0.0,
-		"view": {}, "deployed_ladders": [], "self_state": {"grapple_charges": charges},
+		"view": {}, "structs": {}, "deployed_ladders": [], "self_state": {"grapple_charges": charges},
 		"grapple_deploy_last_tick": -100000,
 	}
+
+## A synced-structure map with one TALL BUILDING (building_id != 0) piece at world `wp` — the anchor
+## the deploy aim seeks. Deploy fires only when such a building sits within reach (grapple hooks anchor
+## on structure, not on players — the old aim-at-the-enemy path sailed the up-tilt over open ground).
+func _structs_with_building(wp: Vector3, building_id := 5) -> Dictionary:
+	return {100: {"cell": BuildGrid.cell_of(wp), "building_id": building_id}}
 
 func _sends_of(bot: Dictionary, msg: int) -> Array:
 	return (bot["net"] as ServerFixture.SpyNet).bytes_of(msg)
@@ -67,43 +73,55 @@ func test_nearest_cuttable_ladder_skips_uncut_and_far() -> void:
 
 # --- maybe_grapple: self-gate / deploy / cut --------------------------------
 
-func test_non_grapple_gadget_bot_does_nothing() -> void:
+func test_non_grapple_gadget_bot_does_not_deploy() -> void:
 	var bd := BotDriver.new(); autofree(bd)
 	var bot := _make_bot(C4_ASSAULT_ID, Loadout.ASSAULT, 1000)   # id 0 -> C4, not the grapple
+	bot["structs"] = _structs_with_building(Vector3(0, 0, 8))    # a wall IS in range…
 	bd._ex.maybe_grapple(bot, _es(0, Vector3.ZERO), _es(1, Vector3(10, 0, 0)))
-	assert_eq((bot["net"] as ServerFixture.SpyNet).sends.size(), 0, "self-gate: no grapple packets from a non-grapple bot")
+	# …but the deploy path self-gates on GADGET_GRAPPLE, so a C4 bot fires nothing (it has no rope to cut).
+	assert_eq(_sends_of(bot, Protocol.Msg.GADGET_ACTION).size(), 0, "deploy self-gate: a non-grapple bot never fires the hook")
 
-func test_deploy_fired_when_charged_with_a_target() -> void:
+func test_deploy_fired_when_charged_and_a_building_is_in_range() -> void:
 	var bd := BotDriver.new(); autofree(bd)
 	var bot := _make_bot(GRAPPLE_ASSAULT_ID, Loadout.ASSAULT, 1000)
-	var me := _es(0, Vector3.ZERO)
-	bd._ex.maybe_grapple(bot, me, _es(1, Vector3(10, 0, 0)))
+	bot["structs"] = _structs_with_building(Vector3(0, 0, 8))   # a tall building ~8 m ahead (+z)
+	bd._ex.maybe_grapple(bot, _es(0, Vector3.ZERO), null)       # target is now irrelevant to deploy
 	var fires := _sends_of(bot, Protocol.Msg.GADGET_ACTION)
-	assert_eq(fires.size(), 1, "one grapple-fire request sent")
+	assert_eq(fires.size(), 1, "one grapple-fire request sent when a building wall is within reach")
 	var g := Protocol.decode_gadget_action(fires[0])
 	assert_eq(int(g["action"]), Protocol.GA_GRAPPLE_FIRE, "it's a GA_GRAPPLE_FIRE")
-	# Aim is a real world-space vector toward the enemy (+x), tilted UP so the march tends to strike a
-	# wall/ledge rather than the ground — NOT a yaw-derived direction.
+	# Aim is a real world-space vector toward the BUILDING (+z), tilted UP so the eye-march strikes the
+	# wall face above MIN_HEIGHT — anchoring on structure, not on a player.
 	var aim: Vector3 = g["dir"]
-	assert_true(aim.x > 0.0, "aims toward the enemy along +x")
-	assert_true(aim.y > 0.0, "tilts up so the hook tends to catch a ledge, not the floor")
+	assert_true(aim.z > 0.0, "aims toward the building wall along +z")
+	assert_true(aim.y > 0.0, "tilts up so the hook catches the wall face, not the floor")
 	assert_eq(int(bot["grapple_deploy_last_tick"]), 1000, "stamps the deploy cadence tick")
 
 func test_no_deploy_without_a_charge() -> void:
 	var bd := BotDriver.new(); autofree(bd)
 	var bot := _make_bot(GRAPPLE_ASSAULT_ID, Loadout.ASSAULT, 1000, 0)   # 0 charges
+	bot["structs"] = _structs_with_building(Vector3(0, 0, 8))
 	bd._ex.maybe_grapple(bot, _es(0, Vector3.ZERO), _es(1, Vector3(10, 0, 0)))
 	assert_eq((bot["net"] as ServerFixture.SpyNet).sends.size(), 0, "spent grapple -> no fire")
 
-func test_no_deploy_without_a_target() -> void:
+func test_no_deploy_without_a_building_in_range() -> void:
+	var bd := BotDriver.new(); autofree(bd)
+	var bot := _make_bot(GRAPPLE_ASSAULT_ID, Loadout.ASSAULT, 1000)   # charged, but structs empty
+	bd._ex.maybe_grapple(bot, _es(0, Vector3.ZERO), _es(1, Vector3(10, 0, 0)))
+	assert_eq((bot["net"] as ServerFixture.SpyNet).sends.size(), 0, "no building wall in reach -> no fire into the open")
+
+func test_no_deploy_when_only_low_cover_in_range() -> void:
 	var bd := BotDriver.new(); autofree(bd)
 	var bot := _make_bot(GRAPPLE_ASSAULT_ID, Loadout.ASSAULT, 1000)
-	bd._ex.maybe_grapple(bot, _es(0, Vector3.ZERO), null)
-	assert_eq((bot["net"] as ServerFixture.SpyNet).sends.size(), 0, "no target ahead -> no fire")
+	# building_id == 0 = bot-built cover / low props, NOT a tall building: no valid anchor -> no fire.
+	bot["structs"] = _structs_with_building(Vector3(0, 0, 8), 0)
+	bd._ex.maybe_grapple(bot, _es(0, Vector3.ZERO), _es(1, Vector3(10, 0, 0)))
+	assert_eq((bot["net"] as ServerFixture.SpyNet).sends.size(), 0, "only building_id==0 cover in range -> no anchor -> no fire")
 
 func test_deploy_suppressed_by_cadence() -> void:
 	var bd := BotDriver.new(); autofree(bd)
 	var bot := _make_bot(GRAPPLE_ASSAULT_ID, Loadout.ASSAULT, 1000)
+	bot["structs"] = _structs_with_building(Vector3(0, 0, 8))
 	bot["grapple_deploy_last_tick"] = 1000 - (bd.GRAPPLE_DEPLOY_COOLDOWN_TICKS - 1)   # still cooling down
 	bd._ex.maybe_grapple(bot, _es(0, Vector3.ZERO), _es(1, Vector3(10, 0, 0)))
 	assert_eq(_sends_of(bot, Protocol.Msg.GADGET_ACTION).size(), 0, "cadence gate blocks a second deploy")
@@ -118,6 +136,18 @@ func test_cut_sent_when_standing_at_an_armed_enemy_rope() -> void:
 	assert_eq(cuts.size(), 1, "one cut request")
 	assert_eq(int(Protocol.decode_cut_ladder(cuts[0])["ladder_id"]), 42, "cuts the in-radius armed rope")
 	assert_eq(_sends_of(bot, Protocol.Msg.GADGET_ACTION).size(), 0, "cut takes priority — no deploy this tick")
+
+func test_cut_open_to_any_class_not_just_grapple_bots() -> void:
+	# Cutting a rope needs no gadget (the server re-validates arm-age + range), so the cut path runs for
+	# EVERY bot — ropes anchor at wall faces the ~10 grapple bots rarely revisit, so gating cuts to grapple
+	# bots alone left grapple_cuts near-zero. A plain C4 Assault bot standing at an armed rope severs it.
+	var bd := BotDriver.new(); autofree(bd)
+	var bot := _make_bot(C4_ASSAULT_ID, Loadout.ASSAULT, 1000)   # id 0 -> C4, NOT a grapple bot
+	bot["deployed_ladders"] = [{"id": 77, "x": 0.5, "z": 0.0, "bottom_y": 0.0, "top_y": 4.0, "cuttable": true}]
+	bd._ex.maybe_grapple(bot, _es(0, Vector3.ZERO), _es(1, Vector3(10, 0, 0)))
+	var cuts := _sends_of(bot, Protocol.Msg.CUT_LADDER)
+	assert_eq(cuts.size(), 1, "a non-grapple bot still cuts an in-radius armed rope")
+	assert_eq(int(Protocol.decode_cut_ladder(cuts[0])["ladder_id"]), 77, "cuts the armed rope it stands at")
 
 func test_no_cut_when_rope_not_yet_armed() -> void:
 	var bd := BotDriver.new(); autofree(bd)

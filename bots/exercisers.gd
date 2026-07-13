@@ -783,36 +783,81 @@ static func mounted_nest_facing(nests: Array, nest_id: int) -> float:
 			return float(n.get("facing_yaw", 0.0))
 	return NAN
 
-## M19 P6 Task 11: ASSAULT grapple exerciser — DEPLOY a climbable rope near a target, or CUT an
-## aged enemy rope the bot is standing at. Self-gates on GADGET_GRAPPLE (~1/3 of Assault bots).
+## M19 P6 Task 11: grapple exerciser — CUT an armed rope the bot is standing at (any class), or DEPLOY
+## a climbable rope onto a nearby BUILDING (grapple-gadget bots only, ~1/3 of Assault bots).
 ## Priority: (1) a server-armed (cuttable) rope within Grapple.CUT_RADIUS -> sever it (drives the
-## grapple_cuts path); (2) else DEPLOY, gated on a spendable charge (from SELF_STATE.grapple_charges),
-## a target ahead, and the cadence, aiming a REAL world-space vector toward the target tilted UP so
-## the server's eye-march (grapple_server.deploy) tends to strike a wall/ledge rather than the ground.
-## The aim is deliberately convention-independent (not yaw-derived): the server marches p.eye_position()
-## along this dir, so a direct up-tilted vector toward the target is what lands an anchor + rope.
+## grapple_cuts path — open to every bot, since ropes anchor at wall faces the grapple bots rarely
+## revisit); (2) else DEPLOY, gated on the grapple gadget, a spendable charge (from
+## SELF_STATE.grapple_charges) and the retry cadence, aiming at the nearest tall building wall (see
+## nearest_wall_aim) so the server's eye-march (grapple_server.deploy) anchors a rope high on structure.
+## The bot fires only when a wall is actually in reach — aiming at a distant enemy (the old behaviour)
+## sailed the up-tilted ray over open ground and struck nothing within MAX_RANGE (~97 % march-miss).
 func maybe_grapple(bot: Dictionary, me: EntityState, target: EntityState) -> void:
-	if Loadout.bot_gadget(int(bot["id"]), int(bot["class"])) != Loadout.GADGET_GRAPPLE: return
 	var st: int = bot["server_tick"]
-	# (1) Cut a nearby armed enemy rope if we're standing at one — takes priority over deploying.
+	# (1) Cut a nearby ARMED rope if we're standing at one — runs for EVERY bot (any class), since
+	# cutting a rope needs no gadget (the server re-validates arm-age + CUT_RADIUS). Ropes anchor at
+	# wall faces the ~10 grapple bots rarely revisit, so gating cuts to grapple bots alone left the
+	# metric near-zero; opening it to the whole fleet is both realistic and what actually exercises the
+	# grapple_cuts path. `deployed_ladders` is synced to every bot regardless of class.
 	var cut_id := nearest_cuttable_ladder(bot.get("deployed_ladders", []), me.pos, Grapple.CUT_RADIUS)
 	if cut_id != 0:
 		(bot["net"] as NetHost).send_to(bot["peer"], NetHost.CHANNEL_CONTROL,
 			Protocol.encode_cut_ladder(cut_id), 0)
 		return
-	# (2) Deploy: needs a spendable charge, a target ahead, and the deploy cadence elapsed.
+	# (2) Deploy is grapple-gadget-only (~1/3 of Assault bots): a grappling hook anchors on STRUCTURE,
+	# not on a player. The bot fires ONLY when a tall building wall is actually within reach, aiming an
+	# up-tilted ray at that wall so the server's eye-march strikes a face at >= MIN_HEIGHT. The old code
+	# fired on a fixed 10 s timer at the current ENEMY regardless of position — but grapple bots are
+	# usually 60 m+ from any building (in transit / at base) when the timer elapses, so that ray sailed
+	# over open ground and struck nothing within MAX_RANGE (measured: ~97 % march-miss, near-zero
+	# deploys). Firing opportunistically the moment a wall enters range makes deploys reliable at scale.
+	if Loadout.bot_gadget(int(bot["id"]), int(bot["class"])) != Loadout.GADGET_GRAPPLE: return
 	if grapple_charges(bot) <= 0: return
-	if target == null: return
+	# Retry limiter only — advanced on an actual fire, so the bot re-checks every tick while it has a
+	# charge and fires the instant a wall comes into range (never burns the cadence standing in the open).
 	if st - int(bot.get("grapple_deploy_last_tick", -100000)) < d.GRAPPLE_DEPLOY_COOLDOWN_TICKS: return
-	var to := Vector3(target.pos.x - me.pos.x, 0.0, target.pos.z - me.pos.z)
-	if to.length() < 0.001: return
-	var face := to.normalized()
-	# Aim slightly up so the server's eye-march strikes a wall/ledge, not the floor. A real world-space
-	# vector (not yaw-derived) — the server deploy is convention-independent (see AIM CONVENTION NOTE).
-	var aim := Vector3(face.x * 0.9, 0.4, face.z * 0.9).normalized()
+	var aim := nearest_wall_aim(bot["structs"], me.pos)
+	if aim == Vector3.ZERO: return   # no building wall in reach — wait (don't fire into the open)
 	(bot["net"] as NetHost).send_to(bot["peer"], NetHost.CHANNEL_INPUT,
 		Protocol.encode_gadget_action(Protocol.GA_GRAPPLE_FIRE, me.pos, aim, 0), 0)
 	bot["grapple_deploy_last_tick"] = st
+
+## Aim a grapple hook at the nearest TALL BUILDING within reach, tilted UP so the server's eye-march
+## strikes a wall face safely above Grapple.MIN_HEIGHT (the resolved anchor). Returns a world-space aim
+## vector, or Vector3.ZERO if no building is in range. Only building pieces (building_id != 0 — the map's
+## multi-storey destructible prefabs) qualify: they are guaranteed-tall vertical stacks, unlike bot-built
+## cover / low props. We first find the nearest building piece, then aim at the CENTROID of that whole
+## building (all pieces sharing its building_id) so the ray drives INTO the building's bulk rather than
+## grazing a single edge cell (which slipped past the corner -> march-miss); the tilt is set from the
+## distance to the near FACE so the anchor lands ~3.8 m over the pad (comfortable margin over MIN_HEIGHT).
+const GRAPPLE_WALL_MIN := 3.0    # m: don't anchor on a wall we're jammed against (the eye-march would start inside it)
+const GRAPPLE_WALL_MAX := 20.0   # m: leave headroom under Grapple.MAX_RANGE(22) for the up-tilted path length
+static func nearest_wall_aim(structs: Dictionary, pos: Vector3) -> Vector3:
+	# Pass 1: nearest building piece within [MIN, MAX] -> which building, and how far to its near face.
+	var best_h := GRAPPLE_WALL_MAX
+	var bld := 0
+	for sid in structs:
+		var b := int(structs[sid].get("building_id", 0))
+		if b == 0: continue   # tall map buildings only
+		var wp: Vector3 = BuildGrid.world_of(structs[sid]["cell"] as Vector3i)
+		var h := Vector2(wp.x - pos.x, wp.z - pos.z).length()
+		if h < GRAPPLE_WALL_MIN or h >= best_h: continue
+		best_h = h; bld = b
+	if bld == 0: return Vector3.ZERO
+	# Pass 2: centroid (x,z) of every piece of that building -> a direction into its solid mass.
+	var cx := 0.0; var cz := 0.0; var n := 0
+	for sid in structs:
+		if int(structs[sid].get("building_id", 0)) != bld: continue
+		var wp: Vector3 = BuildGrid.world_of(structs[sid]["cell"] as Vector3i)
+		cx += wp.x; cz += wp.z; n += 1
+	var flat := Vector3(cx / n - pos.x, 0.0, cz / n - pos.z)
+	if flat.length() < 0.001: return Vector3.ZERO
+	flat = flat.normalized()
+	# Tilt = rise / distance-to-near-face, aiming a CONSTANT anchor height (~2.2 m above eye => ~3.8 m
+	# over the pad). Low min clamp keeps a far wall from being over-tilted (sailed over a 2-storey roof);
+	# high clamp keeps a very near wall hit safely high, with margin over MIN_HEIGHT even on a raised pad.
+	var ratio := clampf(2.2 / best_h, 0.08, 0.7)
+	return Vector3(flat.x, ratio, flat.z).normalized()
 
 ## Spendable grapple charges from the bot's own SELF_STATE mirror (0 when unsynced) — mirrors how
 ## drive_mounted_nest reads mounted_nest straight from self_state (fair-play: reads only its OWN state).

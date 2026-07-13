@@ -5,6 +5,13 @@ This doc is the human-readable index so an agent allocating a message id or audi
 doesn't have to reverse-engineer an 850-line file. **Update this table in the same commit as any
 `Msg` enum change.**
 
+- **`Protocol.VERSION` = 12** (2026-07-13, M19 grapple: `DEPLOYED_LADDER_LIST` (51) + `CUT_LADDER`
+  (52) + `GA_GRAPPLE_FIRE` (13, a `GADGET_ACTION` sub-action, not a `Msg`) + SELF_STATE gains a
+  trailing `grapple_charges` u8 (owner-only remaining charges, append-last so old decoders ignore it);
+  `docs/superpowers/specs/2026-07-13-m19-grapple-design.md`). Intervening versions **8–11** (M19
+  `SET_LOADOUT`, P4 LMG-nest `EMPLACEMENT_ACTION`/`EMPLACEMENT_LIST`, P5 riot-shield SELF_STATE
+  `shield_hp_frac`) were not backfilled into this header at the time — see `protocol.gd`'s `VERSION`
+  comment block for their authoritative history; the id table below is current through 52.
 - **`Protocol.VERSION` = 7** (2026-07-10, reliable BULK channel: structure baselines/deltas/collapse
   move to a dedicated reliable ENet channel (3) so a dense-map baseline flood can't head-of-line-block
   latency-critical SELF_STATE on channel 0. Transport-topology change only — no message format changed;
@@ -24,7 +31,7 @@ doesn't have to reverse-engineer an 850-line file. **Update this table in the sa
 - **Channels** (`shared/net/net_host.gd`): `CONTROL` (0, reliable control traffic + SELF_STATE),
   `SNAPSHOT` (1, unreliable state), `INPUT` (2, client commands), `BULK` (3, reliable structure
   baselines/deltas/collapse — separate reliable stream so a baseline flood can't HOL-block SELF_STATE).
-- **Next free message id: 48.**
+- **Next free message id: 53.**
 
 | id | Msg | direction | purpose | since |
 |---|---|---|---|---|
@@ -75,6 +82,11 @@ doesn't have to reverse-engineer an 850-line file. **Update this table in the sa
 | 45 | COLLAPSE_WARNING | s→c | building about to collapse (id + centre) → rumble/shake, COLLAPSE fires ~3 s later | M11 |
 | 46 | BANDAGE_ACTION | c→s | hold-to-bandage a standing-bleeding self/teammate (active-bit + target id) | M16 |
 | 47 | BLEEDING_LIST | s→h | standing-bleeding teammate ids → bleed marker + "hold to bandage" prompt | M16 |
+| 48 | SET_LOADOUT | c→s | player-picked loadout (class/primary/secondary/gadget/armor/grenade + attachment ids); stored, applied at next spawn | M19 |
+| 49 | EMPLACEMENT_ACTION | c→s | mount/dismount a deployed LMG nest (action + nest id) | M19 P4 |
+| 50 | EMPLACEMENT_LIST | s→h | deployed LMG nests {id,pos,facing,turret,hp_frac,occupant,team} | M19 P4 |
+| 51 | DEPLOYED_LADDER_LIST | s→h | deployed grapple ladders {id,x,z,bottom_y,top_y,cuttable} → climb-inject + rope render + cut prompt | M19 grapple |
+| 52 | CUT_LADDER | c→s | request to cut deployed grapple ladder id (server-validated: cuttable + in radius + alive) | M19 grapple |
 
 Direction key: `c→s` client to server · `s→c` server to one client · `s→c*` server broadcast ·
 `s→h` server to **human** clients only (cosmetic; bots skip decode).
