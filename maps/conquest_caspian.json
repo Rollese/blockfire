@@ -1,0 +1,7270 @@
+{
+  "name": "Caspian Border",
+  "world_half": 500.0,
+  "roads": [
+    {
+      "min": [
+        -200,
+        0,
+        -500
+      ],
+      "max": [
+        -194,
+        0,
+        -90
+      ]
+    },
+    {
+      "min": [
+        -200,
+        0,
+        -96
+      ],
+      "max": [
+        -94,
+        0,
+        -90
+      ]
+    },
+    {
+      "min": [
+        -100,
+        0,
+        -96
+      ],
+      "max": [
+        -94,
+        0,
+        140
+      ]
+    },
+    {
+      "min": [
+        -100,
+        0,
+        134
+      ],
+      "max": [
+        240,
+        0,
+        140
+      ]
+    },
+    {
+      "min": [
+        -330,
+        0,
+        -14
+      ],
+      "max": [
+        330,
+        0,
+        -8
+      ]
+    },
+    {
+      "min": [
+        164,
+        0,
+        -260
+      ],
+      "max": [
+        170,
+        0,
+        240
+      ]
+    },
+    {
+      "min": [
+        -318,
+        0,
+        300
+      ],
+      "max": [
+        40,
+        0,
+        306
+      ]
+    }
+  ],
+  "buildings": [
+    {
+      "prefab": "guardhouse",
+      "origin_cell": [
+        -50,
+        0,
+        -25
+      ],
+      "yaw": 0,
+      "footprint": {
+        "min_x": -120.0,
+        "max_x": -112.8,
+        "min_z": -60.0,
+        "max_z": -52.8
+      }
+    },
+    {
+      "prefab": "guardhouse",
+      "origin_cell": [
+        -50,
+        0,
+        -8
+      ],
+      "yaw": 0,
+      "footprint": {
+        "min_x": -120.0,
+        "max_x": -112.8,
+        "min_z": -19.2,
+        "max_z": -12.0
+      }
+    },
+    {
+      "prefab": "barracks",
+      "origin_cell": [
+        -62,
+        0,
+        -23
+      ],
+      "yaw": 0,
+      "footprint": {
+        "min_x": -148.79999999999998,
+        "max_x": -127.19999999999999,
+        "min_z": -55.199999999999996,
+        "max_z": -45.6
+      }
+    },
+    {
+      "prefab": "shed",
+      "origin_cell": [
+        -62,
+        0,
+        -8
+      ],
+      "yaw": 0,
+      "footprint": {
+        "min_x": -148.79999999999998,
+        "max_x": -141.6,
+        "min_z": -19.2,
+        "max_z": -12.0
+      }
+    },
+    {
+      "prefab": "guardhouse",
+      "origin_cell": [
+        66,
+        0,
+        -38
+      ],
+      "yaw": 0,
+      "footprint": {
+        "min_x": 158.4,
+        "max_x": 165.6,
+        "min_z": -91.2,
+        "max_z": -84.0
+      }
+    },
+    {
+      "prefab": "bunker",
+      "origin_cell": [
+        76,
+        0,
+        -29
+      ],
+      "yaw": 0,
+      "footprint": {
+        "min_x": 182.4,
+        "max_x": 192.0,
+        "min_z": -69.6,
+        "max_z": -60.0
+      }
+    },
+    {
+      "prefab": "shed",
+      "origin_cell": [
+        40,
+        0,
+        10
+      ],
+      "yaw": 0,
+      "footprint": {
+        "min_x": 96.0,
+        "max_x": 103.2,
+        "min_z": 24.0,
+        "max_z": 31.2
+      }
+    },
+    {
+      "prefab": "bunker",
+      "origin_cell": [
+        -24,
+        0,
+        26
+      ],
+      "yaw": 0,
+      "footprint": {
+        "min_x": -57.599999999999994,
+        "max_x": -48.0,
+        "min_z": 62.4,
+        "max_z": 72.0
+      }
+    },
+    {
+      "prefab": "gas_station",
+      "origin_cell": [
+        8,
+        0,
+        82
+      ],
+      "yaw": 0,
+      "footprint": {
+        "min_x": 19.2,
+        "max_x": 33.6,
+        "min_z": 196.79999999999998,
+        "max_z": 204.0
+      }
+    },
+    {
+      "prefab": "house",
+      "origin_cell": [
+        24,
+        0,
+        82
+      ],
+      "yaw": 0,
+      "footprint": {
+        "min_x": 57.599999999999994,
+        "max_x": 69.6,
+        "min_z": 196.79999999999998,
+        "max_z": 208.79999999999998
+      }
+    },
+    {
+      "prefab": "twostory_house",
+      "origin_cell": [
+        24,
+        0,
+        93
+      ],
+      "yaw": 0,
+      "footprint": {
+        "min_x": 57.599999999999994,
+        "max_x": 74.39999999999999,
+        "min_z": 223.2,
+        "max_z": 237.6
+      }
+    },
+    {
+      "prefab": "cottage",
+      "origin_cell": [
+        8,
+        0,
+        98
+      ],
+      "yaw": 0,
+      "footprint": {
+        "min_x": 19.2,
+        "max_x": 26.4,
+        "min_z": 235.2,
+        "max_z": 244.79999999999998
+      }
+    },
+    {
+      "prefab": "silo",
+      "origin_cell": [
+        -2,
+        0,
+        87
+      ],
+      "yaw": 0,
+      "footprint": {
+        "min_x": -4.8,
+        "max_x": 2.4,
+        "min_z": 208.79999999999998,
+        "max_z": 216.0
+      }
+    },
+    {
+      "prefab": "shed",
+      "origin_cell": [
+        -25,
+        0,
+        -162
+      ],
+      "yaw": 0,
+      "footprint": {
+        "min_x": -60.0,
+        "max_x": -52.8,
+        "min_z": -388.8,
+        "max_z": -381.59999999999997
+      }
+    },
+    {
+      "prefab": "shed",
+      "origin_cell": [
+        -8,
+        0,
+        -162
+      ],
+      "yaw": 0,
+      "footprint": {
+        "min_x": -19.2,
+        "max_x": -12.0,
+        "min_z": -388.8,
+        "max_z": -381.59999999999997
+      }
+    },
+    {
+      "prefab": "warehouse",
+      "origin_cell": [
+        -142,
+        0,
+        150
+      ],
+      "yaw": 0,
+      "footprint": {
+        "min_x": -340.8,
+        "max_x": -321.59999999999997,
+        "min_z": 360.0,
+        "max_z": 374.4
+      }
+    },
+    {
+      "prefab": "factory",
+      "origin_cell": [
+        -125,
+        0,
+        150
+      ],
+      "yaw": 0,
+      "footprint": {
+        "min_x": -300.0,
+        "max_x": -280.8,
+        "min_z": 360.0,
+        "max_z": 376.8
+      }
+    },
+    {
+      "prefab": "silo",
+      "origin_cell": [
+        -145,
+        0,
+        165
+      ],
+      "yaw": 0,
+      "footprint": {
+        "min_x": -348.0,
+        "max_x": -340.8,
+        "min_z": 396.0,
+        "max_z": 403.2
+      }
+    }
+  ],
+  "prebuilt": [
+    {
+      "type": "bwall",
+      "cell": [
+        -125,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -125,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        -125,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -124,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -124,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        -124,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -123,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -123,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        -123,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -122,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -122,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        -122,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -121,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -121,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        -121,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -120,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -120,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        -120,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -119,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -119,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        -119,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -118,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -118,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        -118,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -117,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -117,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        -117,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -116,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -116,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        -116,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -115,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -115,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        -115,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -114,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -114,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        -114,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -113,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -113,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        -113,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -112,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -112,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        -112,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -111,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -111,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        -111,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -110,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -110,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        -110,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -109,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -109,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        -109,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -101,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -101,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        -101,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -100,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -100,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        -100,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -99,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -99,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        -99,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -98,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -98,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        -98,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -97,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -97,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        -97,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -96,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -96,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        -96,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -95,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -95,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        -95,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -94,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -94,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        -94,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -93,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -93,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        -93,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -92,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -92,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        -92,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -91,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -91,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        -91,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -90,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -90,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        -90,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -89,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -89,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        -89,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -88,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -88,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        -88,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -87,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -87,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        -87,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -86,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -86,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        -86,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -85,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -85,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        -85,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -84,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -84,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        -84,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -83,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -83,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        -83,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -82,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -82,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        -82,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -81,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -81,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        -81,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -80,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -80,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        -80,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -79,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -79,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        -79,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -78,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -78,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        -78,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -77,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -77,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        -77,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -76,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -76,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        -76,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -75,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -75,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        -75,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -74,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -74,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        -74,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -73,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -73,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        -73,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -72,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -72,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        -72,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -71,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -71,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        -71,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -70,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -70,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        -70,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -69,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -69,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        -69,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -68,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -68,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        -68,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -67,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -67,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        -67,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -66,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -66,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        -66,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -65,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -65,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        -65,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -64,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -64,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        -64,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -63,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -63,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        -63,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -62,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -62,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        -62,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -61,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -61,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        -61,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -60,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -60,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        -60,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -59,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -59,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        -59,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -58,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -58,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        -58,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -57,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -57,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        -57,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -56,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -56,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        -56,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -55,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -55,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        -55,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -54,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -54,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        -54,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -53,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -53,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        -53,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -52,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -52,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        -52,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -51,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -51,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        -51,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -50,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -50,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        -50,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -49,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -49,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        -49,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -48,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -48,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        -48,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -47,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -47,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        -47,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -34,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -34,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        -34,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -33,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -33,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        -33,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -32,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -32,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        -32,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -31,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -31,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        -31,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -30,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -30,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        -30,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -29,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -29,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        -29,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -28,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -28,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        -28,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -27,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -27,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        -27,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -26,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -26,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        -26,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -25,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -25,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        -25,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -24,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -24,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        -24,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -23,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -23,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        -23,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -22,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -22,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        -22,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -21,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -21,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        -21,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -20,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -20,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        -20,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -19,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -19,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        -19,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -18,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -18,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        -18,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -17,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -17,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        -17,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -16,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -16,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        -16,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -15,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -15,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        -15,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -14,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -14,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        -14,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -13,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -13,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        -13,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -12,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -12,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        -12,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -11,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -11,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        -11,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -10,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -10,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        -10,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -9,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -9,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        -9,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -8,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -8,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        -8,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -7,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -7,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        -7,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -6,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -6,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        -6,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -5,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -5,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        -5,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -4,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -4,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        -4,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -3,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -3,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        -3,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -2,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -2,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        -2,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -1,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        -1,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        -1,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        0,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        0,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        1,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        1,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        1,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        2,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        2,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        2,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        3,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        3,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        3,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        4,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        4,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        4,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        5,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        5,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        5,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        6,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        6,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        6,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        7,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        7,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        7,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        8,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        8,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        8,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        9,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        9,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        9,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        10,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        10,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        10,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        11,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        11,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        11,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        12,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        12,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        12,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        13,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        13,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        13,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        14,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        14,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        14,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        15,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        15,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        15,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        16,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        16,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        16,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        17,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        17,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        17,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        18,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        18,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        18,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        19,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        19,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        19,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        20,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        20,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        20,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        21,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        21,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        21,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        22,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        22,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        22,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        23,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        23,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        23,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        24,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        24,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        24,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        25,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        25,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        25,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        26,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        26,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        26,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        27,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        27,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        27,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        28,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        28,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        28,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        29,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        29,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        29,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        30,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        30,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        30,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        31,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        31,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        31,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        32,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        32,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        32,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        33,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        33,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        33,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        34,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        34,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        34,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        35,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        35,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        35,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        36,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        36,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        36,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        37,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        37,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        37,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        38,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        38,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        38,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        39,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        39,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        39,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        40,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        40,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        40,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        41,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        41,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        41,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        42,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        42,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        42,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        43,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        43,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        43,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        44,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        44,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        44,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        45,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        45,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        45,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        46,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        46,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        46,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        47,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        47,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        47,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        48,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        48,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        48,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        49,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        49,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        49,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        50,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        50,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        50,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        51,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        51,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        51,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        52,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        52,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        52,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        53,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        53,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        53,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        54,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        54,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        54,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        55,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        55,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        55,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        56,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        56,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        56,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        57,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        57,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        57,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        58,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        58,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        58,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        59,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        59,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        59,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        60,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        60,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        60,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        61,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        61,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        61,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        62,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        62,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        62,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        63,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        63,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        63,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        64,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        64,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        64,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        76,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        76,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        76,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        77,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        77,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        77,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        78,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        78,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        78,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        79,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        79,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        79,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        80,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        80,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        80,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        81,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        81,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        81,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        82,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        82,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        82,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        83,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        83,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        83,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        84,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        84,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        84,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        85,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        85,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        85,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        86,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        86,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        86,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        87,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        87,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        87,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        88,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        88,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        88,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        89,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        89,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        89,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        90,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        90,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        90,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        91,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        91,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        91,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        92,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        92,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        92,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        93,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        93,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        93,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        94,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        94,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        94,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        95,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        95,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        95,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        96,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        96,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        96,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        97,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        97,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        97,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        98,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        98,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        98,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        99,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        99,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        99,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        100,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        100,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        100,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        101,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        101,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        101,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        102,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        102,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        102,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        103,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        103,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        103,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        104,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        104,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        104,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        105,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        105,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        105,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        106,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        106,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        106,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        107,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        107,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        107,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        108,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        108,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        108,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        109,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        109,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        109,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        110,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        110,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        110,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        111,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        111,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        111,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        112,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        112,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        112,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        113,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        113,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        113,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        114,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        114,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        114,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        115,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        115,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        115,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        116,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        116,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        116,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        117,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        117,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        117,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        118,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        118,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        118,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        119,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        119,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        119,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        120,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        120,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        120,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        121,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        121,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        121,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        122,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        122,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        122,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        123,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        123,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        123,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        124,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        124,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        124,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        125,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        125,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        125,
+        2,
+        0
+      ]
+    }
+  ],
+  "ladders": [
+    {
+      "bottom": [
+        176,
+        0,
+        -84
+      ],
+      "top": [
+        176,
+        6.0,
+        -84
+      ],
+      "radius": 0.6,
+      "yaw": 0.0,
+      "building": -1
+    }
+  ],
+  "platforms": [
+    {
+      "min": [
+        173,
+        6.0,
+        -87
+      ],
+      "max": [
+        181,
+        6.6,
+        -79
+      ]
+    }
+  ],
+  "scenery": [
+    {
+      "id": "tree_type0_01",
+      "pos": [
+        87.5,
+        0,
+        36.4
+      ],
+      "yaw": 0.0,
+      "scale": 0.87,
+      "palette": "dry"
+    },
+    {
+      "id": "tree_type1_02",
+      "pos": [
+        -12.8,
+        0,
+        67.6
+      ],
+      "yaw": 0.698,
+      "scale": 1.04,
+      "palette": "normal"
+    },
+    {
+      "id": "tree_type2_01",
+      "pos": [
+        26.8,
+        0,
+        -11.3
+      ],
+      "yaw": 1.396,
+      "scale": 1.21,
+      "palette": "normal"
+    },
+    {
+      "id": "tree_type3_02",
+      "pos": [
+        66.4,
+        0,
+        19.8
+      ],
+      "yaw": 2.094,
+      "scale": 0.78,
+      "palette": "normal"
+    },
+    {
+      "id": "tree_type5_03",
+      "pos": [
+        106.0,
+        0,
+        50.9
+      ],
+      "yaw": 2.793,
+      "scale": 0.95,
+      "palette": "normal"
+    },
+    {
+      "id": "tree_type7_01",
+      "pos": [
+        5.6,
+        0,
+        82.1
+      ],
+      "yaw": 3.491,
+      "scale": 1.12,
+      "palette": "dry"
+    },
+    {
+      "id": "tree_type0_01",
+      "pos": [
+        45.3,
+        0,
+        3.2
+      ],
+      "yaw": 4.189,
+      "scale": 1.29,
+      "palette": "normal"
+    },
+    {
+      "id": "tree_type1_02",
+      "pos": [
+        84.9,
+        0,
+        34.3
+      ],
+      "yaw": 4.887,
+      "scale": 0.86,
+      "palette": "normal"
+    },
+    {
+      "id": "tree_type2_01",
+      "pos": [
+        -15.5,
+        0,
+        65.5
+      ],
+      "yaw": 5.585,
+      "scale": 1.03,
+      "palette": "normal"
+    },
+    {
+      "id": "tree_type3_02",
+      "pos": [
+        24.1,
+        0,
+        -13.4
+      ],
+      "yaw": 0.0,
+      "scale": 1.2,
+      "palette": "normal"
+    },
+    {
+      "id": "tree_type5_03",
+      "pos": [
+        63.7,
+        0,
+        17.7
+      ],
+      "yaw": 0.698,
+      "scale": 0.77,
+      "palette": "dry"
+    },
+    {
+      "id": "tree_type7_01",
+      "pos": [
+        103.4,
+        0,
+        48.8
+      ],
+      "yaw": 1.396,
+      "scale": 0.94,
+      "palette": "normal"
+    },
+    {
+      "id": "tree_type0_01",
+      "pos": [
+        3.0,
+        0,
+        80.0
+      ],
+      "yaw": 2.094,
+      "scale": 1.11,
+      "palette": "normal"
+    },
+    {
+      "id": "tree_type1_02",
+      "pos": [
+        42.6,
+        0,
+        1.1
+      ],
+      "yaw": 2.793,
+      "scale": 1.28,
+      "palette": "normal"
+    },
+    {
+      "id": "tree_type2_01",
+      "pos": [
+        82.2,
+        0,
+        32.2
+      ],
+      "yaw": 3.491,
+      "scale": 0.85,
+      "palette": "normal"
+    },
+    {
+      "id": "tree_type3_02",
+      "pos": [
+        -18.2,
+        0,
+        63.4
+      ],
+      "yaw": 4.189,
+      "scale": 1.02,
+      "palette": "dry"
+    },
+    {
+      "id": "tree_type5_03",
+      "pos": [
+        21.5,
+        0,
+        -15.5
+      ],
+      "yaw": 4.887,
+      "scale": 1.19,
+      "palette": "normal"
+    },
+    {
+      "id": "tree_type7_01",
+      "pos": [
+        61.1,
+        0,
+        15.6
+      ],
+      "yaw": 5.585,
+      "scale": 0.76,
+      "palette": "normal"
+    },
+    {
+      "id": "tree_type0_01",
+      "pos": [
+        100.7,
+        0,
+        46.8
+      ],
+      "yaw": 0.0,
+      "scale": 0.93,
+      "palette": "normal"
+    },
+    {
+      "id": "tree_type1_02",
+      "pos": [
+        0.3,
+        0,
+        77.9
+      ],
+      "yaw": 0.698,
+      "scale": 1.1,
+      "palette": "normal"
+    },
+    {
+      "id": "tree_type2_01",
+      "pos": [
+        39.9,
+        0,
+        -1.0
+      ],
+      "yaw": 1.396,
+      "scale": 1.27,
+      "palette": "dry"
+    },
+    {
+      "id": "tree_type3_02",
+      "pos": [
+        79.6,
+        0,
+        30.2
+      ],
+      "yaw": 2.094,
+      "scale": 0.84,
+      "palette": "normal"
+    },
+    {
+      "id": "tree_type5_03",
+      "pos": [
+        119.2,
+        0,
+        61.3
+      ],
+      "yaw": 2.793,
+      "scale": 1.01,
+      "palette": "normal"
+    },
+    {
+      "id": "tree_type7_01",
+      "pos": [
+        18.8,
+        0,
+        -17.6
+      ],
+      "yaw": 3.491,
+      "scale": 1.18,
+      "palette": "normal"
+    },
+    {
+      "id": "tree_type0_01",
+      "pos": [
+        58.4,
+        0,
+        13.5
+      ],
+      "yaw": 4.189,
+      "scale": 0.74,
+      "palette": "normal"
+    },
+    {
+      "id": "tree_type1_02",
+      "pos": [
+        98.0,
+        0,
+        44.7
+      ],
+      "yaw": 4.887,
+      "scale": 0.91,
+      "palette": "dry"
+    },
+    {
+      "id": "tree_type2_01",
+      "pos": [
+        -2.3,
+        0,
+        75.8
+      ],
+      "yaw": 5.585,
+      "scale": 1.08,
+      "palette": "normal"
+    },
+    {
+      "id": "tree_type3_02",
+      "pos": [
+        37.3,
+        0,
+        -3.1
+      ],
+      "yaw": 0.0,
+      "scale": 1.25,
+      "palette": "normal"
+    },
+    {
+      "id": "tree_type5_03",
+      "pos": [
+        76.9,
+        0,
+        28.1
+      ],
+      "yaw": 0.698,
+      "scale": 0.82,
+      "palette": "normal"
+    },
+    {
+      "id": "tree_type7_01",
+      "pos": [
+        116.5,
+        0,
+        59.2
+      ],
+      "yaw": 1.396,
+      "scale": 0.99,
+      "palette": "normal"
+    },
+    {
+      "id": "tree_type0_01",
+      "pos": [
+        16.1,
+        0,
+        -19.7
+      ],
+      "yaw": 2.094,
+      "scale": 1.16,
+      "palette": "dry"
+    },
+    {
+      "id": "tree_type1_02",
+      "pos": [
+        55.8,
+        0,
+        11.4
+      ],
+      "yaw": 2.793,
+      "scale": 0.73,
+      "palette": "normal"
+    },
+    {
+      "id": "tree_type2_01",
+      "pos": [
+        95.4,
+        0,
+        42.6
+      ],
+      "yaw": 3.491,
+      "scale": 0.9,
+      "palette": "normal"
+    },
+    {
+      "id": "tree_type3_02",
+      "pos": [
+        -5.0,
+        0,
+        73.7
+      ],
+      "yaw": 4.189,
+      "scale": 1.07,
+      "palette": "normal"
+    },
+    {
+      "id": "tree_type5_03",
+      "pos": [
+        34.6,
+        0,
+        -5.2
+      ],
+      "yaw": 4.887,
+      "scale": 1.24,
+      "palette": "normal"
+    },
+    {
+      "id": "tree_type7_01",
+      "pos": [
+        74.2,
+        0,
+        26.0
+      ],
+      "yaw": 5.585,
+      "scale": 0.81,
+      "palette": "dry"
+    },
+    {
+      "id": "tree_type0_01",
+      "pos": [
+        113.9,
+        0,
+        57.1
+      ],
+      "yaw": 0.0,
+      "scale": 0.98,
+      "palette": "normal"
+    },
+    {
+      "id": "tree_type1_02",
+      "pos": [
+        13.5,
+        0,
+        88.2
+      ],
+      "yaw": 0.698,
+      "scale": 1.15,
+      "palette": "normal"
+    },
+    {
+      "id": "tree_type2_01",
+      "pos": [
+        53.1,
+        0,
+        9.4
+      ],
+      "yaw": 1.396,
+      "scale": 0.72,
+      "palette": "normal"
+    },
+    {
+      "id": "tree_type3_02",
+      "pos": [
+        92.7,
+        0,
+        40.5
+      ],
+      "yaw": 2.094,
+      "scale": 0.89,
+      "palette": "normal"
+    },
+    {
+      "id": "tree_type0_01",
+      "pos": [
+        277.0,
+        0,
+        67.0
+      ],
+      "yaw": 0.0,
+      "scale": 0.87,
+      "palette": "dry"
+    },
+    {
+      "id": "tree_type1_02",
+      "pos": [
+        147.9,
+        0,
+        157.6
+      ],
+      "yaw": 0.698,
+      "scale": 1.04,
+      "palette": "normal"
+    },
+    {
+      "id": "tree_type2_01",
+      "pos": [
+        198.9,
+        0,
+        -71.8
+      ],
+      "yaw": 1.396,
+      "scale": 1.21,
+      "palette": "normal"
+    },
+    {
+      "id": "tree_type3_02",
+      "pos": [
+        249.8,
+        0,
+        18.7
+      ],
+      "yaw": 2.094,
+      "scale": 0.78,
+      "palette": "normal"
+    },
+    {
+      "id": "tree_type5_03",
+      "pos": [
+        300.7,
+        0,
+        109.3
+      ],
+      "yaw": 2.793,
+      "scale": 0.95,
+      "palette": "normal"
+    },
+    {
+      "id": "tree_type7_01",
+      "pos": [
+        171.7,
+        0,
+        199.8
+      ],
+      "yaw": 3.491,
+      "scale": 1.12,
+      "palette": "dry"
+    },
+    {
+      "id": "tree_type0_01",
+      "pos": [
+        222.6,
+        0,
+        -29.6
+      ],
+      "yaw": 4.189,
+      "scale": 1.29,
+      "palette": "normal"
+    },
+    {
+      "id": "tree_type1_02",
+      "pos": [
+        273.6,
+        0,
+        61.0
+      ],
+      "yaw": 4.887,
+      "scale": 0.86,
+      "palette": "normal"
+    },
+    {
+      "id": "tree_type2_01",
+      "pos": [
+        144.5,
+        0,
+        151.5
+      ],
+      "yaw": 5.585,
+      "scale": 1.03,
+      "palette": "normal"
+    },
+    {
+      "id": "tree_type3_02",
+      "pos": [
+        195.4,
+        0,
+        -77.9
+      ],
+      "yaw": 0.0,
+      "scale": 1.2,
+      "palette": "normal"
+    },
+    {
+      "id": "tree_type5_03",
+      "pos": [
+        246.4,
+        0,
+        12.6
+      ],
+      "yaw": 0.698,
+      "scale": 0.77,
+      "palette": "dry"
+    },
+    {
+      "id": "tree_type7_01",
+      "pos": [
+        297.3,
+        0,
+        103.2
+      ],
+      "yaw": 1.396,
+      "scale": 0.94,
+      "palette": "normal"
+    },
+    {
+      "id": "tree_type0_01",
+      "pos": [
+        168.3,
+        0,
+        193.8
+      ],
+      "yaw": 2.094,
+      "scale": 1.11,
+      "palette": "normal"
+    },
+    {
+      "id": "tree_type1_02",
+      "pos": [
+        219.2,
+        0,
+        -35.7
+      ],
+      "yaw": 2.793,
+      "scale": 1.28,
+      "palette": "normal"
+    },
+    {
+      "id": "tree_type2_01",
+      "pos": [
+        270.1,
+        0,
+        54.9
+      ],
+      "yaw": 3.491,
+      "scale": 0.85,
+      "palette": "normal"
+    },
+    {
+      "id": "tree_type3_02",
+      "pos": [
+        141.1,
+        0,
+        145.4
+      ],
+      "yaw": 4.189,
+      "scale": 1.02,
+      "palette": "dry"
+    },
+    {
+      "id": "tree_type5_03",
+      "pos": [
+        192.0,
+        0,
+        -84.0
+      ],
+      "yaw": 4.887,
+      "scale": 1.19,
+      "palette": "normal"
+    },
+    {
+      "id": "tree_type7_01",
+      "pos": [
+        243.0,
+        0,
+        6.6
+      ],
+      "yaw": 5.585,
+      "scale": 0.76,
+      "palette": "normal"
+    },
+    {
+      "id": "tree_type0_01",
+      "pos": [
+        293.9,
+        0,
+        97.1
+      ],
+      "yaw": 0.0,
+      "scale": 0.93,
+      "palette": "normal"
+    },
+    {
+      "id": "tree_type1_02",
+      "pos": [
+        164.8,
+        0,
+        187.7
+      ],
+      "yaw": 0.698,
+      "scale": 1.1,
+      "palette": "normal"
+    },
+    {
+      "id": "tree_type2_01",
+      "pos": [
+        215.8,
+        0,
+        -41.8
+      ],
+      "yaw": 1.396,
+      "scale": 1.27,
+      "palette": "dry"
+    },
+    {
+      "id": "tree_type3_02",
+      "pos": [
+        266.7,
+        0,
+        48.8
+      ],
+      "yaw": 2.094,
+      "scale": 0.84,
+      "palette": "normal"
+    },
+    {
+      "id": "tree_type5_03",
+      "pos": [
+        317.7,
+        0,
+        139.4
+      ],
+      "yaw": 2.793,
+      "scale": 1.01,
+      "palette": "normal"
+    },
+    {
+      "id": "tree_type7_01",
+      "pos": [
+        188.6,
+        0,
+        -90.1
+      ],
+      "yaw": 3.491,
+      "scale": 1.18,
+      "palette": "normal"
+    },
+    {
+      "id": "tree_type0_01",
+      "pos": [
+        239.5,
+        0,
+        0.5
+      ],
+      "yaw": 4.189,
+      "scale": 0.74,
+      "palette": "normal"
+    },
+    {
+      "id": "tree_type1_02",
+      "pos": [
+        290.5,
+        0,
+        91.0
+      ],
+      "yaw": 4.887,
+      "scale": 0.91,
+      "palette": "dry"
+    },
+    {
+      "id": "tree_type2_01",
+      "pos": [
+        161.4,
+        0,
+        181.6
+      ],
+      "yaw": 5.585,
+      "scale": 1.08,
+      "palette": "normal"
+    },
+    {
+      "id": "tree_type3_02",
+      "pos": [
+        212.4,
+        0,
+        -47.8
+      ],
+      "yaw": 0.0,
+      "scale": 1.25,
+      "palette": "normal"
+    },
+    {
+      "id": "tree_type5_03",
+      "pos": [
+        263.3,
+        0,
+        42.7
+      ],
+      "yaw": 0.698,
+      "scale": 0.82,
+      "palette": "normal"
+    },
+    {
+      "id": "tree_type7_01",
+      "pos": [
+        314.2,
+        0,
+        133.3
+      ],
+      "yaw": 1.396,
+      "scale": 0.99,
+      "palette": "normal"
+    },
+    {
+      "id": "tree_type0_01",
+      "pos": [
+        -197.4,
+        0,
+        -113.8
+      ],
+      "yaw": 0.0,
+      "scale": 0.87,
+      "palette": "dry"
+    },
+    {
+      "id": "tree_type1_02",
+      "pos": [
+        -369.4,
+        0,
+        -34.6
+      ],
+      "yaw": 0.698,
+      "scale": 1.04,
+      "palette": "normal"
+    },
+    {
+      "id": "tree_type2_01",
+      "pos": [
+        -301.5,
+        0,
+        -235.4
+      ],
+      "yaw": 1.396,
+      "scale": 1.21,
+      "palette": "normal"
+    },
+    {
+      "id": "tree_type3_02",
+      "pos": [
+        -233.6,
+        0,
+        -156.1
+      ],
+      "yaw": 2.094,
+      "scale": 0.78,
+      "palette": "normal"
+    },
+    {
+      "id": "tree_type5_03",
+      "pos": [
+        -165.7,
+        0,
+        -76.9
+      ],
+      "yaw": 2.793,
+      "scale": 0.95,
+      "palette": "normal"
+    },
+    {
+      "id": "tree_type7_01",
+      "pos": [
+        -337.8,
+        0,
+        2.4
+      ],
+      "yaw": 3.491,
+      "scale": 1.12,
+      "palette": "dry"
+    },
+    {
+      "id": "tree_type0_01",
+      "pos": [
+        -269.8,
+        0,
+        -198.4
+      ],
+      "yaw": 4.189,
+      "scale": 1.29,
+      "palette": "normal"
+    },
+    {
+      "id": "tree_type1_02",
+      "pos": [
+        -201.9,
+        0,
+        -119.2
+      ],
+      "yaw": 4.887,
+      "scale": 0.86,
+      "palette": "normal"
+    },
+    {
+      "id": "tree_type2_01",
+      "pos": [
+        -374.0,
+        0,
+        -39.9
+      ],
+      "yaw": 5.585,
+      "scale": 1.03,
+      "palette": "normal"
+    },
+    {
+      "id": "tree_type3_02",
+      "pos": [
+        -306.1,
+        0,
+        -240.7
+      ],
+      "yaw": 0.0,
+      "scale": 1.2,
+      "palette": "normal"
+    },
+    {
+      "id": "tree_type5_03",
+      "pos": [
+        -238.2,
+        0,
+        -161.4
+      ],
+      "yaw": 0.698,
+      "scale": 0.77,
+      "palette": "dry"
+    },
+    {
+      "id": "tree_type7_01",
+      "pos": [
+        -170.2,
+        0,
+        -82.2
+      ],
+      "yaw": 1.396,
+      "scale": 0.94,
+      "palette": "normal"
+    },
+    {
+      "id": "tree_type0_01",
+      "pos": [
+        -342.3,
+        0,
+        -3.0
+      ],
+      "yaw": 2.094,
+      "scale": 1.11,
+      "palette": "normal"
+    },
+    {
+      "id": "tree_type1_02",
+      "pos": [
+        -274.4,
+        0,
+        -203.7
+      ],
+      "yaw": 2.793,
+      "scale": 1.28,
+      "palette": "normal"
+    },
+    {
+      "id": "tree_type2_01",
+      "pos": [
+        -206.5,
+        0,
+        -124.5
+      ],
+      "yaw": 3.491,
+      "scale": 0.85,
+      "palette": "normal"
+    },
+    {
+      "id": "tree_type3_02",
+      "pos": [
+        -378.6,
+        0,
+        -45.2
+      ],
+      "yaw": 4.189,
+      "scale": 1.02,
+      "palette": "dry"
+    },
+    {
+      "id": "tree_type5_03",
+      "pos": [
+        -310.6,
+        0,
+        -246.0
+      ],
+      "yaw": 4.887,
+      "scale": 1.19,
+      "palette": "normal"
+    },
+    {
+      "id": "tree_type7_01",
+      "pos": [
+        -242.7,
+        0,
+        -166.8
+      ],
+      "yaw": 5.585,
+      "scale": 0.76,
+      "palette": "normal"
+    },
+    {
+      "id": "tree_type0_01",
+      "pos": [
+        -174.8,
+        0,
+        -87.5
+      ],
+      "yaw": 0.0,
+      "scale": 0.93,
+      "palette": "normal"
+    },
+    {
+      "id": "tree_type1_02",
+      "pos": [
+        -346.9,
+        0,
+        -8.3
+      ],
+      "yaw": 0.698,
+      "scale": 1.1,
+      "palette": "normal"
+    },
+    {
+      "id": "tree_type2_01",
+      "pos": [
+        -279.0,
+        0,
+        -209.0
+      ],
+      "yaw": 1.396,
+      "scale": 1.27,
+      "palette": "dry"
+    },
+    {
+      "id": "tree_type3_02",
+      "pos": [
+        -211.0,
+        0,
+        -129.8
+      ],
+      "yaw": 2.094,
+      "scale": 0.84,
+      "palette": "normal"
+    },
+    {
+      "id": "tree_type5_03",
+      "pos": [
+        -143.1,
+        0,
+        -50.6
+      ],
+      "yaw": 2.793,
+      "scale": 1.01,
+      "palette": "normal"
+    },
+    {
+      "id": "tree_type7_01",
+      "pos": [
+        -315.2,
+        0,
+        -251.3
+      ],
+      "yaw": 3.491,
+      "scale": 1.18,
+      "palette": "normal"
+    },
+    {
+      "id": "tree_type0_01",
+      "pos": [
+        -247.3,
+        0,
+        -172.1
+      ],
+      "yaw": 4.189,
+      "scale": 0.74,
+      "palette": "normal"
+    },
+    {
+      "id": "rock_type1_02",
+      "pos": [
+        187.7,
+        0,
+        -78.5
+      ],
+      "yaw": 0.0,
+      "scale": 0.63,
+      "palette": "green"
+    },
+    {
+      "id": "rock_type3_03",
+      "pos": [
+        174.5,
+        0,
+        -91.8
+      ],
+      "yaw": 0.96,
+      "scale": 0.47,
+      "palette": "grey"
+    },
+    {
+      "id": "rock_type5_01",
+      "pos": [
+        161.2,
+        0,
+        -105.0
+      ],
+      "yaw": 1.92,
+      "scale": 1.11,
+      "palette": "grey"
+    },
+    {
+      "id": "rock_type1_02",
+      "pos": [
+        148.0,
+        0,
+        -50.3
+      ],
+      "yaw": 2.88,
+      "scale": 0.96,
+      "palette": "grey"
+    },
+    {
+      "id": "rock_type3_03",
+      "pos": [
+        202.7,
+        0,
+        -63.5
+      ],
+      "yaw": 3.84,
+      "scale": 0.8,
+      "palette": "green"
+    },
+    {
+      "id": "rock_type5_01",
+      "pos": [
+        189.4,
+        0,
+        -76.8
+      ],
+      "yaw": 4.8,
+      "scale": 0.65,
+      "palette": "grey"
+    },
+    {
+      "id": "rock_type1_02",
+      "pos": [
+        176.2,
+        0,
+        -90.1
+      ],
+      "yaw": 5.76,
+      "scale": 0.49,
+      "palette": "grey"
+    },
+    {
+      "id": "rock_type3_03",
+      "pos": [
+        162.9,
+        0,
+        -103.3
+      ],
+      "yaw": 0.436,
+      "scale": 1.13,
+      "palette": "grey"
+    },
+    {
+      "id": "rock_type5_01",
+      "pos": [
+        149.7,
+        0,
+        -48.6
+      ],
+      "yaw": 1.396,
+      "scale": 0.98,
+      "palette": "green"
+    },
+    {
+      "id": "rock_type1_02",
+      "pos": [
+        136.4,
+        0,
+        -61.8
+      ],
+      "yaw": 2.356,
+      "scale": 0.82,
+      "palette": "grey"
+    },
+    {
+      "id": "rock_type3_03",
+      "pos": [
+        191.1,
+        0,
+        -75.1
+      ],
+      "yaw": 3.316,
+      "scale": 0.67,
+      "palette": "grey"
+    },
+    {
+      "id": "rock_type5_01",
+      "pos": [
+        177.9,
+        0,
+        -88.4
+      ],
+      "yaw": 4.276,
+      "scale": 0.51,
+      "palette": "grey"
+    },
+    {
+      "id": "rock_type1_02",
+      "pos": [
+        164.6,
+        0,
+        -101.6
+      ],
+      "yaw": 5.236,
+      "scale": 1.15,
+      "palette": "green"
+    },
+    {
+      "id": "rock_type3_03",
+      "pos": [
+        151.4,
+        0,
+        -46.9
+      ],
+      "yaw": 6.196,
+      "scale": 1.0,
+      "palette": "grey"
+    },
+    {
+      "id": "rock_type1_02",
+      "pos": [
+        -29.3,
+        0,
+        75.3
+      ],
+      "yaw": 0.0,
+      "scale": 0.63,
+      "palette": "green"
+    },
+    {
+      "id": "rock_type3_03",
+      "pos": [
+        -41.0,
+        0,
+        63.6
+      ],
+      "yaw": 0.96,
+      "scale": 0.47,
+      "palette": "grey"
+    },
+    {
+      "id": "rock_type5_01",
+      "pos": [
+        -52.7,
+        0,
+        51.9
+      ],
+      "yaw": 1.92,
+      "scale": 1.11,
+      "palette": "grey"
+    },
+    {
+      "id": "rock_type1_02",
+      "pos": [
+        -64.4,
+        0,
+        100.2
+      ],
+      "yaw": 2.88,
+      "scale": 0.96,
+      "palette": "grey"
+    },
+    {
+      "id": "rock_type3_03",
+      "pos": [
+        -16.1,
+        0,
+        88.5
+      ],
+      "yaw": 3.84,
+      "scale": 0.8,
+      "palette": "green"
+    },
+    {
+      "id": "rock_type5_01",
+      "pos": [
+        -27.8,
+        0,
+        76.8
+      ],
+      "yaw": 4.8,
+      "scale": 0.65,
+      "palette": "grey"
+    },
+    {
+      "id": "rock_type1_02",
+      "pos": [
+        -39.5,
+        0,
+        65.1
+      ],
+      "yaw": 5.76,
+      "scale": 0.49,
+      "palette": "grey"
+    },
+    {
+      "id": "rock_type3_03",
+      "pos": [
+        -51.2,
+        0,
+        53.4
+      ],
+      "yaw": 0.436,
+      "scale": 1.13,
+      "palette": "grey"
+    },
+    {
+      "id": "rock_type5_01",
+      "pos": [
+        -62.9,
+        0,
+        101.7
+      ],
+      "yaw": 1.396,
+      "scale": 0.98,
+      "palette": "green"
+    },
+    {
+      "id": "rock_type1_02",
+      "pos": [
+        -74.6,
+        0,
+        90.0
+      ],
+      "yaw": 2.356,
+      "scale": 0.82,
+      "palette": "grey"
+    },
+    {
+      "id": "rock_type3_03",
+      "pos": [
+        -26.3,
+        0,
+        78.3
+      ],
+      "yaw": 3.316,
+      "scale": 0.67,
+      "palette": "grey"
+    },
+    {
+      "id": "rock_type5_01",
+      "pos": [
+        -38.0,
+        0,
+        66.6
+      ],
+      "yaw": 4.276,
+      "scale": 0.51,
+      "palette": "grey"
+    },
+    {
+      "id": "rock_type1_02",
+      "pos": [
+        -279.1,
+        0,
+        361.8
+      ],
+      "yaw": 0.0,
+      "scale": 0.63,
+      "palette": "green"
+    },
+    {
+      "id": "rock_type3_03",
+      "pos": [
+        -294.7,
+        0,
+        346.2
+      ],
+      "yaw": 0.96,
+      "scale": 0.47,
+      "palette": "grey"
+    },
+    {
+      "id": "rock_type5_01",
+      "pos": [
+        -310.3,
+        0,
+        330.6
+      ],
+      "yaw": 1.92,
+      "scale": 1.11,
+      "palette": "grey"
+    },
+    {
+      "id": "rock_type1_02",
+      "pos": [
+        -325.9,
+        0,
+        395.0
+      ],
+      "yaw": 2.88,
+      "scale": 0.96,
+      "palette": "grey"
+    },
+    {
+      "id": "rock_type3_03",
+      "pos": [
+        -261.5,
+        0,
+        379.4
+      ],
+      "yaw": 3.84,
+      "scale": 0.8,
+      "palette": "green"
+    },
+    {
+      "id": "rock_type5_01",
+      "pos": [
+        -277.1,
+        0,
+        363.8
+      ],
+      "yaw": 4.8,
+      "scale": 0.65,
+      "palette": "grey"
+    },
+    {
+      "id": "rock_type1_02",
+      "pos": [
+        -292.7,
+        0,
+        348.2
+      ],
+      "yaw": 5.76,
+      "scale": 0.49,
+      "palette": "grey"
+    },
+    {
+      "id": "rock_type3_03",
+      "pos": [
+        -308.3,
+        0,
+        332.6
+      ],
+      "yaw": 0.436,
+      "scale": 1.13,
+      "palette": "grey"
+    },
+    {
+      "id": "rock_type1_02",
+      "pos": [
+        -13.1,
+        0,
+        -318.2
+      ],
+      "yaw": 0.0,
+      "scale": 0.63,
+      "palette": "green"
+    },
+    {
+      "id": "rock_type3_03",
+      "pos": [
+        -28.7,
+        0,
+        -333.8
+      ],
+      "yaw": 0.96,
+      "scale": 0.47,
+      "palette": "grey"
+    },
+    {
+      "id": "rock_type5_01",
+      "pos": [
+        -44.3,
+        0,
+        -349.4
+      ],
+      "yaw": 1.92,
+      "scale": 1.11,
+      "palette": "grey"
+    },
+    {
+      "id": "rock_type1_02",
+      "pos": [
+        -59.9,
+        0,
+        -285.0
+      ],
+      "yaw": 2.88,
+      "scale": 0.96,
+      "palette": "grey"
+    },
+    {
+      "id": "rock_type3_03",
+      "pos": [
+        4.5,
+        0,
+        -300.6
+      ],
+      "yaw": 3.84,
+      "scale": 0.8,
+      "palette": "green"
+    },
+    {
+      "id": "rock_type5_01",
+      "pos": [
+        -11.1,
+        0,
+        -316.2
+      ],
+      "yaw": 4.8,
+      "scale": 0.65,
+      "palette": "grey"
+    }
+  ],
+  "scenery_palette": {
+    "tree": "normal",
+    "rock": "grey"
+  },
+  "points": [
+    {
+      "id": "A",
+      "pos": [
+        170,
+        0,
+        -80
+      ],
+      "radius": 24,
+      "start_owner": 0
+    },
+    {
+      "id": "B",
+      "pos": [
+        -97,
+        0,
+        -40
+      ],
+      "radius": 24,
+      "start_owner": 0
+    },
+    {
+      "id": "C",
+      "pos": [
+        51,
+        0,
+        34
+      ],
+      "radius": 24,
+      "start_owner": -1
+    },
+    {
+      "id": "D",
+      "pos": [
+        -45,
+        0,
+        74
+      ],
+      "radius": 24,
+      "start_owner": 1
+    },
+    {
+      "id": "E",
+      "pos": [
+        34,
+        0,
+        216
+      ],
+      "radius": 24,
+      "start_owner": 1
+    }
+  ],
+  "bases": [
+    {
+      "team": 0,
+      "pos": [
+        -34,
+        0,
+        -375
+      ],
+      "radius": 30
+    },
+    {
+      "team": 1,
+      "pos": [
+        -318,
+        0,
+        375
+      ],
+      "radius": 30
+    }
+  ],
+  "vehicle_spawns": [],
+  "terrain": {
+    "heightmap": "heightmaps/conquest_caspian.png",
+    "sample_spacing": 2.0,
+    "height_min": -12.0,
+    "height_scale": 45.0,
+    "surface_map": "heightmaps/conquest_caspian_surface.png"
+  }
+}

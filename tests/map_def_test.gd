@@ -87,7 +87,7 @@ func test_parses_vehicle_spawns() -> void:
 
 # Guards the deferral: the shipping maps must contain NO vehicle spawns until vehicles are reopened.
 func test_shipping_maps_have_no_vehicle_spawns() -> void:
-	for name in ["conquest_town", "conquest_suburb", "conquest_proving_grounds", "conquest_arena_buildings"]:
+	for name in ["conquest_town", "conquest_suburb", "conquest_proving_grounds", "conquest_arena_buildings", "conquest_caspian"]:
 		var m := MapDef.load_file("res://maps/%s.json" % name)
 		assert_true(m != null, name)
 		assert_eq(m.vehicle_spawns.size(), 0, "%s ships with no vehicle spawns (vehicles deferred)" % name)
