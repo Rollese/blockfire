@@ -128,7 +128,7 @@ func _initialize() -> void:
 
 	# Stage 3: whole-building COLLAPSE remnant — mirror the SERVER's _collapse_building: remove every
 	# building piece from BOTH the client view AND the sim store (so the footprint cells free up), then
-	# stamp indestructible walkable `brubble` across the footprint ground cells + replicate via OP_PLACE.
+	# stamp indestructible solid low-cover `brubble` (blocks movement, vault/shoot-over) across the footprint ground cells + replicate via OP_PLACE.
 	# NOTE the bug this harness previously hid: without removing from `store` first, place() hit occupied
 	# cells and skipped every rubble piece.
 	now += 0.5
@@ -162,7 +162,7 @@ func _initialize() -> void:
 			brub_key = k
 	print("brubble placed=", placed_rubble, " render_group=", brub_key,
 		" mmis=", (r._struct_groups[brub_key]["mmis"].size() if brub_key != "" else -1))
-	# Low oblique so the walkable rubble mounds read in silhouette (a top-down flattens them).
+	# Low oblique so the low-cover rubble mounds read in silhouette (a top-down flattens them).
 	cam.global_position = Vector3(centroid.x + 16.0, 9.0, centroid.z + 16.0)
 	cam.look_at(Vector3(centroid.x, 0.5, centroid.z), Vector3.UP)
 	await _settle()

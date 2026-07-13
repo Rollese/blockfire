@@ -112,7 +112,7 @@ var _attachments: Attachment
 var _vehicles_cat: VehicleCatalog
 var _next_struct_id := 1
 var _next_id := 1
-var _brubble_type := -1        # M11 R5: catalog index of the indestructible walkable rubble remnant
+var _brubble_type := -1        # M11 R5: catalog index of the indestructible solid low-cover rubble remnant (blocks movement, vault/shoot-over)
 var _tele_accum := 0.0
 # Per-phase tick profiling (mean usec/tick over the telemetry window).
 var _phase_us := {"poll": 0, "move": 0, "veh": 0, "lag": 0, "interest": 0, "fire": 0, "ordnance": 0, "support": 0, "build": 0, "respawn": 0, "conquest": 0, "match": 0, "snap": 0,
@@ -249,7 +249,7 @@ func _ready() -> void:
 	_catalog = PieceCatalog.load_file(PIECES_PATH)
 	if _catalog == null:
 		push_error("[server] failed to load pieces %s" % PIECES_PATH); get_tree().quit(1); return
-	_brubble_type = _catalog.index_of("brubble")   # M11 R5: the walkable remnant a collapse leaves
+	_brubble_type = _catalog.index_of("brubble")   # M11 R5: the solid low-cover remnant a collapse leaves (blocks movement, vault/shoot-over)
 	_gadgets = Gadget.load_file(GADGETS_PATH)
 	if _gadgets == null:
 		push_error("[server] failed to load gadgets %s" % GADGETS_PATH); get_tree().quit(1); return

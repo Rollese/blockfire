@@ -9,10 +9,11 @@ const TEX_WORLD_SCALE := 1.0   # texture tiles per metre (world-triplanar) — s
 # so a full-CELL slab's outer vertical edges land exactly on the wall's exterior faces -> two coplanar
 # vertical faces z-fight in a dithered band under the roof soffit (owner screenshot). Shrink the slab
 # footprint by this much (total, split evenly both sides) so its edges sit just INSIDE the wall faces.
-# 0.04 -> 0.02 m clear per side: reliably beats depth precision at play distances, while the resulting
-# deck-to-deck seam (0.04 m, mid-floor) stays invisible. MESH-ONLY: collision is server-side
+# 0.02 total = 0.01 m clear per side: kills the coplanar Z-fight against the wall exterior (0.01 m is
+# far beyond depth-buffer precision at play distances), while HALVING the interior deck-to-deck seam
+# gap (now 0.02 m, mid-floor) so it stays sub-visible. MESH-ONLY: collision is server-side
 # (structure.gd floor_height_at, cell-base plane) and never reads this.
-const ROOF_FLOOR_INSET := 0.04
+const ROOF_FLOOR_INSET := 0.02
 
 # Per-piece palette — distinct tones so a building reads as walls/floors/columns/trim instead of a
 # uniform grey blob (playtest feedback 2026-06-18). Tints still modulate by damage bucket in _box().

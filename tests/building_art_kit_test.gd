@@ -66,6 +66,18 @@ func test_roof_floor_slab_inset_prevents_wall_zfight() -> void:
 	# Keep the seam invisible: inset must stay small (no visible gap to adjacent decks).
 	assert_true(sz.x >= BuildingKit.CELL - 0.1, "floor slab inset stays small (no visible floor gap)")
 
+func test_floor_skirt_slab_inset_prevents_wall_zfight() -> void:
+	# Same Z1 guard for the floor-skirt variant: the "Skirt" deck it drops under a ground perimeter wall /
+	# interior prop must carry the identical inset so its outer edges clear the full-cell wall exterior
+	# faces (else the coplanar band reappears on ground-floor perimeters). Mesh-only — collision server-side.
+	var root: Node3D = autofree(BuildingKit.build("bwall", 3, true))
+	var skirt := _find_mesh(root, "Skirt")
+	assert_true(skirt != null, "floor_skirt builds a Skirt slab")
+	var sz := (skirt.mesh as BoxMesh).size
+	assert_true(sz.x < BuildingKit.CELL - 0.001, "skirt slab X inset below full cell")
+	assert_true(sz.z < BuildingKit.CELL - 0.001, "skirt slab Z inset below full cell")
+	assert_true(sz.x >= BuildingKit.CELL - 0.1, "skirt slab inset stays small (no visible floor gap)")
+
 func _find_mesh(root: Node3D, mesh_name: String) -> MeshInstance3D:
 	var stack: Array = [root]
 	while not stack.is_empty():
