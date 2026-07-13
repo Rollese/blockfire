@@ -146,6 +146,8 @@ var _emplacements := ServerEmplacement.new(self)  # M19 P4 LMG-nest deploy/store
 var _roster_tick := 0
 var _gadget_rl := ReliableList.new()   # GADGET_LIST changed+heartbeat state (server/reliable_list.gd)
 var _emplacement_rl := ReliableList.new()   # EMPLACEMENT_LIST (M19 P4)
+var _grapples := ServerDeployedLadders.new(self)   # M19 deployed grapple ladders
+var _grapple_rl := ReliableList.new()              # DEPLOYED_LADDER_LIST changed+heartbeat
 # M12-P3: squad-leader FOB registry. "team:squad" -> {squad, team, id, cell, built: bool}
 var _transport_origin := {}   # id -> Vector3 boarding pos (transport-distance metric)
 var _pending_removes: Array = []   # [{id, cell}] removes awaiting send (degradation queue)
@@ -306,6 +308,8 @@ func _start_match() -> bool:
 	_store.terrain = _terrain
 	_sim.structures = _store
 	_sim.ladders = _map.ladders
+	_grapples.clear()
+	_sim.deployed_ladders = _grapples.volumes   # shared Array ref; store mutates in place (assign/clear/append)
 	_sim.platforms = _map.platforms
 	for pb in _map.prebuilt:
 		var ti := _piece_index(String(pb["type"]))
@@ -385,6 +389,8 @@ func _reset_match_state() -> void:
 	_support = ServerSupport.new(self)
 	_build = ServerBuild.new(self)
 	_emplacements = ServerEmplacement.new(self)
+	_grapples = ServerDeployedLadders.new(self)
+	_grapple_rl = ReliableList.new()
 	_gadget_rl = ReliableList.new()
 	_emplacement_rl = ReliableList.new()
 	_support_rl = ReliableList.new()
@@ -507,6 +513,7 @@ func _physics_process(delta: float) -> void:
 		_broadcast_roster()
 	_broadcast_gadget_list()
 	_broadcast_emplacement_list()
+	_broadcast_deployed_ladder_list()
 	_broadcast_support_list()
 	_broadcast_downed_list()
 	_broadcast_bleeding_list()
@@ -1155,7 +1162,7 @@ func _send_snapshots() -> void:
 		# M19 P5: shield pool as a 0..255 wire byte — zero unless the shield is the equipped gadget (§E wire contract)
 		var _shield_frac := (int(round(255.0 * float(self_pawn.shield_hp) / float(RiotShield.SHIELD_HP))) if int(c["loadout"]["gadget"]) == Loadout.GADGET_RIOT_SHIELD else 0)
 		_net.send_to(c["peer"], NetHost.CHANNEL_CONTROL,
-			Protocol.encode_self_state(int(c["ammo"]), bool(c["reloading"]), reload_remaining, int(c["weapon"]), _throwables_for(c), _support.being_revived.has(id), self_pawn.suppression, clampi(self_pawn.blind_until_tick - _sim.tick, 0, 255), self_pawn.bandage_count, self_pawn.bleed_halted, rgauge.x, rgauge.y, self_pawn.stamina, self_pawn.velocity.y, self_pawn.grounded, self_pawn.vaulting, self_pawn.vault_tick, self_pawn._regen_cooldown, self_pawn._sprint_locked, int(c["input_buf_depth"]), self_pawn.bleeding, _support.bandage_progress_u8(id), int(c.get("reserve", 0)), int(c.get("stim_charges", 0)), maxi(0, self_pawn.stim_until_tick - _sim.tick), self_pawn.mounted_nest, (int(mnest.heat) if mnest != null else 0), (int(mnest.ammo) if mnest != null else 0), (mnest != null and Emplacement.overheated(mnest.overheated_until, _sim.tick)), _shield_frac),
+			Protocol.encode_self_state(int(c["ammo"]), bool(c["reloading"]), reload_remaining, int(c["weapon"]), _throwables_for(c), _support.being_revived.has(id), self_pawn.suppression, clampi(self_pawn.blind_until_tick - _sim.tick, 0, 255), self_pawn.bandage_count, self_pawn.bleed_halted, rgauge.x, rgauge.y, self_pawn.stamina, self_pawn.velocity.y, self_pawn.grounded, self_pawn.vaulting, self_pawn.vault_tick, self_pawn._regen_cooldown, self_pawn._sprint_locked, int(c["input_buf_depth"]), self_pawn.bleeding, _support.bandage_progress_u8(id), int(c.get("reserve", 0)), int(c.get("stim_charges", 0)), maxi(0, self_pawn.stim_until_tick - _sim.tick), self_pawn.mounted_nest, (int(mnest.heat) if mnest != null else 0), (int(mnest.ammo) if mnest != null else 0), (mnest != null and Emplacement.overheated(mnest.overheated_until, _sim.tick)), _shield_frac, int(c.get("grapple_charges", 0))),
 			ENetPacketPeer.FLAG_RELIABLE)
 		t_self += Time.get_ticks_usec() - t0
 		t0 = Time.get_ticks_usec()
@@ -1320,6 +1327,7 @@ func _handle_hello(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
 		"name": pname, "kills": 0, "deaths": 0, "score": 0, "dmg_ledger": {},
 		"loadout": loadout,   # M19: player/bot loadout (sanitized). Stored now; spawn reads it from Task 4 on.
 		"stim_charges": 0, "stim_ready_tick": 0,   # M19 P2b: Combat Stim pool, seeded properly in _apply_loadout_to_client
+		"grapple_charges": 0,   # M19 grapple: charge pool, seeded properly in _apply_loadout_to_client
 		"smokewall_ready_tick": 0,   # M19 P2b: Medic SMOKE_WALL gadget cooldown gate
 	}
 	if _stats_reporter != null:
@@ -1554,6 +1562,8 @@ func _apply_loadout_to_client(c: Dictionary, p: Pawn) -> void:
 	# Medic who respecs away from STIM doesn't carry a stale pool into an unrelated gadget's slot.
 	c["stim_charges"] = int(_gadgets.def_of_kind(Gadget.KIND_STIM)["charges"]) if int(lo["gadget"]) == Loadout.GADGET_STIM else 0
 	c["stim_ready_tick"] = 0
+	# M19 grapple: fresh-life charge pool — full only when the grapple gadget is actually equipped.
+	c["grapple_charges"] = Grapple.CHARGES if int(lo["gadget"]) == Loadout.GADGET_GRAPPLE else 0
 	c["smokewall_ready_tick"] = 0   # M19 P2b: fresh-life — no residual SMOKE_WALL cooldown carried across spawns
 	if p != null:
 		p.armor_class = int(lo["armor"])
@@ -1709,6 +1719,7 @@ func _handle_gadget_action(peer: ENetPacketPeer, bytes: PackedByteArray) -> void
 		Protocol.GA_STIM_USE: _use_stim(id)
 		Protocol.GA_SMOKE_WALL_PLACE: _place_smoke_wall(id, p, d["pos"])
 		Protocol.GA_LMG_DEPLOY: _emplacements.deploy(id, p, d["pos"], d["dir"])
+		Protocol.GA_GRAPPLE_FIRE: _grapples.deploy(id, p, d["pos"], d["dir"])
 		_: pass
 
 func _handle_vehicle_action(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
@@ -1844,6 +1855,19 @@ func _broadcast_emplacement_list() -> void:
 	var list := _emplacements.build_list()
 	var pkt := Protocol.encode_emplacement_list(list)
 	if not _emplacement_rl.should_send(pkt, list.size() > 0, _sim.tick):
+		return
+	_broadcast_all(NetHost.CHANNEL_CONTROL, pkt, ENetPacketPeer.FLAG_RELIABLE)
+
+## Deployed grapple ladders (M19): arm ripening ropes each tick, then broadcast the render list
+## reliably only when it CHANGES, plus a ~1 Hz heartbeat while non-empty (self-healing like
+## EMPLACEMENT_LIST). Skipped entirely when no client is connected.
+func _broadcast_deployed_ladder_list() -> void:
+	if _clients.is_empty():
+		return
+	_grapples.step_arm(_sim.tick)
+	var list := _grapples.build_list()
+	var pkt := Protocol.encode_deployed_ladder_list(list)
+	if not _grapple_rl.should_send(pkt, list.size() > 0, _sim.tick):
 		return
 	_broadcast_all(NetHost.CHANNEL_CONTROL, pkt, ENetPacketPeer.FLAG_RELIABLE)
 
