@@ -13,6 +13,9 @@ extends RefCounted
 const Terrain := preload("res://shared/sim/terrain.gd")
 const Ladder := preload("res://shared/sim/ladder.gd")
 
+const LADDER_ID_BASE := 0x60000000   # dedicated id space, disjoint from pawn ids (1..128), Vehicle.ID_BASE (0x40000000) and Emplacement.ID_BASE (0x50000000)
+const MAX_LADDERS := 255             # u8 wire count cap (render-list bound)
+
 var srv                        # ServerMain back-ref
 var volumes: Array = []        # ladder dicts; shared BY REFERENCE with SimLoop.deployed_ladders (never reassigned)
 var _next_index := 0
@@ -52,9 +55,13 @@ func deploy_at(owner_id: int, p: Pawn, hit_point: Vector3, building_id: int, gro
 	_add(owner_id, building_id, r)
 
 func _add(owner_id: int, building_id: int, r: Dictionary) -> void:
-	var id := 0x50000000 + _next_index   # dedicated id space, clear of pawn/piece ids
+	var id := LADDER_ID_BASE + _next_index
 	_next_index += 1
 	var x := float(r["x"]); var z := float(r["z"])
+	# The scalar x/z/bottom_y/top_y and the bottom/top Vector3s are TWO representations of the same
+	# geometry (render-list reads the scalars, Ladder.capture reads the Vector3s). Ladders are immutable
+	# after creation — only `cuttable` ever flips — so these must always be built in sync and never
+	# mutated independently.
 	volumes.append({
 		"id": id, "owner_id": owner_id, "building_id": building_id,
 		"deploy_tick": int(srv._sim.tick), "cuttable": false,
@@ -106,7 +113,7 @@ func remove_building(building_id: int) -> void:
 func build_list() -> Array:
 	var out: Array = []
 	for l in volumes:
-		if out.size() >= 255: break
+		if out.size() >= MAX_LADDERS: break
 		out.append({"id": l["id"], "x": l["x"], "z": l["z"],
 			"bottom_y": l["bottom_y"], "top_y": l["top_y"], "cuttable": l["cuttable"]})
 	return out
