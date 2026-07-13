@@ -114,37 +114,46 @@ func test_respawn_rearms() -> void:
 	assert_eq(int(v.shield_broken_until_tick), 0, "respawn clears the break lockout")
 
 
-func test_regen_only_after_delay() -> void:
+## G2a: the pool NEVER passively recovers within a life. There is no per-tick regen step at all
+## and simply letting time pass leaves a partially-drained shield exactly where it was.
+func test_no_passive_regen() -> void:
 	var srv := _srv()
 	var v := _shield_victim(srv, 1)
+	assert_false(srv.has_method("_step_shield_regen"), "the passive-regen tick step is gone")
 	v.shield_hp = 100
 	v.shield_broken_until_tick = 0
-	v.shield_last_hit_tick = 0
-	# Before the no-hit delay elapses: no regen.
-	srv._sim.tick = RiotShield.SHIELD_REGEN_DELAY_TICKS - 1
-	srv._step_shield_regen()
-	assert_eq(int(v.shield_hp), 100, "no regen before the no-hit delay")
-	# Once the delay has elapsed: trickle-refill by SHIELD_REGEN_PER_TICK, capped at full.
-	srv._sim.tick = RiotShield.SHIELD_REGEN_DELAY_TICKS
-	srv._step_shield_regen()
-	assert_eq(int(v.shield_hp), 100 + RiotShield.SHIELD_REGEN_PER_TICK, "regen trickles once the delay passes")
+	srv._sim.tick = 1_000_000   # arbitrarily far into the future — no delay ever un-drains the pool
+	assert_eq(int(v.shield_hp), 100, "no passive HP recovery after any no-hit delay")
 
 
-func test_break_lockout_then_rearm_to_full() -> void:
+## G2a: a broken shield stays broken for the rest of the life — the pool never re-arms over time,
+## so the old break-lockout expiry no longer resurrects it. Only respawn / resupply bring it back.
+func test_break_stays_broken() -> void:
 	var srv := _srv()
 	var v := _shield_victim(srv, 1)
 	srv._sim.tick = 100
-	# Break it: emptied pool + a lockout into the future.
+	# Break it: emptied pool, forced down, lockout armed.
 	v.shield_hp = 0
 	v.shield_up = false
 	v.shield_broken_until_tick = srv._sim.tick + RiotShield.SHIELD_BREAK_TICKS
-	# Mid-lockout: still broken, pool stays 0 (no natural regen while broken).
-	srv._sim.tick = 100 + RiotShield.SHIELD_BREAK_TICKS - 1
-	srv._step_shield_regen()
-	assert_eq(int(v.shield_hp), 0, "a broken shield does not regen during the lockout")
-	assert_true(v.shield_broken_until_tick > srv._sim.tick, "still locked out just before expiry")
-	# At/after expiry: clean re-arm to full, lockout cleared.
-	srv._sim.tick = 100 + RiotShield.SHIELD_BREAK_TICKS
-	srv._step_shield_regen()
-	assert_eq(int(v.shield_hp), RiotShield.SHIELD_HP, "re-arms to full once the lockout expires")
-	assert_eq(int(v.shield_broken_until_tick), 0, "lockout cleared on re-arm")
+	# Long after the old lockout window would have expired: still empty, still down.
+	srv._sim.tick = 100 + RiotShield.SHIELD_BREAK_TICKS * 100
+	assert_eq(int(v.shield_hp), 0, "a broken shield never re-arms over time")
+
+
+## G2a: a Support ammo bag re-arms the shield to full and clears the break lockout (gadget-restock).
+func test_resupply_rearms() -> void:
+	var srv := _srv()
+	var v := _shield_victim(srv, 1)
+	var c = srv._clients[1]
+	c["ammo"] = 0   # ensure the ammo bag actually dispenses (would otherwise skip a full loadout)
+	# Break the shield.
+	v.shield_hp = 0
+	v.shield_broken_until_tick = 999999
+	# A friendly ammo bag sitting on top of the victim; tick chosen so the throttle window is open.
+	var gdef: Dictionary = srv._gadgets.def_of_kind(Gadget.KIND_AMMO)
+	srv._sim.tick = maxi(1, int(gdef["active_rate"]) * 4)   # first multiple of the active period
+	srv._bags = [{"owner": 9, "team": 0, "kind": Gadget.KIND_AMMO, "pos": v.pos, "pool": int(gdef["bag_pool"])}]
+	srv._step_bags()
+	assert_eq(int(v.shield_hp), RiotShield.SHIELD_HP, "resupply re-arms the pool to full")
+	assert_eq(int(v.shield_broken_until_tick), 0, "resupply clears the break lockout")

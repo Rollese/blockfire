@@ -6,9 +6,9 @@ extends Object
 const SHIELD_HP := 300              # full shield pool (server-owned)
 const SHIELD_ARC_DEG := 75.0        # half-angle of the protected frontal arc (150 deg cover)
 const SHIELD_SPEED_MULT := 0.7      # move-speed multiplier while shield up
-const SHIELD_REGEN_DELAY_TICKS := 90  # no-hit delay before the pool regenerates (~3 s @30Hz)
-const SHIELD_REGEN_PER_TICK := 2    # pool refill per tick once regen starts (~60 hp/s)
-const SHIELD_BREAK_TICKS := 150     # forced-down lockout after a full break (~5 s)
+const SHIELD_BREAK_TICKS := 150     # forced-down lockout armed on a full break (~5 s); the pool
+                                    # never regenerates, so a broken shield stays down for the life
+                                    # regardless (only respawn or a Support resupply re-arm it).
 
 ## True when a hit arriving from world-space bearing `bearing` lands within the shield's
 ## protected frontal arc while the bearer faces `facing_yaw`. Both angles use DamageDir.bearing's

@@ -66,9 +66,10 @@ var suppression: float = 0.0         # M5.5-P2: 0..1 incoming-fire scalar; widen
 var blind_until_tick: int = 0        # M5.5-P3: flashbang white-out persists until this tick (0 = not blinded)
 var stim_until_tick: int = 0         # M19: Combat Stim buff active until this tick (server-set; mirrors blind_until_tick)
 var shield_up: bool = false            # M19 P5: derived server-side per-tick (gadget + BTN_SHIELD + not broken); not replicated
-var shield_hp: int = RiotShield.SHIELD_HP   # server-owned frontal-block pool
-var shield_last_hit_tick: int = 0      # last tick the shield absorbed a hit (gates regen)
-var shield_broken_until_tick: int = 0  # forced-down lockout after a full break
+var shield_hp: int = RiotShield.SHIELD_HP   # server-owned frontal-block pool; only decreases per
+                                            # life — no passive regen (respawn / Support resupply re-arm)
+var shield_broken_until_tick: int = 0  # forced-down lockout armed on a full break (belt-and-suspenders;
+                                       # hp==0 already keeps a broken shield down until re-arm)
 
 func _init(p_id: int = 0) -> void:
 	id = p_id

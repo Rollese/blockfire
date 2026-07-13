@@ -478,7 +478,6 @@ func _physics_process(delta: float) -> void:
 	# M5.5-P2: decay suppression once per tick, after accrual in _step_projectiles (accrue-then-decay).
 	_step_suppression_decay()
 	_step_health_regen()   # M19 Combat Vigor / out-of-combat health regen (after suppression decay)
-	_step_shield_regen()   # M19 P5: riot-shield pool re-arm / trickle-regen (after fire resolution)
 	var t_fire := Time.get_ticks_usec()
 	_emplacements.step_occupants()   # M19 P4: slave manned nest gunners + mirror clamped aim onto turrets (before any fire step)
 	_emplacements.step_fire()        # M19 P4: belt/heat/overheat/reload + arc-clamped suppressive MG hitscan
@@ -845,19 +844,6 @@ func _step_suppression_decay() -> void:
 		elif sp.suppression > 0.0:
 			sp.suppression = Suppress.decay(sp.suppression)
 
-## M19 P5: per-tick riot-shield pool upkeep. A broken shield re-arms to full once its lockout
-## elapses; otherwise the pool trickles back after a no-hit delay (mirrors out-of-combat regen).
-func _step_shield_regen() -> void:
-	for id in _clients:
-		var p: Pawn = _sim.world.get_pawn(id)
-		if p == null or not p.alive: continue
-		if p.shield_broken_until_tick > 0 and _sim.tick >= p.shield_broken_until_tick:
-			p.shield_broken_until_tick = 0
-			p.shield_hp = RiotShield.SHIELD_HP   # clean re-arm to full after the lockout
-		elif p.shield_broken_until_tick == 0 and p.shield_hp < RiotShield.SHIELD_HP \
-				and (_sim.tick - p.shield_last_hit_tick) >= RiotShield.SHIELD_REGEN_DELAY_TICKS:
-			p.shield_hp = mini(RiotShield.SHIELD_HP, p.shield_hp + RiotShield.SHIELD_REGEN_PER_TICK)
-
 ## Single routing path for all pawn damage. A standing pawn is killed outright by a headshot or
 ## blast (instant-kill bypass) and otherwise downed. DOWNED pawns are immune to weapon damage
 ## (no finishing, BattleBit-style) — they resolve only via passive bleed-out or a teammate revive.
@@ -870,7 +856,6 @@ func _apply_pawn_damage(vid: int, victim: Pawn, dmg: int, headshot: bool, source
 	if victim.shield_up and RiotShield.is_small_arms(source, is_melee):
 		var atk: Pawn = _sim.world.get_pawn(killer_id)
 		if atk != null and RiotShield.blocks(victim.yaw, DamageDir.bearing(victim.pos, atk.pos)):
-			victim.shield_last_hit_tick = _sim.tick
 			victim.combat_until_tick = _sim.tick + COMBAT_FLAG_TICKS
 			if victim.shield_hp > dmg:
 				victim.shield_hp -= dmg
@@ -974,7 +959,6 @@ func _handle_respawns() -> void:
 			p.blind_until_tick = 0    # a flashbang taken last life doesn't white-out the respawn
 			p.shield_hp = RiotShield.SHIELD_HP   # M19 P5: fresh life re-arms the riot-shield pool to full
 			p.shield_up = false
-			p.shield_last_hit_tick = 0
 			p.shield_broken_until_tick = 0
 			c["respawn_tick"] = 0
 			_apply_loadout_to_client(c, p)   # re-derive weapon/armor/class from the stored loadout, both slots full
@@ -2476,6 +2460,12 @@ func _step_bags() -> void:
 				if int(tc["ammo"]) >= cap and int(tc.get("reserve", 0)) >= reserve_max: continue
 				tc["ammo"] = cap
 				tc["reserve"] = reserve_max   # ammo bag refills the reserve pool too (M17)
+				# M19 P5 / G2a: a Support ammo bag also re-arms the (no-longer-regenerating) riot
+				# shield to full — the gadget-restock model. Clears any break lockout so the pool
+				# is usable again the next time BTN_SHIELD is held.
+				if int(tc["loadout"]["gadget"]) == Loadout.GADGET_RIOT_SHIELD:
+					t.shield_hp = RiotShield.SHIELD_HP
+					t.shield_broken_until_tick = 0
 				dispensed += 1
 				_stats.ammo_gives += 1
 		if dispensed > 0:
