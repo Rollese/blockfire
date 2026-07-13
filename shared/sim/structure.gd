@@ -315,9 +315,20 @@ func march_normal(origin: Vector3, dir: Vector3, max_dist: float) -> Dictionary:
 			best = dhi; n = Vector3.ZERO; n[a] = 1.0
 	return {"hit": true, "dist": float(m["dist"]), "id": int(m["id"]), "point": pt, "normal": n}
 
+## Collision thickness of a flat surface (floor) against bullets/LOS. A floor renders as a ~0.32 m
+## slab but a full-height piece's face is the whole 2.4 m cell — colliding rays against the full cell
+## made the ~2 m of open air above every floor an invisible bullet-blocker (walk-through-but-shoot-
+## blocked; playtest R2 Bug1). Capping the RAY AABB top to a thin slab lets horizontal shots at
+## stand/crouch/prone eye height pass over the floor, while a vertical shot up/down through it still
+## crosses the slab at the cell base (cover between building levels preserved). Movement (`_blocks_
+## ground`) and chunk carving (`is_alive_at` still gets full `_face_height`) are untouched.
+const FLOOR_COLLISION_THICK := 0.35
+
 func _ray_piece(origin: Vector3, d: Vector3, rec: Dictionary) -> float:
+	var type := int(rec["type"])
 	var mn := BuildGrid.cell_min(rec["cell"])
-	var h := _face_height(int(rec["type"]))
+	# Flat surfaces collide as a thin slab at the cell base; all other pieces use their full face height.
+	var h := FLOOR_COLLISION_THICK if _catalog.is_flat_surface(type) else _face_height(type)
 	var mx := Vector3(mn.x + BuildGrid.CELL_SIZE, mn.y + h, mn.z + BuildGrid.CELL_SIZE)
 	return _ray_aabb(origin, d, mn, mx)
 
