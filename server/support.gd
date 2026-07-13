@@ -233,7 +233,12 @@ func give_ammo(target_id: int, period: int) -> void:
 		stim_full = int(tc.get("stim_charges", 0)) >= refill
 		if not stim_full:
 			tc["stim_charges"] = refill
-	if int(tc["ammo"]) >= cap and int(tc.get("reserve", 0)) >= reserve_max and pawn_bandages_full(target_id) and stim_full: return
+	var grapple_full := true
+	if int(tc["loadout"]["gadget"]) == Loadout.GADGET_GRAPPLE:
+		grapple_full = int(tc.get("grapple_charges", 0)) >= Grapple.CHARGES
+		if not grapple_full:
+			tc["grapple_charges"] = Grapple.CHARGES
+	if int(tc["ammo"]) >= cap and int(tc.get("reserve", 0)) >= reserve_max and pawn_bandages_full(target_id) and stim_full and grapple_full: return
 	tc["ammo"] = cap
 	tc["reserve"] = reserve_max
 	var tp: Pawn = srv._sim.world.get_pawn(target_id)

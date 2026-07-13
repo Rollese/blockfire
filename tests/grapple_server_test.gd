@@ -127,3 +127,43 @@ func test_deploy_gate_downed_pawn() -> void:
 	g.deploy(1, p, p.eye_position(), Vector3(0, 0, 1))
 	assert_eq(g.volumes.size(), 0, "downed -> no ladder")
 	assert_eq(int(c["grapple_charges"]), 1, "downed -> charge unchanged")
+
+## Task 7: the real _handle_cut_ladder dispatch — peer -> id -> pawn -> ServerDeployedLadders.cut,
+## with the wire round-trip through Protocol.encode/decode_cut_ladder.
+func test_handle_cut_ladder_cuts_armed_rope_in_radius() -> void:
+	var srv := _srv()
+	var cp := _assault(srv, 1); var c = cp[0]; var p = cp[1]
+	c["grapple_charges"] = 1
+	srv._sim.tick = 0
+	srv._grapples.deploy_at(1, p, Vector3(0, 5, 8), 0, 0.0)
+	var lid := int(srv._grapples.volumes[0]["id"])
+	# Enemy cutter with a real client + pawn at the rope line so the handler resolves it.
+	var cutter_peer = c["peer"]   # null placeholder shared by fixture; distinct key not needed here
+	var cutter_c := F.add_client(srv, 2, 1, false)
+	var cutter := F.add_pawn(srv, 2, 1); cutter.pos = Vector3(0, 0, 8)
+	srv._peer_to_id[cutter_peer] = 2
+	srv._sim.tick = Grapple.CUT_ARM_TICKS + 5
+	srv._grapples.step_arm(srv._sim.tick)
+	srv._handle_cut_ladder(cutter_peer, Protocol.encode_cut_ladder(lid))
+	assert_eq(srv._grapples.volumes.size(), 0, "handler cut the armed rope from an in-radius requester")
+
+func test_disconnect_sweep_drops_rope_and_nest() -> void:
+	var srv := _srv()
+	var cp := _assault(srv, 1); var c = cp[0]; var p = cp[1]
+	c["grapple_charges"] = 1
+	srv._grapples = ServerDeployedLadders.new(srv)
+	srv._sim.deployed_ladders = srv._grapples.volumes
+	srv._grapples.deploy_at(1, p, Vector3(0, 5, 8), 0, 0.0)
+	assert_eq(srv._grapples.volumes.size(), 1, "rope up")
+	# Drive the REAL _on_peer_disconnected body: register the fixture's (null) peer -> id 1 first.
+	srv._peer_to_id[c["peer"]] = 1
+	srv._on_peer_disconnected(c["peer"])
+	assert_eq(srv._grapples.volumes.size(), 0, "rope cleaned on disconnect")
+
+func test_give_ammo_refills_grapple_charge() -> void:
+	var srv := _srv()
+	var cp := _assault(srv, 1); var c = cp[0]
+	c["grapple_charges"] = 0
+	srv._sim.tick = 0
+	srv._support.give_ammo(1, 1)   # period=1 -> fires this tick
+	assert_eq(int(c["grapple_charges"]), Grapple.CHARGES, "support restocked the grapple charge")

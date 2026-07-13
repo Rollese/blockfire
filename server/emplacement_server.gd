@@ -186,6 +186,13 @@ func splash(center: Vector3, base_dmg: int, radius: float, attacker_id: int, tea
 		if d > 0:
 			damage(eid, d, attacker_id)
 
+## Drop all of an owner's nests (disconnect cleanup — mirrors the deploy-time owner eviction). Closes a
+## pre-existing leak: nests were evicted on redeploy (one-per-owner) but never on disconnect (unlike C4/mines).
+func remove_owner(owner_id: int) -> void:
+	for eid in nests.keys():
+		if int((nests[eid] as Emplacement).owner_id) == owner_id:
+			nests.erase(eid)
+
 func clear() -> void:
 	nests.clear()
 	_next_index = 0

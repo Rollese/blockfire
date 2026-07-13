@@ -1265,6 +1265,7 @@ func _on_packet(peer: ENetPacketPeer, _channel: int, bytes: PackedByteArray) -> 
 		Protocol.Msg.GADGET_ACTION: _handle_gadget_action(peer, bytes)
 		Protocol.Msg.VEHICLE_ACTION: _handle_vehicle_action(peer, bytes)
 		Protocol.Msg.EMPLACEMENT_ACTION: _handle_emplacement_action(peer, bytes)
+		Protocol.Msg.CUT_LADDER: _handle_cut_ladder(peer, bytes)
 		Protocol.Msg.DEPLOY_REQUEST: _handle_deploy_request(peer, bytes)
 		Protocol.Msg.SET_SQUAD: _handle_set_squad(peer, bytes)
 		Protocol.Msg.SET_FIRE_MODE: _handle_set_fire_mode(peer, bytes)
@@ -1744,6 +1745,16 @@ func _handle_emplacement_action(peer: ENetPacketPeer, bytes: PackedByteArray) ->
 		Protocol.EA_MOUNT: _emplacements.mount(id, p, int(d["nest_id"]))
 		Protocol.EA_DISMOUNT: _emplacements.dismount(id, p)
 		_: pass
+
+## M19: a player requests to cut a deployed grapple ladder. Server-validated (cuttable + in radius +
+## requester alive) in ServerDeployedLadders.cut — this only resolves peer -> id -> pawn and forwards.
+func _handle_cut_ladder(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
+	var id = _peer_to_id.get(peer, 0)
+	if id == 0 or not _clients.has(id): return
+	var p: Pawn = _sim.world.get_pawn(id)
+	if p == null: return
+	var d := Protocol.decode_cut_ladder(bytes)
+	_grapples.cut(id, int(d["ladder_id"]), p)
 
 func _vehicle_enter(id: int, p: Pawn, vid: int, seat_hint: int) -> void:
 	var v: Vehicle = _sim.world.vehicles.get(vid)
@@ -2615,6 +2626,7 @@ func _collapse_building(bid: int) -> void:
 		if int(ld.get("building_id", 0)) != bid:
 			kept_ladders.append(ld)
 	_sim.ladders = kept_ladders
+	_grapples.remove_building(bid)   # M19: drop grapple ropes anchored to the collapsed building
 	var bytes := Protocol.encode_collapse(bid)
 	for cid in _clients:
 		_net.send_to(_clients[cid]["peer"], NetHost.CHANNEL_BULK, bytes, ENetPacketPeer.FLAG_RELIABLE)
@@ -2783,6 +2795,8 @@ func _on_peer_disconnected(peer: ENetPacketPeer) -> void:
 		for m in _mines:
 			if int(m["owner"]) != id: kept_mines.append(m)
 		_mines = kept_mines
+		_grapples.remove_owner(id)      # M19: drop the leaver's deployed rope
+		_emplacements.remove_owner(id)  # M19 companion fix: drop the leaver's LMG nest (was leaking on disconnect)
 		print("[server] peer %d disconnected — %d peers" % [id, _clients.size()])
 
 func _log_telemetry() -> void:
