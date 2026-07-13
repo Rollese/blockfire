@@ -301,7 +301,9 @@ func march_normal(origin: Vector3, dir: Vector3, max_dist: float) -> Dictionary:
 	var pt: Vector3 = origin + d * float(m["dist"])
 	var rec: Dictionary = _by_id[int(m["id"])]
 	var mn := BuildGrid.cell_min(rec["cell"])
-	var h := _face_height(int(rec["type"]))
+	# Same thin-slab cap as the ray march (via _piece_ray_height), so a grenade landing on a floor deck
+	# reads the TOP (0,1,0) face — not a face of the phantom full-cell cube — and bounces off, not through.
+	var h := _piece_ray_height(int(rec["type"]))
 	var mx := Vector3(mn.x + BuildGrid.CELL_SIZE, mn.y + h, mn.z + BuildGrid.CELL_SIZE)
 	# Normal = the axis whose slab face the contact point sits on (smallest distance to a face plane).
 	var n := Vector3.ZERO
@@ -324,11 +326,17 @@ func march_normal(origin: Vector3, dir: Vector3, max_dist: float) -> Dictionary:
 ## ground`) and chunk carving (`is_alive_at` still gets full `_face_height`) are untouched.
 const FLOOR_COLLISION_THICK := 0.35
 
+## Vertical extent (m up the face) a piece presents to a RAY: flat surfaces collide as a thin slab at
+## the cell base, everything else uses its full face height. Single source of truth shared by _ray_piece
+## (the march AABB) and march_normal (the contact-face pick) so the two can't drift and put the hit point
+## and the bounce normal on different boxes. NOT used by chunk carving/is_alive_at — those keep full
+## _face_height (hole-aware V-mapping must see the whole cell).
+func _piece_ray_height(type: int) -> float:
+	return FLOOR_COLLISION_THICK if _catalog.is_flat_surface(type) else _face_height(type)
+
 func _ray_piece(origin: Vector3, d: Vector3, rec: Dictionary) -> float:
-	var type := int(rec["type"])
 	var mn := BuildGrid.cell_min(rec["cell"])
-	# Flat surfaces collide as a thin slab at the cell base; all other pieces use their full face height.
-	var h := FLOOR_COLLISION_THICK if _catalog.is_flat_surface(type) else _face_height(type)
+	var h := _piece_ray_height(int(rec["type"]))
 	var mx := Vector3(mn.x + BuildGrid.CELL_SIZE, mn.y + h, mn.z + BuildGrid.CELL_SIZE)
 	return _ray_aabb(origin, d, mn, mx)
 
