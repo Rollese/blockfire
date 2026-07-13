@@ -41,3 +41,10 @@ func test_exactly_at_min_height_accepted() -> void:
 	# top-minus-ground exactly MIN_HEIGHT -> accepted (height check is strict '<')
 	var r := Grapple.resolve(Vector3(0, 1.6, 0), Vector3(3, Grapple.MIN_HEIGHT, 0), 0.0, true)
 	assert_true(bool(r["ok"]), "exactly at MIN_HEIGHT still resolves")
+
+func test_building_id_of_maps_piece_to_building() -> void:
+	var cat := PieceCatalog.load_file("res://pieces/pieces.json")
+	var store := StructureStore.new(cat)
+	store.place(101, 0, Vector3i(0, 0, 0), 0, 0, 55)   # id=101, type=0, owner=0, building_id=55
+	assert_eq(store.building_id_of(101), 55, "piece -> building")
+	assert_eq(store.building_id_of(999), 0, "unknown piece -> 0")

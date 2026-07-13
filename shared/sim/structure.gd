@@ -46,6 +46,12 @@ func is_structural(id: int) -> bool:
 func ids_of_building(building_id: int) -> Array:
 	return _by_building.get(building_id, {}).keys()
 
+## The building a placed piece belongs to (0 if unknown). Inverse of ids_of_building; used so a
+## grapple ladder anchored to a piece can be dropped when that building collapses.
+func building_id_of(piece_id: int) -> int:
+	var rec = _by_id.get(piece_id, null)
+	return int(rec["building_id"]) if rec != null else 0
+
 func region_of(cell: Vector3i) -> Vector2i:
 	var w := BuildGrid.world_of(cell)
 	return Vector2i(floori(w.x / REGION_CELL), floori(w.z / REGION_CELL))
