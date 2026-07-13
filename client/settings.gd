@@ -11,6 +11,9 @@ var invert_y: bool = false
 var renderer_fallback: bool = false   # true -> request GL Compatibility
 var ssao_enabled: bool = true   # SSAO on by default; toggle in settings
 var volumetric_fog_enabled: bool = true   # volumetric fog on by default; toggle in settings
+var glow_enabled: bool = true   # bloom/glow on by default; single biggest per-pixel cost on weak iGPUs
+var sun_shadow_enabled: bool = true   # DirectionalLight3D shadow on by default
+var render_scale: float = 1.0   # viewport 3D render scale; clamped [0.5, 1.0], BILINEAR upscale
 var use_model_characters: bool = true   # default ON: imported GLB soldier; set false for procedural CharacterKit
 var player_name: String = "Player"
 var resolution_x: int = 1920
@@ -34,6 +37,9 @@ func save_to(path: String = "user://settings.cfg") -> void:
 	cf.set_value("video", "renderer_fallback", renderer_fallback)
 	cf.set_value("video", "ssao_enabled", ssao_enabled)
 	cf.set_value("video", "volumetric_fog_enabled", volumetric_fog_enabled)
+	cf.set_value("video", "glow_enabled", glow_enabled)
+	cf.set_value("video", "sun_shadow_enabled", sun_shadow_enabled)
+	cf.set_value("video", "render_scale", render_scale)
 	cf.set_value("video", "use_model_characters", use_model_characters)
 	cf.set_value("video", "resolution_x", resolution_x)
 	cf.set_value("video", "resolution_y", resolution_y)
@@ -61,6 +67,9 @@ func load_from(path: String = "user://settings.cfg") -> void:
 	renderer_fallback = bool(cf.get_value("video", "renderer_fallback", renderer_fallback))
 	ssao_enabled = bool(cf.get_value("video", "ssao_enabled", ssao_enabled))
 	volumetric_fog_enabled = bool(cf.get_value("video", "volumetric_fog_enabled", volumetric_fog_enabled))
+	glow_enabled = bool(cf.get_value("video", "glow_enabled", glow_enabled))
+	sun_shadow_enabled = bool(cf.get_value("video", "sun_shadow_enabled", sun_shadow_enabled))
+	render_scale = clampf(float(cf.get_value("video", "render_scale", render_scale)), 0.5, 1.0)
 	use_model_characters = bool(cf.get_value("video", "use_model_characters", use_model_characters))
 	resolution_x = int(cf.get_value("video", "resolution_x", resolution_x))
 	resolution_y = int(cf.get_value("video", "resolution_y", resolution_y))
@@ -97,3 +106,39 @@ func get_class_loadout(cls_id) -> Dictionary:
 ## Remember `cfg` (a DEEP copy) as this class's loadout. Caller keeps ownership of its dict.
 func set_class_loadout(cls_id, cfg: Dictionary) -> void:
 	class_loadouts[str(int(cls_id))] = cfg.duplicate(true)
+
+# ---- graphics-quality presets ----------------------------------------------
+## Ordered preset ids, cheapest last. "performance" is the recommended pick for weak/integrated GPUs.
+const QUALITY_PRESETS := ["high", "balanced", "performance", "potato"]
+
+## Pure mapper: preset name -> the video-settings bundle it implies. Unknown names fall back to
+## "high" (the default look) so callers never get a partial/empty dict. Per-effect iGPU costs that
+## motivate the tiers: glow ~4.3ms, ssao+volfog ~4.1ms, sun shadow ~3.0ms, render-scale ~1.8ms.
+static func quality_preset(name: String) -> Dictionary:
+	match name:
+		"balanced":
+			# Drop the SSAO+volfog pair (~4.1ms) but keep glow and shadows for the full-fat look.
+			return {"ssao_enabled": false, "volumetric_fog_enabled": false,
+				"glow_enabled": true, "sun_shadow_enabled": true, "render_scale": 1.0}
+		"performance":
+			# Also cut glow (~4.3ms, the single biggest cost) — recommended for integrated GPUs.
+			return {"ssao_enabled": false, "volumetric_fog_enabled": false,
+				"glow_enabled": false, "sun_shadow_enabled": true, "render_scale": 1.0}
+		"potato":
+			# All post off, no sun shadow (~3.0ms), and render at 0.8x (~1.4ms) — last-resort floor.
+			return {"ssao_enabled": false, "volumetric_fog_enabled": false,
+				"glow_enabled": false, "sun_shadow_enabled": false, "render_scale": 0.8}
+		_:
+			# "high" and any unknown name: everything on, full resolution (unchanged desktop look).
+			return {"ssao_enabled": true, "volumetric_fog_enabled": true,
+				"glow_enabled": true, "sun_shadow_enabled": true, "render_scale": 1.0}
+
+## Mutate this settings object's video fields to match the named preset. Unknown -> "high" (see
+## quality_preset). Caller still persists/applies as usual (save_to + settings_applied).
+func apply_preset(name: String) -> void:
+	var b := quality_preset(name)
+	ssao_enabled = bool(b["ssao_enabled"])
+	volumetric_fog_enabled = bool(b["volumetric_fog_enabled"])
+	glow_enabled = bool(b["glow_enabled"])
+	sun_shadow_enabled = bool(b["sun_shadow_enabled"])
+	render_scale = clampf(float(b["render_scale"]), 0.5, 1.0)
