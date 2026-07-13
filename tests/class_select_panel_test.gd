@@ -167,6 +167,18 @@ func test_builds_for_every_class_and_missing_icon_ok() -> void:
 		assert_true(panel._summary_box.get_child_count() > 0, "summary rebuilt for class %d" % cls)
 	panel.free()
 
+func test_panel_has_fixed_min_size() -> void:
+	# A4: the framed loadout window has an explicit fixed custom_minimum_size so switching class
+	# (which changes how much content each column holds) can never shrink/grow the window. The floor
+	# must clear the worst-case content of every class, so it is comfortably larger than the two-column
+	# body's own minimum (left 560 + separator + right 320 = 880 wide).
+	var panel := _make()
+	var ms: Vector2 = panel._panel.custom_minimum_size
+	assert_true(ms.x > 0.0 and ms.y > 0.0, "panel has a nonzero fixed custom_minimum_size")
+	assert_true(ms.x >= 1551.0 and ms.y >= 655.0,
+		"panel min clears the worst-case class content (>=1551x655), got %s" % str(ms))
+	panel.free()
+
 func test_perk_panel_populates_from_trait_blurbs() -> void:
 	# Task 3: the always-visible perk panel is one Label per Loadout.trait_blurbs(cls) entry, rebuilt
 	# on every class change (no leak/duplicate). Single source of truth = trait_blurbs.

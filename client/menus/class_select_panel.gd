@@ -91,7 +91,17 @@ var _grenade_row: HBoxContainer
 var _gadget_row: HBoxContainer
 var _perk_box: VBoxContainer             # one Label per Loadout.trait_blurbs()
 var _summary_box: VBoxContainer          # live text summary of the current loadout
+var _panel: PanelContainer               # the fixed-size framed window (see PANEL_MIN_SIZE)
 var _built := false
+
+# Fixed size of the loadout window so switching class never resizes it. Sized to the worst-case
+# shrink-wrapped content across ALL classes plus modest headroom:
+#   Assault  1551×655   (widest — its gadget row: C4 / Grapple / Breach long labels)
+#   Support  1533×655   (tallest tie — 3 primary archetype sections: AR/SMG/LMG)
+#   Medic/Eng 1533×590  (2 archetype sections)
+# 1600×720 clears the 1551×655 max with room for ~one more weapon-archetype section (~65px tall)
+# or a longer future gadget label, so a new class/gadget won't start jittering the window again.
+const PANEL_MIN_SIZE := Vector2(1600, 720)
 
 func _ready() -> void:
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -141,6 +151,10 @@ func _ensure_built() -> void:
 	add_child(center)
 
 	var panel := PanelContainer.new()
+	# Fixed window size (floor >= every class's natural content), so the CenterContainer keeps the
+	# panel a constant size regardless of which class is selected — no more resize-on-class-switch.
+	panel.custom_minimum_size = PANEL_MIN_SIZE
+	_panel = panel
 	center.add_child(panel)
 
 	var margin := MarginContainer.new()
