@@ -93,3 +93,33 @@ func test_apply_preset_mutates_fields() -> void:
 	s.apply_preset("high")
 	assert_true(s.ssao_enabled and s.volumetric_fog_enabled and s.glow_enabled and s.sun_shadow_enabled)
 	assert_almost_eq(s.render_scale, 1.0, 0.0001)
+
+# Task 4: settings menu builds the new graphics widgets and a preset button drives settings live.
+
+func test_menu_builds_and_preset_updates_settings() -> void:
+	var path := "user://gfx_menu_%d.cfg" % Time.get_ticks_usec()
+	var s := ClientSettings.new()
+	var menu := SettingsMenu.new()
+	menu._ready()   # builds the UI off-tree (validates the graphics tab constructs w/o error)
+	menu.save_path = path
+	menu.bind_settings(s)
+	# New graphics widgets exist after build.
+	assert_true(menu._glow_check != null, "glow checkbox built")
+	assert_true(menu._shadow_check != null, "sun-shadow checkbox built")
+	assert_true(menu._render_scale_option != null, "render-scale option built")
+	var emitted := {"hit": false}
+	menu.settings_applied.connect(func(_x): emitted["hit"] = true)
+	menu._on_preset_pressed("performance")
+	assert_false(s.glow_enabled, "Performance preset turned glow off on the settings object")
+	assert_false(s.ssao_enabled)
+	assert_true(s.sun_shadow_enabled, "Performance keeps sun shadow")
+	assert_true(emitted["hit"], "preset applied live (settings_applied emitted)")
+	assert_true(menu._glow_check.button_pressed == false, "glow checkbox refreshed to reflect preset")
+	menu.free()
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
+
+func test_render_scale_index_nearest() -> void:
+	assert_eq(SettingsMenu._render_scale_index(1.0), 0)
+	assert_eq(SettingsMenu._render_scale_index(0.85), 1)
+	assert_eq(SettingsMenu._render_scale_index(0.6), 3)
+	assert_eq(SettingsMenu._render_scale_index(0.62), 3, "nearest match")

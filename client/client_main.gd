@@ -1945,8 +1945,9 @@ func _on_settings_applied(new_settings: ClientSettings) -> void:
 	VideoSettings.apply(_settings)
 	_apply_env_quality()
 
-## Apply the SSAO + volumetric-fog on/off settings to the live client Environment
-## (presentation-only, AGENTS.md §7).
+## Apply the graphics-quality settings (SSAO / volumetric fog / glow / sun shadow / render scale)
+## to the live client Environment, sun light and viewport (presentation-only, AGENTS.md §7).
+## Runs on boot and on every settings-apply so a Performance-preset pick takes effect immediately.
 func _apply_env_quality() -> void:
 	if _scene_root == null or _settings == null:
 		return
@@ -1954,6 +1955,15 @@ func _apply_env_quality() -> void:
 	if we != null and we.environment != null:
 		we.environment.ssao_enabled = _settings.ssao_enabled
 		we.environment.volumetric_fog_enabled = _settings.volumetric_fog_enabled
+		we.environment.glow_enabled = _settings.glow_enabled
+	var sun := _scene_root.get_node_or_null("DirectionalLight3D") as DirectionalLight3D
+	if sun != null:
+		sun.shadow_enabled = _settings.sun_shadow_enabled
+	# Render scale: BILINEAR upscale so <1.0 actually reduces the shaded pixel count.
+	var vp := get_viewport()
+	if vp != null:
+		vp.scaling_3d_mode = Viewport.SCALING_3D_MODE_BILINEAR
+		vp.scaling_3d_scale = clampf(_settings.render_scale, 0.5, 1.0)
 
 ## A footfall fired by the renderer (local pawn or a visible remote) -> spatial footstep sound.
 ## Presentation-only (AGENTS.md §7); the AudioDirector handles distance falloff + voice priority.
