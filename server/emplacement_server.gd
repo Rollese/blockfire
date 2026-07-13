@@ -100,6 +100,9 @@ func step_occupants() -> void:
 			if p != null and p.mounted_nest == e.id: p.mounted_nest = 0
 			continue
 		p.pos = e.seat_world()
+		p.stance = Stance.PRONE   # G3a: a manned MG nest poses its gunner prone (pawn.step skips stance while
+		                          # mounted, so we own it here); dismount/eject clears mounted_nest and the
+		                          # next pawn.step restores normal stance control (never stuck prone).
 		e.turret_yaw = Emplacement.clamp_yaw(p.yaw, e.facing_yaw, half_arc)
 		e.pitch = Emplacement.clamp_pitch(p.pitch, pit_lo, pit_hi)
 		p.yaw = e.turret_yaw   # reflect the clamped aim onto the pawn so this tick's snapshot yaw matches the turret (client mirrors the clamp locally)

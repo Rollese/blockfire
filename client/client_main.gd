@@ -630,6 +630,12 @@ func _produce_input_frame(ss: EntityState, cmd: Dictionary) -> void:
 	if _client_tick < _pred.predicted.stim_until_tick:
 		cmd["stimmed"] = true
 	_pred.record_cmd(_client_tick, cmd)
+	# G3a: manning an LMG nest forces the gunner PRONE server-side (emplacement step_occupants). record_cmd's
+	# prediction step would otherwise re-derive stance from the FIRE-masked buttons (-> STAND), so the local
+	# eye height / pose would mismatch the authority. Pin it here while mounted; the force lifts on its own the
+	# tick _mounted_nest drops to 0 (dismount/eject), and the next step re-derives stance from real input.
+	if _mounted_nest != 0:
+		_pred.predicted.stance = Stance.PRONE
 
 	var buttons: int = int(cmd["buttons"])
 	var sprinting: bool = bool(buttons & InputCommand.BTN_SPRINT) \

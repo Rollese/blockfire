@@ -87,6 +87,48 @@ func test_mount_clamps_pitch() -> void:
 	h.set_pawn_pitch(deg_to_rad(60)); h.tick()   # 60 up -> clamps to +25
 	assert_almost_eq(h.first_nest().pitch, deg_to_rad(25), 0.01)
 
+func test_mounted_occupant_forced_prone() -> void:
+	# G3a: manning an MG nest poses the gunner PRONE every tick (real MG-nest stance), regardless of the
+	# stance they mounted in. pawn.step early-returns on stance while mounted, so step_occupants owns it.
+	var h := EmplacementHarness.new()
+	h.add_support(Vector3(0, 0, 0))
+	h.deploy(Vector3(0, 0, 5), Vector3(0, 0, 1))
+	var nid := h.first_nest_id()
+	h.move_pawn_to(h.first_nest().seat_world()); h.mount(nid)
+	h.pawn().stance = Stance.STAND   # mounted while standing...
+	h.tick()
+	assert_eq(h.pawn().stance, Stance.PRONE, "a mounted gunner is forced prone")
+
+func test_stance_control_restored_after_dismount() -> void:
+	# G3a: the force is only WHILE mounted — after dismount the player regains stance control and is not
+	# stuck prone. A normal on-foot input frame (no prone button) must let them stand back up.
+	var h := EmplacementHarness.new()
+	h.add_support(Vector3(0, 0, 0))
+	h.deploy(Vector3(0, 0, 5), Vector3(0, 0, 1))
+	var nid := h.first_nest_id()
+	h.move_pawn_to(h.first_nest().seat_world()); h.mount(nid)
+	h.tick()
+	assert_eq(h.pawn().stance, Stance.PRONE, "prone while mounted")
+	h.dismount()
+	# On foot again: a standard frame with no BTN_PRONE stands them up (stance no longer force-held).
+	h.pawn().step(SimLoop.DT, {"buttons": 0})
+	assert_eq(h.pawn().stance, Stance.STAND, "stance control restored after dismount (not stuck prone)")
+
+func test_eject_on_destroy_restores_stance_control() -> void:
+	# G3a: the damage-path eject (nest destroyed under the gunner) must also release the prone force.
+	var h := EmplacementHarness.new()
+	h.add_support(Vector3(0, 0, 0))
+	h.deploy(Vector3(0, 0, 5), Vector3(0, 0, 1))
+	var nid := h.first_nest_id()
+	h.move_pawn_to(h.first_nest().seat_world()); h.mount(nid)
+	h.tick()
+	assert_eq(h.pawn().stance, Stance.PRONE, "prone while mounted")
+	h.bullet_hit_nest(nid, 100000)   # destroy the nest -> ejects the (surviving-or-not) gunner
+	assert_eq(h.pawn().mounted_nest, 0, "ejected on destroy")
+	if h.pawn().alive:
+		h.pawn().step(SimLoop.DT, {"buttons": 0})
+		assert_eq(h.pawn().stance, Stance.STAND, "stance control restored after a destroy-eject")
+
 func test_downed_gunner_self_heals_off_nest() -> void:
 	var h := EmplacementHarness.new()
 	h.add_support(Vector3(0, 0, 0))
