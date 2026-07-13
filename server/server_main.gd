@@ -448,6 +448,10 @@ func _physics_process(delta: float) -> void:
 		var prv: int = _prev_climb_vault.get(id, 0)
 		if (cur & 1) != 0 and (prv & 1) == 0:
 			_stats.climbs += 1
+			# Classify grapple climbs: capture_ladder prefers static then deployed, so a climb is on a
+			# DEPLOYED (grapple) rope iff static capture is empty AND deployed capture is non-empty here.
+			if Ladder.capture(_sim.ladders, p.pos).is_empty() and not Ladder.capture(_sim.deployed_ladders, p.pos).is_empty():
+				_stats.grapple_climbs += 1
 		if (cur & 2) != 0 and (prv & 2) == 0:
 			_stats.vaults += 1
 			_broadcast_vault_fx(id)   # cosmetic: a vault just started -> remote mantle pose

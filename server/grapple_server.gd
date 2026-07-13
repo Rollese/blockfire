@@ -74,6 +74,8 @@ func _add(owner_id: int, building_id: int, r: Dictionary) -> void:
 		"top": Vector3(x, float(r["top_y"]), z),
 		"radius": Grapple.LADDER_RADIUS,
 	})
+	if srv != null and srv._stats != null:
+		srv._stats.grapples_deployed += 1
 
 func _evict_owner(owner_id: int) -> void:
 	var kept: Array = []
@@ -96,6 +98,8 @@ func cut(requester_id: int, ladder_id: int, requester: Pawn) -> void:
 		kept.append(l)
 	if removed:
 		volumes.assign(kept)   # in-place
+		if srv != null and srv._stats != null:
+			srv._stats.grapple_cuts += 1
 
 ## Flip cuttable once each ladder passes the arm delay (called once per tick). Mutates dicts in place.
 func step_arm(tick: int) -> void:
