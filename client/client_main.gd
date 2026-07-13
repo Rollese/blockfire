@@ -1780,7 +1780,13 @@ func _handle_self_state(bytes: PackedByteArray) -> void:
 	_mg_heat = int(d.get("mg_heat", 0))
 	_mg_ammo = int(d.get("mg_ammo", 0))
 	_mg_overheated = bool(d.get("mg_overheated", false))
-	_shield_hp_frac = int(d.get("shield_hp_frac", 0))   # M19 P5: authoritative shield HP 0..255 (HUD bar; 0 forces _shield_held off)
+	# M19 P5 / G2c: a DROP in the authoritative shield fraction while the shield is up means the pool
+	# just absorbed a hit — pulse the block/break screen flash (inferred client-side, no wire).
+	var _new_shield_frac := int(d.get("shield_hp_frac", 0))
+	var _sflash := HudModel.shield_flash_strength(_shield_hp_frac, _new_shield_frac, _shield_held)
+	if _sflash > 0.0 and _hud_model != null:
+		_hud_model.push_shield_flash(_sflash, _elapsed)
+	_shield_hp_frac = _new_shield_frac   # M19 P5: authoritative shield HP 0..255 (HUD bar; 0 forces _shield_held off)
 	_grapple_charges = int(d.get("grapple_charges", 0))  # M19 grapple: remaining charges (HUD readout)
 	# Tick-lead: feed the post-drain buffer depth to the input-clock loop. Only while input is
 	# actually being produced (deployed, on foot; menus now keep producing zeroed frames — A5) —

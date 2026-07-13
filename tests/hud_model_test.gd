@@ -379,3 +379,23 @@ func test_bandage_shows_count_when_held() -> void:
 	var bd: Dictionary = HudModel.new().build({"bandage_count": 3, "tick": 0})["bandage"]
 	assert_true(bool(bd["visible"]), "holding bandages -> readout shown")
 	assert_eq(int(bd["count"]), 3, "count surfaced for the HUD label")
+
+
+## G2c: pure shield-block flash predicate + the fade-over-TTL fx read.
+func test_shield_flash_absorb_and_break() -> void:
+	# A drop while up = an absorbed hit (mild); a drop to 0 = a break (strong).
+	assert_eq(HudModel.shield_flash_strength(255, 200, true), 0.5, "absorb pulses mildly")
+	assert_eq(HudModel.shield_flash_strength(40, 0, true), 1.0, "break pulses strongly")
+
+func test_shield_flash_no_pulse_cases() -> void:
+	assert_eq(HudModel.shield_flash_strength(200, 200, true), 0.0, "no change = no pulse")
+	assert_eq(HudModel.shield_flash_strength(100, 200, true), 0.0, "a re-arm (increase) never pulses")
+	assert_eq(HudModel.shield_flash_strength(255, 100, false), 0.0, "shield down = no pulse")
+
+func test_shield_flash_fx_fades_over_ttl() -> void:
+	var m := HudModel.new()
+	m.push_shield_flash(1.0, 10.0)
+	assert_eq(m.build({"now": 10.0})["shield_flash"], 1.0, "full strength at the instant of the pulse")
+	var mid: float = m.build({"now": 10.0 + HudModel.SHIELD_FLASH_TTL * 0.5})["shield_flash"]
+	assert_true(mid > 0.4 and mid < 0.6, "roughly half-faded at half the TTL")
+	assert_eq(m.build({"now": 10.0 + HudModel.SHIELD_FLASH_TTL + 0.01})["shield_flash"], 0.0, "gone after the TTL")

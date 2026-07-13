@@ -6,6 +6,7 @@ extends RefCounted
 const LOW_AMMO_FRAC := 0.34
 const KILLFEED_TTL := 6.0
 const DAMAGE_TTL := 1.5
+const SHIELD_FLASH_TTL := 0.14   # G2c: seconds a riot-shield block/break screen pulse lingers
 const BLIND_FULL_TICKS := 45.0   # remaining-blind ticks at/above which the flash white-out is opaque
 # C4: the FX onset was 0.25 ramping to full at 1.0, so brief near-miss suppression (which spikes to
 # ~0.15–0.4 then decays 0.04/tick) never rendered a visible veil. Onset below the gameplay spread
@@ -34,6 +35,7 @@ var _killfeed: Array = []   # [{killer,victim,headshot,weapon,t}]
 var _capture_feed: Array = []   # [{label:String, status:int, t:float}] — capture-point announcements
 const CAPTURE_FEED_TTL := 4.0   # seconds a capture banner lingers
 var _damages: Array = []   # [{bearing,amount,t}]
+var _shield_flash := {"t": -999.0, "strength": 0.0}   # G2c: latest riot-shield block/break pulse
 var _throwable_active: int = 0
 var _death_info = null
 
@@ -89,6 +91,29 @@ func _capture_feed_current(ctx: Dictionary) -> Array:
 func push_damage(world_bearing: float, amount: int, now: float) -> void:
 	_damages.append({"bearing": world_bearing, "amount": amount, "t": now})
 
+## G2c: how hard to pulse the shield-block screen flash for a shield-HP-fraction change between two
+## SELF_STATE snapshots. Only a DROP while the shield is up counts as an absorbed hit; a break
+## (fraction hits 0) pulses harder than a plain absorb. A re-arm / no-change / shield-down = 0. Pure.
+static func shield_flash_strength(prev_frac: int, cur_frac: int, up: bool) -> float:
+	if not up or cur_frac >= prev_frac:
+		return 0.0            # no absorb this snapshot (down, unchanged, or a re-arm)
+	if cur_frac <= 0:
+		return 1.0            # the breaking shot — stronger flash
+	return 0.5               # a normal absorbed hit
+
+## Register a shield block/break pulse (see shield_flash_strength) to fade over SHIELD_FLASH_TTL.
+func push_shield_flash(strength: float, now: float) -> void:
+	if strength > 0.0:
+		_shield_flash = {"t": now, "strength": strength}
+
+## Current 0..1 shield-flash alpha (peak strength faded linearly over its TTL). Pure read.
+func _shield_flash_fx(ctx: Dictionary) -> float:
+	var now: float = float(ctx.get("now", 0.0))
+	var age: float = now - float(_shield_flash["t"])
+	if age < 0.0 or age > SHIELD_FLASH_TTL:
+		return 0.0
+	return float(_shield_flash["strength"]) * (1.0 - age / SHIELD_FLASH_TTL)
+
 func _damage(ctx: Dictionary) -> Dictionary:
 	var now: float = float(ctx.get("now", 0.0))
 	var yaw: float = float(ctx.get("self_yaw", 0.0))
@@ -134,7 +159,7 @@ func _grenade_danger(ctx: Dictionary):
 
 func build(ctx: Dictionary) -> Dictionary:
 	var dmg := _damage(ctx)
-	return {"ammo": _ammo(ctx), "compass": _compass(ctx), "tickets": _tickets(ctx), "capture": _capture(ctx), "killfeed": _killfeed_current(ctx), "damage_arcs": dmg["arcs"], "vignette": dmg["vignette"], "scoreboard": _scoreboard(ctx), "squad_roster": _squad_roster(ctx), "interaction_prompt": _interaction_prompt(ctx), "throwables": _throwables(ctx), "death_recap": _death_recap(ctx), "grenade_danger": _grenade_danger(ctx), "capture_feed": _capture_feed_current(ctx), "repair_heat": _repair_heat(ctx), "throw_charge": _throw_charge(ctx), "stamina": _stamina(ctx), "mg_gauge": _mg_gauge(ctx), "shield_bar": _shield_bar(ctx), "grapple_charges": _grapple_charges(ctx), "bandage": _bandage(ctx)}
+	return {"ammo": _ammo(ctx), "compass": _compass(ctx), "tickets": _tickets(ctx), "capture": _capture(ctx), "killfeed": _killfeed_current(ctx), "damage_arcs": dmg["arcs"], "vignette": dmg["vignette"], "scoreboard": _scoreboard(ctx), "squad_roster": _squad_roster(ctx), "interaction_prompt": _interaction_prompt(ctx), "throwables": _throwables(ctx), "death_recap": _death_recap(ctx), "grenade_danger": _grenade_danger(ctx), "capture_feed": _capture_feed_current(ctx), "repair_heat": _repair_heat(ctx), "throw_charge": _throw_charge(ctx), "stamina": _stamina(ctx), "mg_gauge": _mg_gauge(ctx), "shield_bar": _shield_bar(ctx), "shield_flash": _shield_flash_fx(ctx), "grapple_charges": _grapple_charges(ctx), "bandage": _bandage(ctx)}
 
 ## C3 grenade hold-to-charge: a 0..1 throw-strength meter, shown only while charging.
 func _throw_charge(ctx: Dictionary) -> Dictionary:

@@ -50,6 +50,7 @@ var _cap_fill: ColorRect          # capture progress fill (tinted by attacker)
 var _killfeed_labels: Array[Label] = []
 var _capture_labels: Array[Label] = []   # pooled capture-announcement banners (centred, top)
 var _vignette: ColorRect
+var _shield_flash: ColorRect      # G2c: brief blue-white screen pulse when the riot shield absorbs / breaks
 var _suppress_overlay: ColorRect  # M5.5-P2 suppression screen FX (bottom of HUD: blurs the world, HUD stays crisp)
 var _suppress_mat: ShaderMaterial
 var _scope_overlay: ColorRect     # ADS sniper-scope mask + reticle (alpha = scope amount)
@@ -148,6 +149,7 @@ func render(model: Dictionary) -> void:
 	_render_repair_gauge(model.get("repair_heat", {}))
 	_render_mg_gauge(model.get("mg_gauge", {}))
 	_render_shield_bar(model.get("shield_bar", {}))
+	_render_shield_flash(float(model.get("shield_flash", 0.0)))
 	_render_grapple_charges(model.get("grapple_charges", {}))
 	_render_bandage(model.get("bandage", {}))
 	_render_throw_charge(model.get("throw_charge", {}))
@@ -193,6 +195,7 @@ func _build_tree() -> void:
 	_build_killfeed()
 	_build_capture_feed()
 	_build_vignette()
+	_build_shield_flash()
 	_build_damage_arcs()
 	_build_prompt()
 	_build_downed()
@@ -721,6 +724,16 @@ func _build_vignette() -> void:
 	_vignette.color = Color(0.9, 0.05, 0.05, 0.0)
 	_vignette.mouse_filter = MOUSE_FILTER_IGNORE
 	add_child(_vignette)
+
+
+## G2c: full-screen blue-white overlay pulsed briefly when the local riot shield absorbs or breaks a
+## hit (distinct hue from the red damage vignette so a block never reads as taking health damage).
+func _build_shield_flash() -> void:
+	_shield_flash = ColorRect.new()
+	_shield_flash.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_shield_flash.color = Color(0.55, 0.72, 1.0, 0.0)
+	_shield_flash.mouse_filter = MOUSE_FILTER_IGNORE
+	add_child(_shield_flash)
 
 
 ## Full-screen suppression overlay (M5.5-P2). A canvas shader samples the rendered world (this is the
@@ -1781,6 +1794,14 @@ func _render_killfeed(_entries: Array) -> void:
 	# case it's wanted later; here we keep every line hidden so nothing renders.
 	for i in KILLFEED_MAX:
 		_killfeed_labels[i].visible = false
+
+
+## G2c: drive the shield-block pulse. `strength` is the faded 0..1 flash from the model; scaled down
+## to a subtle wash so a normal absorb (peak 0.5) is faint and a break (peak 1.0) reads clearly.
+const SHIELD_FLASH_MAX_ALPHA := 0.35
+func _render_shield_flash(strength: float) -> void:
+	if _shield_flash != null:
+		_shield_flash.color.a = clampf(strength, 0.0, 1.0) * SHIELD_FLASH_MAX_ALPHA
 
 
 func _render_damage(arcs: Array, vignette: float) -> void:
