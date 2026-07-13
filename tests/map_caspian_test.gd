@@ -62,3 +62,27 @@ func test_gas_station_prefab_present() -> void:
 	for b in m.buildings:
 		names.append(b["prefab"])
 	assert_true(names.has("gas_station"), "Gas Station uses the gas_station prefab")
+
+func test_border_wall_spans_with_openings() -> void:
+	var m := _map()
+	var border_cz := int(round(0.0 / 2.4))
+	var xs := []
+	for pb in m.prebuilt:
+		if pb["type"] == "bwall" and int(pb["cell"].z) == border_cz:
+			xs.append(int(pb["cell"].x))
+	assert_true(xs.size() > 40, "wall is a long run of blocks (got %d)" % xs.size())
+	xs.sort()
+	var gaps := 0
+	for i in range(1, xs.size()):
+		if xs[i] - xs[i - 1] >= 4:
+			gaps += 1
+	assert_true(gaps >= 3, "wall has >=3 openings (crossing+gate+breach), got %d" % gaps)
+
+func test_wall_has_barbed_wire_cap() -> void:
+	var m := _map()
+	var has_rail := false
+	for pb in m.prebuilt:
+		if pb["type"] == "brailing":
+			has_rail = true
+			break
+	assert_true(has_rail, "wall is capped with brailing (barbed wire)")

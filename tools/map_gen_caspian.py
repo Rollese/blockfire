@@ -219,12 +219,39 @@ def validate_and_bake():
         print("  ! " + p)
     return problems
 
+# ---------------------------------------------------------------- border wall (prebuilt)
+# A continuous run of destructible bwall blocks along z~0, 2 cells tall (~4.8 m) with a
+# brailing cap (barbed wire), skipping openings. Cells: world x = cx*CELL, so the span
+# x in [-300,300] -> cx in [-125,125]. Openings are world-x ranges.
+prebuilt = []
+def gen_border_wall():
+    z_cell = int(round(0.0 / CELL))                      # border line at z=0
+    x_lo, x_hi = -300.0, 300.0
+    openings = [(-112.0, -82.0),    # B highway crossing
+                (118.0, 148.0),     # A->E gate
+                (-260.0, -244.0)]   # pre-existing breach
+    def in_opening(xw):
+        return any(lo <= xw <= hi for lo, hi in openings)
+    cx = int(round(x_lo / CELL))
+    cx_end = int(round(x_hi / CELL))
+    while cx <= cx_end:
+        xw = cx * CELL
+        if not in_opening(xw):
+            prebuilt.append({"type": "bwall", "cell": [cx, 0, z_cell]})   # base course
+            prebuilt.append({"type": "bwall", "cell": [cx, 1, z_cell]})   # second course (~4.8 m)
+            prebuilt.append({"type": "brailing", "cell": [cx, 2, z_cell]})# barbed-wire cap
+        cx += 1
+    return prebuilt
+
+gen_border_wall()
+
 def build_map():
     out = {
         "name": "Caspian Border",
         "world_half": WORLD_HALF,
         "roads": roads,
         "buildings": buildings,
+        "prebuilt": prebuilt,
         "ladders": [],
         "scenery": [],
         "points": points,
