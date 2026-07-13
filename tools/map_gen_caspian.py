@@ -254,6 +254,43 @@ platforms = [
     {"min": [173, 6.0, -87], "max": [181, 6.6, -79]},
 ]
 
+# ---------------------------------------------------------------- scenery (trees + rocks)
+# Trees/rocks render procedurally via TreeKit/RockKit (world_renderer.gd:715-733), keyed only by
+# the "tree_"/"rock_" id prefix — NOT from data/scenery_catalog.json. Ids + palettes mirror
+# conquest_town. Deterministic (integer-hash jitter), so re-runs are byte-reproducible.
+scenery = []
+_TREES = ["tree_type0_01", "tree_type1_02", "tree_type2_01", "tree_type3_02", "tree_type5_03", "tree_type7_01"]
+_ROCKS = ["rock_type1_02", "rock_type3_03", "rock_type5_01"]
+def _jit(i, span):
+    return ((i * 2654435761) % 1000) / 1000.0 * span - span / 2.0
+
+def scatter_trees(cx, cz, rx, rz, count):
+    for i in range(count):
+        x = cx + _jit(i * 3 + 1, rx * 2)
+        z = cz + _jit(i * 3 + 2, rz * 2)
+        scenery.append({"id": _TREES[i % len(_TREES)], "pos": [round(x, 1), 0, round(z, 1)],
+                        "yaw": round((i * 40 % 360) * 3.14159 / 180.0, 3),
+                        "scale": round(1.0 + _jit(i * 3 + 3, 0.6), 2),
+                        "palette": "dry" if i % 5 == 0 else "normal"})
+
+def scatter_rocks(cx, cz, r, count):
+    for i in range(count):
+        x = cx + _jit(i * 5 + 1, r * 2)
+        z = cz + _jit(i * 5 + 2, r * 2)
+        scenery.append({"id": _ROCKS[i % len(_ROCKS)], "pos": [round(x, 1), 0, round(z, 1)],
+                        "yaw": round((i * 55 % 360) * 3.14159 / 180.0, 3),
+                        "scale": round(0.8 + _jit(i * 5 + 3, 0.8), 2),
+                        "palette": "green" if i % 4 == 0 else "grey"})
+
+# Forest masses (C centre + map edges), rock rings (Antenna, Hilltop, near RU/US)
+scatter_trees(51, 34, 70, 55, 40)        # Forest C
+scatter_trees(230, 60, 90, 160, 30)      # east treeline
+scatter_trees(-260, -120, 120, 140, 25)  # west/north woods
+scatter_rocks(170, -80, 34, 14)          # Antenna ring
+scatter_rocks(-45, 74, 30, 12)           # Hilltop crown
+scatter_rocks(-300, 360, 40, 8)          # near RU
+scatter_rocks(-34, -320, 40, 6)          # near US
+
 def build_map():
     out = {
         "name": "Caspian Border",
@@ -263,7 +300,8 @@ def build_map():
         "prebuilt": prebuilt,
         "ladders": ladders,
         "platforms": platforms,
-        "scenery": [],
+        "scenery": scenery,
+        "scenery_palette": {"tree": "normal", "rock": "grey"},
         "points": points,
         "bases": bases,
         "vehicle_spawns": [],

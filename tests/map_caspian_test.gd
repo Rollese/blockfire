@@ -108,3 +108,12 @@ func test_antenna_has_climbable_vantage() -> void:
 	assert_true(m.platforms.size() >= 1, "Antenna has a platform deck")
 	var lad = m.ladders[0]
 	assert_true(lad["top"].y > lad["bottom"].y + 3.0, "ladder climbs >3 m")
+
+func test_has_scenery() -> void:
+	var m := _map()
+	assert_true(m.scenery.size() >= 20, "forest + rocks placed (got %d)" % m.scenery.size())
+	var kinds := {"tree": 0, "rock": 0}
+	for s in m.scenery:
+		if String(s["id"]).begins_with("tree"): kinds["tree"] += 1
+		if String(s["id"]).begins_with("rock"): kinds["rock"] += 1
+	assert_true(kinds["tree"] > 0 and kinds["rock"] > 0, "both trees and rocks present")
