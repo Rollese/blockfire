@@ -2457,14 +2457,18 @@ func _step_bags() -> void:
 				var tc = _clients[pid]
 				var cap: int = int(Weapon.get_def(int(tc["weapon"]))["mag_size"])
 				var reserve_max: int = _spawn_reserve(int(tc["weapon"]), int(tc["class"]))
-				if int(tc["ammo"]) >= cap and int(tc.get("reserve", 0)) >= reserve_max: continue
+				# M19 P5 / G2a: a Support ammo bag also re-arms the (no-longer-regenerating) riot shield.
+				# A raised shield suppresses the holder's own fire, so shield-Support are usually at full
+				# mag+reserve — the ammo-fullness early-out below would otherwise skip them and their
+				# broken shield could NEVER re-arm on a bag. So a below-full shield is itself a reason to
+				# dispense, evaluated BEFORE the ammo gate.
+				var needs_shield_rearm: bool = int(tc["loadout"]["gadget"]) == Loadout.GADGET_RIOT_SHIELD \
+						and t.shield_hp < RiotShield.SHIELD_HP
+				if int(tc["ammo"]) >= cap and int(tc.get("reserve", 0)) >= reserve_max and not needs_shield_rearm: continue
 				tc["ammo"] = cap
 				tc["reserve"] = reserve_max   # ammo bag refills the reserve pool too (M17)
-				# M19 P5 / G2a: a Support ammo bag also re-arms the (no-longer-regenerating) riot
-				# shield to full — the gadget-restock model. Clears any break lockout so the pool
-				# is usable again the next time BTN_SHIELD is held.
-				if int(tc["loadout"]["gadget"]) == Loadout.GADGET_RIOT_SHIELD:
-					t.shield_hp = RiotShield.SHIELD_HP
+				if needs_shield_rearm:
+					t.shield_hp = RiotShield.SHIELD_HP   # re-arm to full + clear any break lockout
 					t.shield_broken_until_tick = 0
 				dispensed += 1
 				_stats.ammo_gives += 1

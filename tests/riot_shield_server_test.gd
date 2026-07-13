@@ -141,19 +141,40 @@ func test_break_stays_broken() -> void:
 	assert_eq(int(v.shield_hp), 0, "a broken shield never re-arms over time")
 
 
-## G2a: a Support ammo bag re-arms the shield to full and clears the break lockout (gadget-restock).
-func test_resupply_rearms() -> void:
-	var srv := _srv()
-	var v := _shield_victim(srv, 1)
-	var c = srv._clients[1]
-	c["ammo"] = 0   # ensure the ammo bag actually dispenses (would otherwise skip a full loadout)
-	# Break the shield.
-	v.shield_hp = 0
-	v.shield_broken_until_tick = 999999
-	# A friendly ammo bag sitting on top of the victim; tick chosen so the throttle window is open.
+## Drop a friendly ammo bag on the victim + run one dispense pass with the throttle window open.
+func _resupply_on(srv, v: Pawn) -> void:
 	var gdef: Dictionary = srv._gadgets.def_of_kind(Gadget.KIND_AMMO)
 	srv._sim.tick = maxi(1, int(gdef["active_rate"]) * 4)   # first multiple of the active period
 	srv._bags = [{"owner": 9, "team": 0, "kind": Gadget.KIND_AMMO, "pos": v.pos, "pool": int(gdef["bag_pool"])}]
 	srv._step_bags()
+
+
+## G2a: a Support ammo bag re-arms the shield to full and clears the break lockout (gadget-restock)
+## even when the holder's mag+reserve are EMPTY (the plain path that also tops up ammo).
+func test_resupply_rearms() -> void:
+	var srv := _srv()
+	var v := _shield_victim(srv, 1)
+	srv._clients[1]["ammo"] = 0   # ammo-needy: the bag dispenses on the ammo path as well
+	v.shield_hp = 0
+	v.shield_broken_until_tick = 999999
+	_resupply_on(srv, v)
 	assert_eq(int(v.shield_hp), RiotShield.SHIELD_HP, "resupply re-arms the pool to full")
 	assert_eq(int(v.shield_broken_until_tick), 0, "resupply clears the break lockout")
+
+
+## G2a review: the load-bearing case. A raised shield suppresses the holder's own fire, so a
+## shield-Support routinely sits at FULL mag+reserve. The ammo-fullness early-out must NOT skip the
+## shield re-arm — a broken shield on a bag re-arms even when there is no ammo to give.
+func test_resupply_rearms_at_full_ammo() -> void:
+	var srv := _srv()
+	var v := _shield_victim(srv, 1)
+	var c = srv._clients[1]
+	# Force a genuinely full loadout so the old `ammo_full and reserve_full -> continue` would fire.
+	c["ammo"] = int(Weapon.get_def(int(c["weapon"]))["mag_size"])
+	c["reserve"] = srv._spawn_reserve(int(c["weapon"]), int(c["class"]))
+	# ...but the shield is broken.
+	v.shield_hp = 0
+	v.shield_broken_until_tick = 999999
+	_resupply_on(srv, v)
+	assert_eq(int(v.shield_hp), RiotShield.SHIELD_HP, "full-ammo shield-Support still re-arms on a bag")
+	assert_eq(int(v.shield_broken_until_tick), 0, "break lockout cleared even with nothing to top up")
