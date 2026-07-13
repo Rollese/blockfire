@@ -1959,10 +1959,17 @@ func _apply_env_quality() -> void:
 	var sun := _scene_root.get_node_or_null("DirectionalLight3D") as DirectionalLight3D
 	if sun != null:
 		sun.shadow_enabled = _settings.sun_shadow_enabled
-	# Render scale: BILINEAR upscale so <1.0 actually reduces the shaded pixel count.
+	# Render scale + antialiasing. FSR 2.2 is Forward+/Mobile-only (ADR-0005) and provides its own
+	# temporal AA — at render_scale 1.0 that's "Native AA" (FSR2's TAA, no upscaling), the game's
+	# only antialiasing today. GL Compatibility (no RenderingDevice) falls back to plain BILINEAR.
 	var vp := get_viewport()
 	if vp != null:
-		vp.scaling_3d_mode = Viewport.SCALING_3D_MODE_BILINEAR
+		var fsr_supported := RenderingServer.get_rendering_device() != null
+		if _settings.fsr_enabled and fsr_supported:
+			vp.scaling_3d_mode = Viewport.SCALING_3D_MODE_FSR2
+			vp.fsr_sharpness = clampf(_settings.fsr_sharpness, 0.0, 2.0)
+		else:
+			vp.scaling_3d_mode = Viewport.SCALING_3D_MODE_BILINEAR
 		vp.scaling_3d_scale = clampf(_settings.render_scale, 0.5, 1.0)
 
 ## A footfall fired by the renderer (local pawn or a visible remote) -> spatial footstep sound.

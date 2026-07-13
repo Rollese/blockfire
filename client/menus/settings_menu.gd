@@ -15,12 +15,13 @@ var save_path: String = "user://settings.cfg"
 var _resolution_option: OptionButton = null
 var _window_mode_option: OptionButton = null
 var _fov_spin: SpinBox = null
-var _fallback_check: CheckBox = null
 var _ssao_check: CheckBox = null
 var _volfog_check: CheckBox = null
 var _glow_check: CheckBox = null
 var _shadow_check: CheckBox = null
 var _render_scale_option: OptionButton = null
+var _fsr_check: CheckBox = null
+var _fsr_sharpness_slider: HSlider = null
 
 ## Render-scale picker rows: label shown -> viewport scaling_3d_scale. Kept parallel so populate/apply
 ## can map both directions.
@@ -151,10 +152,6 @@ func _build_graphics_tab(tabs: TabContainer) -> void:
 	_fov_spin.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	vbox.add_child(_fov_spin)
 
-	_fallback_check = CheckBox.new()
-	_fallback_check.text = "Renderer fallback (GL Compatibility)"
-	vbox.add_child(_fallback_check)
-
 	_ssao_check = CheckBox.new()
 	_ssao_check.text = "Ambient occlusion (SSAO)"
 	vbox.add_child(_ssao_check)
@@ -176,6 +173,21 @@ func _build_graphics_tab(tabs: TabContainer) -> void:
 	for lbl in RENDER_SCALE_LABELS:
 		_render_scale_option.add_item(lbl)
 	vbox.add_child(_render_scale_option)
+
+	_fsr_check = CheckBox.new()
+	_fsr_check.text = "FSR 2.2 upscaling + antialiasing"
+	vbox.add_child(_fsr_check)
+
+	vbox.add_child(_row_label("FSR sharpness"))
+	_fsr_sharpness_slider = _full_width_slider(0.0, 2.0, 0.05)
+	vbox.add_child(_fsr_sharpness_slider)
+
+	var fsr_hint := Label.new()
+	fsr_hint.text = "Sharper at 0.0, softer at 2.0. At 100% render scale this is Native AA (FSR2's temporal antialiasing with no upscaling) — the game's only antialiasing today. Forward+ only; has no effect under GL Compatibility fallback."
+	fsr_hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	fsr_hint.modulate = Color(0.75, 0.8, 0.9)
+	fsr_hint.add_theme_font_size_override("font_size", 12)
+	vbox.add_child(fsr_hint)
 
 	vbox.add_child(_hline())
 	vbox.add_child(_row_label("Quality presets"))
@@ -318,8 +330,6 @@ func _populate_controls() -> void:
 		_voice_slider.value = settings.voice_volume
 	if _invert_y_check != null:
 		_invert_y_check.button_pressed = settings.invert_y
-	if _fallback_check != null:
-		_fallback_check.button_pressed = settings.renderer_fallback
 	if _ssao_check != null:
 		_ssao_check.button_pressed = settings.ssao_enabled
 	if _volfog_check != null:
@@ -330,6 +340,10 @@ func _populate_controls() -> void:
 		_shadow_check.button_pressed = settings.sun_shadow_enabled
 	if _render_scale_option != null:
 		_render_scale_option.select(_render_scale_index(settings.render_scale))
+	if _fsr_check != null:
+		_fsr_check.button_pressed = settings.fsr_enabled
+	if _fsr_sharpness_slider != null:
+		_fsr_sharpness_slider.value = settings.fsr_sharpness
 	if _resolution_option != null:
 		var idx := VideoSettings.find_resolution_index(settings.resolution_x, settings.resolution_y)
 		_resolution_option.select(maxi(idx, 0))
@@ -371,8 +385,6 @@ func apply() -> void:
 		settings.voice_volume = _voice_slider.value
 	if _invert_y_check != null:
 		settings.invert_y = _invert_y_check.button_pressed
-	if _fallback_check != null:
-		settings.renderer_fallback = _fallback_check.button_pressed
 	if _ssao_check != null:
 		settings.ssao_enabled = _ssao_check.button_pressed
 	if _volfog_check != null:
@@ -385,6 +397,10 @@ func apply() -> void:
 		var rs_idx := _render_scale_option.selected
 		if rs_idx >= 0 and rs_idx < RENDER_SCALE_VALUES.size():
 			settings.render_scale = RENDER_SCALE_VALUES[rs_idx]
+	if _fsr_check != null:
+		settings.fsr_enabled = _fsr_check.button_pressed
+	if _fsr_sharpness_slider != null:
+		settings.fsr_sharpness = _fsr_sharpness_slider.value
 	if _resolution_option != null:
 		var res_idx := _resolution_option.selected
 		var presets := VideoSettings.common_resolutions()
@@ -432,6 +448,8 @@ func _on_preset_pressed(preset: String) -> void:
 		_shadow_check.button_pressed = settings.sun_shadow_enabled
 	if _render_scale_option != null:
 		_render_scale_option.select(_render_scale_index(settings.render_scale))
+	if _fsr_check != null:
+		_fsr_check.button_pressed = settings.fsr_enabled
 	apply()
 
 func _device_from_option(opt: OptionButton) -> String:

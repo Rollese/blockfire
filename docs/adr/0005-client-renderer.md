@@ -1,6 +1,6 @@
-# ADR-0005: Client rendering backend (Vulkan Forward+ with GL Compatibility fallback)
+# ADR-0005: Client rendering backend (Vulkan Forward+, no GL Compatibility fallback)
 
-- **Status:** Accepted
+- **Status:** Accepted (amended 2026-07-13 — see Update below)
 - **Date:** 2026-06-16
 - **Context milestone:** M7 (first rendered client)
 
@@ -35,3 +35,13 @@ This decision concerns **only the client**. The dedicated server and bot driver 
 - The client export preset enables the Vulkan renderer; the headless server/bot presets are untouched.
 - Renderer perf is a **playtest-validated** quantity (M7 is collaborative — AGENTS.md §10), not a headless gate number. The server tick budget (the headless gate) is independent of this choice.
 - If public/Steam release is ever pursued, revisit for the broadest hardware matrix (Steam Deck runs both Vulkan and GL paths under Proton).
+
+## Update (2026-07-13): client-side fallback toggle removed
+
+A `renderer_fallback` checkbox/setting was added to the client settings menu at the same time as this ADR but was never wired to anything — Godot's rendering method must be set before the window/`RenderingServer` initializes, and no boot-time read of the setting was ever added. It sat as dead UI that did nothing regardless of what a player picked.
+
+Removed rather than fixed: Vulkan 1.0 driver coverage is broad enough on any hardware from the last decade-plus (NVIDIA Kepler+, AMD GCN+, Intel Skylake-integrated+) that a real GL Compatibility fallback isn't worth the boot-time-relaunch plumbing it would need to actually work, for a LAN game played with family/friends. The risk that remains — a guest's laptop with a stale/never-updated GPU driver — is rare enough to handle case-by-case rather than build a permanent fallback path for.
+
+`project.godot`'s `renderer/rendering_method.mobile = "gl_compatibility"` is untouched by this — that's a separate, functioning engine setting for mobile export templates (not currently a build target), not the removed desktop toggle.
+
+If a real hardware-compatibility need shows up later (e.g. pursuing the public/Steam release noted above), revisit then with an actual boot-time implementation rather than resurrecting the dead toggle.

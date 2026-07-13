@@ -1,19 +1,22 @@
 class_name ClientSettings
 extends RefCounted
-## Player settings persisted to a ConfigFile. Defaults are BattleBit-ish; renderer toggle is read
-## at boot (ADR-0005).
+## Player settings persisted to a ConfigFile. Defaults are BattleBit-ish (ADR-0005: Forward+ only,
+## no GL Compatibility fallback).
 
 var sensitivity: float = 0.25
 var fov: float = 90.0
 var master_volume: float = 0.8
 var voice_volume: float = 0.8
 var invert_y: bool = false
-var renderer_fallback: bool = false   # true -> request GL Compatibility
 var ssao_enabled: bool = true   # SSAO on by default; toggle in settings
 var volumetric_fog_enabled: bool = true   # volumetric fog on by default; toggle in settings
 var glow_enabled: bool = true   # bloom/glow on by default; single biggest per-pixel cost on weak iGPUs
 var sun_shadow_enabled: bool = true   # DirectionalLight3D shadow on by default
-var render_scale: float = 1.0   # viewport 3D render scale; clamped [0.5, 1.0], BILINEAR upscale
+var render_scale: float = 1.0   # viewport 3D render scale; clamped [0.5, 1.0]
+var fsr_enabled: bool = true   # true -> FSR 2.2 scaling (upscale + built-in temporal AA); false -> BILINEAR.
+	# Forward+ only (ADR-0005); ignored under the GL Compatibility fallback. render_scale=1.0 + fsr_enabled
+	# gives "Native AA" — FSR2's TAA with no upscaling, the game's only antialiasing today.
+var fsr_sharpness: float = 0.2   # Viewport.fsr_sharpness; clamped [0.0, 2.0], lower = sharper
 var use_model_characters: bool = true   # default ON: imported GLB soldier; set false for procedural CharacterKit
 var player_name: String = "Player"
 var resolution_x: int = 1920
@@ -34,12 +37,13 @@ func save_to(path: String = "user://settings.cfg") -> void:
 	cf.set_value("input", "sensitivity", sensitivity)
 	cf.set_value("input", "invert_y", invert_y)
 	cf.set_value("video", "fov", fov)
-	cf.set_value("video", "renderer_fallback", renderer_fallback)
 	cf.set_value("video", "ssao_enabled", ssao_enabled)
 	cf.set_value("video", "volumetric_fog_enabled", volumetric_fog_enabled)
 	cf.set_value("video", "glow_enabled", glow_enabled)
 	cf.set_value("video", "sun_shadow_enabled", sun_shadow_enabled)
 	cf.set_value("video", "render_scale", render_scale)
+	cf.set_value("video", "fsr_enabled", fsr_enabled)
+	cf.set_value("video", "fsr_sharpness", fsr_sharpness)
 	cf.set_value("video", "use_model_characters", use_model_characters)
 	cf.set_value("video", "resolution_x", resolution_x)
 	cf.set_value("video", "resolution_y", resolution_y)
@@ -64,12 +68,13 @@ func load_from(path: String = "user://settings.cfg") -> void:
 	sensitivity = float(cf.get_value("input", "sensitivity", sensitivity))
 	invert_y = bool(cf.get_value("input", "invert_y", invert_y))
 	fov = float(cf.get_value("video", "fov", fov))
-	renderer_fallback = bool(cf.get_value("video", "renderer_fallback", renderer_fallback))
 	ssao_enabled = bool(cf.get_value("video", "ssao_enabled", ssao_enabled))
 	volumetric_fog_enabled = bool(cf.get_value("video", "volumetric_fog_enabled", volumetric_fog_enabled))
 	glow_enabled = bool(cf.get_value("video", "glow_enabled", glow_enabled))
 	sun_shadow_enabled = bool(cf.get_value("video", "sun_shadow_enabled", sun_shadow_enabled))
 	render_scale = clampf(float(cf.get_value("video", "render_scale", render_scale)), 0.5, 1.0)
+	fsr_enabled = bool(cf.get_value("video", "fsr_enabled", fsr_enabled))
+	fsr_sharpness = clampf(float(cf.get_value("video", "fsr_sharpness", fsr_sharpness)), 0.0, 2.0)
 	use_model_characters = bool(cf.get_value("video", "use_model_characters", use_model_characters))
 	resolution_x = int(cf.get_value("video", "resolution_x", resolution_x))
 	resolution_y = int(cf.get_value("video", "resolution_y", resolution_y))
@@ -119,19 +124,23 @@ static func quality_preset(name: String) -> Dictionary:
 		"balanced":
 			# Drop the SSAO+volfog pair (~4.1ms) but keep glow and shadows for the full-fat look.
 			return {"ssao_enabled": false, "volumetric_fog_enabled": false,
-				"glow_enabled": true, "sun_shadow_enabled": true, "render_scale": 1.0}
+				"glow_enabled": true, "sun_shadow_enabled": true, "render_scale": 1.0,
+				"fsr_enabled": true}
 		"performance":
 			# Also cut glow (~4.3ms, the single biggest cost) — recommended for integrated GPUs.
 			return {"ssao_enabled": false, "volumetric_fog_enabled": false,
-				"glow_enabled": false, "sun_shadow_enabled": true, "render_scale": 1.0}
+				"glow_enabled": false, "sun_shadow_enabled": true, "render_scale": 1.0,
+				"fsr_enabled": false}
 		"potato":
 			# All post off, no sun shadow (~3.0ms), and render at 0.8x (~1.4ms) — last-resort floor.
 			return {"ssao_enabled": false, "volumetric_fog_enabled": false,
-				"glow_enabled": false, "sun_shadow_enabled": false, "render_scale": 0.8}
+				"glow_enabled": false, "sun_shadow_enabled": false, "render_scale": 0.8,
+				"fsr_enabled": false}
 		_:
 			# "high" and any unknown name: everything on, full resolution (unchanged desktop look).
 			return {"ssao_enabled": true, "volumetric_fog_enabled": true,
-				"glow_enabled": true, "sun_shadow_enabled": true, "render_scale": 1.0}
+				"glow_enabled": true, "sun_shadow_enabled": true, "render_scale": 1.0,
+				"fsr_enabled": true}
 
 ## Mutate this settings object's video fields to match the named preset. Unknown -> "high" (see
 ## quality_preset). Caller still persists/applies as usual (save_to + settings_applied).
@@ -142,3 +151,4 @@ func apply_preset(name: String) -> void:
 	glow_enabled = bool(b["glow_enabled"])
 	sun_shadow_enabled = bool(b["sun_shadow_enabled"])
 	render_scale = clampf(float(b["render_scale"]), 0.5, 1.0)
+	fsr_enabled = bool(b["fsr_enabled"])
