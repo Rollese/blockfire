@@ -1147,6 +1147,19 @@ func tracer_from(origin: Vector3, dir: Vector3, now: float) -> void:
 # world-space plate size a distant remote shot uses, or it fills the screen.
 const LOCAL_FLASH_SCALE := 0.3
 
+## Pure length computation for the tracer beam: how far the pooled TRACER_LEN box should span
+## before it's cut off by the first wall/terrain it crosses. Marches the client's hole-aware
+## structure mirror and clamps to the nearest hit (never longer than the box's own mesh, never
+## short of the store being absent). Static + store-agnostic so it's unit-testable headless.
+static func clipped_tracer_length(struct_store, origin: Vector3, fwd: Vector3) -> float:
+	if struct_store == null:
+		return TRACER_LEN
+	var hit: Dictionary = struct_store.march(origin, fwd, TRACER_LEN)
+	if bool(hit.get("hit", false)):
+		return minf(TRACER_LEN, float(hit["dist"]))
+	return TRACER_LEN
+
+
 func _spawn_tracer(origin: Vector3, fwd: Vector3, now: float, flash_scale: float = 1.0) -> void:
 	if _tracers.is_empty():
 		return
@@ -1154,7 +1167,13 @@ func _spawn_tracer(origin: Vector3, fwd: Vector3, now: float, flash_scale: float
 	var t: Dictionary = _tracers[_tracer_idx]
 	_tracer_idx = (_tracer_idx + 1) % _tracers.size()
 	var node: MeshInstance3D = t["node"]
-	node.global_transform = Transform3D(Basis.looking_at(fwd, up), origin + fwd * (TRACER_LEN * 0.5))
+	# Clip the beam to the first wall so it stops at cover instead of shooting through it. The box
+	# mesh is a fixed TRACER_LEN long, so scale its local Z by length/TRACER_LEN and recentre the
+	# origin at the beam's midpoint. Must set the full basis (incl. scale) every spawn — the node is
+	# pooled/reused, so a previous short length would otherwise leak into a later long shot.
+	var length := clipped_tracer_length(_fx.struct_store if _fx != null else null, origin, fwd)
+	var basis := Basis.looking_at(fwd, up).scaled(Vector3(1.0, 1.0, length / TRACER_LEN))
+	node.global_transform = Transform3D(basis, origin + fwd * (length * 0.5))
 	(t["mat"] as StandardMaterial3D).albedo_color = TRACER_COLOR
 	node.visible = true
 	t["die"] = now + TRACER_TTL
