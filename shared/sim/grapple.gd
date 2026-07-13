@@ -17,12 +17,12 @@ const LADDER_RADIUS := 0.6     # matches Ladder.LADDER_CAPTURE_RADIUS
 ## terrain/platform floor directly below the anchor. Returns {ok, reason, x, z, bottom_y, top_y}.
 static func resolve(origin: Vector3, hit_point: Vector3, ground_y: float, has_hit: bool) -> Dictionary:
 	if not has_hit:
-		return {"ok": false, "reason": "no_surface"}
+		return {"ok": false, "reason": "no_surface", "x": 0.0, "z": 0.0, "bottom_y": 0.0, "top_y": 0.0}
 	if origin.distance_to(hit_point) > MAX_RANGE:
-		return {"ok": false, "reason": "out_of_range"}
+		return {"ok": false, "reason": "out_of_range", "x": 0.0, "z": 0.0, "bottom_y": 0.0, "top_y": 0.0}
 	var top_y := hit_point.y
 	if top_y - ground_y < MIN_HEIGHT:
-		return {"ok": false, "reason": "too_short"}
+		return {"ok": false, "reason": "too_short", "x": 0.0, "z": 0.0, "bottom_y": 0.0, "top_y": 0.0}
 	return {"ok": true, "reason": "", "x": hit_point.x, "z": hit_point.z,
 		"bottom_y": ground_y, "top_y": top_y}
 

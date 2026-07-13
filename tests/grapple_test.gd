@@ -31,3 +31,13 @@ func test_can_cut_arm_and_radius() -> void:
 
 func test_charges_is_one() -> void:
 	assert_eq(Grapple.CHARGES, 1, "single-use per life")
+
+func test_exactly_at_max_range_accepted() -> void:
+	# hit exactly MAX_RANGE away, tall enough -> accepted (range check is strict '>')
+	var r := Grapple.resolve(Vector3.ZERO, Vector3(0, Grapple.MAX_RANGE, 0), 0.0, true)
+	assert_true(bool(r["ok"]), "exactly at MAX_RANGE still resolves")
+
+func test_exactly_at_min_height_accepted() -> void:
+	# top-minus-ground exactly MIN_HEIGHT -> accepted (height check is strict '<')
+	var r := Grapple.resolve(Vector3(0, 1.6, 0), Vector3(3, Grapple.MIN_HEIGHT, 0), 0.0, true)
+	assert_true(bool(r["ok"]), "exactly at MIN_HEIGHT still resolves")
