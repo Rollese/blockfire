@@ -217,10 +217,11 @@ func give_heal(target_id: int, rate: int) -> void:
 	srv._stats.heals += 1
 
 ## Ammo give at 1 mag per `period` ticks (active_rate is the period). Tops the mag, refills the
-## reserve-ammo pool (M17), restocks a bandage, and — M19 P2b — tops a resupplied Medic's Combat
-## Stim pool back to the catalog refill (a Support giving ammo restocks a teammate's whole kit, not
-## just bullets). Checked/applied even when ammo/reserve/bandages are already full so a Medic who's
-## topped on everything else but out of stim still gets refilled.
+## reserve-ammo pool (M17), restocks a bandage, tops a resupplied Medic's Combat Stim pool (M19 P2b)
+## and restocks an Assault's grapple charge (M19 P7) back to the catalog/Grapple refill — a Support
+## giving ammo restocks a teammate's whole kit, not just bullets. The stim/grapple refills are
+## checked/applied even when ammo/reserve/bandages are already full so a teammate topped on everything
+## else but out of that one gadget charge still gets refilled.
 func give_ammo(target_id: int, period: int) -> void:
 	if period <= 0 or srv._sim.tick % period != 0: return
 	if not srv._clients.has(target_id): return

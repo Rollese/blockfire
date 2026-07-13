@@ -139,7 +139,7 @@ func test_handle_cut_ladder_cuts_armed_rope_in_radius() -> void:
 	var lid := int(srv._grapples.volumes[0]["id"])
 	# Enemy cutter with a real client + pawn at the rope line so the handler resolves it.
 	var cutter_peer = c["peer"]   # null placeholder shared by fixture; distinct key not needed here
-	var cutter_c := F.add_client(srv, 2, 1, false)
+	F.add_client(srv, 2, 1, false)
 	var cutter := F.add_pawn(srv, 2, 1); cutter.pos = Vector3(0, 0, 8)
 	srv._peer_to_id[cutter_peer] = 2
 	srv._sim.tick = Grapple.CUT_ARM_TICKS + 5
@@ -155,10 +155,17 @@ func test_disconnect_sweep_drops_rope_and_nest() -> void:
 	srv._sim.deployed_ladders = srv._grapples.volumes
 	srv._grapples.deploy_at(1, p, Vector3(0, 5, 8), 0, 0.0)
 	assert_eq(srv._grapples.volumes.size(), 1, "rope up")
+	# Also deploy an LMG nest for the same owner via the REAL ServerEmplacement.deploy (which gates on
+	# the client holding GADGET_LMG_NEST). Flip the loadout gadget for the deploy call; the rope is
+	# already placed and the disconnect sweep is gadget-agnostic. Terrain.height_at handles a null grid.
+	c["loadout"]["gadget"] = Loadout.GADGET_LMG_NEST
+	srv._emplacements.deploy(1, p, Vector3(0, 0, 5), Vector3(0, 0, 1))
+	assert_eq(srv._emplacements.nests.size(), 1, "nest deployed")
 	# Drive the REAL _on_peer_disconnected body: register the fixture's (null) peer -> id 1 first.
 	srv._peer_to_id[c["peer"]] = 1
 	srv._on_peer_disconnected(c["peer"])
 	assert_eq(srv._grapples.volumes.size(), 0, "rope cleaned on disconnect")
+	assert_true(srv._emplacements.nests.is_empty(), "LMG nest swept on disconnect (companion leak fix)")
 
 func test_give_ammo_refills_grapple_charge() -> void:
 	var srv := _srv()
