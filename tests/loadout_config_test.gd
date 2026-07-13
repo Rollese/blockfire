@@ -176,11 +176,14 @@ func test_sanitize_rpg_never_a_primary() -> void:
 	var out := Loadout.sanitize({"class": Loadout.ENGINEER, "primary": Weapon.RPG}, _attach())
 	assert_ne(int(out["primary"]), Weapon.RPG)
 
-func test_sanitize_unbuilt_gadget_falls_to_default() -> void:
-	# M19-P5 Task 5 implemented RIOT_SHIELD, so GRAPPLE (Assault's still-unbuilt option) is now the
-	# stand-in for "offered but not yet built."
-	var out := Loadout.sanitize({"class": Loadout.ASSAULT, "gadget": Loadout.GADGET_GRAPPLE}, _attach())
-	assert_eq(int(out["gadget"]), Loadout.GADGET_C4)
+func test_all_gadget_options_are_now_implemented() -> void:
+	# M19-P5 Task 8 implemented GRAPPLE, the last remaining "offered but not yet built" stand-in
+	# (RIOT_SHIELD was the prior stand-in until Task 5 built it; this test used to assert sanitize
+	# falls GRAPPLE back to C4 for that reason). There is no unbuilt in-set gadget left, so this
+	# now asserts the resulting invariant directly: every class's gadget_options is fully built.
+	for cls in ALL_CLASSES:
+		for g in Loadout.gadget_options(cls):
+			assert_true(g in Loadout.IMPLEMENTED_GADGETS, "class %d gadget %d is built" % [cls, g])
 
 func test_sanitize_out_of_set_gadget_falls_to_default() -> void:
 	var out := Loadout.sanitize({"class": Loadout.SUPPORT, "gadget": Loadout.GADGET_HEAL}, _attach())

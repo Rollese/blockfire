@@ -35,7 +35,7 @@ const GADGET_LMG_NEST := 12
 # BUILT option (default_gadget). GADGET_SANDBAG is a RESERVED interim filler: it is intentionally NOT
 # in any class's gadget_options yet, so adding it here alone would not surface it — a later phase
 # wires it into specific class slots first.
-const IMPLEMENTED_GADGETS := [GADGET_C4, GADGET_HEAL, GADGET_AMMO, GADGET_RPG, GADGET_REPAIR, GADGET_BREACH, GADGET_STIM, GADGET_SMOKE_WALL, GADGET_LMG_NEST, GADGET_RIOT_SHIELD]
+const IMPLEMENTED_GADGETS := [GADGET_C4, GADGET_HEAL, GADGET_AMMO, GADGET_RPG, GADGET_REPAIR, GADGET_BREACH, GADGET_STIM, GADGET_SMOKE_WALL, GADGET_LMG_NEST, GADGET_RIOT_SHIELD, GADGET_GRAPPLE]
 
 static func weapon_for(cls: int) -> int:
 	match cls:
@@ -278,7 +278,8 @@ static func random_class_no_engineer() -> int:
 ## Task 7), so the 128-bot fleet matrix covers every implemented gadget incl. the M19 P2b Task 6
 ## additions (BREACH, REPAIR) and Task 7 additions (STIM, SMOKE_WALL); every other class takes
 ## its default gadget. Support rotates AMMO/LMG_NEST/RIOT_SHIELD (id % 3, M19 P4 Task 2 + M19 P5
-## Task 7) so the fleet also exercises the nest and the shield block/break paths.
+## Task 7) so the fleet also exercises the nest and the shield block/break paths. Assault rotates
+## C4/BREACH/GRAPPLE (id % 3, M19 P5 Task 8) so the fleet gate also exercises grapple deploy/climb/cut.
 static func bot_gadget(id: int, cls: int) -> int:
 	if cls == ENGINEER:
 		match id % 3:
@@ -286,7 +287,7 @@ static func bot_gadget(id: int, cls: int) -> int:
 			1: return GADGET_C4
 			_: return GADGET_REPAIR
 	if cls == ASSAULT:
-		return GADGET_BREACH if (id % 3 == 0) else GADGET_C4
+		return [GADGET_C4, GADGET_BREACH, GADGET_GRAPPLE][id % 3]
 	if cls == MEDIC:
 		match id % 3:
 			0: return GADGET_HEAL
