@@ -37,9 +37,10 @@ var _vm_downed_hidden := false  # viewmodel hidden while downed (DBNO — you dr
 # A first-person off-hand shield plate parented to the camera, shown while the LOCAL player holds a
 # raised riot shield (Support). Local-only presentation: NO wire, no shield on remote pawns (that
 # needs an entity shield_up bit — deferred). Placement reads as a plate braced in front of the view.
-const SHIELD_VM_OFFSET := Vector3(-0.03, -0.07, -0.30)  # right / down / forward in camera space
+const SHIELD_VM_OFFSET := Vector3(-0.03, -0.13, -0.30)  # right / down / forward in camera space
 const SHIELD_VM_YAW := deg_to_rad(7.0)                  # slight inward cant so it doesn't read flat-on
-const SHIELD_VM_SIZE := Vector3(0.44, 0.60, 0.05)       # a chest-to-face plate, not a full-screen wall
+const SHIELD_VM_SIZE := Vector3(0.44, 0.42, 0.05)       # a chest plate; shorter so the sky above stays visible
+const SHIELD_VM_FRAME := 0.07                            # opaque bar thickness around the see-through window
 var _shield_vm: Node3D = null   # built in setup(), parented to the camera; visibility gated by _shield_up
 var _shield_up := false         # local player's shield is raised this frame (set by client_main)
 
@@ -982,40 +983,64 @@ static func build_viewmodel(weapon_id: int) -> Node3D:
 	return holder
 
 
-## First-person riot-shield plate (G2b): a simple ballistic-plate box in camera space with a lighter
-## viewport strip near the top, canted slightly inward. Static + geometry-only so it is unit-testable;
+## First-person tactical-shield viewmodel (G2b, round-2): an opaque riot-shield FRAME (four bars) with
+## a genuinely see-through window filling the centre, canted slightly inward. Shorter than a full plate
+## so the top of the view (sky/above) stays visible. Static + geometry-only so it is unit-testable;
 ## setup() parents the result to the camera and gates visibility via set_shield_up. Presentation-only.
 static func build_shield_viewmodel() -> Node3D:
 	var holder := Node3D.new()
 	holder.name = "ShieldViewmodel"
 	holder.position = SHIELD_VM_OFFSET
 	holder.rotation = Vector3(0.0, SHIELD_VM_YAW, 0.0)
-	# Main armour plate.
-	var plate := MeshInstance3D.new()
-	plate.name = "Plate"
-	var bm := BoxMesh.new()
-	bm.size = SHIELD_VM_SIZE
-	plate.mesh = bm
-	var mat := StandardMaterial3D.new()
-	mat.albedo_color = Color(0.16, 0.22, 0.34)   # dark riot-shield blue-grey
-	mat.metallic = 0.35
-	mat.roughness = 0.55
-	plate.material_override = mat
-	holder.add_child(plate)
-	# Lighter vision-slit strip near the top so the plate reads as a shield, not a flat slab.
-	var slit := MeshInstance3D.new()
-	slit.name = "Slit"
-	var sm := BoxMesh.new()
-	sm.size = Vector3(SHIELD_VM_SIZE.x * 0.7, 0.06, SHIELD_VM_SIZE.z * 0.4)
-	slit.mesh = sm
-	slit.position = Vector3(0.0, SHIELD_VM_SIZE.y * 0.28, -SHIELD_VM_SIZE.z * 0.55)
-	var smat := StandardMaterial3D.new()
-	smat.albedo_color = Color(0.55, 0.7, 0.85, 0.6)
-	smat.metallic = 0.1
-	smat.roughness = 0.3
-	slit.material_override = smat
-	holder.add_child(slit)
+
+	var w := SHIELD_VM_SIZE.x
+	var h := SHIELD_VM_SIZE.y
+	var d := SHIELD_VM_SIZE.z
+	var f := SHIELD_VM_FRAME
+
+	# Opaque dark riot-shield blue-grey used for every frame bar.
+	var frame_mat := StandardMaterial3D.new()
+	frame_mat.albedo_color = Color(0.16, 0.22, 0.34)
+	frame_mat.metallic = 0.35
+	frame_mat.roughness = 0.55
+
+	# Four opaque bars around a central opening. Top/bottom span the full width; left/right fill only
+	# the gap between them so the corners aren't doubled up.
+	var inner_h := h - 2.0 * f
+	_add_shield_bar(holder, "FrameTop", Vector3(w, f, d), Vector3(0.0, (h - f) * 0.5, 0.0), frame_mat)
+	_add_shield_bar(holder, "FrameBottom", Vector3(w, f, d), Vector3(0.0, -(h - f) * 0.5, 0.0), frame_mat)
+	_add_shield_bar(holder, "FrameL", Vector3(f, inner_h, d), Vector3(-(w - f) * 0.5, 0.0, 0.0), frame_mat)
+	_add_shield_bar(holder, "FrameR", Vector3(f, inner_h, d), Vector3((w - f) * 0.5, 0.0, 0.0), frame_mat)
+
+	# Transparent tactical window filling the central opening — the player looks THROUGH it. Thin, set
+	# slightly forward of the frame plane, faint clear-blue tint with a touch of metallic sheen.
+	var window := MeshInstance3D.new()
+	window.name = "Window"
+	var wmesh := BoxMesh.new()
+	wmesh.size = Vector3(w - 2.0 * f, inner_h, d * 0.4)
+	window.mesh = wmesh
+	window.position = Vector3(0.0, 0.0, -d * 0.15)
+	var wmat := StandardMaterial3D.new()
+	wmat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	wmat.albedo_color = Color(0.55, 0.72, 0.9, 0.28)   # see-through clear-blue tint
+	wmat.metallic = 0.2
+	wmat.roughness = 0.15
+	window.material_override = wmat
+	holder.add_child(window)
 	return holder
+
+
+## Helper: add one opaque BoxMesh frame bar to the shield holder. Kept factored so the four bars share
+## exactly the same construction and material. Static + geometry-only (no SceneTree needed).
+static func _add_shield_bar(holder: Node3D, bar_name: String, size: Vector3, pos: Vector3, mat: StandardMaterial3D) -> void:
+	var bar := MeshInstance3D.new()
+	bar.name = bar_name
+	var bm := BoxMesh.new()
+	bm.size = size
+	bar.mesh = bm
+	bar.position = pos
+	bar.material_override = mat
+	holder.add_child(bar)
 
 
 ## Per-frame update. Safe to call with null world_view or predictor (early-returns).

@@ -26,3 +26,35 @@ func test_build_shield_viewmodel_geometry() -> void:
 	assert_true(vm.get_child_count() >= 1, "has at least the plate mesh")
 	assert_eq(vm.position, WorldRenderer.SHIELD_VM_OFFSET, "placed at the camera-space offset")
 	vm.free()
+
+
+func test_shield_is_shorter_than_before() -> void:
+	# Owner: the shield must not occlude the top of the view — the player should see a
+	# strip of sky above it. It used to be 0.60 tall; the tactical shield is shorter.
+	assert_true(WorldRenderer.SHIELD_VM_SIZE.y < 0.60,
+			"shield height must be shorter than the old 0.60 so the sky above is visible")
+
+
+func test_has_transparent_center_window() -> void:
+	# Tactical shield: a real see-through window in the middle the player looks THROUGH.
+	var vm := WorldRenderer.build_shield_viewmodel()
+	var window: MeshInstance3D = vm.find_child("Window", true, false)
+	assert_true(window != null, "has a central Window mesh")
+	var wmat := window.material_override as StandardMaterial3D
+	assert_true(wmat != null, "window has a StandardMaterial3D")
+	assert_eq(wmat.transparency, BaseMaterial3D.TRANSPARENCY_ALPHA,
+			"window material uses alpha transparency")
+	assert_true(wmat.albedo_color.a < 1.0, "window is genuinely see-through (alpha < 1)")
+	vm.free()
+
+
+func test_frame_bars_are_opaque_and_distinct_from_window() -> void:
+	# The window is a hole in an opaque frame, not painted onto a solid slab: the old top "Slit"
+	# is gone and there are distinct opaque frame bars around the see-through centre.
+	var vm := WorldRenderer.build_shield_viewmodel()
+	assert_true(vm.find_child("Slit", true, false) == null, "old top slit removed")
+	var frame_top: MeshInstance3D = vm.find_child("FrameTop", true, false)
+	assert_true(frame_top != null, "has a distinct FrameTop bar")
+	var fmat := frame_top.material_override as StandardMaterial3D
+	assert_true(fmat != null and fmat.albedo_color.a >= 1.0, "frame bar is opaque")
+	vm.free()
