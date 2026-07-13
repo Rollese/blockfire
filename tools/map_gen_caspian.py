@@ -100,6 +100,74 @@ roads = [
     {"min": [-318, 0, 300], "max": [40, 0, 306]},
 ]
 
+def gen_heightmap():
+    """Compose the Caspian height field (metres) and quantize to 8-bit.
+    Features: gentle long-wavelength rolling hills; a dominant central Hilltop at
+    D(-45,74); low ridges near Antenna and Forest; a shallow river channel along
+    the blue reference line (N-S, wrapping the Hilltop); smoothstep flats under
+    bases + flags. Slopes stay < MAX_WALKABLE_SLOPE_DEG (50). Returns
+    (px uint8 n*n, n, height_min, height_scale)."""
+    import numpy as np
+    n = int(round(2 * WORLD_HALF / SPACING)) + 1          # 501
+    axis = -WORLD_HALF + np.arange(n) * SPACING
+    X, Z = np.meshgrid(axis, axis)                        # X[zi,xi]=x, Z[zi,xi]=z
+    hm = np.zeros((n, n), dtype=np.float64)
+    # rolling hills — long wavelengths so grade stays ~6-10 deg (walkable)
+    hm += 8.0 * np.sin(X / 190.0) * np.cos(Z / 210.0)
+    hm += 4.0 * np.sin(X / 95.0 + 1.3) * np.cos(Z / 110.0 + 0.4)
+    # dominant central Hilltop at D — a broad rise commanding the field
+    dh = np.hypot(X + 45.0, Z - 74.0)
+    hm += np.where(dh < 130.0, 26.0 * np.clip(1.0 - dh / 130.0, 0.0, 1.0) ** 1.4, 0.0)
+    # low ridge near Antenna (east) — sniping perch
+    dr = np.hypot(X - 170.0, Z + 80.0)
+    hm += np.where(dr < 70.0, 9.0 * (1.0 - dr / 70.0), 0.0)
+    # shallow river channel along the blue line: a poly-line of points, carve a trench
+    river = [(-140, -500), (-120, -300), (-100, -60), (-70, 74),
+             (-40, 160), (30, 300), (30, 500)]
+    for i in range(len(river) - 1):
+        ax, az = river[i]; bx, bz = river[i + 1]
+        vx, vz = bx - ax, bz - az
+        L2 = vx * vx + vz * vz
+        tt = np.clip(((X - ax) * vx + (Z - az) * vz) / max(L2, 1e-6), 0.0, 1.0)
+        px_ = ax + tt * vx; pz_ = az + tt * vz
+        dseg = np.hypot(X - px_, Z - pz_)
+        hm += np.where(dseg < 14.0, -5.0 * (1.0 - dseg / 14.0), 0.0)   # ~5 m channel
+    # smoothstep flats under bases + flags (flatten to LOCAL grade, not absolute 0)
+    R0, BLEND = 26.0, 55.0
+    flats = [(-34, -375), (-318, 375),                 # bases
+             (170, -80), (-97, -40), (51, 34), (34, 216)]   # flags (Hilltop D omitted -> keep its rise)
+    for fx, fz in flats:
+        cxi = min(max(int(round((fx + WORLD_HALF) / SPACING)), 0), n - 1)
+        czi = min(max(int(round((fz + WORLD_HALF) / SPACING)), 0), n - 1)
+        ch = hm[czi][cxi]
+        d = np.hypot(X - fx, Z - fz)
+        t = np.clip((d - R0) / BLEND, 0.0, 1.0)
+        w = 1.0 - (t * t * (3.0 - 2.0 * t))
+        hm = hm * (1.0 - w) + ch * w
+    height_min, height_scale = -12.0, 45.0    # covers channel (~-8) up to Hilltop+hills (~+30)
+    px = np.clip(np.round((hm - height_min) / height_scale * 255.0), 0, 255).astype(np.uint8)
+    return px, n, height_min, height_scale
+
+def gen_surface_map(res=1024):
+    """Rasterize `roads` into an (res,res,3) uint8 splatmap: R=asphalt inside road
+    AABBs, G=sidewalk in a 2 m ring, B=0. Matches the heightmap pixel contract."""
+    import numpy as np
+    axis = np.linspace(-WORLD_HALF, WORLD_HALF, res)
+    X, Z = np.meshgrid(axis, axis)
+    SIDEWALK_M = 2.0
+    any_road = np.zeros((res, res), dtype=bool)
+    any_ring = np.zeros((res, res), dtype=bool)
+    for rd in roads:
+        x0, z0, x1, z1 = rd["min"][0], rd["min"][2], rd["max"][0], rd["max"][2]
+        any_road |= (X >= x0) & (X <= x1) & (Z >= z0) & (Z <= z1)
+        any_ring |= (X >= x0 - SIDEWALK_M) & (X <= x1 + SIDEWALK_M) & \
+                    (Z >= z0 - SIDEWALK_M) & (Z <= z1 + SIDEWALK_M)
+    sidewalk = any_ring & ~any_road
+    rgb = np.zeros((res, res, 3), dtype=np.uint8)
+    rgb[..., 0] = np.where(any_road, 255, 0)
+    rgb[..., 1] = np.where(sidewalk, 255, 0)
+    return rgb, res
+
 def build_map():
     out = {
         "name": "Caspian Border",
@@ -111,6 +179,13 @@ def build_map():
         "points": points,
         "bases": bases,
         "vehicle_spawns": [],
+        "terrain": {
+            "heightmap": "heightmaps/conquest_caspian.png",
+            "sample_spacing": SPACING,
+            "height_min": 0.0,       # overwritten in main() with the real values
+            "height_scale": 0.0,
+            "surface_map": "heightmaps/conquest_caspian_surface.png",
+        },
     }
     return out
 
@@ -123,8 +198,17 @@ def write_map(out):
     return path
 
 def main():
+    hm_dir = os.path.join(ROOT, "maps", "heightmaps")
+    os.makedirs(hm_dir, exist_ok=True)
+    px, n, hmin, hscale = gen_heightmap()
+    _write_gray_png(os.path.join(hm_dir, "conquest_caspian.png"), n, n, px.tobytes())
+    rgb, res = gen_surface_map(1024)
+    _write_rgb_png(os.path.join(hm_dir, "conquest_caspian_surface.png"), res, res, rgb.tobytes())
     out = build_map()
+    out["terrain"]["height_min"] = float(hmin)
+    out["terrain"]["height_scale"] = float(hscale)
     write_map(out)
+    print("heightmap %dx%d, height_min=%.1f height_scale=%.1f" % (n, n, hmin, hscale))
 
 if __name__ == "__main__":
     main()

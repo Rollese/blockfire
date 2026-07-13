@@ -34,3 +34,18 @@ func test_two_team_bases() -> void:
 func test_no_vehicle_spawns() -> void:
 	var m := _map()
 	assert_eq(m.vehicle_spawns.size(), 0, "vehicles deferred (AGENTS.md §12)")
+
+func test_has_terrain_block() -> void:
+	var m := _map()
+	assert_true(m.terrain.has("heightmap"), "map declares a heightmap")
+	assert_eq(m.terrain["heightmap"], "heightmaps/conquest_caspian.png")
+	assert_true(m.terrain.has("surface_map"), "map paints roads via a splatmap")
+	assert_true(float(m.terrain["height_scale"]) > 0.0, "non-zero relief")
+
+func test_terrain_grid_loads() -> void:
+	var m := _map()
+	var grid := Terrain.load_for_map(m, "res://maps", func(_i): return {})
+	assert_true(grid != null, "Terrain builds from the heightmap")
+	var h_hill := Terrain.height_at(grid, -45.0, 74.0)
+	var h_base := Terrain.height_at(grid, -34.0, -375.0)
+	assert_true(h_hill > h_base, "Hilltop rises above the northern base")

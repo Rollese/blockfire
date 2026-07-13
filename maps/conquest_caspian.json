@@ -162,5 +162,12 @@
       "radius": 30
     }
   ],
-  "vehicle_spawns": []
+  "vehicle_spawns": [],
+  "terrain": {
+    "heightmap": "heightmaps/conquest_caspian.png",
+    "sample_spacing": 2.0,
+    "height_min": -12.0,
+    "height_scale": 45.0,
+    "surface_map": "heightmaps/conquest_caspian_surface.png"
+  }
 }
