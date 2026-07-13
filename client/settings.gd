@@ -20,6 +20,10 @@ var output_device: String = ""         # "" = system default
 var input_device: String = ""          # "" = system default
 ## action -> {type, physical_keycode|button_index} — see InputBindings
 var bindings: Dictionary = {}
+## Per-class loadout memory (M19 loadout-UI redesign): class-id STRING -> loadout dict. Persisted so
+## a player's class choices stick across matches AND servers. Written on every class-select edit; the
+## deploy screen seeds from it. Stored/returned as DEEP copies so no caller aliases the live store.
+var class_loadouts: Dictionary = {}
 
 func save_to(path: String = "user://settings.cfg") -> void:
 	var cf := ConfigFile.new()
@@ -40,6 +44,10 @@ func save_to(path: String = "user://settings.cfg") -> void:
 	cf.set_value("audio", "input_device", input_device)
 	for action in bindings:
 		cf.set_value("bindings", action, bindings[action])
+	# Per-class loadouts: one key per class, value a JSON-encoded string (ConfigFile-safe, mirrors the
+	# bindings dict precedent above — nested dicts survive a round trip as text).
+	for cls_key in class_loadouts:
+		cf.set_value("loadouts", String(cls_key), JSON.stringify(class_loadouts[cls_key]))
 	cf.save(path)
 
 func load_from(path: String = "user://settings.cfg") -> void:
@@ -67,3 +75,25 @@ func load_from(path: String = "user://settings.cfg") -> void:
 			var val = cf.get_value("bindings", key)
 			if typeof(val) == TYPE_DICTIONARY:
 				bindings[key] = val
+	# Per-class loadouts: JSON-decode each key; skip malformed/non-string entries (never crash).
+	class_loadouts = {}
+	if cf.has_section("loadouts"):
+		for key in cf.get_section_keys("loadouts"):
+			var raw = cf.get_value("loadouts", key)
+			if typeof(raw) != TYPE_STRING:
+				continue
+			var parsed = JSON.parse_string(raw)
+			if typeof(parsed) == TYPE_DICTIONARY:
+				class_loadouts[String(key)] = parsed
+
+## The stored loadout for a class (DEEP copy), or {} if none is remembered yet. Keyed by the class
+## enum int, stringified so it survives the ConfigFile round trip.
+func get_class_loadout(cls_id) -> Dictionary:
+	var v = class_loadouts.get(str(int(cls_id)), null)
+	if typeof(v) == TYPE_DICTIONARY:
+		return (v as Dictionary).duplicate(true)
+	return {}
+
+## Remember `cfg` (a DEEP copy) as this class's loadout. Caller keeps ownership of its dict.
+func set_class_loadout(cls_id, cfg: Dictionary) -> void:
+	class_loadouts[str(int(cls_id))] = cfg.duplicate(true)
