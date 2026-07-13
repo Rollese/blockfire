@@ -344,7 +344,6 @@
       "material": "CONCRETE",
       "chunk_grid": 1,
       "structural": false,
-      "surface": true,
       "damage": []
     }
   ]

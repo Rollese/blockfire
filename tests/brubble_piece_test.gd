@@ -5,12 +5,16 @@ extends TestCase
 func _cat() -> PieceCatalog:
 	return PieceCatalog.load_file("res://pieces/pieces.json")
 
-func test_brubble_is_low_walkable_surface() -> void:
+func test_brubble_is_low_solid_cover() -> void:
 	var cat := _cat()
 	var t := cat.index_of("brubble")
 	assert_true(t >= 0, "brubble piece exists in the catalog")
 	assert_true(cat.is_half(t), "brubble is low (half height) cover, not a full wall")
-	assert_true(cat.is_flat_surface(t), "brubble is a walkable surface — you stand ON it, not inside it")
+	# NOT a flat surface: a surface piece short-circuits the movement resolver to non-blocking
+	# (structure.gd::_blocks_ground), which made rubble completely walk-through in every stance
+	# (owner playtest 2026-07-13). Rubble is SOLID low cover — it blocks the feet and is vaulted over,
+	# never a floor you pass through. Collision is proven in collapse_rubble_collision_test.gd.
+	assert_false(cat.is_flat_surface(t), "brubble is solid low cover you vault over, NOT a walk-through floor surface")
 
 func test_brubble_is_indestructible() -> void:
 	var cat := _cat()
