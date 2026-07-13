@@ -13,7 +13,15 @@ var world := World.new()
 var structures: StructureStore = null     # optional StructureStore; resolves movement collision + vault blockers
 var terrain: TerrainGrid = null   # optional heightmap; folded into floor + horizontal resolution
 var ladders: Array = []   # [{bottom:Vector3, top:Vector3, radius:float}]
+var deployed_ladders: Array = []   # runtime grapple ladders (server-owned); same {bottom,top,radius} shape
 var platforms: Array = [] # [{min:Vector3, max:Vector3}] walkable surfaces
+
+## Capture a ladder volume at pos, static map ladders first then deployed grapple ladders.
+func capture_ladder(pos: Vector3) -> Dictionary:
+	var l := Ladder.capture(ladders, pos)
+	if not l.is_empty():
+		return l
+	return Ladder.capture(deployed_ladders, pos)
 
 func step(inputs: Dictionary, world_half: float = Pawn.WORLD_HALF) -> void:
 	for id in world.pawns:
@@ -42,7 +50,7 @@ func step(inputs: Dictionary, world_half: float = Pawn.WORLD_HALF) -> void:
 	tick += 1
 
 func _step_climb(p: Pawn, cmd: Dictionary) -> void:
-	var ladder := Ladder.capture(ladders, p.pos)
+	var ladder := capture_ladder(p.pos)
 	if ladder.is_empty():
 		p.climbing = false
 		return
@@ -57,7 +65,7 @@ func _step_climb(p: Pawn, cmd: Dictionary) -> void:
 		var speed: float = Stance.speed(p.stance) * Armor.speed_mult(p.armor_class)
 		climbed.x = p.pos.x + move_x * speed * DT
 	p.pos = climbed
-	if absf(move_x) > 0.1 and Ladder.capture(ladders, p.pos).is_empty():
+	if absf(move_x) > 0.1 and capture_ladder(p.pos).is_empty():
 		p.climbing = false   # strafed out of the volume -> dismount into normal movement
 		return
 	var top: Vector3 = ladder["top"]
@@ -113,7 +121,7 @@ func _step_normal(p: Pawn, prev: Vector3, cmd: Dictionary, prev_grounded: bool) 
 	# Ladder engage (after movement, so a pawn that walked into the volume this tick climbs next tick).
 	# Downed pawns crawl — they don't grab ladders (3 m/s climb would triple their crawl speed).
 	if not p.climbing and not p.is_downed:
-		var ladder := Ladder.capture(ladders, p.pos)
+		var ladder := capture_ladder(p.pos)
 		if Ladder.should_engage(ladder, p.pos, cmd.get("move_y", 0.0)):
 			p.climbing = true
 
