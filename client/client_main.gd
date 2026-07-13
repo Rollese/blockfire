@@ -865,6 +865,10 @@ func _process(_dt: float) -> void:
 
 	if _wpred != null and not _photo_mode:
 		_renderer.set_viewmodel_weapon(_wpred.weapon)   # show the RPG launcher etc., not always the AR
+	# G2b: raise the first-person riot-shield plate while the local player holds it up (equipped +
+	# held + pool not empty). Local presentation only — remote pawns have no shield mesh (no wire bit).
+	var _shield_equipped_now: bool = int(_loadout.get("gadget", -1)) == Loadout.GADGET_RIOT_SHIELD
+	_renderer.set_shield_up(WorldRenderer.shield_viewmodel_visible(_shield_equipped_now, _shield_held, _shield_hp_frac))
 	_renderer.set_ads(_ads_t)   # viewmodel sight pose + bob damping (before update -> _pose_viewmodel reads it)
 	# Hide the gun while scoped (you look through the scope, not at the centred gun).
 	_renderer.set_viewmodel_scope_hidden((_scope_test or _is_scoped(weapon0)) and _ads_t > 0.6)

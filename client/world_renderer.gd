@@ -33,6 +33,16 @@ var _vm_photo_hidden := false   # viewmodel hidden by photo/free-fly mode
 var _vm_scope_hidden := false   # viewmodel hidden while scoped (look through the scope, not at the gun)
 var _vm_downed_hidden := false  # viewmodel hidden while downed (DBNO — you drop your weapon; C5)
 
+# -- riot-shield viewmodel (G2b) ----------------------------------------------
+# A first-person off-hand shield plate parented to the camera, shown while the LOCAL player holds a
+# raised riot shield (Support). Local-only presentation: NO wire, no shield on remote pawns (that
+# needs an entity shield_up bit — deferred). Placement reads as a plate braced in front of the view.
+const SHIELD_VM_OFFSET := Vector3(-0.03, -0.07, -0.30)  # right / down / forward in camera space
+const SHIELD_VM_YAW := deg_to_rad(7.0)                  # slight inward cant so it doesn't read flat-on
+const SHIELD_VM_SIZE := Vector3(0.44, 0.60, 0.05)       # a chest-to-face plate, not a full-screen wall
+var _shield_vm: Node3D = null   # built in setup(), parented to the camera; visibility gated by _shield_up
+var _shield_up := false         # local player's shield is raised this frame (set by client_main)
+
 # -- tracer (shot feedback) ---------------------------------------------------
 const TRACER_POOL := 16
 const TRACER_LEN := 80.0          # metres the beam extends along the aim
@@ -808,6 +818,11 @@ func setup(map: MapDef, camera: Camera3D) -> void:
 	_viewmodel_weapon = Weapon.AR
 	_camera.add_child(_viewmodel)
 
+	# Riot-shield off-hand viewmodel (G2b) — built once, hidden until the local player raises it.
+	_shield_vm = build_shield_viewmodel()
+	_shield_vm.visible = false
+	_camera.add_child(_shield_vm)
+
 
 ## Hide/show the first-person viewmodel (photo/free-fly mode wants a clean frame with no gun).
 func set_viewmodel_hidden(h: bool) -> void:
@@ -826,9 +841,25 @@ func set_viewmodel_downed_hidden(h: bool) -> void:
 	_vm_downed_hidden = h
 	_apply_vm_visibility()
 
+## Raise/lower the first-person riot-shield plate. `up` comes from client_main's local shield state
+## (equipped + held + pool not empty). View-only, no wire (AGENTS.md §7).
+func set_shield_up(up: bool) -> void:
+	_shield_up = up
+	_apply_vm_visibility()
+
+## True when the local riot-shield plate should render: the player has it equipped, is holding it
+## raised, and the pool is not empty (hp_frac 0 = broken/none -> down). Pure so it's unit-testable.
+static func shield_viewmodel_visible(equipped: bool, shield_held: bool, hp_frac: int) -> bool:
+	return equipped and shield_held and hp_frac > 0
+
 func _apply_vm_visibility() -> void:
 	if _viewmodel != null:
 		_viewmodel.visible = not (_vm_photo_hidden or _vm_scope_hidden or _vm_downed_hidden)
+	# The shield plate follows the raise flag but still yields to photo/free-fly and downed hides
+	# (no shield in hand while DBNO / in a clean screenshot). Scope-hide doesn't apply — a shield
+	# Support isn't looking down a sniper scope.
+	if _shield_vm != null:
+		_shield_vm.visible = _shield_up and not (_vm_photo_hidden or _vm_downed_hidden)
 
 ## Aim-down-sights blend (0 = hip, 1 = fully aimed). Client-only visual: shifts the viewmodel to the
 ## sight line (see _pose_viewmodel) and damps the locomotion bob. The matching FOV zoom is applied by
@@ -948,6 +979,42 @@ static func build_viewmodel(weapon_id: int) -> Node3D:
 	holder.position = VM_OFFSET
 	holder.rotation = Vector3(0.0, VM_YAW, 0.0)
 	holder.add_child(GlbWeaponKit.build(weapon_id))
+	return holder
+
+
+## First-person riot-shield plate (G2b): a simple ballistic-plate box in camera space with a lighter
+## viewport strip near the top, canted slightly inward. Static + geometry-only so it is unit-testable;
+## setup() parents the result to the camera and gates visibility via set_shield_up. Presentation-only.
+static func build_shield_viewmodel() -> Node3D:
+	var holder := Node3D.new()
+	holder.name = "ShieldViewmodel"
+	holder.position = SHIELD_VM_OFFSET
+	holder.rotation = Vector3(0.0, SHIELD_VM_YAW, 0.0)
+	# Main armour plate.
+	var plate := MeshInstance3D.new()
+	plate.name = "Plate"
+	var bm := BoxMesh.new()
+	bm.size = SHIELD_VM_SIZE
+	plate.mesh = bm
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = Color(0.16, 0.22, 0.34)   # dark riot-shield blue-grey
+	mat.metallic = 0.35
+	mat.roughness = 0.55
+	plate.material_override = mat
+	holder.add_child(plate)
+	# Lighter vision-slit strip near the top so the plate reads as a shield, not a flat slab.
+	var slit := MeshInstance3D.new()
+	slit.name = "Slit"
+	var sm := BoxMesh.new()
+	sm.size = Vector3(SHIELD_VM_SIZE.x * 0.7, 0.06, SHIELD_VM_SIZE.z * 0.4)
+	slit.mesh = sm
+	slit.position = Vector3(0.0, SHIELD_VM_SIZE.y * 0.28, -SHIELD_VM_SIZE.z * 0.55)
+	var smat := StandardMaterial3D.new()
+	smat.albedo_color = Color(0.55, 0.7, 0.85, 0.6)
+	smat.metallic = 0.1
+	smat.roughness = 0.3
+	slit.material_override = smat
+	holder.add_child(slit)
 	return holder
 
 
