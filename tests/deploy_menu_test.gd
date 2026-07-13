@@ -31,3 +31,33 @@ func test_populate_offers_enabled_squad_fob() -> void:
 	assert_true(menu.refs.has(DeploySpawn.FOB_BASE + 2), "enabled squad-2 FOB offered as a spawn")
 	assert_false(menu.refs.has(DeploySpawn.FOB_BASE + 5), "disabled squad-5 FOB not offered")
 	menu.free()
+
+func test_populate_keeps_open_loadout_editor_visible() -> void:
+	# A4 round-2: a data-refresh repopulate (e.g. a FOB_LIST content change while the player lingers on
+	# the deploy screen) must NOT yank an open loadout editor shut. Only close_loadout_editor() / the
+	# Done button / a fresh death screen should close it.
+	var m := _map()
+	var c := ConquestState.new(m)
+	var menu := DeployMenu.new()
+	menu.populate(0, m, c)
+	menu._on_loadout_btn_pressed()   # open the editor as the player would
+	assert_true(menu._class_select.visible, "loadout editor is open before the refresh")
+	menu.populate(0, m, c)           # data refresh (FOB churn) re-runs populate
+	assert_true(menu._class_select.visible, "open loadout editor survives a populate/data-refresh")
+	menu.free()
+
+func test_close_loadout_editor_hides_it() -> void:
+	# The explicit close path (called on the alive->dead transition) hides the editor.
+	var m := _map()
+	var c := ConquestState.new(m)
+	var menu := DeployMenu.new()
+	menu.populate(0, m, c)
+	menu._on_loadout_btn_pressed()
+	assert_true(menu._class_select.visible, "editor open")
+	menu.close_loadout_editor()
+	assert_false(menu._class_select.visible, "close_loadout_editor() hides the editor")
+	# null-guard: no crash if the panel was never built.
+	var bare := DeployMenu.new()
+	bare.close_loadout_editor()
+	bare.free()
+	menu.free()

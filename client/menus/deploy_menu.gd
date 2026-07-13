@@ -100,11 +100,12 @@ func populate(team: int, map: MapDef, conquest: ConquestState, squadmates: Array
 	# Ensure the layout exists even when called before _ready (e.g. DeployMenu.new() in tests).
 	if _vbox == null:
 		_build_layout()
-	# M19 P3: the deploy menu is (re)showing — always start with the loadout editor closed. Without
-	# this, a sibling overlay (e.g. Settings) that hid the deploy menu while the editor was open would
-	# leave the editor stuck visible over the spawn list when the deploy menu reappears.
-	if _class_select != null:
-		_class_select.visible = false
+	# A4 round-2: populate() is a pure spawn-list DATA refresh — it must NOT touch the loadout editor's
+	# visibility. It re-runs whenever the deploy data changes (e.g. a teammate's FOB is built/destroyed,
+	# which flips FOB_LIST and resets _deploy_menu_populated), and force-hiding the editor here yanked it
+	# shut mid-edit. Resetting the editor to closed belongs to the fresh death/deploy screen instead:
+	# client_main calls close_loadout_editor() on the alive->dead transition (which also covers a sibling
+	# Settings overlay that hid the deploy menu while the editor was open).
 	# Fresh spawn list -> not awaiting. Without this, a populate() after death (the alive->dead
 	# repopulate) leaves the post-click "Awaiting deploy…" state up with the buttons hidden, and
 	# the player is stuck on a buttonless deploy screen.
@@ -202,6 +203,13 @@ func set_loadout_store(store) -> void:
 func _on_loadout_btn_pressed() -> void:
 	if _class_select != null:
 		_class_select.visible = true
+
+## A4 round-2: explicitly reset the loadout editor to closed. Called by client_main on the fresh
+## alive->dead transition (a new death/deploy screen starts with the editor closed) — deliberately
+## NOT called from populate(), so a mere data refresh leaves an open editor open.
+func close_loadout_editor() -> void:
+	if _class_select != null:
+		_class_select.visible = false
 
 func _on_class_select_closed() -> void:
 	if _class_select != null:

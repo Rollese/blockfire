@@ -1639,6 +1639,8 @@ func _handle_snapshot(bytes: PackedByteArray) -> void:
 	# point ownership (it may have changed since the last deploy).
 	if _was_alive and not alive:
 		_deploy_menu_populated = false
+		if _deploy_menu != null:
+			_deploy_menu.close_loadout_editor()   # A4 round-2: a fresh death screen starts with the loadout editor closed (populate() no longer force-hides it, so a mid-edit FOB refresh can't yank it shut)
 		_pos_err = Vector3.ZERO   # drop any residual reconcile offset so respawn doesn't inherit it
 		_reconciled = false
 		_died_at = _elapsed   # start the respawn-cooldown clock
