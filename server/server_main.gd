@@ -478,6 +478,7 @@ func _physics_process(delta: float) -> void:
 	var t_fire := Time.get_ticks_usec()
 	_emplacements.step_occupants()   # M19 P4: slave manned nest gunners + mirror clamped aim onto turrets (before any fire step)
 	_emplacements.step_fire()        # M19 P4: belt/heat/overheat/reload + arc-clamped suppressive MG hitscan
+	_grapples.step_arm(_sim.tick)    # M19 grapple: ripen deployed ropes to armed/cuttable — sim advance (drives wire cuttable flag), not net
 	_step_grenades()
 	_step_rockets()
 	_step_breaches()
@@ -1858,13 +1859,12 @@ func _broadcast_emplacement_list() -> void:
 		return
 	_broadcast_all(NetHost.CHANNEL_CONTROL, pkt, ENetPacketPeer.FLAG_RELIABLE)
 
-## Deployed grapple ladders (M19): arm ripening ropes each tick, then broadcast the render list
-## reliably only when it CHANGES, plus a ~1 Hz heartbeat while non-empty (self-healing like
-## EMPLACEMENT_LIST). Skipped entirely when no client is connected.
+## Deployed grapple ladders (M19): broadcast the render list reliably only when it CHANGES, plus a
+## ~1 Hz heartbeat while non-empty (self-healing like EMPLACEMENT_LIST). Pure read — arming/cuttable
+## advances in the unconditional sim tick (_grapples.step_arm). Skipped entirely when no client is connected.
 func _broadcast_deployed_ladder_list() -> void:
 	if _clients.is_empty():
 		return
-	_grapples.step_arm(_sim.tick)
 	var list := _grapples.build_list()
 	var pkt := Protocol.encode_deployed_ladder_list(list)
 	if not _grapple_rl.should_send(pkt, list.size() > 0, _sim.tick):
