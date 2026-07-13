@@ -1565,11 +1565,12 @@ func _handle_welcome(bytes: PackedByteArray) -> void:
 	var tick_rate: int = int(w["tick_rate"])
 	var cls: int = int(w["class"])
 	_my_class = cls   # own class (e.g. medic revives at double rate — the HUD revive bar matches)
-	# M19 P3: seed a real stored loadout from the class WELCOME assigned, then tell the server about
-	# it via SET_LOADOUT. Today this is identical to the server's own fresh-connection default
-	# (Loadout.default_loadout(ASSAULT)), but it establishes the send path the class-select screen
-	# (Tasks 2-3) will drive by mutating _loadout before calling _send_loadout() again.
-	_loadout = Loadout.default_loadout(cls)
+	# Seed the loadout for the WELCOME-assigned class from the client's PERSISTED per-class store
+	# (loadout-UI redesign) so a returning player's remembered picks apply immediately — falling back
+	# to the class default for a class never edited on this client. _send_loadout() re-sanitizes.
+	var stored: Dictionary = _settings.get_class_loadout(cls) if _settings != null else {}
+	_loadout = stored if not stored.is_empty() else Loadout.default_loadout(cls)
+	_loadout["class"] = cls   # authoritative: honour the class WELCOME actually assigned
 	_send_loadout()
 	# Connected for real — the (hidden) pre-game menu has served its purpose.
 	if _main_menu != null:
@@ -1879,6 +1880,10 @@ func _build_scene() -> void:
 	# M19 P3: the deploy screen hosts the class-select / loadout editor; adopt its edits + push them.
 	if _deploy_menu.has_signal("loadout_changed"):
 		_deploy_menu.loadout_changed.connect(_on_loadout_changed)
+	# Loadout-UI redesign: hand the editor the persistence store so per-class picks stick across
+	# matches AND servers (the panel loads a class's remembered loadout on switch, saves on edit).
+	if _deploy_menu.has_method("set_loadout_store"):
+		_deploy_menu.set_loadout_store(_settings)
 
 	# SettingsMenu
 	_settings_menu = SettingsMenu.new()
@@ -2378,6 +2383,12 @@ func _build_fob_candidates() -> Array:
 ## push it. _send_loadout() re-sanitizes against our attachment catalog before sending SET_LOADOUT.
 func _on_loadout_changed(cfg: Dictionary) -> void:
 	_loadout = cfg.duplicate(true)
+	# Loadout-UI redesign: persist the edited loadout under its class so it survives this match, future
+	# matches, and reconnects to other servers. (The panel also writes the store directly; this keeps
+	# the persistence correct even if the panel had no store injected.)
+	if _settings != null:
+		_settings.set_class_loadout(int(_loadout.get("class", Loadout.ASSAULT)), _loadout)
+		_settings.save_to()
 	_send_loadout()
 
 func _on_squad_selected(squad_id: int) -> void:
