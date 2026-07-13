@@ -18,6 +18,14 @@ var _fov_spin: SpinBox = null
 var _fallback_check: CheckBox = null
 var _ssao_check: CheckBox = null
 var _volfog_check: CheckBox = null
+var _glow_check: CheckBox = null
+var _shadow_check: CheckBox = null
+var _render_scale_option: OptionButton = null
+
+## Render-scale picker rows: label shown -> viewport scaling_3d_scale. Kept parallel so populate/apply
+## can map both directions.
+const RENDER_SCALE_LABELS := ["100%", "85%", "75%", "60%"]
+const RENDER_SCALE_VALUES := [1.0, 0.85, 0.75, 0.6]
 
 # Audio
 var _master_slider: HSlider = null
@@ -155,6 +163,42 @@ func _build_graphics_tab(tabs: TabContainer) -> void:
 	_volfog_check.text = "Volumetric fog"
 	vbox.add_child(_volfog_check)
 
+	_glow_check = CheckBox.new()
+	_glow_check.text = "Glow / bloom"
+	vbox.add_child(_glow_check)
+
+	_shadow_check = CheckBox.new()
+	_shadow_check.text = "Sun shadows"
+	vbox.add_child(_shadow_check)
+
+	vbox.add_child(_row_label("Render scale"))
+	_render_scale_option = _full_width_option()
+	for lbl in RENDER_SCALE_LABELS:
+		_render_scale_option.add_item(lbl)
+	vbox.add_child(_render_scale_option)
+
+	vbox.add_child(_hline())
+	vbox.add_child(_row_label("Quality presets"))
+
+	var preset_row := HBoxContainer.new()
+	preset_row.add_theme_constant_override("separation", 6)
+	preset_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	vbox.add_child(preset_row)
+	for preset in ["high", "balanced", "performance", "potato"]:
+		var b := Button.new()
+		b.text = String(preset).capitalize()
+		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		b.clip_text = true
+		b.pressed.connect(_on_preset_pressed.bind(preset))
+		preset_row.add_child(b)
+
+	var hint := Label.new()
+	hint.text = "Performance is recommended for weak / integrated GPUs (turns off glow, SSAO and fog)."
+	hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	hint.modulate = Color(0.75, 0.8, 0.9)
+	hint.add_theme_font_size_override("font_size", 12)
+	vbox.add_child(hint)
+
 func _build_audio_tab(tabs: TabContainer) -> void:
 	var scroll := _scroll_page("Audio")
 	tabs.add_child(scroll)
@@ -280,6 +324,12 @@ func _populate_controls() -> void:
 		_ssao_check.button_pressed = settings.ssao_enabled
 	if _volfog_check != null:
 		_volfog_check.button_pressed = settings.volumetric_fog_enabled
+	if _glow_check != null:
+		_glow_check.button_pressed = settings.glow_enabled
+	if _shadow_check != null:
+		_shadow_check.button_pressed = settings.sun_shadow_enabled
+	if _render_scale_option != null:
+		_render_scale_option.select(_render_scale_index(settings.render_scale))
 	if _resolution_option != null:
 		var idx := VideoSettings.find_resolution_index(settings.resolution_x, settings.resolution_y)
 		_resolution_option.select(maxi(idx, 0))
@@ -327,6 +377,14 @@ func apply() -> void:
 		settings.ssao_enabled = _ssao_check.button_pressed
 	if _volfog_check != null:
 		settings.volumetric_fog_enabled = _volfog_check.button_pressed
+	if _glow_check != null:
+		settings.glow_enabled = _glow_check.button_pressed
+	if _shadow_check != null:
+		settings.sun_shadow_enabled = _shadow_check.button_pressed
+	if _render_scale_option != null:
+		var rs_idx := _render_scale_option.selected
+		if rs_idx >= 0 and rs_idx < RENDER_SCALE_VALUES.size():
+			settings.render_scale = RENDER_SCALE_VALUES[rs_idx]
 	if _resolution_option != null:
 		var res_idx := _resolution_option.selected
 		var presets := VideoSettings.common_resolutions()
@@ -346,6 +404,35 @@ func apply() -> void:
 	VideoSettings.apply(settings)
 	_apply_audio_devices(settings)
 	settings_applied.emit(settings)
+
+## Nearest render-scale option index for a stored scale (default 100% if no exact match).
+static func _render_scale_index(scale: float) -> int:
+	var best := 0
+	var best_d := INF
+	for i in RENDER_SCALE_VALUES.size():
+		var d: float = absf(float(RENDER_SCALE_VALUES[i]) - scale)
+		if d < best_d:
+			best_d = d
+			best = i
+	return best
+
+## A preset button: stamp the preset onto the bound settings, refresh the graphics widgets to show
+## the new values, then apply live (save + emit -> client re-runs _apply_env_quality).
+func _on_preset_pressed(preset: String) -> void:
+	if settings == null:
+		settings = ClientSettings.new()
+	settings.apply_preset(preset)
+	if _ssao_check != null:
+		_ssao_check.button_pressed = settings.ssao_enabled
+	if _volfog_check != null:
+		_volfog_check.button_pressed = settings.volumetric_fog_enabled
+	if _glow_check != null:
+		_glow_check.button_pressed = settings.glow_enabled
+	if _shadow_check != null:
+		_shadow_check.button_pressed = settings.sun_shadow_enabled
+	if _render_scale_option != null:
+		_render_scale_option.select(_render_scale_index(settings.render_scale))
+	apply()
 
 func _device_from_option(opt: OptionButton) -> String:
 	if opt == null or opt.selected <= 0:
