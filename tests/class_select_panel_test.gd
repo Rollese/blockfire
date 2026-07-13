@@ -75,6 +75,72 @@ func test_emitted_cfg_is_independent_deep_copy() -> void:
 		"internal nested attachments unchanged by host mutation")
 	panel.free()
 
+func test_primary_sections_partition_primary_options() -> void:
+	# Task 2: primaries are grouped into per-archetype category sections. The set of weapon ids
+	# rendered across ALL sections must equal primary_options(cls) exactly, in the allowed-archetype
+	# order — nothing lost, nothing added, so single-select still covers every legal gun.
+	var panel := _make()
+	for cls in [Loadout.ASSAULT, Loadout.MEDIC, Loadout.ENGINEER, Loadout.SUPPORT]:
+		panel._on_class_pressed(cls)
+		assert_eq(panel.rendered_primary_ids(), Loadout.primary_options(cls),
+			"class %d primary sections partition primary_options in order" % cls)
+	panel.free()
+
+func test_class_switch_restores_remembered_loadout() -> void:
+	# Task 3: switching class no longer wipes choices. With a store injected, editing Assault's primary
+	# then leaving and returning restores the edited loadout (not the default).
+	var store := ClientSettings.new()
+	var panel := ClassSelectPanel.new()
+	panel.set_store(store)
+	panel.loadout_changed.connect(_on_changed)
+	panel.setup(Loadout.default_loadout(Loadout.ASSAULT), _attach())
+	var opts := Loadout.primary_options(Loadout.ASSAULT)
+	var edited: int = int(opts[opts.size() - 1])   # last option — a DMR variant, != default (first AR)
+	assert_ne(edited, Loadout.default_primary(Loadout.ASSAULT), "test picks a non-default primary")
+	panel._on_primary_pressed(edited)
+	assert_eq(int(panel._cfg.get("primary", -1)), edited, "assault primary edited")
+	panel._on_class_pressed(Loadout.MEDIC)     # switch away…
+	panel._on_class_pressed(Loadout.ASSAULT)   # …and back
+	assert_eq(int(panel._cfg.get("primary", -1)), edited,
+		"revisiting assault restores the edited primary, not the default")
+	panel.free()
+
+func test_never_visited_class_starts_at_default() -> void:
+	# Task 3: a class with nothing remembered in the store gets its clean default_loadout.
+	var store := ClientSettings.new()
+	var panel := ClassSelectPanel.new()
+	panel.set_store(store)
+	panel.setup(Loadout.default_loadout(Loadout.ASSAULT), _attach())
+	panel._on_class_pressed(Loadout.ENGINEER)
+	assert_eq(int(panel._cfg.get("primary", -1)), Loadout.default_primary(Loadout.ENGINEER),
+		"never-visited class -> default primary")
+	assert_eq(int(panel._cfg.get("gadget", -1)), Loadout.default_gadget(Loadout.ENGINEER),
+		"never-visited class -> default gadget")
+	panel.free()
+
+func test_edit_persists_to_store() -> void:
+	# Task 3/5: every edit writes the sanitized cfg back to the injected store for its class.
+	var store := ClientSettings.new()
+	var panel := ClassSelectPanel.new()
+	panel.set_store(store)
+	panel.setup(Loadout.default_loadout(Loadout.ASSAULT), _attach())
+	panel._on_armor_pressed(Armor.HEAVY)
+	assert_eq(int(store.get_class_loadout(Loadout.ASSAULT).get("armor", -1)), Armor.HEAVY,
+		"armor edit persisted to the store under the class key")
+	panel.free()
+
+func test_builds_for_every_class_and_missing_icon_ok() -> void:
+	# Task 4 smoke: the panel builds/refreshes for every class, and a bogus/missing icon path returns
+	# null without crashing the panel (fresh-checkout / missing-art safety).
+	tolerate_runtime_errors()   # load() of a deliberately-missing resource pushes an expected error
+	var panel := _make()
+	assert_true(panel._load_icon("res://client/art/icons/does_not_exist_zzz.svg") == null,
+		"missing icon -> null, no crash")
+	for cls in [Loadout.ASSAULT, Loadout.MEDIC, Loadout.ENGINEER, Loadout.SUPPORT]:
+		panel._on_class_pressed(cls)
+		assert_true(panel._summary_box.get_child_count() > 0, "summary rebuilt for class %d" % cls)
+	panel.free()
+
 func test_perk_panel_populates_from_trait_blurbs() -> void:
 	# Task 3: the always-visible perk panel is one Label per Loadout.trait_blurbs(cls) entry, rebuilt
 	# on every class change (no leak/duplicate). Single source of truth = trait_blurbs.

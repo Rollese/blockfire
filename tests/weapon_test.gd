@@ -94,3 +94,9 @@ func test_default_mode_is_first_available() -> void:
 func test_mode_allowed_rejects_unlisted() -> void:
 	assert_false(Weapon.mode_allowed(Weapon.DMR, Weapon.MODE_AUTO))
 	assert_true(Weapon.mode_allowed(Weapon.AR, Weapon.MODE_SEMI))
+
+func test_archetype_name_nonempty_for_every_enum() -> void:
+	# Loadout-UI category headers read this — every archetype must yield a non-empty label.
+	for arch in [Weapon.AR, Weapon.SMG, Weapon.DMR, Weapon.RPG, Weapon.PISTOL, Weapon.LMG]:
+		assert_true(Weapon.archetype_name(arch).length() > 0, "archetype %d has a name" % arch)
+	assert_eq(Weapon.archetype_name(Weapon.AR), "Assault Rifles")

@@ -1,10 +1,20 @@
 class_name ClassSelectPanel
 extends Control
-## M19 P3 deploy loadout screen (BattleBit-faithful): pick class -> primary(+attachments) ->
-## armor -> grenade -> 1-of-3 gadget. Built entirely in code like the sibling menus
-## (player_menu.gd / deploy_menu.gd). Holds a WORKING COPY of a loadout dict and emits
-## loadout_changed(cfg) — an already-sanitized copy — on every edit. Task 3 wires this signal into
-## client_main + deploy_menu; the perk panel (trait_blurbs) is Task 3, stubbed empty here.
+## Deploy loadout screen (BattleBit-faithful): pick class -> primary(+attachments) -> armor ->
+## grenade -> 1-of-3 gadget. Built entirely in code like the sibling menus (player_menu.gd /
+## deploy_menu.gd). Holds a WORKING COPY of a loadout dict and emits loadout_changed(cfg) — an
+## already-sanitized copy — on every edit.
+##
+## Loadout-UI redesign (4 owner complaints from a live playtest):
+##   1. Selected option was near-invisible -> selected buttons get an accent StyleBoxFlat + a "✓ "
+##      prefix so the pick is unmistakable at a glance.
+##   2. Switching class wiped choices back to default -> class switch now LOADS the working copy from
+##      the persisted per-class store (falls back to default only for a never-visited class).
+##   3. Choices didn't stick -> every edit writes the sanitized _cfg back to the injected store
+##      (ClientSettings) and saves settings.cfg, so loadouts persist across matches AND servers.
+##   4. Flat primary row -> primaries are now grouped into per-archetype category sections
+##      (Assault Rifles / SMG / DMR / LMG …), single-select preserved, with small SVG slot/category
+##      icons throughout. Layout is two-column: primary+slots on the left, perks+live summary right.
 ##
 ## Every option list comes from the Loadout / Weapon / Armor / Grenade authorities — no duplicated
 ## option tables. The one exception is the per-slot attachment id list: the Attachment catalog
@@ -19,6 +29,7 @@ signal loadout_changed(cfg: Dictionary)
 signal closed()
 
 const _ATTACH_PATH := "res://data/attachments.json"
+const _ICON_DIR := "res://client/art/icons"
 
 # Grenade id -> display label. Source: shared/sim/grenade.gd constants + client/hud/hud_view.gd's
 # _THROWABLE_LABELS idiom (which lists Frag/Smoke only); Flash added from Grenade.FLASHBANG. Mirrored
@@ -53,19 +64,33 @@ const _GADGET_LABELS := {
 	Loadout.GADGET_LMG_NEST: "LMG Nest",
 }
 
+# Slot/category glyph filenames (under _ICON_DIR). Missing files degrade gracefully (null guard in
+# _load_icon), so a fresh checkout with no imported textures still renders the panel.
+const _SLOT_ICON := {
+	"class": "class", "optic": "optic", "barrel": "barrel", "underbarrel": "underbarrel",
+	"armor": "armor", "grenade": "grenade", "gadget": "gadget",
+}
+# Weapon archetype -> glyph filename. Keyed by the Weapon enum.
+const _ARCH_ICON := {
+	Weapon.AR: "ar", Weapon.SMG: "smg", Weapon.DMR: "dmr", Weapon.LMG: "lmg", Weapon.PISTOL: "pistol",
+}
+
 # ---- state -----------------------------------------------------------------
 var _cfg: Dictionary = {}                # working copy of the loadout (always sanitized)
 var _attach: Attachment                  # catalog passed by the host; used for sanitize
 var _attach_options: Dictionary = {}     # slot -> Array[String] of ids (from the data file)
+var _store = null                        # injected persistence store (ClientSettings); may be null
+var _icon_cache: Dictionary = {}         # res_path -> Texture2D|null (loaded once)
 
 # ---- section rows (rebuilt on refresh) -------------------------------------
 var _class_row: HBoxContainer
-var _primary_row: HBoxContainer
+var _primary_box: VBoxContainer          # per-archetype category sections live here
 var _attach_rows: Dictionary = {}        # slot -> HBoxContainer
 var _armor_row: HBoxContainer
 var _grenade_row: HBoxContainer
 var _gadget_row: HBoxContainer
-var _perk_box: VBoxContainer             # Task 3 populates this; stubbed empty here
+var _perk_box: VBoxContainer             # one Label per Loadout.trait_blurbs()
+var _summary_box: VBoxContainer          # live text summary of the current loadout
 var _built := false
 
 func _ready() -> void:
@@ -74,6 +99,12 @@ func _ready() -> void:
 	if _cfg.is_empty():
 		# Standalone/default seed so the panel renders even before a host calls setup().
 		setup(Loadout.default_loadout(Loadout.ASSAULT), _attach)
+
+## Inject the per-class persistence store (a ClientSettings, duck-typed: needs get_class_loadout /
+## set_class_loadout / save_to). May be null (the panel then just behaves session-locally). Called by
+## DeployMenu.set_loadout_store / client_main so class switches remember prior picks.
+func set_store(store) -> void:
+	_store = store
 
 ## Public entry point: adopt a working copy of `cfg` + the attachment catalog and rebuild every
 ## section to reflect it. Stores a deep copy so the caller's dict is never mutated in place.
@@ -118,8 +149,7 @@ func _ensure_built() -> void:
 	panel.add_child(margin)
 
 	var vbox := VBoxContainer.new()
-	vbox.add_theme_constant_override("separation", 8)
-	vbox.custom_minimum_size = Vector2(520, 0)
+	vbox.add_theme_constant_override("separation", 10)
 	margin.add_child(vbox)
 
 	var title := Label.new()
@@ -128,22 +158,48 @@ func _ensure_built() -> void:
 	title.add_theme_font_size_override("font_size", 26)
 	vbox.add_child(title)
 
-	_class_row = _add_section(vbox, "Class")
-	_primary_row = _add_section(vbox, "Primary")
+	# Class tabs span the full width above the two-column body.
+	_class_row = _add_section(vbox, "Class", "class")
+
+	# Two-column body: left = primary categories + slot rows; right = perks + live summary.
+	var body := HBoxContainer.new()
+	body.add_theme_constant_override("separation", 20)
+	vbox.add_child(body)
+
+	var left := VBoxContainer.new()
+	left.add_theme_constant_override("separation", 6)
+	left.custom_minimum_size = Vector2(560, 0)
+	body.add_child(left)
+
+	body.add_child(VSeparator.new())
+
+	var right := VBoxContainer.new()
+	right.add_theme_constant_override("separation", 6)
+	right.custom_minimum_size = Vector2(320, 0)
+	body.add_child(right)
+
+	# --- left column ---
+	var primary_caption := _caption(left, "PRIMARY", "ar", 16)
+	primary_caption.add_theme_font_size_override("font_size", 16)
+	_primary_box = VBoxContainer.new()   # per-archetype category sections, rebuilt on _refresh()
+	_primary_box.add_theme_constant_override("separation", 4)
+	left.add_child(_primary_box)
+
 	# Attachments: one labelled row per slot (optic / barrel / underbarrel).
 	for slot in Attachment.SLOTS:
-		_attach_rows[slot] = _add_section(vbox, String(slot).capitalize())
-	_armor_row = _add_section(vbox, "Armor")
-	_grenade_row = _add_section(vbox, "Grenade")
-	_gadget_row = _add_section(vbox, "Gadget")
+		_attach_rows[slot] = _add_section(left, String(slot).capitalize(), String(slot))
+	_armor_row = _add_section(left, "Armor", "armor")
+	_grenade_row = _add_section(left, "Grenade", "grenade")
+	_gadget_row = _add_section(left, "Gadget", "gadget")
 
-	vbox.add_child(HSeparator.new())
-	var perk_caption := Label.new()
-	perk_caption.text = "PERKS"
-	perk_caption.add_theme_font_size_override("font_size", 16)
-	vbox.add_child(perk_caption)
+	# --- right column ---
+	_caption(right, "PERKS", "", 16)
 	_perk_box = VBoxContainer.new()   # filled from Loadout.trait_blurbs() on every _refresh()
-	vbox.add_child(_perk_box)
+	right.add_child(_perk_box)
+	right.add_child(HSeparator.new())
+	_caption(right, "SUMMARY", "", 16)
+	_summary_box = VBoxContainer.new()   # live text summary of the equipped loadout, per _refresh()
+	right.add_child(_summary_box)
 
 	vbox.add_child(HSeparator.new())
 	var done_btn := Button.new()
@@ -152,17 +208,55 @@ func _ensure_built() -> void:
 	done_btn.pressed.connect(func() -> void: closed.emit())
 	vbox.add_child(done_btn)
 
-## A labelled section: an HBox whose first child is the caption Label; option buttons are appended
-## after it on refresh. Returns the HBox so refresh can clear/refill its button children.
-func _add_section(parent: VBoxContainer, caption: String) -> HBoxContainer:
+## A labelled section: an HBox whose first child is an optional icon, then the caption Label; option
+## buttons are appended after it on refresh. Returns the HBox so refresh can clear/refill its option
+## children (everything after the caption Label).
+func _add_section(parent: VBoxContainer, caption: String, icon_key: String) -> HBoxContainer:
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 6)
+	_add_icon(row, icon_key)
 	var lbl := Label.new()
 	lbl.text = caption
-	lbl.custom_minimum_size = Vector2(110, 0)
+	lbl.custom_minimum_size = Vector2(96, 0)
 	row.add_child(lbl)
 	parent.add_child(row)
 	return row
+
+## A standalone caption Label (optionally icon-prefixed), used for the PRIMARY / PERKS / SUMMARY
+## headers that sit above a VBox rather than beside inline options. Returns the Label.
+func _caption(parent: VBoxContainer, text: String, icon_key: String, _size: int) -> Label:
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 6)
+	_add_icon(row, icon_key)
+	var lbl := Label.new()
+	lbl.text = text
+	parent.add_child(row)
+	row.add_child(lbl)
+	return lbl
+
+## Append a small icon TextureRect to `row` for `icon_key` (a _SLOT_ICON/_ARCH_ICON filename stem, or
+## "" for none). Null-guarded: a missing/undecodable icon simply adds nothing — the panel still builds.
+func _add_icon(row: HBoxContainer, icon_key: String) -> void:
+	if icon_key == "":
+		return
+	var tex := _load_icon("%s/%s.svg" % [_ICON_DIR, icon_key])
+	if tex == null:
+		return
+	var tr := TextureRect.new()
+	tr.texture = tex
+	tr.custom_minimum_size = Vector2(20, 20)
+	tr.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	tr.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	row.add_child(tr)
+
+## Load (and cache) a menu icon texture. Uses MenuArt.load_texture, whose runtime-decode fallback
+## keeps art appearing on a fresh checkout; a null result is cached so we don't retry a missing file.
+func _load_icon(res_path: String) -> Texture2D:
+	if _icon_cache.has(res_path):
+		return _icon_cache[res_path]
+	var tex := MenuArt.load_texture(res_path)
+	_icon_cache[res_path] = tex
+	return tex
 
 ## Read the canonical attachment data file into slot -> [ids]. Robust: leaves a slot's list empty
 ## if the file is missing or malformed (the section then simply shows no buttons, never crashes).
@@ -201,11 +295,8 @@ func _refresh() -> void:
 		_add_button(_class_row, String(_CLASS_LABELS.get(c, "?")), c == cls, false,
 			_on_class_pressed.bind(c))
 
-	# Primary (variant ids for the class's allowed archetypes).
-	_clear_options(_primary_row)
-	for wid: int in Loadout.primary_options(cls):
-		_add_button(_primary_row, Weapon.display_name(wid), wid == primary, false,
-			_on_primary_pressed.bind(wid))
+	# Primary — grouped into per-archetype category sections (single-select across ALL sections).
+	_refresh_primary(cls, primary)
 
 	# Attachments — one row per slot, all catalog ids for that slot.
 	for slot in Attachment.SLOTS:
@@ -235,8 +326,46 @@ func _refresh() -> void:
 		_add_button(_gadget_row, String(_GADGET_LABELS.get(gd, "Gadget %d" % gd)),
 			gd == gadget, not implemented, _on_gadget_pressed.bind(gd))
 
-	# Passive perks — always-visible, refreshed on class change (single source: trait_blurbs).
+	# Passive perks + live summary — always-visible, refreshed on every edit.
 	_refresh_perks(cls)
+	_refresh_summary(cls, primary, armor, grenade, gadget, attachments)
+
+## Rebuild the primary picker as one category section per allowed archetype: a header (icon + name
+## from Weapon.archetype_name — no duplicated label table) followed by a row of the archetype's
+## variant buttons. Single-select is preserved because exactly one id across ALL sections equals
+## `primary`. Each weapon button carries set_meta("weapon_id", wid) so tests can read what rendered.
+func _refresh_primary(cls: int, primary: int) -> void:
+	for c in _primary_box.get_children():
+		_primary_box.remove_child(c)
+		c.queue_free()
+	for arch in Loadout.allowed_archetypes(cls):
+		var header := HBoxContainer.new()
+		header.add_theme_constant_override("separation", 6)
+		_add_icon(header, String(_ARCH_ICON.get(arch, "")))
+		var hlbl := Label.new()
+		hlbl.text = Weapon.archetype_name(arch)
+		hlbl.add_theme_color_override("font_color", Color(0.68, 0.74, 0.82))
+		header.add_child(hlbl)
+		_primary_box.add_child(header)
+
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation", 6)
+		for wid: int in Weapon.variants_of(arch):
+			var btn := _add_button(row, Weapon.display_name(wid), wid == primary, false,
+				_on_primary_pressed.bind(wid))
+			btn.set_meta("weapon_id", wid)
+			btn.icon = _load_icon("%s/%s.svg" % [_ICON_DIR, String(_ARCH_ICON.get(arch, ""))])
+		_primary_box.add_child(row)
+
+## Every weapon id currently rendered across the primary category sections, in render order. Used by
+## tests to assert the sections partition primary_options(cls) with nothing lost or added.
+func rendered_primary_ids() -> Array:
+	var out: Array = []
+	for section in _primary_box.get_children():
+		for child in section.get_children():
+			if child is Button and (child as Button).has_meta("weapon_id"):
+				out.append(int((child as Button).get_meta("weapon_id")))
+	return out
 
 ## Rebuild the passive-perk panel from Loadout.trait_blurbs(cls). Clears the old labels first (same
 ## remove_child+queue_free idiom as _clear_options) so repeated class changes don't leak/duplicate
@@ -249,8 +378,32 @@ func _refresh_perks(cls: int) -> void:
 		var lbl := Label.new()
 		lbl.text = "• %s" % blurb
 		lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		lbl.custom_minimum_size = Vector2(480, 0)
+		lbl.custom_minimum_size = Vector2(300, 0)
 		_perk_box.add_child(lbl)
+
+## Live plain-text summary of the equipped loadout (right column). One Label per slot, rebuilt every
+## edit; reads the same authorities the pickers do so it can never disagree with the selection.
+func _refresh_summary(cls: int, primary: int, armor: int, grenade: int, gadget: int, attachments: Dictionary) -> void:
+	for c in _summary_box.get_children():
+		_summary_box.remove_child(c)
+		c.queue_free()
+	var armor_name: String = ["Light", "Medium", "Heavy"][armor] if armor >= 0 and armor <= 2 else "?"
+	var lines := [
+		"Class: %s" % String(_CLASS_LABELS.get(cls, "?")),
+		"Primary: %s" % Weapon.display_name(primary),
+		"Optic: %s" % _attach_label(String(attachments.get("optic", ""))),
+		"Barrel: %s" % _attach_label(String(attachments.get("barrel", ""))),
+		"Underbarrel: %s" % _attach_label(String(attachments.get("underbarrel", ""))),
+		"Armor: %s" % armor_name,
+		"Grenade: %s" % String(_GRENADE_LABELS.get(grenade, "?")),
+		"Gadget: %s" % String(_GADGET_LABELS.get(gadget, "Gadget %d" % gadget)).split(" —")[0],
+	]
+	for line: String in lines:
+		var lbl := Label.new()
+		lbl.text = line
+		lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		lbl.custom_minimum_size = Vector2(300, 0)
+		_summary_box.add_child(lbl)
 
 ## Armor picker line built from Armor.speed_mult / Armor.body_mult (no invented numbers). body_mult
 ## is the fraction of damage that LANDS, so damage-reduction = (1 - body_mult).
@@ -263,34 +416,80 @@ func _armor_label(tier: int) -> String:
 ## Attachment button label. The catalog carries no display names, so ids are title-cased; the
 ## per-slot empty option (e.g. "none_ub") renders as a plain "None" rather than the raw id.
 func _attach_label(aid: String) -> String:
-	if aid.begins_with("none"):
+	if aid == "" or aid.begins_with("none"):
 		return "None"
 	return aid.capitalize()
 
-## Remove option buttons from a section, keeping the leading caption Label (child 0).
+## Remove option buttons from a section, keeping the leading caption (icon + Label). Options are every
+## child that is a Button — the icon TextureRect and caption Label are left in place.
 func _clear_options(row: HBoxContainer) -> void:
-	var kids := row.get_children()
-	for i in range(kids.size() - 1, 0, -1):
-		var c: Node = kids[i]
-		row.remove_child(c)
-		c.queue_free()
+	for c in row.get_children():
+		if c is Button:
+			row.remove_child(c)
+			c.queue_free()
 
-## Add a toggle-style option button. `selected` shows it pressed; `disabled` greys it out.
+## Add a toggle-style option button. `selected` gives it the accent style + a "✓ " prefix so the
+## pick is unmistakable; unselected buttons get a dark translucent style. `disabled` greys it out.
 func _add_button(row: HBoxContainer, text: String, selected: bool, disabled: bool, cb: Callable) -> Button:
 	var btn := Button.new()
-	btn.text = text
+	btn.text = ("✓ " + text) if selected else text
 	btn.toggle_mode = true
 	btn.button_pressed = selected
 	btn.disabled = disabled
+	_style_button(btn, selected, disabled)
 	if not disabled:
 		btn.pressed.connect(cb)
 	row.add_child(btn)
 	return btn
 
+## Ad-hoc styling (no .theme resource exists — matches the codebase's add_theme_*_override idiom).
+## Selected = accent fill + bright border + white bold-ish text across normal/hover/pressed; that
+## triple override is what makes the choice readable regardless of hover/pressed engine states.
+func _style_button(btn: Button, selected: bool, disabled: bool) -> void:
+	var fill: Color
+	var border: Color
+	var bw: int
+	if selected:
+		fill = Color(0.14, 0.42, 0.70)
+		border = Color(0.48, 0.78, 1.0)
+		bw = 2
+	else:
+		fill = Color(0.10, 0.11, 0.13, 0.85)
+		border = Color(0.30, 0.32, 0.36)
+		bw = 1
+	for state in ["normal", "hover", "pressed", "focus"]:
+		btn.add_theme_stylebox_override(state, _mk_style(fill, border, bw))
+	var font_col := Color(1, 1, 1) if selected else Color(0.78, 0.80, 0.84)
+	if disabled:
+		font_col = Color(0.45, 0.46, 0.50)
+	for c in ["font_color", "font_hover_color", "font_pressed_color", "font_focus_color"]:
+		btn.add_theme_color_override(c, font_col)
+
+func _mk_style(fill: Color, border: Color, bw: int) -> StyleBoxFlat:
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = fill
+	sb.set_border_width_all(bw)
+	sb.border_color = border
+	sb.set_corner_radius_all(4)
+	sb.content_margin_left = 10
+	sb.content_margin_right = 10
+	sb.content_margin_top = 5
+	sb.content_margin_bottom = 5
+	return sb
+
 # ---- pick handlers ---------------------------------------------------------
 func _on_class_pressed(cls: int) -> void:
-	# Pick-class-first: fully re-seed primary/gadget/armor/grenade to the class defaults.
-	_cfg = Loadout.default_loadout(cls)
+	# Per-class memory: adopt the class's REMEMBERED loadout from the store (sanitized) if one exists,
+	# else its default. This is the fix for "switching class wipes my choices" — a revisited class
+	# restores exactly what was last equipped for it, a never-visited class gets a clean default.
+	var stored: Dictionary = {}
+	if _store != null:
+		stored = _store.get_class_loadout(cls)
+	if stored.is_empty():
+		_cfg = Loadout.default_loadout(cls)
+	else:
+		stored["class"] = cls   # authoritative — the store key is the class
+		_cfg = stored
 	_apply()
 
 func _on_primary_pressed(weapon_id: int) -> void:
@@ -315,9 +514,13 @@ func _on_gadget_pressed(g: int) -> void:
 	_cfg["gadget"] = g
 	_apply()
 
-## Sanitize the working copy against the catalog, reflect the (possibly-corrected) result in the UI
-## so an illegal combo can never appear selected, then emit a deep copy for the host.
+## Sanitize the working copy against the catalog, PERSIST it to the per-class store (so the choice
+## sticks across matches/servers), reflect the (possibly-corrected) result in the UI so an illegal
+## combo can never appear selected, then emit a deep copy for the host.
 func _apply() -> void:
 	_cfg = Loadout.sanitize(_cfg, _attach)
+	if _store != null:
+		_store.set_class_loadout(int(_cfg.get("class", Loadout.ASSAULT)), _cfg)
+		_store.save_to()
 	_refresh()
 	loadout_changed.emit(_cfg.duplicate(true))

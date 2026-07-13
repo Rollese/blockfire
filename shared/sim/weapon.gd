@@ -186,6 +186,15 @@ static func archetype_of(id: int) -> int:
 static func variants_of(archetype: int) -> Array:
 	return _BY_ARCHETYPE.get(archetype, [])
 
+# Human-readable archetype name for the class-select category headers. Single source (keyed by the
+# enum, whose values are _ARCH.values()) so the loadout UI never duplicates a name->label table.
+const _ARCH_DISPLAY := {AR: "Assault Rifles", SMG: "SMG", DMR: "DMR", RPG: "RPG", PISTOL: "Pistol", LMG: "LMG"}
+
+## Display label for a weapon ARCHETYPE (not a variant id): "Assault Rifles", "SMG", … Every enum
+## value returns a non-empty name; unknown archetypes fall back to a generic label.
+static func archetype_name(archetype: int) -> String:
+	return String(_ARCH_DISPLAY.get(archetype, "Weapon"))
+
 static func default_variant(archetype: int) -> int:
 	var v: Array = _BY_ARCHETYPE.get(archetype, [])
 	return int(v[0]) if not v.is_empty() else archetype
