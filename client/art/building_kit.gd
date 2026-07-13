@@ -5,15 +5,22 @@ extends Object
 
 const CELL := 2.4  # BuildGrid.CELL_SIZE
 const TEX_WORLD_SCALE := 1.0   # texture tiles per metre (world-triplanar) — shared by walls + hole chunks
-# Roof-floor / deck slabs are full-cell wide, but a `bwall*` directly below is ALSO full-cell wide in X,
-# so a full-CELL slab's outer vertical edges land exactly on the wall's exterior faces -> two coplanar
-# vertical faces z-fight in a dithered band under the roof soffit (owner screenshot). Shrink the slab
-# footprint by this much (total, split evenly both sides) so its edges sit just INSIDE the wall faces.
-# 0.02 total = 0.01 m clear per side: kills the coplanar Z-fight against the wall exterior (0.01 m is
-# far beyond depth-buffer precision at play distances), while HALVING the interior deck-to-deck seam
-# gap (now 0.02 m, mid-floor) so it stays sub-visible. MESH-ONLY: collision is server-side
+# Roof-floor / deck slabs are full-cell wide, and a `bwall*` directly below (pushed to the footprint
+# edge by world_renderer `out_amt = CELL*0.5 - 0.15 = 1.05`, 0.3 m thick) has its EXTERIOR face at
+# exactly cell_centre ± 1.20 = the cell boundary. A full-CELL slab's outer edge lands on that same
+# boundary -> two coplanar vertical faces z-fight in a dithered band under the roof soffit (round-1).
+# Round-1 fixed that by INSETTING the slab (edge to ±1.19, buried 0.01 m inside the wall), but that also
+# pulled every slab 0.01 m off the shared cell boundary, opening a 0.02 m gap on every interior deck-to-
+# deck seam (round-2 owner playtest). The wall exterior sits EXACTLY where neighbours meet, so no
+# symmetric footprint is both gap-free AND coplanar-free — we must pick which side of the boundary to
+# break on. OVERSIZE (edge to ±1.21) is the round-2 fix: adjacent decks now OVERLAP by 0.02 m total
+# (coplanar tops -> the overlap is invisible from above, NO gap), and the edge is 0.01 m PAST the wall
+# exterior plane rather than on it, so the coplanar z-fight is gone (the slab just interpenetrates the
+# wall solid, which never z-fights). Residual cost: a 0.01 m poke past the exterior on perimeter/roof
+# edges — half the owner-flagged gap, hidden under the roof coping's 0.06 m eave on capped walls, and
+# sub-visible (equal to round-1's accepted inset) on open edges. MESH-ONLY: collision is server-side
 # (structure.gd floor_height_at, cell-base plane) and never reads this.
-const ROOF_FLOOR_INSET := 0.02
+const ROOF_FLOOR_OVERLAP := 0.02
 
 # Per-piece palette — distinct tones so a building reads as walls/floors/columns/trim instead of a
 # uniform grey blob (playtest feedback 2026-06-18). Tints still modulate by damage bucket in _box().
@@ -47,7 +54,7 @@ static func build(piece_id: String, bucket: int, floor_skirt: bool = false, yaw_
 		var is_prop := piece_id.begins_with("prop_")
 		var skirt_col := COL_FLOOR if is_prop else COL_FOUND
 		var skirt_tex := "wood" if is_prop else "concrete"
-		root.add_child(_box("Skirt", Vector3(CELL - ROOF_FLOOR_INSET, 0.32, CELL - ROOF_FLOOR_INSET), Vector3(0, -0.12, 0), 3, skirt_col, skirt_tex))
+		root.add_child(_box("Skirt", Vector3(CELL + ROOF_FLOOR_OVERLAP, 0.32, CELL + ROOF_FLOOR_OVERLAP), Vector3(0, -0.12, 0), 3, skirt_col, skirt_tex))
 	match piece_id:
 		"bcolumn":
 			root.add_child(_box("Col", Vector3(0.5, CELL, 0.5), Vector3(0, CELL * 0.5, 0), bucket, COL_STRUCT))
@@ -56,9 +63,10 @@ static func build(piece_id: String, bucket: int, floor_skirt: bool = false, yaw_
 			# rest on the visible top.
 			# Slab top sits a hair ABOVE the cell base so a roof slab swallows the wall top below it
 			# (was coplanar -> z-fight "walls clipping the roof"). Walkable surface stays ~cell base.
-			# Footprint is inset by ROOF_FLOOR_INSET so the slab's vertical edges clear the wall exterior
-			# faces below (kills the dithered wall/roof band). Collision unchanged (server-side).
-			root.add_child(_box("Floor", Vector3(CELL - ROOF_FLOOR_INSET, 0.32, CELL - ROOF_FLOOR_INSET), Vector3(0, -0.12, 0), bucket, COL_FLOOR, "wood"))
+			# Footprint is OVERSIZED by ROOF_FLOOR_OVERLAP so adjacent decks overlap (no inter-slab gap)
+			# and the outer edge sits just PAST the wall exterior plane instead of on it (no coplanar
+			# z-fight band). Collision unchanged (server-side).
+			root.add_child(_box("Floor", Vector3(CELL + ROOF_FLOOR_OVERLAP, 0.32, CELL + ROOF_FLOOR_OVERLAP), Vector3(0, -0.12, 0), bucket, COL_FLOOR, "wood"))
 		"brailing":
 			root.add_child(_box("Rail", Vector3(CELL, 0.1, 0.1), Vector3(0, CELL * 0.5, 0), bucket, COL_METAL))
 		"prop_table":

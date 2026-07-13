@@ -53,30 +53,39 @@ func test_corner_is_l_not_centred_cross() -> void:
 	assert_true("ArmS" in names or "ArmN" in names, "has a span arm")
 	assert_false("CornX" in names, "no centred cross slab")
 
-func test_roof_floor_slab_inset_prevents_wall_zfight() -> void:
-	# Anti-z-fight guard (Z1): the bfloor deck slab must be strictly narrower than a full cell in X and Z
-	# so its outer vertical edges sit INSIDE the full-cell wall exterior faces below it, instead of exactly
-	# coplanar (which dithered a band under the roof soffit). Mesh-only — collision stays server-side.
+func test_roof_floor_slab_overlaps_neighbours_without_wall_zfight() -> void:
+	# Z1 round-2: the bfloor deck slab must be AT LEAST a full cell in X and Z so adjacent cell decks MEET
+	# or OVERLAP at the shared boundary — NO positive inter-slab gap (round-1's uniform inset opened a
+	# ~0.02 m gap on every shared interior edge, owner playtest). It must NOT be exactly CELL either: a
+	# full-CELL edge lands exactly on the wall exterior face below (both at the cell boundary) and the two
+	# coplanar vertical faces z-fight. Oversizing pushes the edge just PAST that plane (overlap coplanar
+	# from above -> unseen; edge no longer coplanar with the wall -> no z-fight). Mesh-only; collision
+	# stays server-side.
 	var root: Node3D = autofree(BuildingKit.build("bfloor", 3))
 	var slab := _find_mesh(root, "Floor")
 	assert_true(slab != null, "bfloor builds a Floor slab")
 	var sz := (slab.mesh as BoxMesh).size
-	assert_true(sz.x < BuildingKit.CELL - 0.001, "floor slab X inset below full cell")
-	assert_true(sz.z < BuildingKit.CELL - 0.001, "floor slab Z inset below full cell")
-	# Keep the seam invisible: inset must stay small (no visible gap to adjacent decks).
-	assert_true(sz.x >= BuildingKit.CELL - 0.1, "floor slab inset stays small (no visible floor gap)")
+	assert_true(sz.x >= BuildingKit.CELL, "floor slab meets/overlaps neighbour in X (no positive gap)")
+	assert_true(sz.z >= BuildingKit.CELL, "floor slab meets/overlaps neighbour in Z (no positive gap)")
+	# Z-fight guard: outer edge must NOT sit exactly on the wall exterior plane (cell boundary).
+	assert_true(absf(sz.x - BuildingKit.CELL) > 0.001, "floor slab edge off the wall-exterior plane")
+	assert_true(absf(sz.z - BuildingKit.CELL) > 0.001, "floor slab edge off the wall-exterior plane")
+	# Overlap stays small so the perimeter poke past the wall exterior is sub-visible.
+	assert_true(sz.x <= BuildingKit.CELL + 0.1, "floor slab overlap stays small")
 
-func test_floor_skirt_slab_inset_prevents_wall_zfight() -> void:
-	# Same Z1 guard for the floor-skirt variant: the "Skirt" deck it drops under a ground perimeter wall /
-	# interior prop must carry the identical inset so its outer edges clear the full-cell wall exterior
-	# faces (else the coplanar band reappears on ground-floor perimeters). Mesh-only — collision server-side.
+func test_floor_skirt_slab_overlaps_neighbours_without_wall_zfight() -> void:
+	# Same Z1 round-2 invariant for the floor-skirt variant: the "Skirt" deck dropped under a ground
+	# perimeter wall / interior prop must MEET/OVERLAP its neighbours (no gap) while its outer edge stays
+	# off the wall-exterior plane (no coplanar z-fight band on ground-floor perimeters). Mesh-only.
 	var root: Node3D = autofree(BuildingKit.build("bwall", 3, true))
 	var skirt := _find_mesh(root, "Skirt")
 	assert_true(skirt != null, "floor_skirt builds a Skirt slab")
 	var sz := (skirt.mesh as BoxMesh).size
-	assert_true(sz.x < BuildingKit.CELL - 0.001, "skirt slab X inset below full cell")
-	assert_true(sz.z < BuildingKit.CELL - 0.001, "skirt slab Z inset below full cell")
-	assert_true(sz.x >= BuildingKit.CELL - 0.1, "skirt slab inset stays small (no visible floor gap)")
+	assert_true(sz.x >= BuildingKit.CELL, "skirt slab meets/overlaps neighbour in X (no positive gap)")
+	assert_true(sz.z >= BuildingKit.CELL, "skirt slab meets/overlaps neighbour in Z (no positive gap)")
+	assert_true(absf(sz.x - BuildingKit.CELL) > 0.001, "skirt slab edge off the wall-exterior plane")
+	assert_true(absf(sz.z - BuildingKit.CELL) > 0.001, "skirt slab edge off the wall-exterior plane")
+	assert_true(sz.x <= BuildingKit.CELL + 0.1, "skirt slab overlap stays small")
 
 func _find_mesh(root: Node3D, mesh_name: String) -> MeshInstance3D:
 	var stack: Array = [root]
