@@ -244,6 +244,16 @@ def gen_border_wall():
 
 gen_border_wall()
 
+# ---------------------------------------------------------------- antenna vantage
+# A raised deck beside the Antenna flag (170,-80), reached by a ladder. Heights are
+# relative to y=0; Terrain.load_for_map shifts ladders/platforms onto the local grade.
+ladders = [
+    {"bottom": [176, 0, -84], "top": [176, 6.0, -84], "radius": 0.6, "yaw": 0.0, "building": -1},
+]
+platforms = [
+    {"min": [173, 6.0, -87], "max": [181, 6.6, -79]},
+]
+
 def build_map():
     out = {
         "name": "Caspian Border",
@@ -251,7 +261,8 @@ def build_map():
         "roads": roads,
         "buildings": buildings,
         "prebuilt": prebuilt,
-        "ladders": [],
+        "ladders": ladders,
+        "platforms": platforms,
         "scenery": [],
         "points": points,
         "bases": bases,

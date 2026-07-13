@@ -101,3 +101,10 @@ func test_road_crossings_are_open_in_wall() -> void:
 			var cx1 := int(floor(rd["max"].x / 2.4))
 			for cx in range(cx0, cx1 + 1):
 				assert_false(wall_x.has(cx), "road crossing at cell x=%d is walled shut" % cx)
+
+func test_antenna_has_climbable_vantage() -> void:
+	var m := _map()
+	assert_true(m.ladders.size() >= 1, "Antenna has a ladder")
+	assert_true(m.platforms.size() >= 1, "Antenna has a platform deck")
+	var lad = m.ladders[0]
+	assert_true(lad["top"].y > lad["bottom"].y + 3.0, "ladder climbs >3 m")
