@@ -85,17 +85,16 @@ bases = [
 # Highway (NW->SE) approximated as overlapping axis-aligned segments; a full diagonal
 # is not needed for the cosmetic splatmap. E-W service road along the border; A->E dirt
 # road down the east flank; RU basin path.
-ROAD_W = 6.0
 roads = [
-    # main highway: NW corner down to the border crossing, then on to the SE
-    {"min": [-190, 0, -500], "max": [-190 + ROAD_W, 0, -40]},
-    {"min": [-190, 0, -46],  "max": [-40, 0, -40]},
-    {"min": [-46,  0, -40],  "max": [-40 + ROAD_W, 0, 260]},
-    {"min": [-46,  0, 254],  "max": [220, 0, 260]},
-    # E-W service road on the border line
-    {"min": [-320, 0, -3], "max": [320, 0, 3]},
-    # A->E dirt road (east flank): vertical run past Antenna to Gas Station
-    {"min": [164, 0, -260], "max": [170, 0, 220]},
+    # main highway: NW descent -> jog to B -> cross the border AT flag B (x~-97) -> SE
+    {"min": [-200, 0, -500], "max": [-194, 0, -90]},   # NW descent (x~-197)
+    {"min": [-200, 0, -96],  "max": [-94, 0, -90]},    # jog east to B (z~-93)
+    {"min": [-100, 0, -96],  "max": [-94, 0, 140]},    # cross the border at B (x~-97)
+    {"min": [-100, 0, 134],  "max": [240, 0, 140]},    # continue SE (z~137)
+    # E-W service road just NORTH of the border (US side), parallel to the wall
+    {"min": [-330, 0, -14], "max": [330, 0, -8]},
+    # A->E dirt road (east flank), crossing the border at the gate (x~167)
+    {"min": [164, 0, -260], "max": [170, 0, 240]},
     # RU basin path: RU deploy up to Gas Station
     {"min": [-318, 0, 300], "max": [40, 0, 306]},
 ]
@@ -227,9 +226,9 @@ prebuilt = []
 def gen_border_wall():
     z_cell = int(round(0.0 / CELL))                      # border line at z=0
     x_lo, x_hi = -300.0, 300.0
-    openings = [(-112.0, -82.0),    # B highway crossing
-                (118.0, 148.0),     # A->E gate
-                (-260.0, -244.0)]   # pre-existing breach
+    openings = [(-112.0, -84.0),    # B highway crossing (highway crosses at x~-97)
+                (156.0, 182.0),     # A->E gate (dirt road crosses at x~167)
+                (-260.0, -244.0)]   # pre-existing breach (open ground)
     def in_opening(xw):
         return any(lo <= xw <= hi for lo, hi in openings)
     cx = int(round(x_lo / CELL))

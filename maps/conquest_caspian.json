@@ -4,62 +4,62 @@
   "roads": [
     {
       "min": [
-        -190,
+        -200,
         0,
         -500
       ],
       "max": [
-        -184.0,
+        -194,
         0,
-        -40
+        -90
       ]
     },
     {
       "min": [
-        -190,
+        -200,
         0,
-        -46
+        -96
       ],
       "max": [
-        -40,
+        -94,
         0,
-        -40
+        -90
       ]
     },
     {
       "min": [
-        -46,
+        -100,
         0,
-        -40
+        -96
       ],
       "max": [
-        -34.0,
+        -94,
         0,
-        260
+        140
       ]
     },
     {
       "min": [
-        -46,
+        -100,
         0,
-        254
+        134
       ],
       "max": [
-        220,
+        240,
         0,
-        260
+        140
       ]
     },
     {
       "min": [
-        -320,
+        -330,
         0,
-        -3
+        -14
       ],
       "max": [
-        320,
+        330,
         0,
-        3
+        -8
       ]
     },
     {
@@ -71,7 +71,7 @@
       "max": [
         170,
         0,
-        220
+        240
       ]
     },
     {
@@ -4107,6 +4107,294 @@
     {
       "type": "bwall",
       "cell": [
+        50,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        50,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        50,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        51,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        51,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        51,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        52,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        52,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        52,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        53,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        53,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        53,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        54,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        54,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        54,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        55,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        55,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        55,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        56,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        56,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        56,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        57,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        57,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        57,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        58,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        58,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        58,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        59,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        59,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        59,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        60,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        60,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        60,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        61,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
+        61,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "brailing",
+      "cell": [
+        61,
+        2,
+        0
+      ]
+    },
+    {
+      "type": "bwall",
+      "cell": [
         62,
         0,
         0
@@ -4172,270 +4460,6 @@
       "type": "brailing",
       "cell": [
         64,
-        2,
-        0
-      ]
-    },
-    {
-      "type": "bwall",
-      "cell": [
-        65,
-        0,
-        0
-      ]
-    },
-    {
-      "type": "bwall",
-      "cell": [
-        65,
-        1,
-        0
-      ]
-    },
-    {
-      "type": "brailing",
-      "cell": [
-        65,
-        2,
-        0
-      ]
-    },
-    {
-      "type": "bwall",
-      "cell": [
-        66,
-        0,
-        0
-      ]
-    },
-    {
-      "type": "bwall",
-      "cell": [
-        66,
-        1,
-        0
-      ]
-    },
-    {
-      "type": "brailing",
-      "cell": [
-        66,
-        2,
-        0
-      ]
-    },
-    {
-      "type": "bwall",
-      "cell": [
-        67,
-        0,
-        0
-      ]
-    },
-    {
-      "type": "bwall",
-      "cell": [
-        67,
-        1,
-        0
-      ]
-    },
-    {
-      "type": "brailing",
-      "cell": [
-        67,
-        2,
-        0
-      ]
-    },
-    {
-      "type": "bwall",
-      "cell": [
-        68,
-        0,
-        0
-      ]
-    },
-    {
-      "type": "bwall",
-      "cell": [
-        68,
-        1,
-        0
-      ]
-    },
-    {
-      "type": "brailing",
-      "cell": [
-        68,
-        2,
-        0
-      ]
-    },
-    {
-      "type": "bwall",
-      "cell": [
-        69,
-        0,
-        0
-      ]
-    },
-    {
-      "type": "bwall",
-      "cell": [
-        69,
-        1,
-        0
-      ]
-    },
-    {
-      "type": "brailing",
-      "cell": [
-        69,
-        2,
-        0
-      ]
-    },
-    {
-      "type": "bwall",
-      "cell": [
-        70,
-        0,
-        0
-      ]
-    },
-    {
-      "type": "bwall",
-      "cell": [
-        70,
-        1,
-        0
-      ]
-    },
-    {
-      "type": "brailing",
-      "cell": [
-        70,
-        2,
-        0
-      ]
-    },
-    {
-      "type": "bwall",
-      "cell": [
-        71,
-        0,
-        0
-      ]
-    },
-    {
-      "type": "bwall",
-      "cell": [
-        71,
-        1,
-        0
-      ]
-    },
-    {
-      "type": "brailing",
-      "cell": [
-        71,
-        2,
-        0
-      ]
-    },
-    {
-      "type": "bwall",
-      "cell": [
-        72,
-        0,
-        0
-      ]
-    },
-    {
-      "type": "bwall",
-      "cell": [
-        72,
-        1,
-        0
-      ]
-    },
-    {
-      "type": "brailing",
-      "cell": [
-        72,
-        2,
-        0
-      ]
-    },
-    {
-      "type": "bwall",
-      "cell": [
-        73,
-        0,
-        0
-      ]
-    },
-    {
-      "type": "bwall",
-      "cell": [
-        73,
-        1,
-        0
-      ]
-    },
-    {
-      "type": "brailing",
-      "cell": [
-        73,
-        2,
-        0
-      ]
-    },
-    {
-      "type": "bwall",
-      "cell": [
-        74,
-        0,
-        0
-      ]
-    },
-    {
-      "type": "bwall",
-      "cell": [
-        74,
-        1,
-        0
-      ]
-    },
-    {
-      "type": "brailing",
-      "cell": [
-        74,
-        2,
-        0
-      ]
-    },
-    {
-      "type": "bwall",
-      "cell": [
-        75,
-        0,
-        0
-      ]
-    },
-    {
-      "type": "bwall",
-      "cell": [
-        75,
-        1,
-        0
-      ]
-    },
-    {
-      "type": "brailing",
-      "cell": [
-        75,
         2,
         0
       ]

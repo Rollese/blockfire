@@ -86,3 +86,18 @@ func test_wall_has_barbed_wire_cap() -> void:
 			has_rail = true
 			break
 	assert_true(has_rail, "wall is capped with brailing (barbed wire)")
+
+func test_road_crossings_are_open_in_wall() -> void:
+	# No road that crosses the border line (z=0) may be blocked by wall pieces.
+	var m := _map()
+	var border_cz := int(round(0.0 / 2.4))
+	var wall_x := {}
+	for pb in m.prebuilt:
+		if pb["type"] == "bwall" and int(pb["cell"].z) == border_cz:
+			wall_x[int(pb["cell"].x)] = true
+	for rd in m.roads:
+		if rd["min"].z <= 0.0 and rd["max"].z >= 0.0:
+			var cx0 := int(ceil(rd["min"].x / 2.4))    # cells fully inside the road span
+			var cx1 := int(floor(rd["max"].x / 2.4))
+			for cx in range(cx0, cx1 + 1):
+				assert_false(wall_x.has(cx), "road crossing at cell x=%d is walled shut" % cx)
