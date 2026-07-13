@@ -31,7 +31,9 @@ var _repair_gauge: _RepairGauge   # Engineer repair-tool heat/overheat gauge (bo
 var _mg_gauge: _MgGauge           # M19 P4 Task 13: manned LMG-nest heat/belt gauge (bottom-centre, above repair gauge)
 var _shield_bar: _ShieldBar       # M19 P5: Support riot-shield HP bar (bottom-centre, above the mg gauge)
 var _grapple_label: Label         # M19 grapple: "GRAPPLE xN" charges readout (bottom-centre, above the shield bar)
-var _bandage_label: Label         # M16/M1: "BANDAGES xN" readout (bottom-right, above the ammo count)
+var _bandage_row: HBoxContainer   # M16/M1: bandage cluster (glyph + white count), bottom-right above the ammo count
+var _bandage_glyph: _BandageGlyph # procedurally-drawn adhesive-bandage icon (no image asset)
+var _bandage_label: Label         # M16/M1: white "xN" bandage count number (matches the rest of the HUD)
 var _ammo_label: Label
 var _reload_label: Label
 var _firemode_label: Label   # AUTO/SEMI/BURST glyph above the ammo count (M5.5-P1 fire-mode)
@@ -1523,35 +1525,48 @@ func _render_grapple_charges(gc: Dictionary) -> void:
 
 
 func _build_bandage_label() -> void:
-	# M16/M1: minimal "BANDAGES xN" readout, bottom-right just above the ammo count (the health/ammo
-	# cluster — there is no health bar, AGENTS.md §7). Plain functional label, right-aligned to sit in
-	# the ammo column (styling deferred to owner playtest, like the tool gauges / grapple readout).
+	# M16/M1: bandage count, bottom-right just above the ammo count (the health/ammo cluster — there is
+	# no health bar, AGENTS.md §7). Round-2 owner playtest: a graphical adhesive-bandage glyph + a WHITE
+	# count number (matching every other HUD number), replacing the old generic green "BANDAGES xN" text.
+	# Right-aligned HBox so the cluster sits flush in the ammo column.
+	_bandage_row = HBoxContainer.new()
+	_bandage_row.anchor_left = 1.0
+	_bandage_row.anchor_right = 1.0
+	_bandage_row.anchor_top = 1.0
+	_bandage_row.anchor_bottom = 1.0
+	_bandage_row.offset_left = -200.0
+	_bandage_row.offset_right = -8.0
+	_bandage_row.offset_top = -112.0
+	_bandage_row.offset_bottom = -86.0
+	_bandage_row.alignment = BoxContainer.ALIGNMENT_END   # flush to the right, like the ammo count
+	_bandage_row.add_theme_constant_override("separation", 4)
+	_bandage_row.mouse_filter = MOUSE_FILTER_IGNORE
+	_bandage_row.visible = false
+	add_child(_bandage_row)
+
+	_bandage_glyph = _BandageGlyph.new()
+	_bandage_glyph.custom_minimum_size = Vector2(22, 22)
+	_bandage_glyph.mouse_filter = MOUSE_FILTER_IGNORE
+	_bandage_row.add_child(_bandage_glyph)
+
+	# Count number: white with a black outline — the canonical HUD number style (cf. the grapple readout).
 	_bandage_label = Label.new()
-	_bandage_label.anchor_left = 1.0
-	_bandage_label.anchor_right = 1.0
-	_bandage_label.anchor_top = 1.0
-	_bandage_label.anchor_bottom = 1.0
-	_bandage_label.offset_left = -200.0
-	_bandage_label.offset_right = -8.0
-	_bandage_label.offset_top = -112.0
-	_bandage_label.offset_bottom = -86.0
-	_bandage_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	_bandage_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	_bandage_label.add_theme_font_size_override("font_size", 16)
-	_bandage_label.add_theme_color_override("font_color", Color(0.7, 1.0, 0.75))
+	_bandage_label.add_theme_color_override("font_color", Color(1, 1, 1))
 	_bandage_label.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.9))
 	_bandage_label.add_theme_constant_override("outline_size", 4)
 	_bandage_label.mouse_filter = MOUSE_FILTER_IGNORE
-	_bandage_label.visible = false
-	add_child(_bandage_label)
+	_bandage_row.add_child(_bandage_label)
 
 
 func _render_bandage(bd: Dictionary) -> void:
-	if _bandage_label == null:
+	if _bandage_row == null:
 		return
 	var vis := bool(bd.get("visible", false))
-	_bandage_label.visible = vis
+	_bandage_row.visible = vis
 	if vis:
-		_bandage_label.text = "BANDAGES x%d" % int(bd.get("count", 0))
+		_bandage_label.text = "x%d" % int(bd.get("count", 0))
 
 
 func _build_death_recap() -> void:
@@ -1882,6 +1897,40 @@ class _Hitmarker extends Control:
 		for d in [Vector2(1, 1), Vector2(-1, 1), Vector2(1, -1), Vector2(-1, -1)]:
 			var dir: Vector2 = d.normalized()
 			draw_line(ctr + dir * inner, ctr + dir * outer, c, 2.0)
+
+
+## M16/M1: procedurally-drawn adhesive-bandage (plaster) icon for the bandage-count cluster — a
+## tilted white stadium with a brighter central pad and two rows of small dots. No image asset, so it
+## scales/tints cleanly and reads on any background thanks to a dark outline drawn underneath.
+class _BandageGlyph extends Control:
+	func _draw() -> void:
+		var ctr := size * 0.5
+		draw_set_transform(ctr, deg_to_rad(-45.0), Vector2.ONE)   # tilt the plaster ~45°
+		var body_len := minf(size.x, size.y) * 0.82
+		var body_thick := body_len * 0.42
+		var r := body_thick * 0.5
+		# Dark outline underneath (slightly larger) so the glyph reads on bright/dark HUD backgrounds.
+		_stadium(body_len + 2.0, body_thick + 2.0, r + 1.0, Color(0, 0, 0, 0.85))
+		# White bandage body.
+		_stadium(body_len, body_thick, r, Color(0.94, 0.94, 0.9))
+		# Brighter central absorbent pad.
+		var pad_w := body_len * 0.34
+		draw_rect(Rect2(-pad_w * 0.5, -body_thick * 0.5, pad_w, body_thick), Color(1, 1, 1))
+		# Two rows of small perforation dots on the pad.
+		var dx := pad_w * 0.18
+		var dy := body_thick * 0.22
+		var dot_c := Color(0.5, 0.56, 0.62)
+		for sx in [-dx, dx]:
+			for sy in [-dy, dy]:
+				draw_circle(Vector2(sx, sy), maxf(0.8, body_thick * 0.11), dot_c)
+		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)   # reset transform
+
+	## A horizontal stadium (rounded-rect / capsule): centre bar + a semicircle cap at each end.
+	func _stadium(length: float, thick: float, radius: float, c: Color) -> void:
+		var half_l := length * 0.5
+		draw_rect(Rect2(-half_l + radius, -thick * 0.5, length - 2.0 * radius, thick), c)
+		draw_circle(Vector2(-half_l + radius, 0.0), radius, c)
+		draw_circle(Vector2(half_l - radius, 0.0), radius, c)
 
 
 ## Engineer repair-tool heat gauge: a small labelled bar. Fills amber→red as heat accrues; on
