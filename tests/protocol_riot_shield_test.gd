@@ -1,8 +1,8 @@
 extends TestCase
 ## M19 P5: wire — BTN_SHIELD round-trips; SELF_STATE carries shield-HP fraction; VERSION==11.
 
-func test_version_is_11() -> void:
-	assert_eq(Protocol.VERSION, 11, "VERSION bumped for the shield wire")
+func test_version_is_12() -> void:
+	assert_eq(Protocol.VERSION, 12, "VERSION bumped for the shield wire")
 
 func test_btn_shield_round_trips() -> void:
 	var buttons := InputCommand.BTN_SHIELD | InputCommand.BTN_AIM
@@ -23,6 +23,6 @@ func test_self_state_shield_frac_absent_defaults_to_zero() -> void:
 	var full := Protocol.encode_self_state(30, false, 0, 0, [], false, 0.0, 0, 0, false, 0.0, 0.0,
 		100.0, 0.0, true, false, 0, 0.0, false, 0, false, 0, 0, 0, 0,
 		0, 0, 0, false, 255)
-	var old := full.slice(0, full.size() - 1)   # strip the 1-byte shield tail
+	var old := full.slice(0, full.size() - 2)   # strip the M19 grapple byte + the 1-byte shield tail
 	var d := Protocol.decode_self_state(old)
 	assert_eq(int(d["shield_hp_frac"]), 0)

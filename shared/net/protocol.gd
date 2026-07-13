@@ -16,7 +16,8 @@ extends Object
 ## tail). History: VERSION sat at 1 through M1–M12 while the wire changed dozens of times,
 ## so the check protected nothing; real from 2 onward.
 
-const VERSION := 11   # 11: M19 P5 riot shield — BTN_SHIELD bit + SELF_STATE trailing shield_hp_frac u8 (2026-07-12)
+const VERSION := 12   # 12: M19 grapple — DEPLOYED_LADDER_LIST/CUT_LADDER msgs + GA_GRAPPLE_FIRE + SELF_STATE trailing grapple_charges u8 (2026-07-13)
+                     # 11: M19 P5 riot shield — BTN_SHIELD bit + SELF_STATE trailing shield_hp_frac u8 (2026-07-12)
                      # 10: M19 P4 LMG Nest — EMPLACEMENT_ACTION/EMPLACEMENT_LIST + GA_LMG_DEPLOY + SELF_STATE mount tail (2026-07-12)
                      # 9: M19 P2b-medic — STIM charges/ticks in SELF_STATE + GA_STIM_USE/GA_SMOKE_WALL_PLACE (2026-07-11)
                      # 7: reliable BULK channel (3) for structure traffic — transport-topology change,
@@ -76,6 +77,8 @@ enum Msg {
 	SET_LOADOUT = 48,       ## client -> server (M19): player-picked loadout (class/primary/secondary/gadget/armor/grenade + attachment ids); stored, applied at next spawn
 	EMPLACEMENT_ACTION = 49,  ## client -> server (M19 P4): mount/dismount a deployed LMG nest (action + nest id)
 	EMPLACEMENT_LIST = 50,    ## server -> clients (M19 P4): deployed LMG nests {id,pos,facing,turret,hp_frac,occupant,team}
+	DEPLOYED_LADDER_LIST = 51,  ## server -> clients: deployed grapple ladders {id,x,z,bottom_y,top_y,cuttable} -> climb-inject + rope render + cut prompt
+	CUT_LADDER = 52,            ## client -> server: request to cut deployed grapple ladder <id> (server-validated: cuttable + in radius + alive)
 }
 
 const OP_PLACE := 0
@@ -97,6 +100,7 @@ const GA_BREACH_PLACE := 9   # M19: place an Assault breaching charge (pos + fac
 const GA_STIM_USE := 10   # M19 P2b: Medic self/team stim injection (pos + facing dir)
 const GA_SMOKE_WALL_PLACE := 11   # M19 P2b: Medic smoke-wall gadget placement (pos + facing dir)
 const GA_LMG_DEPLOY := 12   # M19 P4: place an LMG nest (pos + facing dir)
+const GA_GRAPPLE_FIRE := 13   # M19: fire the grappling hook to deploy a climbable rope-ladder (pos + facing dir)
 
 # VEHICLE_ACTION sub-actions.
 const VA_ENTER := 0
@@ -741,6 +745,46 @@ static func decode_emplacement_list(bytes: PackedByteArray) -> Array:
 			"hp_frac": hp_frac, "occupant": occ, "team": team})
 	return out
 
+## Deployed grapple ladders, rebuilt + sent each tick like EMPLACEMENT_LIST (self-healing render
+## list). Per ladder: id u32, x/z/bottom_y/top_y ×10 i16 (0.1 m), cuttable u8 bool.
+static func encode_deployed_ladder_list(list: Array) -> PackedByteArray:
+	var buf := StreamPeerBuffer.new()
+	buf.put_u8(Msg.DEPLOYED_LADDER_LIST)
+	var n: int = mini(list.size(), 255)
+	buf.put_u8(n)
+	for i in range(n):
+		var l: Dictionary = list[i]
+		buf.put_u32(int(l["id"]))
+		buf.put_16(clampi(roundi(float(l["x"]) * 10.0), -32768, 32767))
+		buf.put_16(clampi(roundi(float(l["z"]) * 10.0), -32768, 32767))
+		buf.put_16(clampi(roundi(float(l["bottom_y"]) * 10.0), -32768, 32767))
+		buf.put_16(clampi(roundi(float(l["top_y"]) * 10.0), -32768, 32767))
+		buf.put_u8(1 if bool(l.get("cuttable", false)) else 0)
+	return buf.data_array
+
+static func decode_deployed_ladder_list(bytes: PackedByteArray) -> Array:
+	var r := body_reader(bytes)
+	var n := r.get_u8()
+	var out: Array = []
+	for i in range(n):
+		var id := r.get_u32()
+		var x := float(r.get_16()) / 10.0
+		var z := float(r.get_16()) / 10.0
+		var by := float(r.get_16()) / 10.0
+		var ty := float(r.get_16()) / 10.0
+		var cut := r.get_u8() == 1
+		out.append({"id": id, "x": x, "z": z, "bottom_y": by, "top_y": ty, "cuttable": cut})
+	return out
+
+static func encode_cut_ladder(ladder_id: int) -> PackedByteArray:
+	var buf := StreamPeerBuffer.new()
+	buf.put_u8(Msg.CUT_LADDER)
+	buf.put_u32(ladder_id)
+	return buf.data_array
+
+static func decode_cut_ladder(bytes: PackedByteArray) -> Dictionary:
+	return {"ladder_id": body_reader(bytes).get_u32()}
+
 ## Active support links (M7): each entry is giver_id u32 + target_id u32 + kind u8
 ## (SupportLinks.HEAL/AMMO/REPAIR/REVIVE). No coordinates on the wire — the client resolves both
 ## endpoints from its own snapshot (pawn or vehicle ids it already mirrors) and skips any it can't
@@ -897,7 +941,7 @@ static func decode_damage_event(bytes: PackedByteArray) -> Dictionary:
 	return {"bearing": Quantize.dec_angle(r.get_u16()), "amount": r.get_u8()}
 
 
-static func encode_self_state(mag: int, reloading: bool, reload_remaining: int, weapon: int, throwables: Array = [], being_revived: bool = false, suppression: float = 0.0, blind_ticks: int = 0, bandage_count: int = 0, bleed_halted: bool = false, repair_heat: float = 0.0, repair_cooldown: float = 0.0, stamina: float = 100.0, vel_y: float = 0.0, grounded: bool = true, vaulting: bool = false, vault_tick: int = 0, regen_cooldown: float = 0.0, sprint_locked: bool = false, input_buf_depth: int = 0, bleeding: bool = false, bandage_progress: int = 0, reserve: int = 0, stim_charges: int = 0, stim_ticks: int = 0, mounted_nest: int = 0, mg_heat: int = 0, mg_ammo: int = 0, mg_overheated: bool = false, shield_hp_frac: int = 0) -> PackedByteArray:
+static func encode_self_state(mag: int, reloading: bool, reload_remaining: int, weapon: int, throwables: Array = [], being_revived: bool = false, suppression: float = 0.0, blind_ticks: int = 0, bandage_count: int = 0, bleed_halted: bool = false, repair_heat: float = 0.0, repair_cooldown: float = 0.0, stamina: float = 100.0, vel_y: float = 0.0, grounded: bool = true, vaulting: bool = false, vault_tick: int = 0, regen_cooldown: float = 0.0, sprint_locked: bool = false, input_buf_depth: int = 0, bleeding: bool = false, bandage_progress: int = 0, reserve: int = 0, stim_charges: int = 0, stim_ticks: int = 0, mounted_nest: int = 0, mg_heat: int = 0, mg_ammo: int = 0, mg_overheated: bool = false, shield_hp_frac: int = 0, grapple_charges: int = 0) -> PackedByteArray:
 	var buf := StreamPeerBuffer.new()
 	buf.put_u8(Msg.SELF_STATE)
 	buf.put_u8(clampi(mag, 0, 255))
@@ -977,6 +1021,8 @@ static func encode_self_state(mag: int, reloading: bool, reload_remaining: int, 
 	buf.put_u8(1 if mg_overheated else 0)
 	# M19 P5: owner-only shield-HP fraction (0-255), appended last so older decoders ignore it.
 	buf.put_u8(shield_hp_frac & 0xFF)
+	# M19 grapple: owner-only remaining grapple charges (0/1), appended last so older decoders ignore it.
+	buf.put_u8(clampi(grapple_charges, 0, 255))
 	return buf.data_array
 
 static func decode_self_state(bytes: PackedByteArray) -> Dictionary:
@@ -1068,7 +1114,12 @@ static func decode_self_state(bytes: PackedByteArray) -> Dictionary:
 	var shield_hp_frac := 0
 	if r.get_available_bytes() >= 1:
 		shield_hp_frac = r.get_u8()
-	return {"mag": mag, "reloading": reloading, "reload_remaining": reload_remaining, "weapon": weapon, "throwables": throwables, "being_revived": being_revived, "suppression": suppression, "blind_ticks": blind_ticks, "bandage_count": bandage_count, "bleed_halted": bleed_halted, "repair_heat": repair_heat, "repair_cooldown": repair_cooldown, "stamina": stamina, "vel_y": vel_y, "grounded": grounded, "vaulting": vaulting, "vault_tick": vault_tick, "regen_cooldown": regen_cooldown, "sprint_locked": sprint_locked, "input_buf_depth": input_buf_depth, "bleeding": bleeding, "bandage_progress": bandage_progress, "reserve": reserve, "stim_charges": stim_charges, "stim_ticks": stim_ticks, "mounted_nest": mounted_nest, "mg_heat": mg_heat, "mg_ammo": mg_ammo, "mg_overheated": mg_overheated, "shield_hp_frac": shield_hp_frac}
+	# M19 grapple: owner-only remaining grapple charges, appended after shield_hp_frac; an
+	# older/short packet just leaves it at 0 rather than misaligning the read.
+	var grapple_charges := 0
+	if r.get_available_bytes() >= 1:
+		grapple_charges = r.get_u8()
+	return {"mag": mag, "reloading": reloading, "reload_remaining": reload_remaining, "weapon": weapon, "throwables": throwables, "being_revived": being_revived, "suppression": suppression, "blind_ticks": blind_ticks, "bandage_count": bandage_count, "bleed_halted": bleed_halted, "repair_heat": repair_heat, "repair_cooldown": repair_cooldown, "stamina": stamina, "vel_y": vel_y, "grounded": grounded, "vaulting": vaulting, "vault_tick": vault_tick, "regen_cooldown": regen_cooldown, "sprint_locked": sprint_locked, "input_buf_depth": input_buf_depth, "bleeding": bleeding, "bandage_progress": bandage_progress, "reserve": reserve, "stim_charges": stim_charges, "stim_ticks": stim_ticks, "mounted_nest": mounted_nest, "mg_heat": mg_heat, "mg_ammo": mg_ammo, "mg_overheated": mg_overheated, "shield_hp_frac": shield_hp_frac, "grapple_charges": grapple_charges}
 
 
 static func encode_roster(rows: Array) -> PackedByteArray:
