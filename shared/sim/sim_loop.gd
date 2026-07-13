@@ -3,7 +3,7 @@ extends RefCounted
 ## Fixed-timestep authoritative simulation. Same code runs on server (authority) and
 ## client (prediction). inputs: Dictionary[int id -> command dict]. See AGENTS.md §7.
 ## P3: drives ladder climbing, auto-vaulting, platform floor, and records stance-change ticks.
-## Geometry arrays (ladders/platforms) are set by the server; empty during client prediction.
+## Geometry arrays (ladders/deployed_ladders/platforms) are set by the server; empty during client prediction.
 
 const DT := 1.0 / 30.0   # 30 Hz
 const MIN_MOVE_LEN := 0.001   # m; below this a pawn is treated as stationary (no vault trigger)

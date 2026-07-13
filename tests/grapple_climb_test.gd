@@ -18,6 +18,12 @@ func test_capture_ladder_prefers_static_then_deployed() -> void:
 	sim.ladders = [{"bottom": Vector3(0, 0, 0), "top": Vector3(0, 4, 0), "radius": 0.6}]
 	assert_false(sim.capture_ladder(Vector3(0.1, 1.0, 0.0)).is_empty(), "static still works")
 	assert_false(sim.capture_ladder(Vector3(5.1, 1.0, 5.0)).is_empty(), "deployed still works")
+	# overlap: a static and a deployed ladder share x,z -> static must win
+	sim.ladders = [{"bottom": Vector3(9, 0, 9), "top": Vector3(9, 4, 9), "radius": 0.6}]
+	sim.deployed_ladders = [{"bottom": Vector3(9, 0, 9), "top": Vector3(9, 8, 9), "radius": Grapple.LADDER_RADIUS}]
+	var got := sim.capture_ladder(Vector3(9.1, 1.0, 9.0))
+	assert_false(got.is_empty(), "captured at the overlap")
+	assert_true(abs(float(got["top"].y) - 4.0) < 0.01, "static ladder (top=4) wins over deployed (top=8)")
 
 func test_climb_engages_and_rises_on_deployed() -> void:
 	# Mirror tests/sim_loop_test.gd::test_engages_ladder_and_climbs, but the ladder lives ONLY in
@@ -28,4 +34,4 @@ func test_climb_engages_and_rises_on_deployed() -> void:
 	sim.world.pawns[1] = p
 	for i in 20:
 		sim.step({1: {"move_y": 1.0}})   # up-intent each tick
-	assert_true(p.climbing or p.pos.y > 0.5, "engaged/rose on the deployed ladder")
+	assert_true(p.pos.y > 1.0, "rose up the deployed ladder")
