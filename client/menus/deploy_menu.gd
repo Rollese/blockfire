@@ -190,6 +190,15 @@ func setup_loadout(cfg: Dictionary, attach) -> void:
 	if _class_select != null:
 		_class_select.setup(cfg, attach)
 
+## Loadout-UI redesign: inject the client-side persistence store (a ClientSettings) into the embedded
+## class-select panel so class switches remember prior picks and edits persist across matches/servers.
+## client_main calls this once after building the deploy menu.
+func set_loadout_store(store) -> void:
+	if _class_select == null:
+		_build_layout()
+	if _class_select != null:
+		_class_select.set_store(store)
+
 func _on_loadout_btn_pressed() -> void:
 	if _class_select != null:
 		_class_select.visible = true
