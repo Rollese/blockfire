@@ -97,6 +97,15 @@ const LMG_NEST_FIRE_ARC := deg_to_rad(45)     # rad — MUST match data/gadgets.
 const RIOT_SHIELD_ENGAGE_RANGE := 20.0        # m — only worth raising the (speed-penalized) shield this close to a fight
 const RIOT_SHIELD_FRONT_ARC := deg_to_rad(90) # rad — half-angle off the bot's CURRENT facing counted as "roughly ahead"
 
+# M19 P6 Task 11: ASSAULT grapple exerciser (bots/exercisers.gd maybe_grapple). ~1/3 of Assault bots
+# roll GADGET_GRAPPLE (Loadout.bot_gadget ASSAULT branch id%3==2), so the fleet gate exercises the
+# deploy (GA_GRAPPLE_FIRE -> climbable rope) + cut (CUT_LADDER -> sever an aged enemy rope) paths.
+# DEPLOY needs a spendable charge (Grapple.CHARGES = single-use per life, restocked from support) + a
+# target ahead + the cadence elapsed (occasional, mirroring the LMG-nest/BREACH restraint); CUT fires
+# whenever the bot stands within Grapple.CUT_RADIUS of a server-armed (cuttable) rope. The server
+# re-validates the charge/anchor (deploy) and range/arm-time (cut), so a rejected request is harmless.
+const GRAPPLE_DEPLOY_COOLDOWN_TICKS := 300     # ~10 s @30Hz between deploy attempts (charge-gated anyway; avoids per-tick spam)
+
 ## M15: bot-only slope-avoidance (NOT pathfinding, NOT sim-authoritative — the server still
 ## authoritatively clips a bot's movement via Terrain.resolve_movement exactly like a human; see
 ## shared/sim/sim_loop.gd). A too-steep hill otherwise sticks a bot's AI in place forever since it
@@ -277,6 +286,10 @@ func _spawn_bot(index: int) -> void:
 		# mount (persist across lives — they are cooldowns, not per-life caps); `lmg_notarget_since`
 		# tracks how long a mounted gunner has lacked a target (dismount trigger), reset on death.
 		"nests": [], "lmg_deploy_last_tick": -100000, "lmg_mount_last_tick": -100000, "lmg_notarget_since": -1,
+		# M19 P6 Task 11: grapple-rope mirror + deploy cadence. `deployed_ladders` is the wholesale
+		# DEPLOYED_LADDER_LIST mirror (refreshed each tick like `nests`); grapple_deploy_last_tick paces
+		# deploys (persists across lives — a cooldown, not a per-life cap; charges themselves gate reuse).
+		"deployed_ladders": [], "grapple_deploy_last_tick": -100000,
 		# M7.5-P3 support mirrors + latches: SELF_STATE dict, GADGET_LIST wholesale mirror,
 		# GRENADE_FX landing ring; reviving_id = active REVIVE_ACTION latch,
 		# last_bag_tick = needs-driven bag-deploy cooldown.
@@ -315,6 +328,7 @@ func _reconnect(bot: Dictionary) -> void:
 	bot["structs"] = {}
 	bot["gadgets"] = []
 	bot["nests"] = []   # M19 P4: stale nest mirror — the next match rebuilds it from EMPLACEMENT_LIST
+	bot["deployed_ladders"] = []   # M19 P6: stale rope mirror — the next match rebuilds it from DEPLOYED_LADDER_LIST
 	bot["grenade_events"] = []
 	bot["self_state"] = {}
 	bot["last_seq"] = 0
@@ -650,6 +664,7 @@ func _drive(bot: Dictionary, delta: float) -> void:
 	_ex.maybe_smoke_wall(bot, me, target, obj) # M19 P2b Task 7: self-gates on bot_gadget == GADGET_SMOKE_WALL
 	buttons |= _ex.maybe_riot_shield(bot, me, target)  # M19 P5 Task 7: self-gates on bot_gadget == GADGET_RIOT_SHIELD
 	_ex.maybe_lmg_nest(bot, me, target)        # M19 P4 Task 14: self-gates on bot_gadget == GADGET_LMG_NEST (deploy/mount; manning handled early above)
+	_ex.maybe_grapple(bot, me, target)         # M19 P6 Task 11: self-gates on bot_gadget == GADGET_GRAPPLE (deploy rope near a target / cut aged enemy ropes)
 	_ex.maybe_give(bot, me, target != null)
 	_maybe_deploy_bag(bot, me)
 	_ex.maybe_weapon_handling(bot, me)
@@ -801,6 +816,10 @@ func _on_packet(bot: Dictionary, bytes: PackedByteArray) -> void:
 			# M19 P4: authoritative deployed LMG-nest list — replace wholesale (self-healing render
 			# list), same pattern as GADGET_LIST. Feeds maybe_lmg_nest (mount/redeploy decisions).
 			bot["nests"] = Protocol.decode_emplacement_list(bytes)
+		Protocol.Msg.DEPLOYED_LADDER_LIST:
+			# M19 P6: authoritative deployed grapple-rope list — replace wholesale (self-healing render
+			# list), same pattern as EMPLACEMENT_LIST. Feeds maybe_grapple (cut-armed-enemy-rope decisions).
+			bot["deployed_ladders"] = Protocol.decode_deployed_ladder_list(bytes)
 		Protocol.Msg.GRENADE_FX:
 			# A remote pawn threw a grenade: stamp a flat GRENADE_LANDING_EST-ahead landing
 			# estimate into a small ring; AiSupport.danger_zones expires entries by tick.

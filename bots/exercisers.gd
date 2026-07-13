@@ -783,6 +783,55 @@ static func mounted_nest_facing(nests: Array, nest_id: int) -> float:
 			return float(n.get("facing_yaw", 0.0))
 	return NAN
 
+## M19 P6 Task 11: ASSAULT grapple exerciser — DEPLOY a climbable rope near a target, or CUT an
+## aged enemy rope the bot is standing at. Self-gates on GADGET_GRAPPLE (~1/3 of Assault bots).
+## Priority: (1) a server-armed (cuttable) rope within Grapple.CUT_RADIUS -> sever it (drives the
+## grapple_cuts path); (2) else DEPLOY, gated on a spendable charge (from SELF_STATE.grapple_charges),
+## a target ahead, and the cadence, aiming a REAL world-space vector toward the target tilted UP so
+## the server's eye-march (grapple_server.deploy) tends to strike a wall/ledge rather than the ground.
+## The aim is deliberately convention-independent (not yaw-derived): the server marches p.eye_position()
+## along this dir, so a direct up-tilted vector toward the target is what lands an anchor + rope.
+func maybe_grapple(bot: Dictionary, me: EntityState, target: EntityState) -> void:
+	if Loadout.bot_gadget(int(bot["id"]), int(bot["class"])) != Loadout.GADGET_GRAPPLE: return
+	var st: int = bot["server_tick"]
+	# (1) Cut a nearby armed enemy rope if we're standing at one — takes priority over deploying.
+	var cut_id := nearest_cuttable_ladder(bot.get("deployed_ladders", []), me.pos, Grapple.CUT_RADIUS)
+	if cut_id != 0:
+		(bot["net"] as NetHost).send_to(bot["peer"], NetHost.CHANNEL_CONTROL,
+			Protocol.encode_cut_ladder(cut_id), 0)
+		return
+	# (2) Deploy: needs a spendable charge, a target ahead, and the deploy cadence elapsed.
+	if grapple_charges(bot) <= 0: return
+	if target == null: return
+	if st - int(bot.get("grapple_deploy_last_tick", -100000)) < d.GRAPPLE_DEPLOY_COOLDOWN_TICKS: return
+	var to := Vector3(target.pos.x - me.pos.x, 0.0, target.pos.z - me.pos.z)
+	if to.length() < 0.001: return
+	var face := to.normalized()
+	# Aim slightly up so the server's eye-march strikes a wall/ledge, not the floor. A real world-space
+	# vector (not yaw-derived) — the server deploy is convention-independent (see AIM CONVENTION NOTE).
+	var aim := Vector3(face.x * 0.9, 0.4, face.z * 0.9).normalized()
+	(bot["net"] as NetHost).send_to(bot["peer"], NetHost.CHANNEL_INPUT,
+		Protocol.encode_gadget_action(Protocol.GA_GRAPPLE_FIRE, me.pos, aim, 0), 0)
+	bot["grapple_deploy_last_tick"] = st
+
+## Spendable grapple charges from the bot's own SELF_STATE mirror (0 when unsynced) — mirrors how
+## drive_mounted_nest reads mounted_nest straight from self_state (fair-play: reads only its OWN state).
+static func grapple_charges(bot: Dictionary) -> int:
+	return int((bot.get("self_state", {}) as Dictionary).get("grapple_charges", 0))
+
+## Nearest server-armed (cuttable) deployed rope whose climb line is within `radius` (x,z distance,
+## any height) of `pos`, else 0. Mirrors nearest_mountable_nest — the server re-checks range + arm-time
+## in _grapples.cut, so a stale id is harmlessly ignored. Pure.
+static func nearest_cuttable_ladder(ladders: Array, pos: Vector3, radius: float) -> int:
+	var best := 0
+	var best_d := radius
+	for l in ladders:
+		if not bool(l.get("cuttable", false)): continue
+		var dxz := Vector2(pos.x - float(l["x"]), pos.z - float(l["z"])).length()
+		if dxz <= best_d:
+			best_d = dxz; best = int(l["id"])
+	return best
+
 const GIVE_RANGE := 3.0
 
 ## Pure give-target pick: nearest same-team mate within GIVE_RANGE that is alive,
