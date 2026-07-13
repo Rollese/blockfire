@@ -211,3 +211,33 @@ Specs: [`client-prediction.md`](specs/client-prediction.md), [`hud-ui.md`](specs
 | M7-P1 gate (full Conquest match, placeholder art, complete HUD) | claude | **done ✅** | **PASS 2026-07-05** — owner end-to-end human playtest (laptop 1080p → game2 server + 24 bots, `conquest_town`): full match start→win, victory/defeat end screen, all close-out items confirmed. Server exits on match end (`[match] OVER winner=0 t0=48 t1=0 elapsed=169s`). Evidence: `docs/sessions/2026-07-05-m7-playtest-round6.md` + round-6/7 fix commits. |
 
 Add new tasks here as they're discovered; promote per-milestone detail into the relevant `milestones/MX-*.md` file.
+
+## Post-playtest fixes — 2026-07-13 (owner desktop playtest, M19 + FSR build)
+
+Owner ran a full desktop playtest of the accumulated M16/M17/M19 + graphics/FSR features. Findings triaged below; codes match the playtest checklist (A/G/S/M/Z). **All "fix now" items landed on master (branch `feat/playtest-fixes-20260713`, subagent-driven TDD + two-stage review per task).** Awaiting owner re-playtest to confirm visuals (esp. Z1 roofline + interior floor seam, shield viewmodel feel).
+
+| Code | Item | Status | Commit / notes |
+|---|---|---|---|
+| A4/A6 | Loadout window resized per class | **done ✅** | `bc10876` — fixed 1600×720 panel (worst-case Assault), no ScrollContainer needed; `class_select_panel.gd` + regression test. |
+| M1 | Bandage count not shown on HUD | **done ✅** | `68dc7e7` — already on wire (`SELF_STATE.bandage_count`); forwarded to hud_model + `_render_bandage` (grapple-readout pattern), hidden at 0. No wire change. |
+| G1 | Deployed grapple drew a ladder mesh, not a rope | **done ✅** | `707745c` — `set_deployed_ladders()` renders the `GrappleRope` verlet rope only; `DEPLOYED_LADDER_LIST` is grapple-exclusive so no flag needed. |
+| Z1 | Z-fighting where walls meet roof floor | **done ✅** | `2b1aa8e` + `2d65193` — coplanar floor-edge/wall-exterior faces; `bfloor`/skirt slab inset `ROOF_FLOOR_INSET=0.02` (0.01/side). Collision untouched. **Owner: verify roofline dither gone + no interior floor seam.** |
+| G2 | Riot shield: HP regen; not visible; weak block feedback | **done ✅** | `f605b61`/`65e12d5`/`9866ffa`/`a4385d4` — (a) removed passive regen → depletes & breaks permanently, re-arms only on respawn/support-resupply (resupply re-arm fires regardless of ammo state); (b) first-person shield viewmodel when raised (local only — enemy-shield-visibility needs a `q_state` bit, deferred below); (c) screen-flash on block/break. No wire change. |
+| G3 | LMG nest: no forced prone; own gun hidden by turret; bots sky-fire | **done ✅** | `0dd796a`/`79ca2dc`/`3bc75ba` — (a) force PRONE while manning (server + client prediction); (b) hide turret barrel for the local gunner; (c) bots hold fire without an in-arc/in-range/in-pitch-band target (no more 30° sky-fire). |
+| M3 | Collapse rubble had NO collision (walk-through, prone-hide) | **done ✅** | `b88d187` — root cause: `brubble` had `"surface": true` → resolver's `is_flat_surface` short-circuit treated it as a walk-on floor. Removed it; rubble now blocks all stances yet stays vaultable/shoot-over low cover. |
+
+**Deferred — post-alpha client polish / later milestones (owner-directed):**
+| Code | Item | Why deferred |
+|---|---|---|
+| G4 | BREACH / REPAIR / STIM / SMOKE_WALL gadget verification | Needs multiple human players + vehicles (repair tool) to test. Defer to post-alpha client polish once all features are in. |
+| — | Enemy/remote riot-shield 3D visibility | Needs a new `EntityState.q_state` bit (byte is full: stance/lean/team/alive/downed/climbing) → wire VERSION bump + native encoder change. Local first-person shield shipped; enemy-shield mesh deferred. |
+| M2 | **Full BattleBit ammo/magazine system** | Large feature, forgotten in M17. Backlog spec below. |
+
+### M2 — BattleBit ammunition system (deferred feature spec, owner-requested 2026-07-13)
+Current reserve-ammo (M17) refills a mag to full from the spare pool almost instantly and ammo-box pickup autofills to full in a few seconds. BattleBit's model, to implement later:
+1. **Ammo-box / resupply refills slowly** — ~one magazine every few seconds, not instant-to-full.
+2. **Individual magazines** — each mag tracks its own round count; a partially-spent mag reloaded goes **back to inventory** (not merged), can be reused later.
+3. **Ammo redistribution** — hold a key to consolidate rounds from near-empty mags into fuller ones (top-up), at the cost of leaving empties.
+4. **Fast reload (hold R) drops the mag** — a hold-R fast reload **discards the current magazine on the ground** (losing its remaining rounds) for speed; tap-R keeps the mag.
+
+Scope note: touches `shared/sim/weapon.gd` reserve/mag model, reload flow, the ammo-box/resupply path, wire (per-mag inventory in SELF_STATE), HUD (mag list + counts), and input (redistribute key, hold-vs-tap R). Own milestone/spec when picked up.
