@@ -31,6 +31,7 @@ var _repair_gauge: _RepairGauge   # Engineer repair-tool heat/overheat gauge (bo
 var _mg_gauge: _MgGauge           # M19 P4 Task 13: manned LMG-nest heat/belt gauge (bottom-centre, above repair gauge)
 var _shield_bar: _ShieldBar       # M19 P5: Support riot-shield HP bar (bottom-centre, above the mg gauge)
 var _grapple_label: Label         # M19 grapple: "GRAPPLE xN" charges readout (bottom-centre, above the shield bar)
+var _bandage_label: Label         # M16/M1: "BANDAGES xN" readout (bottom-right, above the ammo count)
 var _ammo_label: Label
 var _reload_label: Label
 var _firemode_label: Label   # AUTO/SEMI/BURST glyph above the ammo count (M5.5-P1 fire-mode)
@@ -148,6 +149,7 @@ func render(model: Dictionary) -> void:
 	_render_mg_gauge(model.get("mg_gauge", {}))
 	_render_shield_bar(model.get("shield_bar", {}))
 	_render_grapple_charges(model.get("grapple_charges", {}))
+	_render_bandage(model.get("bandage", {}))
 	_render_throw_charge(model.get("throw_charge", {}))
 	_render_stamina(model.get("stamina", {}))
 
@@ -182,6 +184,7 @@ func _build_tree() -> void:
 	_build_mg_gauge()
 	_build_shield_bar()
 	_build_grapple_label()
+	_build_bandage_label()
 	_build_ammo()
 	_build_compass()
 	_build_objective_markers()
@@ -1504,6 +1507,38 @@ func _render_grapple_charges(gc: Dictionary) -> void:
 	_grapple_label.visible = vis
 	if vis:
 		_grapple_label.text = "GRAPPLE x%d" % int(gc.get("charges", 0))
+
+
+func _build_bandage_label() -> void:
+	# M16/M1: minimal "BANDAGES xN" readout, bottom-right just above the ammo count (the health/ammo
+	# cluster — there is no health bar, AGENTS.md §7). Plain functional label, right-aligned to sit in
+	# the ammo column (styling deferred to owner playtest, like the tool gauges / grapple readout).
+	_bandage_label = Label.new()
+	_bandage_label.anchor_left = 1.0
+	_bandage_label.anchor_right = 1.0
+	_bandage_label.anchor_top = 1.0
+	_bandage_label.anchor_bottom = 1.0
+	_bandage_label.offset_left = -200.0
+	_bandage_label.offset_right = -8.0
+	_bandage_label.offset_top = -112.0
+	_bandage_label.offset_bottom = -86.0
+	_bandage_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	_bandage_label.add_theme_font_size_override("font_size", 16)
+	_bandage_label.add_theme_color_override("font_color", Color(0.7, 1.0, 0.75))
+	_bandage_label.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.9))
+	_bandage_label.add_theme_constant_override("outline_size", 4)
+	_bandage_label.mouse_filter = MOUSE_FILTER_IGNORE
+	_bandage_label.visible = false
+	add_child(_bandage_label)
+
+
+func _render_bandage(bd: Dictionary) -> void:
+	if _bandage_label == null:
+		return
+	var vis := bool(bd.get("visible", false))
+	_bandage_label.visible = vis
+	if vis:
+		_bandage_label.text = "BANDAGES x%d" % int(bd.get("count", 0))
 
 
 func _build_death_recap() -> void:

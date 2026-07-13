@@ -134,7 +134,7 @@ func _grenade_danger(ctx: Dictionary):
 
 func build(ctx: Dictionary) -> Dictionary:
 	var dmg := _damage(ctx)
-	return {"ammo": _ammo(ctx), "compass": _compass(ctx), "tickets": _tickets(ctx), "capture": _capture(ctx), "killfeed": _killfeed_current(ctx), "damage_arcs": dmg["arcs"], "vignette": dmg["vignette"], "scoreboard": _scoreboard(ctx), "squad_roster": _squad_roster(ctx), "interaction_prompt": _interaction_prompt(ctx), "throwables": _throwables(ctx), "death_recap": _death_recap(ctx), "grenade_danger": _grenade_danger(ctx), "capture_feed": _capture_feed_current(ctx), "repair_heat": _repair_heat(ctx), "throw_charge": _throw_charge(ctx), "stamina": _stamina(ctx), "mg_gauge": _mg_gauge(ctx), "shield_bar": _shield_bar(ctx), "grapple_charges": _grapple_charges(ctx)}
+	return {"ammo": _ammo(ctx), "compass": _compass(ctx), "tickets": _tickets(ctx), "capture": _capture(ctx), "killfeed": _killfeed_current(ctx), "damage_arcs": dmg["arcs"], "vignette": dmg["vignette"], "scoreboard": _scoreboard(ctx), "squad_roster": _squad_roster(ctx), "interaction_prompt": _interaction_prompt(ctx), "throwables": _throwables(ctx), "death_recap": _death_recap(ctx), "grenade_danger": _grenade_danger(ctx), "capture_feed": _capture_feed_current(ctx), "repair_heat": _repair_heat(ctx), "throw_charge": _throw_charge(ctx), "stamina": _stamina(ctx), "mg_gauge": _mg_gauge(ctx), "shield_bar": _shield_bar(ctx), "grapple_charges": _grapple_charges(ctx), "bandage": _bandage(ctx)}
 
 ## C3 grenade hold-to-charge: a 0..1 throw-strength meter, shown only while charging.
 func _throw_charge(ctx: Dictionary) -> Dictionary:
@@ -185,6 +185,14 @@ func _shield_bar(ctx: Dictionary) -> Dictionary:
 func _grapple_charges(ctx: Dictionary) -> Dictionary:
 	var equipped := bool(ctx.get("grapple_equipped", false))
 	return {"visible": equipped, "charges": int(ctx.get("grapple_charges", 0))}
+
+## M16/M1: remaining-bandage readout. Bandages are a universal infantry resource (already on the wire
+## as SELF_STATE.bandage_count) — the count was decoded but never shown, so the owner couldn't watch
+## the standing-bleed/bandage loop drain. Visible only while you hold at least one (hidden at 0, like
+## the other zero-is-irrelevant readouts) — the last decrement to 0 is the "you're out" signal.
+func _bandage(ctx: Dictionary) -> Dictionary:
+	var count := int(ctx.get("bandage_count", 0))
+	return {"visible": count > 0, "count": count}
 
 func cycle_throwable(count: int) -> void:
 	if count <= 0:

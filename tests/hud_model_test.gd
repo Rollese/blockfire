@@ -366,3 +366,16 @@ func test_mg_gauge_reloading_and_overheat_flags() -> void:
 		"mg_overheated": true, "tick": 0})["mg_gauge"]
 	assert_true(bool(g["overheated"]))
 	assert_true(bool(g["reloading"]))
+
+func test_bandage_hidden_when_out() -> void:
+	# M16/M1: no bandages (or the field absent -> defaults 0) -> the readout is hidden.
+	var absent: Dictionary = HudModel.new().build({"tick": 0})["bandage"]
+	assert_false(bool(absent["visible"]), "no bandage_count -> readout hidden")
+	assert_eq(int(absent["count"]), 0)
+	var zero: Dictionary = HudModel.new().build({"bandage_count": 0, "tick": 0})["bandage"]
+	assert_false(bool(zero["visible"]), "0 bandages -> readout hidden (out signal)")
+
+func test_bandage_shows_count_when_held() -> void:
+	var bd: Dictionary = HudModel.new().build({"bandage_count": 3, "tick": 0})["bandage"]
+	assert_true(bool(bd["visible"]), "holding bandages -> readout shown")
+	assert_eq(int(bd["count"]), 3, "count surfaced for the HUD label")

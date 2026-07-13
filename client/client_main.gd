@@ -916,6 +916,7 @@ func _process(_dt: float) -> void:
 		"shield_hp_frac": _shield_hp_frac,  # M19 P5: shield HP 0..255 from SELF_STATE -> HUD bar
 		"grapple_equipped": int(_loadout.get("gadget", -1)) == Loadout.GADGET_GRAPPLE,  # M19 grapple: gates the charges label
 		"grapple_charges": _grapple_charges,  # M19 grapple: remaining charges from SELF_STATE -> HUD readout
+		"bandage_count": _bandage_count,      # M16/M1: remaining bandages from SELF_STATE -> HUD readout
 		"repair_heat": _repair_heat,
 		"repair_cooldown": _repair_cooldown,
 		"throw_charge": _throw_charge if _throw_charging else 0.0,   # C3 grenade charge bar (0 when idle)
