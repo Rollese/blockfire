@@ -753,13 +753,13 @@ static func encode_deployed_ladder_list(list: Array) -> PackedByteArray:
 	var n: int = mini(list.size(), 255)
 	buf.put_u8(n)
 	for i in range(n):
-		var l: Dictionary = list[i]
-		buf.put_u32(int(l["id"]))
-		buf.put_16(clampi(roundi(float(l["x"]) * 10.0), -32768, 32767))
-		buf.put_16(clampi(roundi(float(l["z"]) * 10.0), -32768, 32767))
-		buf.put_16(clampi(roundi(float(l["bottom_y"]) * 10.0), -32768, 32767))
-		buf.put_16(clampi(roundi(float(l["top_y"]) * 10.0), -32768, 32767))
-		buf.put_u8(1 if bool(l.get("cuttable", false)) else 0)
+		var e: Dictionary = list[i]
+		buf.put_u32(int(e["id"]))
+		buf.put_16(clampi(roundi(float(e["x"]) * 10.0), -32768, 32767))
+		buf.put_16(clampi(roundi(float(e["z"]) * 10.0), -32768, 32767))
+		buf.put_16(clampi(roundi(float(e["bottom_y"]) * 10.0), -32768, 32767))
+		buf.put_16(clampi(roundi(float(e["top_y"]) * 10.0), -32768, 32767))
+		buf.put_u8(1 if bool(e.get("cuttable", false)) else 0)
 	return buf.data_array
 
 static func decode_deployed_ladder_list(bytes: PackedByteArray) -> Array:
