@@ -100,3 +100,77 @@ func test_archetype_name_nonempty_for_every_enum() -> void:
 	for arch in [Weapon.AR, Weapon.SMG, Weapon.DMR, Weapon.RPG, Weapon.PISTOL, Weapon.LMG]:
 		assert_true(Weapon.archetype_name(arch).length() > 0, "archetype %d has a name" % arch)
 	assert_eq(Weapon.archetype_name(Weapon.AR), "Assault Rifles")
+
+func test_spawn_mags_builds_full_spare_mags() -> void:
+	# Reserve divides evenly into whole spare mags; each starts full. Loaded mag is tracked separately.
+	for wid in [Weapon.AR, Weapon.SMG, Weapon.DMR, Weapon.PISTOL, Weapon.LMG]:
+		var ms := int(Weapon.get_def(wid)["mag_size"])
+		var expected_n := Weapon.reserve_ammo(wid) / ms
+		var mags := Weapon.spawn_mags(wid)
+		assert_eq(mags.size(), expected_n, "spare mag count for w %d" % wid)
+		for m in mags:
+			assert_eq(int(m), ms, "each spare mag full for w %d" % wid)
+
+func test_spawn_mags_scales_with_reserve_mult() -> void:
+	var ms := int(Weapon.get_def(Weapon.AR)["mag_size"])
+	var base := Weapon.spawn_mags(Weapon.AR, 1.0).size()
+	var boosted := Weapon.spawn_mags(Weapon.AR, 1.5).size()
+	assert_eq(boosted, int(round(Weapon.reserve_ammo(Weapon.AR) * 1.5)) / ms)
+	assert_true(boosted > base)
+
+func test_has_loadable_spare() -> void:
+	assert_false(Weapon.has_loadable_spare([]))
+	assert_false(Weapon.has_loadable_spare([0, 0]))
+	assert_true(Weapon.has_loadable_spare([0, 5]))
+
+func test_reload_swap_is_fifo_and_returns_partial_to_tail() -> void:
+	# Loaded mag has 8 left; spares [30, 30]. Tap reload: 8 goes to tail, load head 30.
+	var res := Weapon.reload_swap(8, [30, 30])
+	assert_eq(int(res[0]), 30)          # new loaded mag
+	assert_eq(res[1], [30, 8])          # partial returned to the tail
+	assert_true(bool(res[2]))           # ok
+
+func test_reload_swap_skips_empty_mags() -> void:
+	# Never chamber an empty: leading 0-mags are discarded until a non-empty head is found.
+	var res := Weapon.reload_swap(5, [0, 0, 20])
+	assert_eq(int(res[0]), 20)
+	assert_eq(res[1], [5])              # the two empties discarded; partial 5 kept at tail
+	assert_true(bool(res[2]))
+
+func test_load_next_loads_head_without_returning_current() -> void:
+	# Fast reload: current mag was dropped by the caller, so no partial returns to the tail.
+	var res := Weapon.load_next([30, 12])
+	assert_eq(int(res[0]), 30)
+	assert_eq(res[1], [12])
+	assert_true(bool(res[2]))
+
+func test_load_next_reports_not_ok_when_no_spare() -> void:
+	var res := Weapon.load_next([0, 0])
+	assert_false(bool(res[2]))
+
+func test_redistribute_step_pours_emptiest_into_fullest() -> void:
+	# mag_size 30. Emptiest non-empty (5) pours into fullest non-full (20) -> [25], 5-mag emptied+dropped.
+	var out := Weapon.redistribute_step([20, 5], 30)
+	assert_eq(out, [25])
+
+func test_redistribute_step_leaves_partial_when_dest_fills() -> void:
+	# Emptiest (20) pours into fullest-non-full (25, space 5): 25->30, 20->15 (kept in place, not dropped).
+	var out := Weapon.redistribute_step([20, 25], 30)
+	assert_eq(out, [15, 30])
+
+func test_redistribute_step_noop_when_nothing_to_consolidate() -> void:
+	assert_eq(Weapon.redistribute_step([30, 30], 30), [30, 30])
+	assert_eq(Weapon.redistribute_step([7], 30), [7])
+
+func test_resupply_step_tops_loaded_then_fills_emptiest_first() -> void:
+	# One mag (30) of rounds: top loaded 10->30 (20 used), remaining 10 into emptiest spare (0->10).
+	var res := Weapon.resupply_step(10, [0, 30], Weapon.AR)
+	assert_eq(int(res[0]), 30)
+	assert_eq(res[1], [10, 30])
+
+func test_resupply_step_caps_at_max_mag_count() -> void:
+	# Full loaded + full spares already at max: adding rounds cannot exceed the spawn count.
+	var full := Weapon.spawn_mags(Weapon.AR)
+	var res := Weapon.resupply_step(30, full, Weapon.AR)
+	assert_eq(int(res[0]), 30)
+	assert_eq(res[1].size(), full.size())

@@ -45,6 +45,107 @@ static func reload_fill(mag: int, mag_size: int, reserve: int) -> Array:
 	var take: int = mini(mag_size - mag, reserve)
 	return [mag + take, reserve - take]
 
+## --- BattleBit individual-magazine model (M2 backlog) ---------------------------------------
+## Loaded mag is tracked separately (c["ammo"] / WeaponPredictor.mag). These helpers operate on the
+## FIFO spare-mag list (Array of per-mag round counts). Pure + deterministic — shared by the server's
+## authoritative reload/resupply and the client WeaponPredictor so the HUD never drifts.
+
+## Build the full spare-mag FIFO for a fresh loadout: reserve_ammo (scaled by the class reserve_mult)
+## divided into whole full mags. Reserves divide evenly for every weapon (AR 6/SMG 6/DMR 7/PISTOL
+## 4/LMG 3). Returns [] for a weapon with no mag (e.g. RPG).
+static func spawn_mags(weapon_id: int, reserve_mult: float = 1.0) -> Array:
+	var mag_size: int = int(get_def(weapon_id)["mag_size"])
+	if mag_size <= 0:
+		return []
+	var n: int = int(round(float(reserve_ammo(weapon_id)) * reserve_mult)) / mag_size
+	var out: Array = []
+	for _i in n:
+		out.append(mag_size)
+	return out
+
+## True if any spare mag has rounds — the reload-start guard (never start a reload that can't load).
+static func has_loadable_spare(spare_mags: Array) -> bool:
+	for m in spare_mags:
+		if int(m) > 0:
+			return true
+	return false
+
+## FIFO tap-reload: the current partial mag returns to the tail, then the first non-empty spare is
+## popped from the head (leading empties discarded — never chamber an empty). Returns
+## [new_mag, new_spare_mags, ok]; ok=false (state unchanged) if no non-empty spare exists.
+static func reload_swap(mag: int, spare_mags: Array) -> Array:
+	var spares: Array = spare_mags.duplicate()
+	spares.append(maxi(mag, 0))
+	return _pop_first_nonempty(spares, mag, spare_mags)
+
+## Fast-reload load: the current mag was DROPPED by the caller (not returned to the tail), so just
+## pop the first non-empty spare from the head. Returns [new_mag, new_spare_mags, ok].
+static func load_next(spare_mags: Array) -> Array:
+	var spares: Array = spare_mags.duplicate()
+	return _pop_first_nonempty(spares, 0, spare_mags)
+
+static func _pop_first_nonempty(spares: Array, fallback_mag: int, orig: Array) -> Array:
+	while not spares.is_empty():
+		var head: int = int(spares.pop_front())
+		if head > 0:
+			return [head, spares, true]
+	return [fallback_mag, orig.duplicate(), false]
+
+## One redistribution step: pour the emptiest non-empty spare into the fullest non-full spare; drop
+## the source mag if it empties (leaving empties behind is the point). Returns the new spare list
+## (unchanged if nothing can be consolidated). Called once per 5 s while the redistribute key is held.
+static func redistribute_step(spare_mags: Array, mag_size: int) -> Array:
+	var spares: Array = spare_mags.duplicate()
+	var dest: int = -1
+	for i in spares.size():
+		var v: int = int(spares[i])
+		if v < mag_size and (dest < 0 or v > int(spares[dest])):
+			dest = i
+	var src: int = -1
+	for i in spares.size():
+		if i == dest:
+			continue
+		var v: int = int(spares[i])
+		if v > 0 and (src < 0 or v < int(spares[src])):
+			src = i
+	if dest < 0 or src < 0:
+		return spares
+	var move: int = mini(mag_size - int(spares[dest]), int(spares[src]))
+	spares[dest] = int(spares[dest]) + move
+	spares[src] = int(spares[src]) - move
+	if int(spares[src]) == 0:
+		spares.remove_at(src)
+	return spares
+
+## Resupply one mag's worth of rounds: top the loaded mag first, then fill existing spare mags
+## emptiest-first, then add a new full-ish mag if rounds remain and we're under the spawn mag count.
+## Returns [new_mag, new_spare_mags]. Called on a 5 s cadence by ammo boxes / bags / medic give.
+static func resupply_step(mag: int, spare_mags: Array, weapon_id: int, reserve_mult: float = 1.0) -> Array:
+	var mag_size: int = int(get_def(weapon_id)["mag_size"])
+	if mag_size <= 0:
+		return [mag, spare_mags.duplicate()]
+	var max_spares: int = int(round(float(reserve_ammo(weapon_id)) * reserve_mult)) / mag_size
+	var spares: Array = spare_mags.duplicate()
+	var budget: int = mag_size
+	var top: int = mini(mag_size - mag, budget)
+	mag += top
+	budget -= top
+	while budget > 0:
+		var dest: int = -1
+		for i in spares.size():
+			if int(spares[i]) < mag_size and (dest < 0 or int(spares[i]) < int(spares[dest])):
+				dest = i
+		if dest < 0:
+			break
+		var add: int = mini(mag_size - int(spares[dest]), budget)
+		spares[dest] = int(spares[dest]) + add
+		budget -= add
+	while budget > 0 and spares.size() < max_spares:
+		var add2: int = mini(mag_size, budget)
+		spares.append(add2)
+		budget -= add2
+	return [mag, spares]
+
 static func get_def(weapon_id: int) -> Dictionary:
 	if _VARIANTS.has(weapon_id):
 		return _VARIANTS[weapon_id]
