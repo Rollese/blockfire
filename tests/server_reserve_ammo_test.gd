@@ -155,3 +155,14 @@ func test_redistribute_resets_cadence_on_release() -> void:
 	c["redist_next_tick"] = srv._sim.tick + 999
 	srv._step_redistribute(c, false, srv._sim.tick)   # released
 	assert_eq(int(c["redist_next_tick"]), 0)
+
+func test_redistribute_increments_stat() -> void:
+	var srv = Fixture.make_server()
+	autofree(srv)
+	Fixture.add_pawn(srv, 3, 0)
+	var c := _client_with_ammo(srv, 3, 30, 0)
+	c["spare_mags"] = [20, 5]
+	c["redist_next_tick"] = 0
+	srv._step_redistribute(c, true, srv._sim.tick)                                   # arm the window
+	srv._step_redistribute(c, true, srv._sim.tick + srv.REDISTRIBUTE_PERIOD_TICKS)   # consolidate 5 into 20
+	assert_true(srv._stats.redistributes >= 1)

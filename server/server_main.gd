@@ -652,8 +652,12 @@ func _step_redistribute(c: Dictionary, held: bool, tick: int) -> void:
 		return
 	if tick >= int(c["redist_next_tick"]):
 		var mag_size := int(Weapon.get_def(c["weapon"])["mag_size"])
-		c["spare_mags"] = Weapon.redistribute_step(c.get("spare_mags", []), mag_size)
-		c["reserve"] = _sum_mags(c["spare_mags"])
+		var before: Array = (c.get("spare_mags", []) as Array).duplicate()
+		var after: Array = Weapon.redistribute_step(before, mag_size)
+		c["spare_mags"] = after
+		if after != before:
+			_stats.redistributes += 1
+		c["reserve"] = _sum_mags(after)
 		c["redist_next_tick"] = tick + REDISTRIBUTE_PERIOD_TICKS
 
 ## M2 ammo: hold-R fast reload drops the current mag as a recoverable world entity at the pawn's
@@ -666,6 +670,7 @@ func _drop_mag(id: int, c: Dictionary) -> void:
 	if rounds <= 0:
 		return   # nothing worth dropping
 	_dropped_mags.spawn(id, pawn.pos, rounds, _sim.tick)
+	_stats.mags_dropped += 1
 
 ## Build vid -> driver command from each vehicle's seat-0 (driver) occupant's last input. Also
 ## refreshes the gunner pawn's look so SimLoop.step_vehicles can mirror it to the turret.
@@ -1867,6 +1872,7 @@ func _pickup_mag_for(id: int, mag_id: int) -> void:
 	c["spare_mags"] = (c.get("spare_mags", []) as Array).duplicate()
 	c["spare_mags"].append(int(m["rounds"]))
 	c["reserve"] = _sum_mags(c["spare_mags"])
+	_stats.mags_picked += 1
 	_dropped_mags.remove(mag_id)
 
 func _vehicle_enter(id: int, p: Pawn, vid: int, seat_hint: int) -> void:

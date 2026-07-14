@@ -58,3 +58,11 @@ func test_ttl_despawns_stale_mags() -> void:
 	srv._drop_mag(5, c)
 	srv._dropped_mags.step(srv._sim.tick + ServerDroppedMags.TTL_TICKS + 1)
 	assert_eq(srv._dropped_mags.for_owner(5).size(), 0)
+
+func test_stats_track_mag_dropped() -> void:
+	var srv = Fixture.make_server()
+	autofree(srv)
+	Fixture.add_pawn(srv, 5, 0)
+	var c := _armed_client(srv, 5)
+	srv._drop_mag(5, c)
+	assert_true(srv._stats.mags_dropped >= 1)

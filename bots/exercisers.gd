@@ -943,3 +943,18 @@ func cover_between(bot: Dictionary, a: Vector3, b: Vector3) -> bool:
 		if (a + n * t).distance_to(c) <= BuildGrid.CELL_SIZE:   # within ~one cell of the line
 			return true
 	return false
+
+## M2 ammo: exercise the magazine mechanics under the fleet gate. Index-keyed sub-cohorts so the
+## effect is deterministic + small (doesn't disturb combat density). Returns the modified button mask.
+## - idx % 6 == 0: when the combat AI wants a reload, promote it to a FAST reload (drops a mag).
+## - idx % 8 == 3: hold the redistribute key for a ~5.7 s window each ~20 s (consolidates a partial),
+##   but only when not firing/reloading so it never fights combat.
+func mag_ammo_buttons(bot: Dictionary, base_buttons: int) -> int:
+	var idx := int(bot["index"])
+	var buttons := base_buttons
+	if idx % 6 == 0 and (base_buttons & InputCommand.BTN_RELOAD) != 0:
+		buttons = (buttons & ~InputCommand.BTN_RELOAD) | InputCommand.BTN_FAST_RELOAD
+	if idx % 8 == 3 and (buttons & (InputCommand.BTN_FIRE | InputCommand.BTN_RELOAD | InputCommand.BTN_FAST_RELOAD)) == 0:
+		if int(bot["server_tick"]) % 600 < 170:   # ~5.7 s hold every ~20 s @30 Hz
+			buttons |= InputCommand.BTN_REDISTRIBUTE
+	return buttons
