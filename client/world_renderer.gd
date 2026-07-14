@@ -3682,9 +3682,9 @@ func _make_vehicle_mesh() -> Node3D:
 #  nests missing from the list are freed. View-only (AGENTS.md §7).
 # =============================================================================
 func set_emplacements(list: Array, local_team: int = -1, my_id: int = 0) -> void:
-	# local_team is accepted for signature parity with set_gadgets (friend/foe tint could key off it
-	# later); nests already carry their own team on the wire, so it is unused today. my_id is THIS client's
-	# pawn id: the nest we are manning hides its turret barrel so we see only our own weapon viewmodel (G3b).
+	# local_team and my_id are accepted for signature parity with set_gadgets (friend/foe tint or
+	# local-viewer keying could use them later); nests already carry their own team on the wire and the
+	# turret-hiding they once drove is gone (no turret), so both are unused today.
 	_emplacements = list
 	# Release nodes whose nest id left the view.
 	var seen: Dictionary = {}
@@ -3705,7 +3705,6 @@ func set_emplacements(list: Array, local_team: int = -1, my_id: int = 0) -> void
 			continue
 		var team: int = int(e.get("team", 0))
 		var facing: float = float(e["facing_yaw"])
-		var turret: float = float(e["turret_yaw"])
 		var node: Node3D = _emplacement_active.get(nid) as Node3D
 		if node == null:
 			node = LmgNestKit.build(team)
@@ -3714,16 +3713,8 @@ func set_emplacements(list: Array, local_team: int = -1, my_id: int = 0) -> void
 		node.position = pos
 		node.rotation.y = facing   # orient the sandbag parapet to the deploy facing
 		# G3 round-2: the nest has NO mounted turret (the gunner fires their own weapon), so LmgNestKit
-		# builds no "Barrel" child and this block no-ops. Guarded for legacy/other kits that might carry
-		# a traversable turret; snap is fine — the list re-arrives each tick while a gunner aims.
-		var barrel: Node3D = node.get_node_or_null("Barrel") as Node3D
-		if barrel != null:
-			barrel.rotation.y = wrapf(turret - facing, -PI, PI)
-			# G3b: hide the whole gun assembly (Barrel holds Receiver/Gun/Stock) when WE are the gunner, so
-			# the manning player sees their own first-person weapon, not a second turret gun across the view.
-			# Set every tick (both states) so it re-appears the instant we dismount. Remote-manned/unmanned
-			# nests keep the full barrel.
-			barrel.visible = nest_barrel_visible(int(e.get("occupant", 0)), my_id)
+		# builds no "Barrel" child — there is nothing to traverse or hide; the gunner's own first-person
+		# weapon is the only gun. turret_yaw stays on the wire for _nest_occupants (rider pose).
 		_apply_nest_damage(node, team, float(e.get("hp_frac", 1.0)))
 
 
@@ -3744,14 +3735,6 @@ func _apply_nest_damage(node: Node3D, _team: int, hp_frac: float) -> void:
 		var mat := mi.material_override as StandardMaterial3D
 		if mat != null:
 			mat.albedo_color = tint
-
-
-## Barrel visibility for a nest given its occupant and THIS client's pawn id: the local manning player
-## sees only their own weapon viewmodel, so the turret barrel/gun is hidden when we ARE the occupant
-## (my_id != 0 and occupant == my_id). Every other viewer — and every remote-manned or unmanned nest —
-## keeps the full barrel. Pure (unit-tested; mirrors shield_viewmodel_visible). View-only (AGENTS.md §7).
-static func nest_barrel_visible(occupant: int, my_id: int) -> bool:
-	return not (my_id != 0 and occupant == my_id)
 
 
 ## Manning gunners: pawn id -> {facing, turret} for nests with an occupant, so _pose_entity can crouch
