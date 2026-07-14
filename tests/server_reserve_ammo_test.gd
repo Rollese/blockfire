@@ -113,3 +113,26 @@ func test_spawn_builds_full_spare_mags() -> void:
 	assert_eq(c["spare_mags"].size(), Weapon.reserve_ammo(wid) / ms)
 	for m in c["spare_mags"]:
 		assert_eq(int(m), ms)
+
+func test_redistribute_consolidates_one_mag_per_period() -> void:
+	var srv = Fixture.make_server()
+	autofree(srv)
+	Fixture.add_pawn(srv, 3, 0)
+	var c := _client_with_ammo(srv, 3, 30, 0)
+	c["spare_mags"] = [20, 5, 30]
+	c["redist_next_tick"] = 0
+	# First held call arms the 5 s window (no consolidation yet).
+	srv._step_redistribute(c, true, srv._sim.tick)
+	assert_eq(c["spare_mags"], [20, 5, 30])
+	# After the period elapses, one consolidation happens: 5 pours into 20 -> [25,30], empty dropped.
+	srv._step_redistribute(c, true, srv._sim.tick + srv.REDISTRIBUTE_PERIOD_TICKS)
+	assert_eq(c["spare_mags"], [25, 30])
+
+func test_redistribute_resets_cadence_on_release() -> void:
+	var srv = Fixture.make_server()
+	autofree(srv)
+	Fixture.add_pawn(srv, 3, 0)
+	var c := _client_with_ammo(srv, 3, 30, 0)
+	c["redist_next_tick"] = srv._sim.tick + 999
+	srv._step_redistribute(c, false, srv._sim.tick)   # released
+	assert_eq(int(c["redist_next_tick"]), 0)

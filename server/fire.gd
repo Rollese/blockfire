@@ -138,6 +138,7 @@ func resolve_fires() -> void:
 		if inp == null: continue
 		var shooter: Pawn = srv._sim.world.get_pawn(id)
 		if shooter == null or not shooter.alive or shooter.is_downed or shooter.climbing or shooter.shield_up: continue   # downed/climbing/shield-up = can't fire (also drops ADS accuracy, read below)
+		if inp["buttons"] & InputCommand.BTN_REDISTRIBUTE: continue   # M2 ammo: no fire while consolidating mags
 		# (M19: RPG is an Engineer gadget, never a held weapon — no rocket-reload branch here. Rockets
 		# refill on spawn/deploy/respawn; mid-life resupply via ammo bag is a P2 follow-up.)
 		var firing: bool = (inp["buttons"] & InputCommand.BTN_FIRE) != 0

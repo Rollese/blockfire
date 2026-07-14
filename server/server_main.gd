@@ -38,6 +38,7 @@ var _degrade_low_ms := Degrade.LOW_MS     # --degrade-low-ms override
 const PICKUP_MAG_RANGE := 2.5   # metres: how close you must be to reclaim a dropped mag
 const PICKUP_MAG_DOT := 0.6     # must be roughly looking at it (skipped at point-blank < 0.5 m)
 const RESPAWN_DELAY_TICKS := 150   # 5s @30Hz
+const REDISTRIBUTE_PERIOD_TICKS := 150   # 5 s @30 Hz: consolidate one partial spare mag per period while held (M2 ammo)
 const COMBAT_FLAG_TICKS := 300     # 10s @30Hz — a pawn that took fire can't be a squad-spawn anchor (BattleBit "in combat")
 const HEALTH_REGEN_DELAY_TICKS := 150     # 5s @30Hz out-of-combat before health regen begins (BattleBit-ish)
 const HEALTH_REGEN_RATE := 10.0           # HP/sec once regen is active (baseline; gate-tunable)
@@ -592,6 +593,8 @@ func _step_movement() -> void:
 			c["last_input_tick"] = inp["client_tick"]
 		if c["reloading"] and _sim.tick >= c["reload_done_tick"]:
 			_finish_reload(c)
+		var _redist_held: bool = c.get("last_input", null) != null and (int(c["last_input"]["buttons"]) & InputCommand.BTN_REDISTRIBUTE) != 0
+		_step_redistribute(c, _redist_held and not c["reloading"], _sim.tick)
 	# M19 P2b: inject the server-authoritative stim flag into each pawn's cmd right before stepping —
 	# covers BOTH bots and humans (bots are ordinary entries in _clients/inputs; their AI feeds input
 	# through the same ingest path). Duplicated rather than mutated in place: `inp` above may be the
@@ -635,6 +638,22 @@ func _finish_reload(c: Dictionary) -> void:
 		c["spare_mags"] = res[1]
 	c["reload_fast"] = false
 	c["reserve"] = _sum_mags(c["spare_mags"])
+
+## M2 ammo: hold-BTN_REDISTRIBUTE consolidates one partial spare mag every REDISTRIBUTE_PERIOD_TICKS
+## (fire is locked in fire.gd while held). Releasing — or taking damage (_apply_pawn_damage resets
+## redist_next_tick to 0) — restarts the 5 s. Idempotent; safe to call every tick.
+func _step_redistribute(c: Dictionary, held: bool, tick: int) -> void:
+	if not held:
+		c["redist_next_tick"] = 0
+		return
+	if int(c.get("redist_next_tick", 0)) <= 0:
+		c["redist_next_tick"] = tick + REDISTRIBUTE_PERIOD_TICKS
+		return
+	if tick >= int(c["redist_next_tick"]):
+		var mag_size := int(Weapon.get_def(c["weapon"])["mag_size"])
+		c["spare_mags"] = Weapon.redistribute_step(c.get("spare_mags", []), mag_size)
+		c["reserve"] = _sum_mags(c["spare_mags"])
+		c["redist_next_tick"] = tick + REDISTRIBUTE_PERIOD_TICKS
 
 ## M2 ammo: hold-R fast reload drops the current mag as a recoverable world entity at the pawn's
 ## feet. Its rounds leave the loaded mag (which _finish_reload replaces with the next spare).
@@ -884,6 +903,8 @@ func _apply_pawn_damage(vid: int, victim: Pawn, dmg: int, headshot: bool, source
 		killer_id: int, weapon_id: int, is_melee: bool = false) -> void:
 	if victim.is_downed:
 		return  # immune to damage while downed
+	if _clients.has(vid):
+		_clients[vid]["redist_next_tick"] = 0   # M2 ammo: taking damage interrupts mag consolidation
 	# M19 P5 riot shield: a raised shield absorbs frontal GUN small-arms into its own pool.
 	# Melee (is_melee) / back-stab / explosive / fall all bypass (is_small_arms handles source; is_melee excludes knives).
 	if victim.shield_up and RiotShield.is_small_arms(source, is_melee):
