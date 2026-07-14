@@ -239,9 +239,18 @@ func give_ammo(target_id: int, period: int) -> void:
 		grapple_full = int(tc.get("grapple_charges", 0)) >= Grapple.CHARGES
 		if not grapple_full:
 			tc["grapple_charges"] = Grapple.CHARGES
-	if int(tc["ammo"]) >= cap and int(tc.get("reserve", 0)) >= reserve_max and pawn_bandages_full(target_id) and stim_full and grapple_full: return
-	tc["ammo"] = cap
-	tc["reserve"] = reserve_max
+	var spares: Array = tc.get("spare_mags", [])
+	var ammo_full: bool = int(tc["ammo"]) >= cap and srv._sum_mags(spares) >= reserve_max
+	if ammo_full and pawn_bandages_full(target_id) and stim_full and grapple_full: return
+	# M2 ammo: slow resupply — one mag's worth per RESUPPLY_PERIOD_TICKS (emptiest-mag-first), not
+	# instant-to-full. Throttled per-client so the rate is independent of the caller's cadence.
+	if not ammo_full and srv._sim.tick >= int(tc.get("ammo_resupply_next_tick", 0)):
+		var mult: float = float(Loadout.class_traits(int(tc["class"]))["reserve_mult"])
+		var r: Array = Weapon.resupply_step(int(tc["ammo"]), spares, int(tc["weapon"]), mult)
+		tc["ammo"] = int(r[0])
+		tc["spare_mags"] = r[1]
+		tc["reserve"] = srv._sum_mags(tc["spare_mags"])
+		tc["ammo_resupply_next_tick"] = srv._sim.tick + srv.RESUPPLY_PERIOD_TICKS
 	var tp: Pawn = srv._sim.world.get_pawn(target_id)
 	if tp != null:
 		tp.bandage_count = Revive.bandage_count_for(is_medic(target_id))

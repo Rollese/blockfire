@@ -39,6 +39,7 @@ const PICKUP_MAG_RANGE := 2.5   # metres: how close you must be to reclaim a dro
 const PICKUP_MAG_DOT := 0.6     # must be roughly looking at it (skipped at point-blank < 0.5 m)
 const RESPAWN_DELAY_TICKS := 150   # 5s @30Hz
 const REDISTRIBUTE_PERIOD_TICKS := 150   # 5 s @30 Hz: consolidate one partial spare mag per period while held (M2 ammo)
+const RESUPPLY_PERIOD_TICKS := 150   # 5 s @30 Hz: ammo box / bag / medic give dispenses one mag per period (M2 ammo)
 const COMBAT_FLAG_TICKS := 300     # 10s @30Hz — a pawn that took fire can't be a squad-spawn anchor (BattleBit "in combat")
 const HEALTH_REGEN_DELAY_TICKS := 150     # 5s @30Hz out-of-combat before health regen begins (BattleBit-ish)
 const HEALTH_REGEN_RATE := 10.0           # HP/sec once regen is active (baseline; gate-tunable)
@@ -2598,12 +2599,23 @@ func _step_bags() -> void:
 				# dispense, evaluated BEFORE the ammo gate.
 				var needs_shield_rearm: bool = int(tc["loadout"]["gadget"]) == Loadout.GADGET_RIOT_SHIELD \
 						and t.shield_hp < RiotShield.SHIELD_HP
-				if int(tc["ammo"]) >= cap and int(tc.get("reserve", 0)) >= reserve_max and not needs_shield_rearm: continue
-				tc["ammo"] = cap
-				tc["reserve"] = reserve_max   # ammo bag refills the reserve pool too (M17)
+				var spares: Array = tc.get("spare_mags", [])
+				var ammo_full: bool = int(tc["ammo"]) >= cap and _sum_mags(spares) >= reserve_max
+				var did := false
+				# M2 ammo: slow resupply — one mag per RESUPPLY_PERIOD_TICKS (not instant-to-full).
+				if not ammo_full and _sim.tick >= int(tc.get("ammo_resupply_next_tick", 0)):
+					var mult := float(Loadout.class_traits(int(tc["class"]))["reserve_mult"])
+					var r := Weapon.resupply_step(int(tc["ammo"]), spares, int(tc["weapon"]), mult)
+					tc["ammo"] = int(r[0])
+					tc["spare_mags"] = r[1]
+					tc["reserve"] = _sum_mags(tc["spare_mags"])
+					tc["ammo_resupply_next_tick"] = _sim.tick + RESUPPLY_PERIOD_TICKS
+					did = true
 				if needs_shield_rearm:
 					t.shield_hp = RiotShield.SHIELD_HP   # re-arm to full + clear any break lockout
 					t.shield_broken_until_tick = 0
+					did = true
+				if not did: continue
 				dispensed += 1
 				_stats.ammo_gives += 1
 		if dispensed > 0:

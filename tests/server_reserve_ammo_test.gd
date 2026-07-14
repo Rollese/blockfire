@@ -13,26 +13,45 @@ func _client_with_ammo(srv, id: int, mag: int, reserve: int) -> Dictionary:
 	c["reserve"] = reserve
 	return c
 
-func test_support_give_ammo_refills_reserve() -> void:
+func test_give_ammo_adds_one_mag_per_period_not_instant() -> void:
 	var srv = Fixture.make_server()
 	autofree(srv)
-	Fixture.add_pawn(srv, 7, 0)
-	var c := _client_with_ammo(srv, 7, 10, 40)   # depleted mag + partial reserve
-	srv._support.give_ammo(7, 1)   # period 1 → dispenses on tick 0
-	assert_eq(int(c["ammo"]), int(Weapon.get_def(Weapon.AR)["mag_size"]), "mag topped to full")
-	assert_eq(int(c["reserve"]), Weapon.reserve_ammo(Weapon.AR), "reserve refilled to weapon max")
+	var c := _spawn_class(srv, 7, Loadout.ASSAULT)   # spawns with full ammo + full spare mags
+	c["ammo"] = 0
+	c["spare_mags"] = []
+	c["ammo_resupply_next_tick"] = 0
+	var ms := int(Weapon.get_def(int(c["weapon"]))["mag_size"])
+	srv._support.give_ammo(7, 1)   # period 1 -> runs on tick 0
+	var total: int = int(c["ammo"]) + srv._sum_mags(c["spare_mags"])
+	assert_true(total > 0, "some ammo dispensed")
+	assert_true(total <= ms, "at most one mag's worth per period (not instant-to-full)")
 
-func test_support_give_ammo_noop_when_everything_full() -> void:
+func test_give_ammo_noop_when_everything_full() -> void:
 	var srv = Fixture.make_server()
 	autofree(srv)
-	var p := Fixture.add_pawn(srv, 8, 0)
-	p.bandage_count = 99   # bandages already full so the give short-circuits
-	var full_mag: int = int(Weapon.get_def(Weapon.AR)["mag_size"])
-	var c := _client_with_ammo(srv, 8, full_mag, Weapon.reserve_ammo(Weapon.AR))
-	var before_bandages := p.bandage_count
+	var c := _spawn_class(srv, 8, Loadout.ASSAULT)   # full ammo + full spares from spawn
+	var p: Pawn = srv._sim.world.get_pawn(8)
+	p.bandage_count = 99   # bandages already full so nothing dispenses
+	c["ammo_resupply_next_tick"] = 0
+	var before: Array = c["spare_mags"].duplicate()
 	srv._support.give_ammo(8, 1)
-	assert_eq(int(c["reserve"]), Weapon.reserve_ammo(Weapon.AR), "reserve stays at max (no over-refill)")
-	assert_eq(p.bandage_count, before_bandages, "nothing dispensed when mag+reserve+bandages already full")
+	assert_eq(c["spare_mags"], before, "no over-refill when mag + spares already full")
+
+func test_give_ammo_throttled_to_one_per_period() -> void:
+	var srv = Fixture.make_server()
+	autofree(srv)
+	var c := _spawn_class(srv, 9, Loadout.ASSAULT)
+	c["ammo"] = 0
+	c["spare_mags"] = []
+	c["ammo_resupply_next_tick"] = 0
+	var ms := int(Weapon.get_def(int(c["weapon"]))["mag_size"])
+	# Two calls on the SAME tick (period 1): the throttle allows only the first to dispense ammo.
+	srv._support.give_ammo(9, 1)
+	var after_first: int = int(c["ammo"]) + srv._sum_mags(c["spare_mags"])
+	srv._support.give_ammo(9, 1)
+	var after_second: int = int(c["ammo"]) + srv._sum_mags(c["spare_mags"])
+	assert_eq(after_second, after_first, "second give on the same tick is throttled (<= one mag/period)")
+	assert_true(after_first <= ms)
 
 ## M19 P2a — Support carries extra spare ammo (class_traits reserve_mult=1.25) both at spawn and when
 ## an ammo bag / Support tool tops the reserve pool back up (so a resupply never strips the bonus).
