@@ -83,7 +83,7 @@ const VEHICLES_PATH := "res://data/vehicles.json"
 const ENTER_RANGE := 3.0
 const WEAPON_SWAP_TICKS := 12   # equip lockout after a quick-swap (~0.4s @30Hz)
 # The flat per-weapon fields kept as the LIVE state of the active slot; frozen into c["slots"] on swap.
-const _SLOT_FIELDS := ["weapon", "weapon_def", "ammo", "reserve", "reloading", "reload_done_tick", "last_fire_time", "shot_index", "fire_mode"]
+const _SLOT_FIELDS := ["weapon", "weapon_def", "ammo", "reserve", "spare_mags", "reloading", "reload_fast", "reload_done_tick", "last_fire_time", "shot_index", "fire_mode"]
 const RPG_VEHICLE_DMG := 800
 const C4_VEHICLE_DMG := 500
 const FRAG_VEHICLE_DMG := 80
@@ -586,13 +586,7 @@ func _step_movement() -> void:
 			c["last_input"] = inp
 			c["last_input_tick"] = inp["client_tick"]
 		if c["reloading"] and _sim.tick >= c["reload_done_tick"]:
-			c["reloading"] = false
-			# Reserve-ammo economy (M17): pull as many rounds as the reserve allows into the mag —
-			# no partial-mag discard (shared Weapon.reload_fill; reserve<0 legacy record = unlimited).
-			# (RPG is a gadget now, never a held weapon — no rocket special-case here. M19.)
-			var filled: Array = Weapon.reload_fill(int(c["ammo"]), int(Weapon.get_def(c["weapon"])["mag_size"]), int(c.get("reserve", -1)))
-			c["ammo"] = int(filled[0])
-			c["reserve"] = int(filled[1])
+			_finish_reload(c)
 	# M19 P2b: inject the server-authoritative stim flag into each pawn's cmd right before stepping —
 	# covers BOTH bots and humans (bots are ordinary entries in _clients/inputs; their AI feeds input
 	# through the same ingest path). Duplicated rather than mutated in place: `inp` above may be the
@@ -624,6 +618,23 @@ func _step_movement() -> void:
 	_sim.step(inputs, _map.world_half)
 	_apply_fall_damage()
 
+## M2 ammo reload-complete: FIFO tap-reload banks the current partial to the tail and loads the next
+## non-empty spare; a fast reload already dropped the current mag at reload-start (Task 5), so it just
+## loads the next spare. `reserve` kept as the derived sum for the resupply caps + wire back-compat.
+func _finish_reload(c: Dictionary) -> void:
+	c["reloading"] = false
+	var spares: Array = c.get("spare_mags", [])
+	var res: Array = Weapon.load_next(spares) if bool(c.get("reload_fast", false)) else Weapon.reload_swap(int(c["ammo"]), spares)
+	if bool(res[2]):
+		c["ammo"] = int(res[0])
+		c["spare_mags"] = res[1]
+	c["reload_fast"] = false
+	c["reserve"] = _sum_mags(c["spare_mags"])
+
+## M2 ammo: fast-reload mag drop. Stubbed in Task 4; the recoverable world entity is added in Task 5.
+func _drop_mag(_id: int, _c: Dictionary) -> void:
+	pass
+
 ## Build vid -> driver command from each vehicle's seat-0 (driver) occupant's last input. Also
 ## refreshes the gunner pawn's look so SimLoop.step_vehicles can mirror it to the turret.
 func _build_vehicle_inputs() -> Dictionary:
@@ -637,6 +648,12 @@ func _build_vehicle_inputs() -> Dictionary:
 			vinputs[vid] = {"move_x": InputValidate.clamp_axis(inp["move_x"]),
 				"move_y": InputValidate.clamp_axis(inp["move_y"])}
 	return vinputs
+
+func _sum_mags(spare_mags: Array) -> int:
+	var s := 0
+	for m in spare_mags:
+		s += int(m)
+	return s
 
 func _piece_index(piece_id: String) -> int:
 	for i in _catalog.size():
@@ -1154,7 +1171,7 @@ func _send_snapshots() -> void:
 		# M19 P5: shield pool as a 0..255 wire byte — zero unless the shield is the equipped gadget (§E wire contract)
 		var _shield_frac := (int(round(255.0 * float(self_pawn.shield_hp) / float(RiotShield.SHIELD_HP))) if int(c["loadout"]["gadget"]) == Loadout.GADGET_RIOT_SHIELD else 0)
 		_net.send_to(c["peer"], NetHost.CHANNEL_CONTROL,
-			Protocol.encode_self_state(int(c["ammo"]), bool(c["reloading"]), reload_remaining, int(c["weapon"]), _throwables_for(c), _support.being_revived.has(id), self_pawn.suppression, clampi(self_pawn.blind_until_tick - _sim.tick, 0, 255), self_pawn.bandage_count, self_pawn.bleed_halted, rgauge.x, rgauge.y, self_pawn.stamina, self_pawn.velocity.y, self_pawn.grounded, self_pawn.vaulting, self_pawn.vault_tick, self_pawn._regen_cooldown, self_pawn._sprint_locked, int(c["input_buf_depth"]), self_pawn.bleeding, _support.bandage_progress_u8(id), int(c.get("reserve", 0)), int(c.get("stim_charges", 0)), maxi(0, self_pawn.stim_until_tick - _sim.tick), self_pawn.mounted_nest, (int(mnest.heat) if mnest != null else 0), (int(mnest.ammo) if mnest != null else 0), (mnest != null and Emplacement.overheated(mnest.overheated_until, _sim.tick)), _shield_frac, int(c.get("grapple_charges", 0))),
+			Protocol.encode_self_state(int(c["ammo"]), bool(c["reloading"]), reload_remaining, int(c["weapon"]), _throwables_for(c), _support.being_revived.has(id), self_pawn.suppression, clampi(self_pawn.blind_until_tick - _sim.tick, 0, 255), self_pawn.bandage_count, self_pawn.bleed_halted, rgauge.x, rgauge.y, self_pawn.stamina, self_pawn.velocity.y, self_pawn.grounded, self_pawn.vaulting, self_pawn.vault_tick, self_pawn._regen_cooldown, self_pawn._sprint_locked, int(c["input_buf_depth"]), self_pawn.bleeding, _support.bandage_progress_u8(id), int(c.get("reserve", 0)), int(c.get("stim_charges", 0)), maxi(0, self_pawn.stim_until_tick - _sim.tick), self_pawn.mounted_nest, (int(mnest.heat) if mnest != null else 0), (int(mnest.ammo) if mnest != null else 0), (mnest != null and Emplacement.overheated(mnest.overheated_until, _sim.tick)), _shield_frac, int(c.get("grapple_charges", 0)), c.get("spare_mags", [])),
 			ENetPacketPeer.FLAG_RELIABLE)
 		t_self += Time.get_ticks_usec() - t0
 		t0 = Time.get_ticks_usec()
@@ -1313,6 +1330,7 @@ func _handle_hello(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
 		"rockets": start_rockets, "last_rocket_tick": -100000,
 		"ammo": Weapon.get_def(wid)["mag_size"],
 		"reserve": Weapon.reserve_ammo(wid),   # reserve-ammo economy (M17): finite spare-bullet pool
+		"spare_mags": _spawn_mags(wid, cls), "reload_fast": false,   # M2 ammo: per-slot spare-mag FIFO
 		"reloading": false, "reload_done_tick": 0, "last_fire_time": -999.0,
 		"shot_index": 0, "fire_mode": Weapon.default_mode(wid), "respawn_tick": 0, "auto_deploy": auto_deploy,
 		"active_slot": 0, "swap_locked_until": 0,
@@ -1458,17 +1476,27 @@ func _handle_set_loadout(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
 	var cfg := Loadout.sanitize(Protocol.decode_set_loadout(bytes), _attachments)
 	_clients[id]["loadout"] = cfg
 
+## M2 ammo: default for a _SLOT_FIELDS entry that may be absent on an older/hand-built client
+## record (e.g. a minimal test fixture built before this field existed). Every other slot field
+## is load-bearing and expected to already be present — missing there is a real bug, not this case.
+func _slot_field_default(f: String):
+	match f:
+		"spare_mags": return []
+		"reload_fast": return false
+	return null
+
 ## Build the two weapon slots. Slot 0 = snapshot of the current (primary) flat fields.
 ## Slot 1 = a fresh secondary (sidearm) at full ammo, default fire-mode.
 func _build_weapon_slots(c: Dictionary) -> void:
 	var primary := {}
-	for f in _SLOT_FIELDS: primary[f] = c[f]
+	for f in _SLOT_FIELDS: primary[f] = c.get(f, _slot_field_default(f))
 	var swid: int = Loadout.secondary_for(int(c["class"]))
 	var sdef: Dictionary = Weapon.effective_def(swid, {})   # secondary has no attachments in v1
 	var secondary := {
 		"weapon": swid, "weapon_def": sdef,
 		"ammo": int(Weapon.get_def(swid)["mag_size"]),
 		"reserve": _spawn_reserve(swid, int(c["class"])),
+		"spare_mags": _spawn_mags(swid, int(c["class"])), "reload_fast": false,
 		"reloading": false, "reload_done_tick": 0, "last_fire_time": -999.0,
 		"shot_index": 0, "fire_mode": Weapon.default_mode(swid),
 	}
@@ -1477,11 +1505,11 @@ func _build_weapon_slots(c: Dictionary) -> void:
 
 func _save_active_slot(c: Dictionary) -> void:
 	var slot: Dictionary = c["slots"][int(c["active_slot"])]
-	for f in _SLOT_FIELDS: slot[f] = c[f]
+	for f in _SLOT_FIELDS: slot[f] = c.get(f, _slot_field_default(f))
 
 func _load_active_slot(c: Dictionary) -> void:
 	var slot: Dictionary = c["slots"][int(c["active_slot"])]
-	for f in _SLOT_FIELDS: c[f] = slot[f]
+	for f in _SLOT_FIELDS: c[f] = slot.get(f, _slot_field_default(f))
 
 ## Drop pawn `pid` from every client's stored snapshot baselines so the next send emits a
 ## fresh ENTER record for it. ENTER is the only record that carries the equipped-weapon
@@ -1526,6 +1554,11 @@ func _swap_weapon(id: int, target: int) -> void:
 func _spawn_reserve(wid: int, cls: int) -> int:
 	return int(round(float(Weapon.reserve_ammo(wid)) * float(Loadout.class_traits(cls)["reserve_mult"])))
 
+## M2 ammo: spawn/reset spare-mag FIFO for weapon `wid` held by class `cls`, scaled by the class
+## reserve_mult trait (Support carries extra spare mags). Companion to _spawn_reserve.
+func _spawn_mags(wid: int, cls: int) -> Array:
+	return Weapon.spawn_mags(wid, float(Loadout.class_traits(cls)["reserve_mult"]))
+
 func _apply_loadout_to_client(c: Dictionary, p: Pawn) -> void:
 	var lo: Dictionary = c["loadout"]
 	var cls := int(lo["class"])
@@ -1543,6 +1576,8 @@ func _apply_loadout_to_client(c: Dictionary, p: Pawn) -> void:
 	c["weapon_def"] = Weapon.effective_def(wid, mults)
 	c["ammo"] = int(Weapon.get_def(wid)["mag_size"])
 	c["reserve"] = _spawn_reserve(wid, cls)
+	c["spare_mags"] = _spawn_mags(wid, cls)
+	c["reload_fast"] = false
 	c["reloading"] = false
 	c["reload_done_tick"] = 0
 	c["last_fire_time"] = -999.0
@@ -1575,6 +1610,8 @@ func _reset_weapon_loadout(c: Dictionary) -> void:
 		var swid: int = int(slot["weapon"])
 		slot["ammo"] = int(Weapon.get_def(swid)["mag_size"])
 		slot["reserve"] = _spawn_reserve(swid, int(c["class"]))   # respawn/deploy refills the spare pool (M17), scaled by class reserve_mult (M19 P2a)
+		slot["spare_mags"] = _spawn_mags(swid, int(c["class"]))
+		slot["reload_fast"] = false
 		slot["reloading"] = false
 		slot["reload_done_tick"] = 0
 		slot["last_fire_time"] = -999.0

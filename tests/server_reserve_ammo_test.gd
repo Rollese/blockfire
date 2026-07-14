@@ -67,3 +67,39 @@ func test_support_resupply_keeps_boost() -> void:
 	var scaled := int(round(float(Weapon.reserve_ammo(wid)) * 1.25))
 	assert_eq(srv._spawn_reserve(wid, Loadout.SUPPORT), scaled, "resupply cap uses the scaled max")
 	assert_true(scaled > Weapon.reserve_ammo(wid), "scaled max exceeds base")
+
+func test_tap_reload_is_fifo_and_banks_partial() -> void:
+	var srv = Fixture.make_server()
+	autofree(srv)
+	Fixture.add_pawn(srv, 7, 0)
+	var c := _client_with_ammo(srv, 7, 8, 60)
+	c["spare_mags"] = [30, 30]
+	c["reloading"] = true
+	c["reload_fast"] = false
+	c["reload_done_tick"] = srv._sim.tick
+	srv._finish_reload(c)
+	assert_eq(int(c["ammo"]), 30)
+	assert_eq(c["spare_mags"], [30, 8])
+
+func test_fast_reload_loads_next_without_banking() -> void:
+	var srv = Fixture.make_server()
+	autofree(srv)
+	Fixture.add_pawn(srv, 9, 0)
+	var c := _client_with_ammo(srv, 9, 8, 30)
+	c["spare_mags"] = [30]
+	c["reloading"] = true
+	c["reload_fast"] = true   # current mag already dropped by _drop_mag at start
+	c["reload_done_tick"] = srv._sim.tick
+	srv._finish_reload(c)
+	assert_eq(int(c["ammo"]), 30)
+	assert_eq(c["spare_mags"], [])   # the 8-round mag was NOT banked (it was dropped)
+
+func test_spawn_builds_full_spare_mags() -> void:
+	var srv = Fixture.make_server()
+	autofree(srv)
+	var c := _spawn_class(srv, 1, Loadout.ASSAULT)
+	var wid := int(c["weapon"])
+	var ms := int(Weapon.get_def(wid)["mag_size"])
+	assert_eq(c["spare_mags"].size(), Weapon.reserve_ammo(wid) / ms)
+	for m in c["spare_mags"]:
+		assert_eq(int(m), ms)

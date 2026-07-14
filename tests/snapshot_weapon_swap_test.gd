@@ -25,7 +25,7 @@ func test_reenter_updates_weapon_on_existing_view_entry() -> void:
 
 func _slot(weapon: int) -> Dictionary:
 	return {"weapon": weapon, "weapon_def": Weapon.get_def(weapon), "ammo": 30,
-		"reserve": Weapon.reserve_ammo(weapon),
+		"reserve": Weapon.reserve_ammo(weapon), "spare_mags": [], "reload_fast": false,
 		"reloading": false, "reload_done_tick": 0, "last_fire_time": -999.0,
 		"shot_index": 0, "fire_mode": Weapon.default_mode(weapon)}
 

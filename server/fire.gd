@@ -143,11 +143,20 @@ func resolve_fires() -> void:
 		var firing: bool = (inp["buttons"] & InputCommand.BTN_FIRE) != 0
 		if not firing:
 			c["shot_index"] = 0
-			# Reserve-ammo economy (M17): no reload with an empty spare pool. reserve<0 = legacy "unlimited".
-			var _reserve: int = int(c.get("reserve", -1))
-			if (inp["buttons"] & InputCommand.BTN_RELOAD) and not c["reloading"] and c["ammo"] < Weapon.get_def(c["weapon"])["mag_size"] and _reserve != 0:
+			# M2 ammo: tap-R (BTN_RELOAD, keep mag) or hold-R fast reload (BTN_FAST_RELOAD, drop mag,
+			# 0.75x time). Both require a loadable spare; fast reload drops the current mag now.
+			var _spares: Array = c.get("spare_mags", [])
+			var _want_tap: bool = (inp["buttons"] & InputCommand.BTN_RELOAD) != 0
+			var _want_fast: bool = (inp["buttons"] & InputCommand.BTN_FAST_RELOAD) != 0
+			if (_want_tap or _want_fast) and not c["reloading"] \
+					and c["ammo"] < Weapon.get_def(c["weapon"])["mag_size"] \
+					and Weapon.has_loadable_spare(_spares):
 				c["reloading"] = true
-				c["reload_done_tick"] = srv._sim.tick + int(round(Weapon.get_def(c["weapon"])["reload_secs"] * srv.TICK_RATE))
+				c["reload_fast"] = _want_fast
+				var _base: int = int(round(Weapon.get_def(c["weapon"])["reload_secs"] * srv.TICK_RATE))
+				c["reload_done_tick"] = srv._sim.tick + (int(round(_base * 0.75)) if _want_fast else _base)
+				if _want_fast:
+					srv._drop_mag(id, c)
 				srv._broadcast_reload_fx(id, int(c["reload_done_tick"]) - srv._sim.tick)
 			continue
 		var now := float(srv._sim.tick) * SimLoop.DT
