@@ -57,7 +57,9 @@ static func spawn_mags(weapon_id: int, reserve_mult: float = 1.0) -> Array:
 	var mag_size: int = int(get_def(weapon_id)["mag_size"])
 	if mag_size <= 0:
 		return []
-	var n: int = int(round(float(reserve_ammo(weapon_id)) * reserve_mult)) / mag_size
+	# Round the MAG COUNT (not the round-total) so a sub-mag class boost (e.g. Support ×1.25 on a
+	# 100-round LMG = 3.75 mags) survives as a whole extra mag instead of flooring the boost away.
+	var n: int = int(round(float(reserve_ammo(weapon_id)) * reserve_mult / float(mag_size)))
 	var out: Array = []
 	for _i in n:
 		out.append(mag_size)
@@ -124,7 +126,7 @@ static func resupply_step(mag: int, spare_mags: Array, weapon_id: int, reserve_m
 	var mag_size: int = int(get_def(weapon_id)["mag_size"])
 	if mag_size <= 0:
 		return [mag, spare_mags.duplicate()]
-	var max_spares: int = int(round(float(reserve_ammo(weapon_id)) * reserve_mult)) / mag_size
+	var max_spares: int = int(round(float(reserve_ammo(weapon_id)) * reserve_mult / float(mag_size)))
 	var spares: Array = spare_mags.duplicate()
 	var budget: int = mag_size
 	var top: int = mini(mag_size - mag, budget)

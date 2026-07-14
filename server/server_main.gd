@@ -1552,7 +1552,9 @@ func _swap_weapon(id: int, target: int) -> void:
 ## trait (Support carries extra spare ammo; every other class ×1.0). M19 P2a — used at every point a
 ## fresh reserve pool or a resupply cap is set, so the Support bonus is consistent across spawn + refill.
 func _spawn_reserve(wid: int, cls: int) -> int:
-	return int(round(float(Weapon.reserve_ammo(wid)) * float(Loadout.class_traits(cls)["reserve_mult"])))
+	# M2 ammo: reserve is the sum of the discrete spare mags (whole mags only) — ONE source of truth
+	# with _spawn_mags, so the derived reserve never diverges from sum(spare_mags).
+	return _sum_mags(_spawn_mags(wid, cls))
 
 ## M2 ammo: spawn/reset spare-mag FIFO for weapon `wid` held by class `cls`, scaled by the class
 ## reserve_mult trait (Support carries extra spare mags). Companion to _spawn_reserve.

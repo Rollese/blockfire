@@ -49,9 +49,15 @@ func test_support_spawns_with_boosted_reserve() -> void:
 	autofree(srv)
 	var c := _spawn_class(srv, 1, Loadout.SUPPORT)
 	var wid := int(c["weapon"])
-	var expected := int(round(float(Weapon.reserve_ammo(wid)) * 1.25))
-	assert_eq(int(c["reserve"]), expected, "Support reserve = base × 1.25")
+	# M2 ammo: reserve is now the sum of whole discrete spare mags (Support ×1.25 rounded to a whole
+	# mag count), so it equals sum(spawn_mags), not the raw rounded round-total.
+	var full := Weapon.spawn_mags(wid, 1.25)
+	var expected := 0
+	for m in full:
+		expected += int(m)
+	assert_eq(int(c["reserve"]), expected, "Support reserve = sum of discrete boosted spare mags")
 	assert_eq(int(c["slots"][0]["reserve"]), expected, "primary slot reflects the boost")
+	assert_true(expected > Weapon.reserve_ammo(wid), "Support boost is a real whole-mag increase over base")
 
 func test_assault_reserve_unchanged() -> void:
 	var srv = Fixture.make_server()
@@ -64,8 +70,12 @@ func test_support_resupply_keeps_boost() -> void:
 	autofree(srv)
 	var c := _spawn_class(srv, 1, Loadout.SUPPORT)
 	var wid := int(c["weapon"])
-	var scaled := int(round(float(Weapon.reserve_ammo(wid)) * 1.25))
-	assert_eq(srv._spawn_reserve(wid, Loadout.SUPPORT), scaled, "resupply cap uses the scaled max")
+	# M2 ammo: the resupply cap is the discrete boosted spare-mag total (sum of whole mags).
+	var full := Weapon.spawn_mags(wid, 1.25)
+	var scaled := 0
+	for m in full:
+		scaled += int(m)
+	assert_eq(srv._spawn_reserve(wid, Loadout.SUPPORT), scaled, "resupply cap uses the discrete scaled max")
 	assert_true(scaled > Weapon.reserve_ammo(wid), "scaled max exceeds base")
 
 func test_tap_reload_is_fifo_and_banks_partial() -> void:
