@@ -1,8 +1,10 @@
 # M2 — BattleBit ammunition / magazine system — design
 
-Status: **approved** (owner brainstorm 2026-07-14). Closes the "Full BattleBit ammo/magazine
-system" backlog item deferred out of M17 (`docs/TASKS.md` M2 backlog spec, owner-requested
-2026-07-13). Own milestone track (M2 backlog), spec → plan → subagent-driven TDD.
+Status: **implemented** (branch `m2-ammo-magazine`, 2026-07-14; owner brainstorm 2026-07-14). Closes
+the "Full BattleBit ammo/magazine system" backlog item deferred out of M17 (`docs/TASKS.md` M2
+backlog spec, owner-requested 2026-07-13). Own milestone track (M2 backlog), spec → plan →
+subagent-driven TDD (12 tasks, per-task review). Suite 1923/0; 128-bot conquest_town gate evidence
+in `docs/gate-evidence/`.
 
 ## Problem
 

@@ -1,0 +1,13 @@
+M2 — BattleBit ammo/magazine system — 128-bot conquest_town fleet gate
+Date: 2026-07-14T19:45:09+02:00  Host: game2 (14900KS/32t)  Branch: m2-ammo-magazine  HEAD: 7172d68
+Command: SERVER_CPUS=0,1,2,3 BOTS_CPUS=4-31 TICKETS=200 ./docker/run-m2-gate.sh
+Suite: 1923 run, 0 failed
+
+--- match result ---
+server-1  | [match] OVER winner=1 t0=0 t1=140 elapsed=147s cap_events=1
+[m2] winner=1 elapsed=147s cap_events=1 peak-window mean tick=17.29ms (budget 33.3) script_errors=0
+[m2] mags_dropped=58 mags_picked=0 redist=2
+M2 GATE: PASS
+
+Verdict criteria: valid winner ✓ | peak tick 17.29ms < 33.3 ✓ | ended on tickets (147s<900) ✓ | cap_events=1>=1 ✓ | script_errors=0 ✓ | mags_dropped=58>=1 ✓
+mags_picked=0: bots are network clients not in _human_ids, so they never receive the owner-only DROPPED_MAG_LIST; pickup is proven by tests/server_dropped_mag_test.gd::test_drop_then_pickup_restores_mag.

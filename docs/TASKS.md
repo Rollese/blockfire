@@ -246,13 +246,14 @@ Confirmed OK by owner: A4 (fixed size), M3 (rubble blocks), Z1 exterior z-fighti
 |---|---|---|
 | G4 | BREACH / REPAIR / STIM / SMOKE_WALL gadget verification | Needs multiple human players + vehicles (repair tool) to test. Defer to post-alpha client polish once all features are in. |
 | — | Enemy/remote riot-shield 3D visibility | Needs a new `EntityState.q_state` bit (byte is full: stance/lean/team/alive/downed/climbing) → wire VERSION bump + native encoder change. Local first-person shield shipped; enemy-shield mesh deferred. |
-| M2 | **Full BattleBit ammo/magazine system** | Large feature, forgotten in M17. Backlog spec below. |
+| M2-ammo | ~~Full BattleBit ammo/magazine system~~ | **DONE ✅ (branch `m2-ammo-magazine`, 2026-07-14)** — see below. |
 
-### M2 — BattleBit ammunition system (deferred feature spec, owner-requested 2026-07-13)
-Current reserve-ammo (M17) refills a mag to full from the spare pool almost instantly and ammo-box pickup autofills to full in a few seconds. BattleBit's model, to implement later:
-1. **Ammo-box / resupply refills slowly** — ~one magazine every few seconds, not instant-to-full.
-2. **Individual magazines** — each mag tracks its own round count; a partially-spent mag reloaded goes **back to inventory** (not merged), can be reused later.
-3. **Ammo redistribution** — hold a key to consolidate rounds from near-empty mags into fuller ones (top-up), at the cost of leaving empties.
-4. **Fast reload (hold R) drops the mag** — a hold-R fast reload **discards the current magazine on the ground** (losing its remaining rounds) for speed; tap-R keeps the mag.
-
-Scope note: touches `shared/sim/weapon.gd` reserve/mag model, reload flow, the ammo-box/resupply path, wire (per-mag inventory in SELF_STATE), HUD (mag list + counts), and input (redistribute key, hold-vs-tap R). Own milestone/spec when picked up.
+### M2 — BattleBit ammunition system — **DONE ✅ (2026-07-14, branch `m2-ammo-magazine`)**
+Replaced M17's flat reserve-int with BattleBit individual magazines. Design [`2026-07-14-m2-ammo-magazine-system-design.md`](superpowers/specs/2026-07-14-m2-ammo-magazine-system-design.md) · plan [`2026-07-14-m2-ammo-magazine-system.md`](superpowers/plans/2026-07-14-m2-ammo-magazine-system.md). Built spec→plan→subagent-driven TDD (12 tasks, per-task review). Suite **1923/0**; **128-bot conquest_town fleet gate PASS** (winner=1, peak tick **17.29ms**<<33.3, script_errors=0, **mags_dropped=58 redist=2**; `docs/gate-evidence/20260714-194509-m2-ammo-magazine.txt`).
+1. **Slow resupply** — ammo box / Support bag / medic give now dispense **1 mag / 5s** via `Weapon.resupply_step` (per-client `ammo_resupply_next_tick` throttle), not instant-to-full. Respawn/deploy still resets to full.
+2. **Individual magazines** — per-slot `c["spare_mags"]` FIFO (`Array` of round counts); a tap-R reload banks the current partial to the tail and loads the next non-empty spare (`Weapon.reload_swap`, skips empties). `reserve` is now the derived `sum(spare_mags)`.
+3. **Redistribution** — hold **T** (`BTN_REDISTRIBUTE`) consolidates one partial mag every **5s** (`_step_redistribute` → `Weapon.redistribute_step`); fire-locked while held, cancels on damage.
+4. **Fast reload (hold-R) drops a recoverable mag** — `BTN_FAST_RELOAD` reloads **0.75×** and drops the current mag as an **owner-only** world entity (`ServerDroppedMags`, TTL 60s + death/disconnect sweeps); reclaim with **F** (`PICKUP_MAG`, server-validated owner+range+look). Client detects hold-vs-tap and injects the decided bit.
+- **Wire VERSION 12→13**: SELF_STATE trailing `spare_mags` (owner-only) + `DROPPED_MAG_LIST`=54 / `PICKUP_MAG`=53 + input bits `BTN_FAST_RELOAD`=2048 / `BTN_REDISTRIBUTE`=4096.
+- **HUD (BattleBit-faithful)**: loaded-mag **number only** + a grey→white **bottom-up mag-glyph strip** (`_MagStrip`); **no reserve total** shown. `WeaponPredictor` mirrors the FIFO/fast/redistribute so the HUD never drifts.
+- **Deferred (owner playtest / follow-ups):** client HUD glyph feel + tap-reload ~0.27s hold-decision latency (owner eyeball); bot mag-pickup (bots aren't in `_human_ids` so don't receive the owner-only list — pickup is unit-tested); finite RPG rockets (still gadget-managed, as M17).
