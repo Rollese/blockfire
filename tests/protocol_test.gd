@@ -746,3 +746,20 @@ func test_self_state_spare_mags_absent_decodes_empty() -> void:
 
 func test_protocol_version_is_13() -> void:
 	assert_eq(Protocol.VERSION, 13)
+
+func test_dropped_mag_list_roundtrip() -> void:
+	var lst := [{"id": 7, "pos": Vector3(12.3, 4.5, -6.7), "rounds": 18}]
+	var out := Protocol.decode_dropped_mag_list(Protocol.encode_dropped_mag_list(lst))
+	assert_eq(out.size(), 1)
+	assert_eq(int(out[0]["id"]), 7)
+	assert_eq(int(out[0]["rounds"]), 18)
+	assert_almost_eq(float(out[0]["pos"].x), 12.3, 0.1)
+
+func test_pickup_mag_roundtrip() -> void:
+	var d := Protocol.decode_pickup_mag(Protocol.encode_pickup_mag(42))
+	assert_eq(int(d["mag_id"]), 42)
+
+func test_new_input_bits_distinct() -> void:
+	assert_eq(InputCommand.BTN_FAST_RELOAD, 2048)
+	assert_eq(InputCommand.BTN_REDISTRIBUTE, 4096)
+	assert_eq(InputCommand.BTN_FAST_RELOAD & InputCommand.BTN_SHIELD, 0)

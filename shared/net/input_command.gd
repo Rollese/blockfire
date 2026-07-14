@@ -24,6 +24,8 @@ const BTN_RELOAD := 128
 const BTN_AIM := 256   # aim-down-sights (bit 9 -> buttons is a u16 on the wire)
 const BTN_SHOVEL := 512    # bit 9: held shovel-use (M12-P2 build/repair/dismantle); server-computed
 const BTN_SHIELD := 1024   # bit 10: hold to raise the Support riot shield (client-gated on the equipped gadget)
+const BTN_FAST_RELOAD := 2048   # bit 11: hold-R fast reload — drops the current mag (M2 ammo)
+const BTN_REDISTRIBUTE := 4096  # bit 12: hold to consolidate partial spare mags (M2 ammo)
 
 ## Encode a single-frame bundle. Convenience wrapper kept for the bot driver and old call sites;
 ## the rendered client uses encode_bundle() to send the last N frames for redundancy.

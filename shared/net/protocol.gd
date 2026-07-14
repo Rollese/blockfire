@@ -80,6 +80,8 @@ enum Msg {
 	EMPLACEMENT_LIST = 50,    ## server -> clients (M19 P4): deployed LMG nests {id,pos,facing,turret,hp_frac,occupant,team}
 	DEPLOYED_LADDER_LIST = 51,  ## server -> clients: deployed grapple ladders {id,x,z,bottom_y,top_y,cuttable} -> climb-inject + rope render + cut prompt
 	CUT_LADDER = 52,            ## client -> server: request to cut deployed grapple ladder <id> (server-validated: cuttable + in radius + alive)
+	PICKUP_MAG = 53,            ## client -> server (M2 ammo): reclaim a dropped mag <id> (server-validated: owner + look-ray + range + alive)
+	DROPPED_MAG_LIST = 54,      ## server -> owner client (M2 ammo): the owner's own dropped mags {id,pos,rounds} -> world marker + "F to pick up"
 }
 
 const OP_PLACE := 0
@@ -785,6 +787,37 @@ static func encode_cut_ladder(ladder_id: int) -> PackedByteArray:
 
 static func decode_cut_ladder(bytes: PackedByteArray) -> Dictionary:
 	return {"ladder_id": body_reader(bytes).get_u32()}
+
+## M2 ammo: the owner's own dropped magazines (owner-only — each client gets only their mags).
+## Rebuilt + sent on change like GADGET_LIST. Per mag: id u32, pos ×10, rounds u8.
+static func encode_dropped_mag_list(list: Array) -> PackedByteArray:
+	var buf := StreamPeerBuffer.new()
+	buf.put_u8(Msg.DROPPED_MAG_LIST)
+	var n: int = mini(list.size(), 255)
+	buf.put_u8(n)
+	for i in range(n):
+		var m: Dictionary = list[i]
+		buf.put_u32(int(m["id"]))
+		put_pos10(buf, m["pos"])
+		buf.put_u8(clampi(int(m["rounds"]), 0, 255))
+	return buf.data_array
+
+static func decode_dropped_mag_list(bytes: PackedByteArray) -> Array:
+	var r := body_reader(bytes)
+	var n := r.get_u8()
+	var out: Array = []
+	for _i in range(n):
+		out.append({"id": r.get_u32(), "pos": get_pos10(r), "rounds": r.get_u8()})
+	return out
+
+static func encode_pickup_mag(mag_id: int) -> PackedByteArray:
+	var buf := StreamPeerBuffer.new()
+	buf.put_u8(Msg.PICKUP_MAG)
+	buf.put_u32(mag_id)
+	return buf.data_array
+
+static func decode_pickup_mag(bytes: PackedByteArray) -> Dictionary:
+	return {"mag_id": body_reader(bytes).get_u32()}
 
 ## Active support links (M7): each entry is giver_id u32 + target_id u32 + kind u8
 ## (SupportLinks.HEAL/AMMO/REPAIR/REVIVE). No coordinates on the wire — the client resolves both
