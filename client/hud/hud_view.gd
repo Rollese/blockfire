@@ -35,6 +35,7 @@ var _bandage_row: HBoxContainer   # M16/M1: bandage cluster (glyph + white count
 var _bandage_glyph: _BandageGlyph # procedurally-drawn adhesive-bandage icon (no image asset)
 var _bandage_label: Label         # M16/M1: white "xN" bandage count number (matches the rest of the HUD)
 var _ammo_label: Label
+var _mag_strip: _MagStrip   # M2 ammo: BattleBit-style grey->white bottom-up spare-mag glyph strip
 var _reload_label: Label
 var _firemode_label: Label   # AUTO/SEMI/BURST glyph above the ammo count (M5.5-P1 fire-mode)
 var _ammo_panel: Control   # ammo readout container — hidden while downed/dead
@@ -455,6 +456,13 @@ func _build_ammo() -> void:
 	_firemode_label.position = Vector2(0, -22)   # just above the ammo count
 	_firemode_label.mouse_filter = MOUSE_FILTER_IGNORE
 	panel.add_child(_firemode_label)
+
+	_mag_strip = _MagStrip.new()
+	_mag_strip.position = Vector2(0, -44)          # above the fire-mode glyph, which already sits at -22
+	_mag_strip.custom_minimum_size = Vector2(140, 18)
+	_mag_strip.size = Vector2(140, 18)
+	_mag_strip.mouse_filter = MOUSE_FILTER_IGNORE
+	panel.add_child(_mag_strip)
 
 
 func _build_compass() -> void:
@@ -1356,6 +1364,11 @@ func _render_interaction_prompt(prompt) -> void:
 			_interact_label.visible = true
 			if _revive_bar_bg != null:
 				_revive_bar_bg.visible = false
+		"pickup_mag":
+			_interact_label.text = "F to pick up mag"
+			_interact_label.visible = true
+			if _revive_bar_bg != null:
+				_revive_bar_bg.visible = false
 		_:
 			_interact_label.visible = false
 			if _revive_bar_bg != null:
@@ -1713,12 +1726,14 @@ func _render_ammo(ammo: Dictionary) -> void:
 	var reloading: bool = bool(ammo.get("reloading", false))
 	var low: bool = bool(ammo.get("low", false))
 
-	_ammo_label.text = ("RPG  %d" % mag) if bool(ammo.get("is_rpg", false)) else ("%d / %d" % [mag, int(ammo.get("reserve", 0))])
+	_ammo_label.text = ("RPG  %d" % mag) if bool(ammo.get("is_rpg", false)) else ("%d" % mag)
 	_ammo_label.modulate = Color(1.0, 0.4, 0.3) if low else Color(1, 1, 1)
 	_reload_label.visible = reloading
 	var fm: String = String(ammo.get("fire_mode", ""))
 	_firemode_label.text = fm
 	_firemode_label.visible = fm != ""
+	if _mag_strip != null:
+		_mag_strip.set_mags(ammo.get("spare_mags", []), int(ammo.get("mag_size", 1)))
 
 
 func _render_compass(compass: Dictionary) -> void:
@@ -1931,6 +1946,30 @@ class _BandageGlyph extends Control:
 		draw_rect(Rect2(-half_l + radius, -thick * 0.5, length - 2.0 * radius, thick), c)
 		draw_circle(Vector2(-half_l + radius, 0.0), radius, c)
 		draw_circle(Vector2(half_l - radius, 0.0), radius, c)
+
+
+## M2 ammo: BattleBit-style spare-mag strip. One icon per spare mag, filled BOTTOM-UP by its round
+## fraction: fully grey = empty, fully white = full. No numbers.
+class _MagStrip extends Control:
+	var mags: Array = []
+	var mag_size: int = 1
+	func set_mags(m: Array, ms: int) -> void:
+		mags = m
+		mag_size = maxi(ms, 1)
+		queue_redraw()
+	func _draw() -> void:
+		var w := 6.0
+		var h := 16.0
+		var gap := 4.0
+		for i in mags.size():
+			var frac: float = clampf(float(mags[i]) / float(mag_size), 0.0, 1.0)
+			var x := float(i) * (w + gap)
+			# empty body (grey) + dark outline so it reads on any background
+			draw_rect(Rect2(x - 1.0, -1.0, w + 2.0, h + 2.0), Color(0, 0, 0, 0.6))
+			draw_rect(Rect2(x, 0.0, w, h), Color(0.30, 0.30, 0.30, 0.95))
+			var fill_h := h * frac
+			if fill_h > 0.0:
+				draw_rect(Rect2(x, h - fill_h, w, fill_h), Color(0.95, 0.95, 0.95, 0.98))   # white, bottom-up
 
 
 ## Engineer repair-tool heat gauge: a small labelled bar. Fills amber→red as heat accrues; on

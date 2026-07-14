@@ -233,6 +233,7 @@ const NEST_HALF_ARC := deg_to_rad(45.0)
 const NEST_PITCH_LO := deg_to_rad(20.0)
 const NEST_PITCH_HI := deg_to_rad(25.0)
 const NEST_MOUNT_RANGE := 1.6      # metres to a friendly, unoccupied nest to man it
+const PICKUP_MAG_PROMPT_RANGE := 2.5   # m: show the pickup prompt within this range (server re-validates, PICKUP_MAG_RANGE)
 
 # ---- configure (called by bootstrap before add_child) -----------------------
 func configure(args: Dictionary) -> void:
@@ -941,6 +942,7 @@ func _process(_dt: float) -> void:
 		"mounted_nest": _mounted_nest,      # M19 P4: id of the nest we're manning (0 = on foot) -> dismount prompt
 		"nests_near": _nests_near(),        # M19 P4: friendly unoccupied nests in mount range -> mount prompt
 		"cuttable_rope": _nearest_cuttable_ladder_id(_pred.predicted.pos),  # M19 grapple: id of an aged rope in cut range (0 = none) -> "F to cut rope" prompt
+		"pickup_mag": _nearest_pickup_mag_id(_pred.predicted.eye_position()),  # M2 ammo: id of an own dropped mag in reach (0 = none) -> "F to pick up mag" prompt
 		"mg_heat": _mg_heat,                # M19 P4 Task 13: manned MG heat 0..255 -> HUD heat bar
 		"mg_ammo": _mg_ammo,                # M19 P4 Task 13: manned MG belt rounds remaining -> HUD belt counter
 		"mg_overheated": _mg_overheated,    # M19 P4 Task 13: manned MG overheat-lockout -> HUD overheat flash
@@ -1772,6 +1774,17 @@ func _nearest_cuttable_ladder_id(pos: Vector3) -> int:
 		var dxz := Vector2(pos.x - float(l["x"]), pos.z - float(l["z"])).length()
 		if dxz <= best_d:
 			best_d = dxz; best_id = int(l["id"])
+	return best_id
+
+## M2 ammo: nearest OWN dropped mag within reach (0 = none) -> "F to pick up mag" prompt. The server
+## re-validates owner + look + range on PICKUP_MAG; this only decides whether to SHOW the prompt.
+func _nearest_pickup_mag_id(eye: Vector3) -> int:
+	var best_id := 0
+	var best_d := PICKUP_MAG_PROMPT_RANGE
+	for m in _dropped_mags:
+		var d := eye.distance_to(m["pos"] as Vector3)
+		if d <= best_d:
+			best_d = d; best_id = int(m["id"])
 	return best_id
 
 

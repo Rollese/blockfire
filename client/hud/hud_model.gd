@@ -313,7 +313,8 @@ func _ammo(ctx: Dictionary) -> Dictionary:
 	var mag_size := int(Weapon.get_def(wp.weapon)["mag_size"])
 	return {
 		"mag": wp.mag,
-		"reserve": wp.reserve,   # reserve-ammo economy (M17): spare-bullet pool shown after the mag
+		"spare_mags": wp.spare_mags,   # M2 ammo: per-spare-mag round counts for the glyph strip
+		"mag_size": mag_size,
 		"reloading": wp.reloading,
 		"reload_remaining": wp.reload_remaining(int(ctx.get("tick", 0))),
 		"low": wp.mag <= int(ceil(mag_size * LOW_AMMO_FRAC)),
@@ -360,6 +361,11 @@ func _interaction_prompt(ctx: Dictionary):
 			if float(n["dist"]) < float(bn["dist"]):
 				bn = n
 		return {"action": "mount_nest", "target": int(bn["id"])}
+	# M2 ammo: reclaim your own dropped mag in reach -> "F to pick up mag". client_main precomputes the
+	# nearest own dropped-mag id (0 = none) into pickup_mag.
+	var pick_mag := int(ctx.get("pickup_mag", 0))
+	if pick_mag != 0:
+		return {"action": "pickup_mag", "target": pick_mag}
 	# M19 grapple: an aged, cuttable deployed rope within reach -> offer to cut it (below mount, above
 	# self-bandage). client_main precomputes the nearest cuttable rope id (0 = none) into cuttable_rope.
 	var cut_rope := int(ctx.get("cuttable_rope", 0))
