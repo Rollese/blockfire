@@ -152,10 +152,9 @@ func step_fire() -> void:
 
 const DESTROY_BLAST_DMG := 60   # knock-off blast a manned nest's destruction deals its gunner
 
-# v1 destruction vectors = explosives (via _blast_at) + the exposed gunner (normal pawn fire).
-# DEFERRED: bullet-ray-chip in ServerFire.step_projectiles and sledgehammer-vs-nest — damage() is
-# ready for both; only the ray/melee integration is unbuilt. The gunner being killable already makes
-# a manned nest counterable by direct fire.
+# Destruction vectors: explosives (via _blast_at), the exposed gunner (normal pawn fire),
+# small-arms bullet-chip (ServerFire.step_projectiles → damage(), enemy-only, non-blocking), and
+# the sledgehammer (server_main melee → damage(), team-agnostic). All route through damage() below.
 
 ## Apply `amount` damage to a nest by id (explosives route here via splash(); the future bullet/sledge
 ## paths will call this too). On death, EJECT the gunner (clear the seat binding) and, if it was manned,
