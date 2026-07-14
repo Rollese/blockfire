@@ -2,8 +2,8 @@ extends TestCase
 ## M19 grapple wire: VERSION==12; DEPLOYED_LADDER_LIST + CUT_LADDER round-trip; SELF_STATE
 ## trailing grapple_charges byte (present + absent-defaults-to-zero).
 
-func test_version_is_12() -> void:
-	assert_eq(Protocol.VERSION, 12, "VERSION bumped for the grapple wire")
+func test_version_is_13() -> void:
+	assert_eq(Protocol.VERSION, 13, "VERSION bumped for the grapple wire")
 
 func test_deployed_ladder_list_round_trips() -> void:
 	var list := [
@@ -35,6 +35,6 @@ func test_self_state_grapple_absent_defaults_zero() -> void:
 	var full := Protocol.encode_self_state(30, false, 0, 0, [], false, 0.0, 0, 0, false, 0.0, 0.0,
 		100.0, 0.0, true, false, 0, 0.0, false, 0, false, 0, 0, 0, 0,
 		0, 0, 0, false, 0, 1)
-	var old := full.slice(0, full.size() - 1)   # strip the 1-byte grapple tail
+	var old := full.slice(0, full.size() - 2)   # strip the M2 spare_mags-count byte + the 1-byte grapple tail
 	var d := Protocol.decode_self_state(old)
 	assert_eq(int(d["grapple_charges"]), 0, "old/short packet -> 0, no misalignment")

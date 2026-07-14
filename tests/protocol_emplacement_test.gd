@@ -1,7 +1,7 @@
 extends TestCase
 
 func test_version_bumped() -> void:
-	assert_eq(Protocol.VERSION, 12)
+	assert_eq(Protocol.VERSION, 13)
 
 func test_emplacement_action_roundtrip() -> void:
 	var b := Protocol.encode_emplacement_action(Protocol.EA_MOUNT, Emplacement.id_for(3))
@@ -41,7 +41,7 @@ func test_self_state_mount_tail_absent_defaults() -> void:
 	var full := Protocol.encode_self_state(30, false, 0, 0, [], false, 0.0, 0, 0, false, 0.0, 0.0,
 		100.0, 0.0, true, false, 0, 0.0, false, 0, false, 0, 0, 0, 0,
 		Emplacement.id_for(2), 42, 88, true)
-	var old := full.slice(0, full.size() - 10)   # strip the mount tail (8) + the two newer trailing bytes (shield 1 + grapple 1) so this simulates a pre-mount sender
+	var old := full.slice(0, full.size() - 11)   # strip the mount tail (8) + the three newer trailing bytes (shield 1 + grapple 1 + M2 spare_mags-count 1) so this simulates a pre-mount sender
 	var d := Protocol.decode_self_state(old)
 	assert_eq(int(d["mounted_nest"]), 0)
 	assert_eq(int(d["mg_heat"]), 0)

@@ -16,7 +16,8 @@ extends Object
 ## tail). History: VERSION sat at 1 through M1–M12 while the wire changed dozens of times,
 ## so the check protected nothing; real from 2 onward.
 
-const VERSION := 12   # 12: M19 grapple — DEPLOYED_LADDER_LIST/CUT_LADDER msgs + GA_GRAPPLE_FIRE + SELF_STATE trailing grapple_charges u8 (2026-07-13)
+const VERSION := 13   # 13: M2 ammo — SELF_STATE spare_mags tail + DROPPED_MAG_LIST/PICKUP_MAG + BTN_FAST_RELOAD/BTN_REDISTRIBUTE (2026-07-14)
+                     # 12: M19 grapple — DEPLOYED_LADDER_LIST/CUT_LADDER msgs + GA_GRAPPLE_FIRE + SELF_STATE trailing grapple_charges u8 (2026-07-13)
                      # 11: M19 P5 riot shield — BTN_SHIELD bit + SELF_STATE trailing shield_hp_frac u8 (2026-07-12)
                      # 10: M19 P4 LMG Nest — EMPLACEMENT_ACTION/EMPLACEMENT_LIST + GA_LMG_DEPLOY + SELF_STATE mount tail (2026-07-12)
                      # 9: M19 P2b-medic — STIM charges/ticks in SELF_STATE + GA_STIM_USE/GA_SMOKE_WALL_PLACE (2026-07-11)
@@ -941,7 +942,7 @@ static func decode_damage_event(bytes: PackedByteArray) -> Dictionary:
 	return {"bearing": Quantize.dec_angle(r.get_u16()), "amount": r.get_u8()}
 
 
-static func encode_self_state(mag: int, reloading: bool, reload_remaining: int, weapon: int, throwables: Array = [], being_revived: bool = false, suppression: float = 0.0, blind_ticks: int = 0, bandage_count: int = 0, bleed_halted: bool = false, repair_heat: float = 0.0, repair_cooldown: float = 0.0, stamina: float = 100.0, vel_y: float = 0.0, grounded: bool = true, vaulting: bool = false, vault_tick: int = 0, regen_cooldown: float = 0.0, sprint_locked: bool = false, input_buf_depth: int = 0, bleeding: bool = false, bandage_progress: int = 0, reserve: int = 0, stim_charges: int = 0, stim_ticks: int = 0, mounted_nest: int = 0, mg_heat: int = 0, mg_ammo: int = 0, mg_overheated: bool = false, shield_hp_frac: int = 0, grapple_charges: int = 0) -> PackedByteArray:
+static func encode_self_state(mag: int, reloading: bool, reload_remaining: int, weapon: int, throwables: Array = [], being_revived: bool = false, suppression: float = 0.0, blind_ticks: int = 0, bandage_count: int = 0, bleed_halted: bool = false, repair_heat: float = 0.0, repair_cooldown: float = 0.0, stamina: float = 100.0, vel_y: float = 0.0, grounded: bool = true, vaulting: bool = false, vault_tick: int = 0, regen_cooldown: float = 0.0, sprint_locked: bool = false, input_buf_depth: int = 0, bleeding: bool = false, bandage_progress: int = 0, reserve: int = 0, stim_charges: int = 0, stim_ticks: int = 0, mounted_nest: int = 0, mg_heat: int = 0, mg_ammo: int = 0, mg_overheated: bool = false, shield_hp_frac: int = 0, grapple_charges: int = 0, spare_mags: Array = []) -> PackedByteArray:
 	var buf := StreamPeerBuffer.new()
 	buf.put_u8(Msg.SELF_STATE)
 	buf.put_u8(clampi(mag, 0, 255))
@@ -1023,6 +1024,11 @@ static func encode_self_state(mag: int, reloading: bool, reload_remaining: int, 
 	buf.put_u8(shield_hp_frac & 0xFF)
 	# M19 grapple: owner-only remaining grapple charges (0/1), appended last so older decoders ignore it.
 	buf.put_u8(clampi(grapple_charges, 0, 255))
+	# M2 ammo: owner-only active-slot spare-mag round counts (FIFO order), appended last so older
+	# decoders ignore it. Count byte + one byte per mag (mag_size <= 100 fits a u8).
+	buf.put_u8(mini(spare_mags.size(), 255))
+	for i in mini(spare_mags.size(), 255):
+		buf.put_u8(clampi(int(spare_mags[i]), 0, 255))
 	return buf.data_array
 
 static func decode_self_state(bytes: PackedByteArray) -> Dictionary:
@@ -1119,7 +1125,14 @@ static func decode_self_state(bytes: PackedByteArray) -> Dictionary:
 	var grapple_charges := 0
 	if r.get_available_bytes() >= 1:
 		grapple_charges = r.get_u8()
-	return {"mag": mag, "reloading": reloading, "reload_remaining": reload_remaining, "weapon": weapon, "throwables": throwables, "being_revived": being_revived, "suppression": suppression, "blind_ticks": blind_ticks, "bandage_count": bandage_count, "bleed_halted": bleed_halted, "repair_heat": repair_heat, "repair_cooldown": repair_cooldown, "stamina": stamina, "vel_y": vel_y, "grounded": grounded, "vaulting": vaulting, "vault_tick": vault_tick, "regen_cooldown": regen_cooldown, "sprint_locked": sprint_locked, "input_buf_depth": input_buf_depth, "bleeding": bleeding, "bandage_progress": bandage_progress, "reserve": reserve, "stim_charges": stim_charges, "stim_ticks": stim_ticks, "mounted_nest": mounted_nest, "mg_heat": mg_heat, "mg_ammo": mg_ammo, "mg_overheated": mg_overheated, "shield_hp_frac": shield_hp_frac, "grapple_charges": grapple_charges}
+	# M2 ammo: active-slot spare mags; absent (older/short packet) -> [] rather than misaligning.
+	var spare_mags: Array = []
+	if r.get_available_bytes() >= 1:
+		var sm := r.get_u8()
+		for _i in sm:
+			if r.get_available_bytes() >= 1:
+				spare_mags.append(r.get_u8())
+	return {"mag": mag, "reloading": reloading, "reload_remaining": reload_remaining, "weapon": weapon, "throwables": throwables, "being_revived": being_revived, "suppression": suppression, "blind_ticks": blind_ticks, "bandage_count": bandage_count, "bleed_halted": bleed_halted, "repair_heat": repair_heat, "repair_cooldown": repair_cooldown, "stamina": stamina, "vel_y": vel_y, "grounded": grounded, "vaulting": vaulting, "vault_tick": vault_tick, "regen_cooldown": regen_cooldown, "sprint_locked": sprint_locked, "input_buf_depth": input_buf_depth, "bleeding": bleeding, "bandage_progress": bandage_progress, "reserve": reserve, "stim_charges": stim_charges, "stim_ticks": stim_ticks, "mounted_nest": mounted_nest, "mg_heat": mg_heat, "mg_ammo": mg_ammo, "mg_overheated": mg_overheated, "shield_hp_frac": shield_hp_frac, "grapple_charges": grapple_charges, "spare_mags": spare_mags}
 
 
 static func encode_roster(rows: Array) -> PackedByteArray:
