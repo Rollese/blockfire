@@ -9,6 +9,7 @@ const ServerFire := preload("res://server/fire.gd")
 const ServerSupport := preload("res://server/support.gd")
 const ServerBuild := preload("res://server/build.gd")
 const ReliableList := preload("res://server/reliable_list.gd")
+const ServerDroppedMagsC := preload("res://server/dropped_mags.gd")   # M2 ammo: recoverable dropped-mag store
 
 const TICK_RATE := 30
 const MAX_PLAYERS := 128
@@ -34,6 +35,8 @@ var _snapshot_stride := SNAPSHOT_STRIDE
 var _max_enemy_snapshot := MAX_ENEMY_SNAPSHOT
 var _degrade_high_ms := Degrade.HIGH_MS   # --degrade-high-ms override (lower it to force-trigger in a test)
 var _degrade_low_ms := Degrade.LOW_MS     # --degrade-low-ms override
+const PICKUP_MAG_RANGE := 2.5   # metres: how close you must be to reclaim a dropped mag
+const PICKUP_MAG_DOT := 0.6     # must be roughly looking at it (skipped at point-blank < 0.5 m)
 const RESPAWN_DELAY_TICKS := 150   # 5s @30Hz
 const COMBAT_FLAG_TICKS := 300     # 10s @30Hz — a pawn that took fire can't be a squad-spawn anchor (BattleBit "in combat")
 const HEALTH_REGEN_DELAY_TICKS := 150     # 5s @30Hz out-of-combat before health regen begins (BattleBit-ish)
@@ -148,6 +151,7 @@ var _emplacements := ServerEmplacement.new(self)  # M19 P4 LMG-nest deploy/store
 
 var _roster_tick := 0
 var _gadget_rl := ReliableList.new()   # GADGET_LIST changed+heartbeat state (server/reliable_list.gd)
+var _dropped_mags: ServerDroppedMags = ServerDroppedMagsC.new()   # M2 ammo: recoverable fast-reload mags
 var _emplacement_rl := ReliableList.new()   # EMPLACEMENT_LIST (M19 P4)
 var _grapples := ServerDeployedLadders.new(self)   # M19 deployed grapple ladders
 var _grapple_rl := ReliableList.new()              # DEPLOYED_LADDER_LIST changed+heartbeat
@@ -521,6 +525,7 @@ func _physics_process(delta: float) -> void:
 	_broadcast_gadget_list()
 	_broadcast_emplacement_list()
 	_broadcast_deployed_ladder_list()
+	_broadcast_dropped_mag_lists()
 	_broadcast_support_list()
 	_broadcast_downed_list()
 	_broadcast_bleeding_list()
@@ -631,9 +636,16 @@ func _finish_reload(c: Dictionary) -> void:
 	c["reload_fast"] = false
 	c["reserve"] = _sum_mags(c["spare_mags"])
 
-## M2 ammo: fast-reload mag drop. Stubbed in Task 4; the recoverable world entity is added in Task 5.
-func _drop_mag(_id: int, _c: Dictionary) -> void:
-	pass
+## M2 ammo: hold-R fast reload drops the current mag as a recoverable world entity at the pawn's
+## feet. Its rounds leave the loaded mag (which _finish_reload replaces with the next spare).
+func _drop_mag(id: int, c: Dictionary) -> void:
+	var pawn = _sim.world.pawns.get(id)
+	if pawn == null:
+		return
+	var rounds := int(c["ammo"])
+	if rounds <= 0:
+		return   # nothing worth dropping
+	_dropped_mags.spawn(id, pawn.pos, rounds, _sim.tick)
 
 ## Build vid -> driver command from each vehicle's seat-0 (driver) occupant's last input. Also
 ## refreshes the gunner pawn's look so SimLoop.step_vehicles can mirror it to the turret.
@@ -788,6 +800,7 @@ func _bleed_out_standing(id: int, p: Pawn) -> void:
 		_down_pawn(p)
 
 func _kill_pawn(vid: int, victim: Pawn, killer_id: int, weapon_id: int, headshot: bool, source: int) -> void:
+	_dropped_mags.remove_owner(vid)   # M2 ammo: a dead player's dropped mags despawn
 	var was_downed := victim.is_downed   # true => bleed-out/give-up; recap uses the down-time snapshot
 	victim.alive = false
 	victim.is_downed = false
@@ -1274,6 +1287,7 @@ func _on_packet(peer: ENetPacketPeer, _channel: int, bytes: PackedByteArray) -> 
 		Protocol.Msg.VEHICLE_ACTION: _handle_vehicle_action(peer, bytes)
 		Protocol.Msg.EMPLACEMENT_ACTION: _handle_emplacement_action(peer, bytes)
 		Protocol.Msg.CUT_LADDER: _handle_cut_ladder(peer, bytes)
+		Protocol.Msg.PICKUP_MAG: _handle_pickup_mag(peer, bytes)
 		Protocol.Msg.DEPLOY_REQUEST: _handle_deploy_request(peer, bytes)
 		Protocol.Msg.SET_SQUAD: _handle_set_squad(peer, bytes)
 		Protocol.Msg.SET_FIRE_MODE: _handle_set_fire_mode(peer, bytes)
@@ -1805,6 +1819,34 @@ func _handle_cut_ladder(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
 	var d := Protocol.decode_cut_ladder(bytes)
 	_grapples.cut(id, int(d["ladder_id"]), p)
 
+func _handle_pickup_mag(peer: ENetPacketPeer, bytes: PackedByteArray) -> void:
+	var id = _peer_to_id.get(peer, 0)
+	if id == 0:
+		return
+	_pickup_mag_for(id, int(Protocol.decode_pickup_mag(bytes)["mag_id"]))
+
+## Server-validated dropped-mag pickup: owner-only, pawn alive + not downed, mag within reach and
+## roughly aimed at. Re-adds the mag (with its rounds) as a spare and removes the world entity.
+func _pickup_mag_for(id: int, mag_id: int) -> void:
+	var m := _dropped_mags.get_mag(mag_id)
+	if m.is_empty() or int(m["owner"]) != id:
+		return
+	var pawn = _sim.world.pawns.get(id)
+	if pawn == null or not pawn.alive or pawn.is_downed:
+		return
+	var to: Vector3 = (m["pos"] as Vector3) - pawn.eye_position()
+	if to.length() > PICKUP_MAG_RANGE:
+		return
+	if to.length() > 0.5 and to.normalized().dot(Combat._forward(pawn.yaw, pawn.pitch)) < PICKUP_MAG_DOT:
+		return
+	var c = _clients.get(id, {})
+	if c.is_empty():
+		return
+	c["spare_mags"] = (c.get("spare_mags", []) as Array).duplicate()
+	c["spare_mags"].append(int(m["rounds"]))
+	c["reserve"] = _sum_mags(c["spare_mags"])
+	_dropped_mags.remove(mag_id)
+
 func _vehicle_enter(id: int, p: Pawn, vid: int, seat_hint: int) -> void:
 	var v: Vehicle = _sim.world.vehicles.get(vid)
 	if v == null: return
@@ -1930,6 +1972,16 @@ func _broadcast_deployed_ladder_list() -> void:
 	if not _grapple_rl.should_send(pkt, list.size() > 0, _sim.tick):
 		return
 	_broadcast_all(NetHost.CHANNEL_CONTROL, pkt, ENetPacketPeer.FLAG_RELIABLE)
+
+## M2 ammo: owner-only dropped-mag lists — each human sees ONLY their own mags (unlike GADGET_LIST
+## which is all-humans). TTL-despawn + per-owner changed/heartbeat reliable send.
+func _broadcast_dropped_mag_lists() -> void:
+	_dropped_mags.step(_sim.tick)
+	for hid in _human_ids:
+		var lst := _dropped_mags.for_owner(hid)
+		var pkt := Protocol.encode_dropped_mag_list(lst)
+		if _dropped_mags.should_send(hid, pkt, lst.size() > 0, _sim.tick):
+			_net.send_to(_clients[hid]["peer"], NetHost.CHANNEL_CONTROL, pkt, ENetPacketPeer.FLAG_RELIABLE)
 
 ## Active support links (heal/ammo/repair/revive) for human clients to draw a beam + target aura.
 ## Same shape as the gadget list: rebuilt each tick from what the support steps actually acted on,
@@ -2856,6 +2908,7 @@ func _on_peer_disconnected(peer: ENetPacketPeer) -> void:
 		_mines = kept_mines
 		_grapples.remove_owner(id)      # M19: drop the leaver's deployed rope
 		_emplacements.remove_owner(id)  # M19 companion fix: drop the leaver's LMG nest (was leaking on disconnect)
+		_dropped_mags.remove_owner(id)   # M2 ammo: drop the leaver's recoverable mags
 		print("[server] peer %d disconnected — %d peers" % [id, _clients.size()])
 
 func _log_telemetry() -> void:
