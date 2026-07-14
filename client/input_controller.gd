@@ -71,6 +71,7 @@ func gather(settings: ClientSettings) -> Dictionary:
 		"fire": Input.is_action_pressed("fire"),
 		"reload": Input.is_action_pressed("reload"),
 		"aim": Input.is_action_pressed("aim"),   # ADS — server tightens spread (the in-vehicle/photo masks drop it)
+		"redistribute": Input.is_action_pressed("redistribute"),   # M2 ammo: hold T to consolidate spare mags
 	}
 	return {"move_x": f.x, "move_y": f.y, "yaw": yaw, "pitch": pitch,
 		"buttons": InputMap2.buttons_from(pressed)}

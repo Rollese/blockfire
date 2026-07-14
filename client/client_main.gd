@@ -148,6 +148,7 @@ var _emplacement_bytes := PackedByteArray()  # last EMPLACEMENT_LIST bytes — s
 var _emplacements: Array = []            # M19 P4: last decoded LMG-nest list (mount targeting / debug)
 var _deployed_ladder_bytes := PackedByteArray()  # M19 grapple: last DEPLOYED_LADDER_LIST bytes — skip rebuild on unchanged tick
 var _deployed_ladders: Array = []        # M19 grapple: last decoded deployed-rope list [{id,x,z,bottom_y,top_y,cuttable}]
+var _dropped_mags: Array = []   # M2 ammo: last decoded DROPPED_MAG_LIST [{id,pos,rounds}] (owner-only)
 var _support_bytes := PackedByteArray()  # last SUPPORT_LIST bytes — skip the rebuild on an unchanged heartbeat
 var _downed_bytes := PackedByteArray()   # last DOWNED_LIST bytes — skip the rebuild on an unchanged heartbeat
 var _fob_bytes := PackedByteArray()      # last FOB_LIST bytes — skip rework on an unchanged heartbeat
@@ -225,6 +226,8 @@ var _shield_held := false          # local toggle intent: true = player wants th
 var _shield_key_down := false      # previous-frame "gadget" action state — own edge detector (see _produce_input_frame:
                                     # is_action_just_pressed() would double-toggle on a frame_repeats()==2 catch-up tick,
                                     # since _produce_input_frame can run twice off one gathered Input frame)
+var _reload_held_ticks := 0            # M2 ammo: ticks the reload key has been held (hold-vs-tap detect)
+const FAST_RELOAD_HOLD_TICKS := 8      # ~0.27 s @30 Hz: hold past this promotes a reload to fast (drop mag)
 # Nest arc/pitch limits — must match data/gadgets.json "lmgnest" (client doesn't load the gadget catalog).
 const NEST_HALF_ARC := deg_to_rad(45.0)
 const NEST_PITCH_LO := deg_to_rad(20.0)
@@ -582,7 +585,7 @@ func _produce_input_frame(ss: EntityState, cmd: Dictionary) -> void:
 		if ss == null or not ss.alive or ss.is_downed or _in_vehicle() >= 0:
 			_build_ctrl.set_active(false)   # build mode never survives death/downed/entering a vehicle
 		else:
-			var bb := int(cmd["buttons"]) & ~(InputCommand.BTN_FIRE | InputCommand.BTN_RELOAD)
+			var bb := int(cmd["buttons"]) & ~(InputCommand.BTN_FIRE | InputCommand.BTN_RELOAD | InputCommand.BTN_FAST_RELOAD | InputCommand.BTN_REDISTRIBUTE)
 			var beye := _pred.predicted.eye_position()
 			var bfwd := Combat._forward(wrapf(float(cmd["yaw"]) + PI, -PI, PI), float(cmd["pitch"]))
 			var bcell := _build_ctrl.aimed_cell(beye, bfwd)
@@ -646,7 +649,7 @@ func _produce_input_frame(ss: EntityState, cmd: Dictionary) -> void:
 	# shield is up (Pawn.fire_suppressed_by_shield mirrors the server's fire-vs-shield lockout) — a
 	# shield-up Support predicts no shot instead of a phantom local tracer the server then rejects.
 	var firing: bool = bool(buttons & InputCommand.BTN_FIRE) and not _pred.predicted.is_downed and not _pred.predicted.climbing \
-		and not Pawn.fire_suppressed_by_shield(buttons, shielded_local)
+		and not Pawn.fire_suppressed_by_shield(buttons, shielded_local) and not (buttons & InputCommand.BTN_REDISTRIBUTE)
 
 	# Predict weapon state — drop_shoot=false here; server gates authoritatively,
 	# and SELF_STATE reconciles the client's mag each tick so divergence is transient.
@@ -661,15 +664,34 @@ func _produce_input_frame(ss: EntityState, cmd: Dictionary) -> void:
 		if _audio != null:
 			_audio.play_at(_fire_event_for(_wpred.weapon), _pred.predicted.eye_position())
 
-	if buttons & InputCommand.BTN_RELOAD:
-		var _was_reloading: bool = _wpred.reloading
-		_wpred.begin_reload(_client_tick)
-		if not _was_reloading and _wpred.reloading:
-			# Reload-start transition: play the reload viewmodel anim over the real reload time + sfx.
-			if _renderer != null:
-				_renderer.play_viewmodel_reload(_elapsed, _wpred.reload_remaining(_client_tick) * SimLoop.DT)
-			if _audio != null:
-				_audio.play_2d("reload")   # only on the actual reload-start transition
+	# M2 ammo: hold-vs-tap reload. BTN_RELOAD is set every tick the key is held, so forwarding it raw
+	# would make the server start a TAP reload on tick 1 before we can detect a hold. Strip it and inject
+	# the DECIDED bit: a quick tap (released before FAST_RELOAD_HOLD_TICKS) -> BTN_RELOAD (tactical, keep
+	# mag); a hold past the threshold -> BTN_FAST_RELOAD (fast 0.75x, drop mag). The predictor mirrors both.
+	var _reload_down: bool = (buttons & InputCommand.BTN_RELOAD) != 0
+	buttons &= ~InputCommand.BTN_RELOAD
+	if _reload_down:
+		_reload_held_ticks += 1
+		if _reload_held_ticks == FAST_RELOAD_HOLD_TICKS and not _wpred.reloading:
+			buttons |= InputCommand.BTN_FAST_RELOAD
+			var _wf: bool = _wpred.reloading
+			_wpred.begin_reload(_client_tick, true)
+			if not _wf and _wpred.reloading:
+				if _renderer != null:
+					_renderer.play_viewmodel_reload(_elapsed, _wpred.reload_remaining(_client_tick) * SimLoop.DT)
+				if _audio != null:
+					_audio.play_2d("reload")
+	else:
+		if _reload_held_ticks > 0 and _reload_held_ticks < FAST_RELOAD_HOLD_TICKS:
+			buttons |= InputCommand.BTN_RELOAD
+			var _wt: bool = _wpred.reloading
+			_wpred.begin_reload(_client_tick, false)
+			if not _wt and _wpred.reloading:
+				if _renderer != null:
+					_renderer.play_viewmodel_reload(_elapsed, _wpred.reload_remaining(_client_tick) * SimLoop.DT)
+				if _audio != null:
+					_audio.play_2d("reload")
+		_reload_held_ticks = 0
 
 	# Send input to server. The server rebuilds the shot ray from Combat._forward(yaw,pitch),
 	# which points opposite the Godot camera, so send yaw+PI to make the authoritative aim
@@ -1084,6 +1106,12 @@ func _process(_dt: float) -> void:
 				and Input.is_action_just_pressed("interact") and _peer != null:
 			_net.send_to(_peer, NetHost.CHANNEL_CONTROL,
 				Protocol.encode_cut_ladder(int(ip["target"])), ENetPacketPeer.FLAG_RELIABLE)
+		# M2 ammo: reclaim your own dropped mag — single F press when the prompt offers a pickup. The
+		# server re-validates owner + range + look; a stale id is harmlessly ignored.
+		if ip != null and String(ip.get("action", "")) == "pickup_mag" \
+				and Input.is_action_just_pressed("interact") and _peer != null:
+			_net.send_to(_peer, NetHost.CHANNEL_CONTROL,
+				Protocol.encode_pickup_mag(int(ip["target"])), ENetPacketPeer.FLAG_RELIABLE)
 		if ip != null and String(ip.get("action", "")) == "revive" and interact_held and _peer != null:
 			_revive_hold += _dt
 			# Match the SERVER's completion time: a medic revives in half the ticks — the bar used to
@@ -1508,6 +1536,10 @@ func _on_packet(_from: ENetPacketPeer, _channel: int, bytes: PackedByteArray) ->
 				_deployed_ladder_bytes = bytes   # skip the rebuild on an unchanged tick
 				_deployed_ladders = Protocol.decode_deployed_ladder_list(bytes)
 				_apply_deployed_ladders()
+		Protocol.Msg.DROPPED_MAG_LIST:
+			# M2 ammo: owner-only list of your own dropped mags available for pickup (Task 10 HUD
+			# will surface a pickup prompt from this; the send-side branch already exists below).
+			_dropped_mags = Protocol.decode_dropped_mag_list(bytes)
 		Protocol.Msg.SUPPORT_LIST:
 			if bytes != _support_bytes:
 				_support_bytes = bytes   # skip the rebuild on an unchanged 1 Hz heartbeat
@@ -1757,6 +1789,7 @@ func _handle_self_state(bytes: PackedByteArray) -> void:
 	# Reconcile ammo from authority — no client rule logic, just snap
 	_wpred.reconcile(int(d["mag"]), bool(d["reloading"]), int(d["reload_remaining"]), _client_tick)
 	_wpred.reconcile_reserve(int(d.get("reserve", -1)))   # M17: snap the spare-ammo pool (-1 = absent, keep local)
+	_wpred.reconcile_spare_mags(d.get("spare_mags", []))   # M2 ammo: snap the spare-mag FIFO to authority
 	# Store throwable list for HUD ctx (C3: SELF_STATE now carries per-kind counts)
 	_throwables = d.get("throwables", [])
 	_being_revived = bool(d.get("being_revived", false))   # downed-screen "being revived" indicator
