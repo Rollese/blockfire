@@ -148,20 +148,23 @@ func test_reload_moves_rounds_from_reserve_no_discard() -> void:
 	assert_eq(wp.reserve, start_reserve - 10, "reserve drops by exactly the rounds loaded")
 
 func test_reload_limited_by_remaining_reserve() -> void:
+	# M2 ammo: under the FIFO model "remaining reserve" is expressed as the next spare mag's own
+	# round count (e.g. a partial mag banked from an earlier reload), not a flat reserve counter.
 	var wp := _wp()
-	wp.reserve = 5             # almost dry
+	wp.spare_mags = [5]        # only one partial spare mag left
 	wp.mag = 0                 # empty mag
 	wp.begin_reload(0)
 	wp.step(int(round(float(Weapon.get_def(Weapon.AR)["reload_secs"]) / SimLoop.DT)) + 1, false, false, false)
-	assert_eq(wp.mag, 5, "only what's left in reserve loads")
-	assert_eq(wp.reserve, 0, "reserve emptied")
+	assert_eq(wp.mag, 5, "only what's in the next spare mag loads")
+	assert_eq(wp.reserve, 0, "reserve (sum of spares) emptied")
 
 func test_reload_blocked_when_reserve_empty() -> void:
+	# M2 ammo: the reload-start guard is has_loadable_spare(spare_mags), not the flat reserve field.
 	var wp := _wp()
-	wp.reserve = 0
+	wp.spare_mags = []         # no spare mags left
 	wp.mag = 3
 	wp.begin_reload(0)
-	assert_false(wp.reloading, "cannot reload with an empty reserve")
+	assert_false(wp.reloading, "cannot reload with no loadable spare mags")
 	assert_eq(wp.mag, 3, "mag unchanged")
 
 func test_reconcile_snaps_reserve_to_authority() -> void:
@@ -170,3 +173,39 @@ func test_reconcile_snaps_reserve_to_authority() -> void:
 	# Authority says we actually have 90 left (e.g. a mispredicted resupply / reload).
 	wp.reconcile_reserve(90)
 	assert_eq(wp.reserve, 90, "reserve snaps to authoritative value")
+
+
+# --- Spare-mag FIFO (M2 ammo) ---
+
+func test_predictor_tap_reload_fifo() -> void:
+	var wp := WeaponPredictor.new()
+	wp.set_weapon(Weapon.AR)
+	wp.mag = 8
+	wp.spare_mags = [30, 30]
+	wp.begin_reload(0, false)
+	wp.step(wp.reload_remaining(0) + 1, false, false, false)   # advance past reload-done
+	assert_eq(wp.mag, 30)
+	assert_eq(wp.spare_mags, [30, 8])
+
+func test_predictor_fast_reload_drops_current() -> void:
+	var wp := WeaponPredictor.new()
+	wp.set_weapon(Weapon.AR)
+	wp.mag = 8
+	wp.spare_mags = [30]
+	wp.begin_reload(0, true)   # fast: 0.75x + drop current
+	assert_true(wp.reload_remaining(0) < int(round(float(Weapon.get_def(Weapon.AR)["reload_secs"]) / SimLoop.DT)))
+	wp.step(wp.reload_remaining(0) + 1, false, false, false)
+	assert_eq(wp.mag, 30)
+	assert_eq(wp.spare_mags, [])   # the 8-round mag was dropped, not banked
+
+func test_predictor_reconcile_snaps_spare_mags() -> void:
+	var wp := WeaponPredictor.new()
+	wp.set_weapon(Weapon.AR)
+	wp.spare_mags = [1, 2]
+	wp.reconcile_spare_mags([30, 30, 30])
+	assert_eq(wp.spare_mags, [30, 30, 30])
+
+func test_predictor_set_weapon_builds_full_spare_mags() -> void:
+	var wp := WeaponPredictor.new()
+	wp.set_weapon(Weapon.AR)
+	assert_eq(wp.spare_mags.size(), Weapon.reserve_ammo(Weapon.AR) / int(Weapon.get_def(Weapon.AR)["mag_size"]))

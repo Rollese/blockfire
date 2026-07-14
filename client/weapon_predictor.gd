@@ -7,6 +7,8 @@ extends RefCounted
 var weapon: int = Weapon.AR
 var mag: int = 30
 var reserve: int = 180   # spare-bullet pool (reserve-ammo economy); reconciled from SELF_STATE
+var spare_mags: Array = []   # spare-mag FIFO round counts (M2 ammo); reconciled from SELF_STATE
+var _reload_fast: bool = false
 var reloading: bool = false
 var fire_mode: int = Weapon.MODE_AUTO   # selected fire mode (HUD + local-tracer gating; sent via SET_FIRE_MODE)
 var fire_mode_by_weapon: Dictionary = {}   # weapon_id -> last-selected mode; persists across swaps + respawns
@@ -19,6 +21,7 @@ func set_weapon(w: int) -> void:
 	weapon = w
 	mag = int(Weapon.get_def(w)["mag_size"])
 	reserve = Weapon.reserve_ammo(w)
+	spare_mags = Weapon.spawn_mags(w)
 	# Restore this weapon's remembered fire mode (default the first time we hold it), so swapping away
 	# and back — or respawning — keeps the selection instead of snapping back to AUTO.
 	fire_mode = int(fire_mode_by_weapon.get(w, Weapon.default_mode(w)))
@@ -41,11 +44,14 @@ func cycle_fire_mode() -> int:
 func step(tick: int, firing: bool, sprinting: bool, drop_shoot: bool) -> bool:
 	if reloading and tick >= _reload_done_tick:
 		reloading = false
-		# Move as many rounds as the reserve allows into the mag — no partial-mag discard. Shared with
-		# the server's authoritative reload-complete (Weapon.reload_fill) so the HUD never drifts.
-		var filled := Weapon.reload_fill(mag, int(Weapon.get_def(weapon)["mag_size"]), reserve)
-		mag = int(filled[0])
-		reserve = int(filled[1])
+		# M2 ammo: FIFO tap-reload banks the current partial + loads the next non-empty spare; a fast
+		# reload already dropped the current mag at begin_reload, so it just loads the next spare.
+		var res: Array = Weapon.load_next(spare_mags) if _reload_fast else Weapon.reload_swap(mag, spare_mags)
+		if bool(res[2]):
+			mag = int(res[0])
+			spare_mags = res[1]
+		reserve = _sum_spare()
+		_reload_fast = false
 	var rising := firing and not _was_firing
 	_was_firing = firing
 	if not firing:
@@ -66,14 +72,24 @@ func step(tick: int, firing: bool, sprinting: bool, drop_shoot: bool) -> bool:
 	mag -= 1
 	return true
 
-func begin_reload(tick: int) -> void:
-	if reloading or mag >= int(Weapon.get_def(weapon)["mag_size"]) or reserve <= 0:
+func begin_reload(tick: int, fast: bool = false) -> void:
+	if reloading or mag >= int(Weapon.get_def(weapon)["mag_size"]) or not Weapon.has_loadable_spare(spare_mags):
 		return
 	reloading = true
-	_reload_done_tick = tick + int(round(float(Weapon.get_def(weapon)["reload_secs"]) / SimLoop.DT))
+	_reload_fast = fast
+	var base := int(round(float(Weapon.get_def(weapon)["reload_secs"]) / SimLoop.DT))
+	_reload_done_tick = tick + (int(round(base * 0.75)) if fast else base)
+	if fast and mag > 0:
+		mag = 0   # fast reload drops the current mag immediately (server spawns the recoverable pickup)
 
 func reload_remaining(tick: int) -> int:
 	return maxi(0, _reload_done_tick - tick) if reloading else 0
+
+func _sum_spare() -> int:
+	var s := 0
+	for m in spare_mags:
+		s += int(m)
+	return s
 
 ## Snap the reserve pool to the authoritative SELF_STATE value. Reserve only changes on reload /
 ## resupply / respawn (never per-shot), so unlike mag there's no prediction lead to preserve —
@@ -81,6 +97,11 @@ func reload_remaining(tick: int) -> int:
 func reconcile_reserve(auth_reserve: int) -> void:
 	if auth_reserve >= 0:
 		reserve = auth_reserve
+
+## Snap the spare-mag FIFO to authority (SELF_STATE). Like reserve, spares only change on
+## reload / resupply / respawn (never per-shot), so just take authority when present.
+func reconcile_spare_mags(auth: Array) -> void:
+	spare_mags = auth.duplicate()
 
 func reconcile(auth_mag: int, auth_reloading: bool, auth_reload_remaining: int, now_tick: int = 0) -> void:
 	reloading = auth_reloading
