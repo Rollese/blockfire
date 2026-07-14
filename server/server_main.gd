@@ -68,6 +68,9 @@ const MELEE_DAMAGE := 75              # knife body hit; 2 front hits down EVERY 
 const MELEE_COOLDOWN_TICKS := 18      # ~0.6s @30Hz between melee swings (was 24 — 0.8s felt like spam for a 2-hit front kill)
 const SLEDGE_PAWN_DAMAGE := 35        # Engineer sledgehammer pawn-bonk (no structure in reach)
 const SLEDGE_STRUCT_RADIUS := 1.5     # m — carve radius of one sledge swing on a structure cell
+const SLEDGE_NEST_DAMAGE := 100       # LMG-nest HP torn off per sledge swing (~5 swings kills a 500-HP nest)
+const BULLET_NEST_CHIP := 8           # LMG-nest HP a single small-arms round chips (sandbags resist; ~1 mag+ to destroy)
+const NEST_CHIP_BROAD := 1.5          # m — broad-phase slack around a nest for the bullet-chip ray test
 const FLASH_RADIUS := 8.0             # m — flashbang blinds exposed pawns within this radius (any team)
 const FLASH_BLIND_TICKS := 90         # 3s @30Hz of white-out at the centre
 const SMOKE_DURATION_TICKS := 390     # 13s @30Hz — smoke zone lifetime (long enough to cross an objective)
@@ -1660,14 +1663,33 @@ func _resolve_melee(id: int, view_tick: int = 0) -> void:
 	# SRC_MELEE). With no structure in reach it bonks a pawn for SLEDGE_PAWN_DAMAGE (knife path below).
 	if Loadout.has_sledgehammer(int(c.get("class", -1))):
 		melee_damage = SLEDGE_PAWN_DAMAGE
+		# Universal damage coverage: a swing hits the nearest solid thing in reach — a deployed nest
+		# (sandbags have no _store collision, so picked separately) or a structure cell — else it falls
+		# through to the pawn bonk below. Vehicles are intentionally excluded.
+		var dir := Combat._forward(atk.yaw, atk.pitch)
+		var struct_hit := false
+		var struct_dist := Melee.MELEE_RANGE + 1.0
+		var struct_id := 0
+		var struct_impact := Vector3.ZERO
 		if _store != null and (_store.count() > 0 or _store.terrain != null):
-			var dir := Combat._forward(atk.yaw, atk.pitch)
 			var m := _store.march(atk.eye_position(), dir, Melee.MELEE_RANGE)
 			if bool(m["hit"]):
-				var impact: Vector3 = atk.eye_position() + dir * float(m["dist"])
-				_damage_structure(int(m["id"]), PieceCatalog.SRC_MELEE, impact, SLEDGE_STRUCT_RADIUS)
+				struct_hit = true
+				struct_dist = float(m["dist"])
+				struct_id = int(m["id"])
+				struct_impact = atk.eye_position() + dir * struct_dist
+		# A nest at least as near as any structure wins (tear it down before the wall behind it).
+		var nest_id := Emplacement.nearest_meleeable(atk.pos, atk.yaw, _emplacements.nests)
+		if nest_id != 0:
+			var ndist: float = atk.pos.distance_to((_emplacements.nests[nest_id] as Emplacement).pos)
+			if not struct_hit or ndist <= struct_dist:
+				_emplacements.damage(nest_id, SLEDGE_NEST_DAMAGE, id)
 				_stats.sledge_hits += 1
 				return
+		if struct_hit:
+			_damage_structure(struct_id, PieceCatalog.SRC_MELEE, struct_impact, SLEDGE_STRUCT_RADIUS)
+			_stats.sledge_hits += 1
+			return
 	var enemies: Array = []
 	for tid in _sim.world.pawns:
 		var v: Pawn = _sim.world.pawns[tid]

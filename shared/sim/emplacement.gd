@@ -88,6 +88,70 @@ func seat_world() -> Vector3:
 func muzzle() -> Vector3:
 	return pos + yaw_forward(facing_yaw) * MUZZLE_FWD + Vector3(0.0, MUZZLE_UP, 0.0)
 
+# Sandbag-parapet collision volume in nest-LOCAL space (x=right, y=up, z=facing-forward). A
+# conservative facing-aligned box approximating the curved parapet, used for the bullet-chip ray
+# test. ~2.2 m wide, up to the parapet top (1.92 m from the G3 art), bulging forward of the pivot.
+const NEST_BOX_MIN := Vector3(-1.1, 0.0, -0.4)
+const NEST_BOX_MAX := Vector3(1.1, 1.92, 0.8)
+
+## Nearest ALIVE nest whose pivot is within melee reach and inside the attacker's frontal cone; 0 if
+## none. Team-agnostic on purpose — a sledge tears down ANY nest (friendly or enemy) like other
+## deployables. Mirrors Melee.best_target's reach + frontal-dot gate. Pure (unit-tested).
+static func nearest_meleeable(attacker_pos: Vector3, attacker_yaw: float, nests: Dictionary) -> int:
+	var fwd := yaw_forward(attacker_yaw)
+	var reach := Melee.MELEE_RANGE
+	var best := 0
+	var best_d := reach + 1.0
+	for nid in nests:
+		var e: Emplacement = nests[nid]
+		if e == null or not e.alive:
+			continue
+		var to: Vector3 = e.pos - attacker_pos
+		var flat := Vector3(to.x, 0.0, to.z)
+		var d := flat.length()
+		if d > reach or d < 0.001:
+			continue
+		if flat.normalized().dot(fwd) < 0.3:   # not in front (matches Melee.best_target)
+			continue
+		if d < best_d:
+			best_d = d
+			best = int(nid)
+	return best
+
+## Entry distance (>=0) where `origin + dir*t` first enters this nest's parapet box within
+## [0, max_dist], or -1.0 for a miss / dead nest. Pure ray-vs-oriented-box (slab test in nest-local
+## space), used for small-arms bullet-chip. `dir` is expected unit-length; `max_dist` bounds the test
+## to one projectile segment. Origin inside the box returns 0.0.
+static func ray_hits_nest(origin: Vector3, dir: Vector3, max_dist: float, e: Emplacement) -> float:
+	if e == null or not e.alive:
+		return -1.0
+	var f := yaw_forward(e.facing_yaw)          # local +z
+	var r := Vector3(f.z, 0.0, -f.x)            # local +x (forward rotated -90 about Y)
+	var w := origin - e.pos
+	var lo := Vector3(w.dot(r), w.y, w.dot(f))
+	var ld := Vector3(dir.dot(r), dir.y, dir.dot(f))
+	var tmin := 0.0
+	var tmax := max_dist
+	# x / y / z slabs
+	for axis in 3:
+		var o: float = lo[axis]
+		var dd: float = ld[axis]
+		var mn: float = NEST_BOX_MIN[axis]
+		var mx: float = NEST_BOX_MAX[axis]
+		if absf(dd) < 1e-9:
+			if o < mn or o > mx:
+				return -1.0                       # parallel to this slab and outside it
+			continue
+		var t1 := (mn - o) / dd
+		var t2 := (mx - o) / dd
+		if t1 > t2:
+			var tmp := t1; t1 = t2; t2 = tmp
+		tmin = maxf(tmin, t1)
+		tmax = minf(tmax, t2)
+		if tmin > tmax:
+			return -1.0
+	return tmin
+
 ## Apply `amount` damage. On death, mark not-alive and clear the occupant (server ejects/punishes).
 func hit(amount: int, _tick: int) -> void:
 	if not alive: return

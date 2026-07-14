@@ -336,6 +336,21 @@ func step_projectiles() -> void:
 				srv._stats.pen += 1
 				enemy_dmg = int(split["exit_damage"])
 
+		# Small-arms chip vs deployed LMG nests. The sandbag parapet has no _store collision, so the
+		# march above never sees it; test the round's segment against each nest's parapet box here.
+		# ENEMY nests only (friendly fire off, matching splash()). The chip does NOT block the round —
+		# nests stay counterable-by-fire without becoming gunner-protecting hard cover (v1). damage()
+		# ejects/credits and flips the nest dead at 0 HP; the next EMPLACEMENT_LIST self-heals clients.
+		if srv._emplacements != null and not srv._emplacements.nests.is_empty() and seg_len > 0.0001:
+			for enid in srv._emplacements.nests:
+				var ne: Emplacement = srv._emplacements.nests[enid]
+				if ne == null or not ne.alive or ne.team == int(pr["team"]):
+					continue
+				if old_pos.distance_to(ne.pos) > seg_len + srv.NEST_CHIP_BROAD:
+					continue
+				if Emplacement.ray_hits_nest(old_pos, seg_dir, seg_len, ne) >= 0.0:
+					srv._emplacements.damage(int(enid), srv.BULLET_NEST_CHIP, int(pr["owner"]))
+
 		if best_victim != 0 and enemy_dmg > 0:
 			var victim: Pawn = srv._sim.world.get_pawn(best_victim)
 			if victim != null and victim.alive:
