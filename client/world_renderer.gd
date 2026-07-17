@@ -124,6 +124,7 @@ signal footstep(world_pos: Vector3, intensity: float, action: int)
 signal impact(world_pos: Vector3, kind: int)   # a bullet terminated in the world (wall/dirt/flesh)
 
 const FxPoolRef := preload("res://client/fx_pool.gd")   # transient one-shot FX pools (child node)
+const RoadBuilder := preload("res://shared/mapedit/road_builder.gd")   # M22: spline road -> draped ribbon mesh
 
 
 func _init() -> void:
@@ -655,45 +656,7 @@ func setup(map: MapDef, camera: Camera3D) -> void:
 		_build_terrain_chunks(tmat)
 		_build_grass_foliage(map)
 
-	# Roads — flat dark-grey asphalt strips (cosmetic, no collision). TERRAIN maps skip this: roads come
-	# from the surface splatmap (conforms to the heightmap instead of burying flat planes under a hill /
-	# hovering over a valley). Iterating an empty list on terrain maps emits no road planes or dashes.
-	for rd: Dictionary in (map.roads if _terrain == null else []):
-		var rmin: Vector3 = rd["min"] as Vector3
-		var rmax: Vector3 = rd["max"] as Vector3
-		var rw := absf(rmax.x - rmin.x)
-		var rl := absf(rmax.z - rmin.z)
-		var rcx := (rmin.x + rmax.x) * 0.5
-		var rcz := (rmin.z + rmax.z) * 0.5
-		var road := MeshInstance3D.new()
-		var rplane := PlaneMesh.new()
-		rplane.size = Vector2(rw, rl)
-		road.mesh = rplane
-		var rmat := StandardMaterial3D.new()
-		rmat.albedo_color = Color(0.16, 0.16, 0.17)
-		rmat.roughness = 1.0
-		road.material_override = rmat
-		road.position = Vector3(rcx, 0.04, rcz)
-		add_child(road)
-		# Dashed centre line down the longer axis.
-		var along_x := rw >= rl
-		var span := rw if along_x else rl
-		var dashes := int(span / 6.0)
-		for di in dashes:
-			var t := (float(di) + 0.5) / float(maxi(dashes, 1))
-			var line := MeshInstance3D.new()
-			var lmesh := BoxMesh.new()
-			lmesh.size = Vector3(2.0, 0.02, 0.25) if along_x else Vector3(0.25, 0.02, 2.0)
-			line.mesh = lmesh
-			var lmat := StandardMaterial3D.new()
-			lmat.albedo_color = Color(0.80, 0.72, 0.20)
-			line.material_override = lmat
-			if along_x:
-				line.position = Vector3(rmin.x + t * rw, 0.06, rcz)
-			else:
-				line.position = Vector3(rcx, 0.06, rmin.z + t * rl)
-			line.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-			add_child(line)
+	build_roads(map, _terrain)
 
 	# Scenery — procedural trees/rocks (TreeKit/RockKit) + imported GLB props, placed from map JSON
 	# (cosmetic, no collision). Trees/rocks are seeded per-placement (stable id+position hash) so each
@@ -824,6 +787,74 @@ func setup(map: MapDef, camera: Camera3D) -> void:
 	_shield_vm.visible = false
 	_camera.add_child(_shield_vm)
 
+
+## Build road geometry for a map. Two forms, both cosmetic (no collision — the sim resolves on
+## terrain height and never reads roads):
+##   * legacy AABB roads -> flat PlaneMesh strips. Skipped on TERRAIN maps, where a flat plane
+##     would bury under a hill / hover over a valley; those maps paint roads via the surface splatmap.
+##   * M22 spline roads  -> a real ribbon draped over the heightmap (RoadBuilder.ribbon_mesh), which
+##     works on flat AND terrain maps. This is what the map editor writes.
+## `terrain` may be null (flat map). Split out of the map-build path so it is headless-testable.
+func build_roads(map: MapDef, terrain: TerrainGrid) -> void:
+	var sampler := func(x: float, z: float) -> float:
+		return Terrain.height_at(terrain, x, z) if terrain != null else 0.0
+	var ribbon_i := 0
+	for rd: Dictionary in map.roads:
+		if rd.has("spline"):
+			var arrays := RoadBuilder.ribbon_mesh(rd["spline"] as PackedVector2Array, float(rd["width"]), sampler)
+			if arrays.is_empty():
+				continue
+			var mesh := ArrayMesh.new()
+			mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+			var mi := MeshInstance3D.new()
+			mi.name = "RoadRibbon%d" % ribbon_i
+			ribbon_i += 1
+			mi.mesh = mesh
+			var mat := StandardMaterial3D.new()
+			mat.albedo_color = Color(0.16, 0.16, 0.17)
+			mat.roughness = 1.0
+			mi.material_override = mat
+			mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			add_child(mi)
+			continue
+		# Legacy AABB strip — flat maps only (unchanged behaviour).
+		if terrain != null:
+			continue
+		var rmin: Vector3 = rd["min"] as Vector3
+		var rmax: Vector3 = rd["max"] as Vector3
+		var rw := absf(rmax.x - rmin.x)
+		var rl := absf(rmax.z - rmin.z)
+		var rcx := (rmin.x + rmax.x) * 0.5
+		var rcz := (rmin.z + rmax.z) * 0.5
+		var road := MeshInstance3D.new()
+		var rplane := PlaneMesh.new()
+		rplane.size = Vector2(rw, rl)
+		road.mesh = rplane
+		var rmat := StandardMaterial3D.new()
+		rmat.albedo_color = Color(0.16, 0.16, 0.17)
+		rmat.roughness = 1.0
+		road.material_override = rmat
+		road.position = Vector3(rcx, 0.04, rcz)
+		add_child(road)
+		# Dashed centre line down the longer axis.
+		var along_x := rw >= rl
+		var span := rw if along_x else rl
+		var dashes := int(span / 6.0)
+		for di in dashes:
+			var t := (float(di) + 0.5) / float(maxi(dashes, 1))
+			var line := MeshInstance3D.new()
+			var lmesh := BoxMesh.new()
+			lmesh.size = Vector3(2.0, 0.02, 0.25) if along_x else Vector3(0.25, 0.02, 2.0)
+			line.mesh = lmesh
+			var lmat := StandardMaterial3D.new()
+			lmat.albedo_color = Color(0.80, 0.72, 0.20)
+			line.material_override = lmat
+			if along_x:
+				line.position = Vector3(rmin.x + t * rw, 0.06, rcz)
+			else:
+				line.position = Vector3(rcx, 0.06, rmin.z + t * rl)
+			line.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			add_child(line)
 
 ## Hide/show the first-person viewmodel (photo/free-fly mode wants a clean frame with no gun).
 func set_viewmodel_hidden(h: bool) -> void:
