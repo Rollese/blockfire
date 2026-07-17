@@ -110,3 +110,111 @@ static func _vec3(a) -> Vector3:
 ## World position of terrain sample (0,0) — matches TerrainGrid.origin_x/origin_z.
 func origin_xz() -> Vector2:
 	return Vector2(-world_half, -world_half)
+
+## Serialise back to the maps/*.json shape. Vector3s become [x,y,z] arrays; unknown keys are written
+## back verbatim. Key order is fixed so a load->save round trip is byte-stable (a churning diff would
+## make every map edit unreviewable).
+func to_dict() -> Dictionary:
+	var out := {}
+	out["name"] = map_name
+	out["world_half"] = world_half
+	if not roads.is_empty():
+		var rl := []
+		for r in roads:
+			if r.has("spline"):
+				var pts := []
+				# `spline` may be a PackedVector2Array (in-editor mutation) or a plain Array of
+				# [x, z] pairs (raw pass-through from from_dict's JSON dup) — handle both. NOTE:
+				# `raw_array as PackedVector2Array` silently zeroes every element instead of
+				# erroring, so it must never be used here.
+				for p in (r["spline"] as Array):
+					if p is Vector2:
+						pts.append([p.x, p.y])
+					else:
+						var a: Array = p
+						pts.append([float(a[0]), float(a[1])])
+				rl.append({"spline": pts, "width": float(r.get("width", 8.0))})
+			else:
+				rl.append({"min": _arr3(r["min"]), "max": _arr3(r["max"])})
+		out["roads"] = rl
+	if not buildings.is_empty():
+		out["buildings"] = _normalize_numbers(buildings)
+	if not ladders.is_empty():
+		out["ladders"] = _normalize_numbers(ladders)
+	if not platforms.is_empty():
+		out["platforms"] = _normalize_numbers(platforms)
+	if not prebuilt.is_empty():
+		out["prebuilt"] = _normalize_numbers(prebuilt)
+	var pl := []
+	for p in points:
+		pl.append({"id": p["id"], "pos": _arr3(p["pos"]), "radius": p["radius"], "start_owner": p["start_owner"]})
+	out["points"] = pl
+	var bl := []
+	for b in bases:
+		bl.append({"team": b["team"], "pos": _arr3(b["pos"]), "radius": b["radius"]})
+	out["bases"] = bl
+	out["vehicle_spawns"] = _normalize_numbers(vehicle_spawns)
+	if cols > 0 and rows > 0 and heightmap_rel != "":
+		var t := {"heightmap": heightmap_rel, "sample_spacing": sample_spacing,
+			"height_min": height_min, "height_scale": height_scale}
+		if surface_map_rel != "":
+			t["surface_map"] = surface_map_rel
+		out["terrain"] = t
+	if not scenery.is_empty():
+		out["scenery"] = _normalize_numbers(scenery)
+	if not scenery_palette.is_empty():
+		out["scenery_palette"] = scenery_palette.duplicate(true)
+	for k in extra.keys():
+		out[k] = _normalize_numbers(extra[k])
+	return out
+
+## Godot's JSON parser always returns numbers as float (there is no int in the JSON spec), but
+## GDScript dictionary/array literals keep whatever int/float type they were written with. Several
+## fields above (buildings, ladders, platforms, prebuilt, vehicle_spawns, scenery, extra) are raw
+## pass-through from from_dict with no per-field int()/float() coercion, so a document built directly
+## in-memory (ints) and the same document reloaded from its own saved JSON (floats) would otherwise
+## serialise differently — breaking the load->save->load->save byte-stability bar. Normalise ints to
+## float here so first-save and post-reload-save agree regardless of where the data originated.
+static func _normalize_numbers(v: Variant) -> Variant:
+	if v is Dictionary:
+		var out := {}
+		for k in (v as Dictionary).keys():
+			out[k] = _normalize_numbers(v[k])
+		return out
+	elif v is Array:
+		var out := []
+		for e in (v as Array):
+			out.append(_normalize_numbers(e))
+		return out
+	elif typeof(v) == TYPE_INT:
+		return float(v)
+	return v
+
+## Write the JSON + the heightmap. Migrates the heightmap to EXR: PNG cannot carry the precision
+## (see heightmap_io.gd), so any map saved from the editor gets an .exr and its terrain block is
+## repointed at it. Returns an Error code.
+func save() -> int:
+	if source_path == "":
+		push_error("[map_document] save() with no source_path")
+		return ERR_UNCONFIGURED
+	if base_dir == "":
+		base_dir = source_path.get_base_dir()
+	if cols > 0 and rows > 0:
+		if heightmap_rel == "" :
+			heightmap_rel = "heightmaps/%s.exr" % source_path.get_file().get_basename()
+		elif heightmap_rel.get_extension().to_lower() == "png":
+			heightmap_rel = "%s.exr" % heightmap_rel.get_basename()
+		var herr := HeightmapIO.save_exr_norm(heights, cols, rows, base_dir.path_join(heightmap_rel))
+		if herr != OK:
+			push_error("[map_document] heightmap save failed (%d)" % herr)
+			return herr
+	var f := FileAccess.open(source_path, FileAccess.WRITE)
+	if f == null:
+		push_error("[map_document] cannot write %s" % source_path)
+		return ERR_CANT_CREATE
+	f.store_string(JSON.stringify(to_dict(), "\t"))
+	f.close()
+	return OK
+
+static func _arr3(v: Vector3) -> Array:
+	return [v.x, v.y, v.z]
