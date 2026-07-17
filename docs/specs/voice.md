@@ -21,6 +21,16 @@ The headline design decision (ratified during brainstorm, owner-approved 2026-06
 7. **Authority-neutral.** No voice code reads input, writes sim state, or affects lag-comp/hit-reg. The relay reads a **published, read-only** routing snapshot; it cannot mutate the sim. `speaker_id` is server-assigned (never client-asserted) via the §4 token handshake, so voice can't spoof identity.
 8. **Data-driven where it pays.** Tunables (`PROXIMITY_RANGE`, `MAX_VOICE_FANOUT`, `MAX_PROXIMITY_SPEAKERS`, jitter depth, frame ms) are named constants with BattleBit-aligned defaults, owner-retunable in playtest.
 
+### Testing without live players (2026-07-16)
+
+The milestone gate is "human-validated in a live match," but **almost all of voice is verifiable without a second human**, so the build is not blocked on multiplayer:
+
+- **Pure logic core** — already 38 headless tests (codec, recipient selection, jitter, PTT, routing publish/read, anti-spoof re-stamp, mute).
+- **Wiring (relay thread + capture/playback)** — testable with a **loopback two-virtual-client harness feeding synthetic PCM frames**: assert who-hears-whom, `PROXIMITY_RANGE` falloff, squad-channel team-privacy, server-assigned `speaker_id` (no client spoof), fan-out caps, and — critically — **no 30 Hz tick-budget inflation under a 128-speaker voice storm** (the headline isolation property). This is a normal fleet-gate load test, no ears required.
+- **Real-ears feel** (latency, Opus quality, positional mix) is the only genuinely human part. It does **not** need a full lobby: a **2-machine smoke across the existing hosts** (desktop `.194` + laptop `.116`) exercises real mic→encode→relay→decode→playback between two people. Do this last, after the headless functional gate passes.
+
+**Conclusion:** build + functionally fleet-gate voice headlessly now (unblocked); reserve only the 2-box mic/ears smoke for the end.
+
 ---
 
 ## 2. Why isolation (server-performance rationale)

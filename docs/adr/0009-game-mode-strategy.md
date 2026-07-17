@@ -56,9 +56,22 @@ The one nuance: the extraction/RPG **persistence backend** (accounts, stash, loo
 - The real risks of the RPG/extraction idea are **not** technical-combat risks: persistent loot value makes **anti-cheat existential** (LAN trust model dies — see [ADR-0004](0004-anti-cheat-and-skill-matchmaking.md)), and MMO/extraction is a **live-service content-treadmill commitment** unlike BattleBit's "ship a solid sandbox" model. These are the honest costs to weigh, and they live entirely in the substrate, not the sim.
 - Keeping everything in one repo preserves the shared-sim "rules can't drift" guarantee (ADR-0002) across all modes.
 
+## Ratified mode roster (owner-directed 2026-07-16)
+
+The release mode set is confirmed as **five rules-variants over the one shared sim**, all low-cost per the substrate analysis above:
+
+1. **Conquest** (M3, done) — baseline.
+2. **Assault** (M13, specced) — asymmetric attack/defend; pure Conquest fork.
+3. **Team Deathmatch** (M23, planned) — kill-count win, no capture points; the cheapest variant (win-condition swap only).
+4. **Gun Game** (M24, planned) — per-kill weapon-progression ladder; small new per-player state (current weapon tier), server-authoritative loadout override.
+5. **Battle Royale** (M18, planned) — the largest (shrink-zone + ground-loot + parachute-glide substrate); sequenced last of the modes.
+
+Sequencing when the mode wave starts (after the M7 rendered-client "is it fun rendered" gate, per §4): Assault → TDM → Gun Game → Battle Royale, cheapest-substrate first.
+
 ## Consequences
 
 - Battle Royale becomes a recognized **future mode** (rules-variant), to be brainstormed/specced when the core is solid — the natural first mode after Conquest/Assault.
+- **TDM (M23)** and **Gun Game (M24)** are added to the planned mode roster (owner-directed 2026-07-16); both are rules-variants requiring no new substrate — TDM is a win-condition swap, Gun Game adds a per-player weapon-tier that the existing loadout-apply path already supports.
 - The extraction/RPG mode is recorded as a **post-1.0 track behind M9**, requiring its own identity ADR before implementation.
 - This ADR is the canonical answer to "should we pivot / start a new game / add mode X" — point future sessions here rather than re-deriving it.
 - No code, milestone, or gate changes result from this ADR directly; it is a strategy/roadmap decision. Reversible in principle by a later ADR, but each point above is an owner-ratified call.
