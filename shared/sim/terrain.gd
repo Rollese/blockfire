@@ -112,7 +112,10 @@ static func snap_pad_height(h: float) -> float:
 
 ## Load the map's heightmap PNG (relative to base_dir), build the grid, and apply the load-time
 ## footprint pass: flatten a flat pad under each building (or carve a cutout when terrain_cutout),
-## snapping origin_cell.y to the pad. Returns null when the map has no terrain (flat). Deterministic:
+## snapping origin_cell.y to the pad. Returns null when the map has no terrain (flat).
+## Accepts float EXR (what the M22 map editor writes — exact heights) or legacy 8-bit greyscale PNG
+## (256 levels; kept loading so pre-M22 maps never break). Image.load() handles both by extension.
+## Deterministic:
 ## server and client call this with the same map + PNG and get an identical grid + origin_cell.y
 ## writeback (no wire cost, no divergence). `footprint_fn` (Callable) maps a building entry ->
 ## {min_x,max_x,min_z,max_z}; pass an invalid Callable to default to the origin cell only.
@@ -128,7 +131,17 @@ static func load_for_map(map: MapDef, base_dir: String, footprint_fn: Callable) 
 		return null
 	if img.get_format() != Image.FORMAT_RGBF:
 		img.convert(Image.FORMAT_RGBF)
-	var grid := build_grid(img, float(t["sample_spacing"]), map.world_half, float(t["height_min"]), float(t["height_scale"]))
+	# The map editor (M22) generates heightmaps, so a dimension/world_half disagreement is now a real
+	# authoring mistake rather than an impossible one. Refuse it: a silently-wrong grid would misplace
+	# EVERY column on the map (origin is -world_half and spacing is fixed), which is far harder to
+	# diagnose downstream than a load failure here.
+	var spacing := float(t["sample_spacing"])
+	var expect := int(round(map.world_half * 2.0 / spacing)) + 1
+	if img.get_width() != expect or img.get_height() != expect:
+		push_error("[terrain] heightmap %s is %dx%d but world_half %.1f @ spacing %.1f needs %dx%d" \
+			% [path, img.get_width(), img.get_height(), map.world_half, spacing, expect, expect])
+		return null
+	var grid := build_grid(img, spacing, map.world_half, float(t["height_min"]), float(t["height_scale"]))
 	for b in map.buildings:
 		var oc: Vector3i = b["origin_cell"]
 		var fp: Dictionary
