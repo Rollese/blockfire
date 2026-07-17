@@ -4,13 +4,18 @@ extends RefCounted
 ## maps/ and validated; the server refuses to start on an invalid map. The single source
 ## of truth for point/base geometry shared by server and bots. See docs/specs/m3-conquest-squads.md.
 
+## Default carriageway width (metres) for a spline road that omits `width`. Two lanes + shoulders.
+const ROAD_DEFAULT_WIDTH := 8.0
+
 var name: String = ""
 var world_half: float = 1000.0
 var points: Array = []   # [{id:String, pos:Vector3, radius:float, start_owner:int}]
 var bases: Array = []    # [{team:int, pos:Vector3, radius:float}]
 var ladders: Array = []   # [{bottom:Vector3, top:Vector3, radius:float}]
 var platforms: Array = [] # [{min:Vector3, max:Vector3}]
-var roads: Array = []     # [{min:Vector3, max:Vector3}] flat cosmetic ground strips (no collision; client-rendered)
+var roads: Array = []     # cosmetic ground strips (no collision; client-rendered). TWO forms:
+                          #   legacy AABB  {min:Vector3, max:Vector3}       -> flat strips, non-terrain maps only
+                          #   spline (M22) {spline:PackedVector2Array, width:float} -> draped ribbon, any map
 var prebuilt: Array = []  # [{type:String (piece id), cell:Vector3i}] pre-placed at server start
 var buildings: Array = []  # [{prefab:String, origin_cell:Vector3i, yaw:int}]
 var scenery: Array = []  # [{id, pos, yaw, scale, palette?}] cosmetic trees/rocks (client-only)
@@ -74,10 +79,29 @@ static func from_dict(data: Dictionary) -> Dictionary:
 		if not (pf is Dictionary) or not pf.has("min") or not pf.has("max"):
 			return {"ok": false, "map": null, "error": "each platform needs min + max"}
 		m.platforms.append({"min": _vec3(pf["min"]), "max": _vec3(pf["max"])})
+	# Roads come in two forms and both must keep working. The legacy AABB form predates terrain and
+	# renders as a FLAT strip (world_renderer skips it on terrain maps — a flat plane buries under a
+	# hill). The M22 spline form drapes a real ribbon over the heightmap and is what the map editor
+	# writes. Cosmetic either way: the sim never reads roads.
 	for rd in data.get("roads", []):
-		if not (rd is Dictionary) or not rd.has("min") or not rd.has("max"):
-			return {"ok": false, "map": null, "error": "each road needs min + max"}
-		m.roads.append({"min": _vec3(rd["min"]), "max": _vec3(rd["max"])})
+		if not (rd is Dictionary):
+			return {"ok": false, "map": null, "error": "each road must be an object"}
+		if rd.has("spline"):
+			if not (rd["spline"] is Array) or rd["spline"].size() < 2:
+				return {"ok": false, "map": null, "error": "a spline road needs >= 2 control points"}
+			var sp := PackedVector2Array()
+			for cp in rd["spline"]:
+				if not (cp is Array) or cp.size() != 2:
+					return {"ok": false, "map": null, "error": "each road spline point needs [x, z]"}
+				sp.append(Vector2(float(cp[0]), float(cp[1])))
+			var w := float(rd.get("width", ROAD_DEFAULT_WIDTH))
+			if w <= 0.0:
+				return {"ok": false, "map": null, "error": "road width must be > 0"}
+			m.roads.append({"spline": sp, "width": w})
+		elif rd.has("min") and rd.has("max"):
+			m.roads.append({"min": _vec3(rd["min"]), "max": _vec3(rd["max"])})
+		else:
+			return {"ok": false, "map": null, "error": "each road needs either min+max (AABB) or spline"}
 	for pb in data.get("prebuilt", []):
 		if not (pb is Dictionary) or not pb.has("type") or not pb.has("cell") or pb["cell"].size() != 3:
 			return {"ok": false, "map": null, "error": "each prebuilt needs type + 3-int cell"}
