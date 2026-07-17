@@ -18,6 +18,10 @@ const RESAMPLE_STEP := 2.0
 ## RULE is that roads follow the LONG smooth trend, they do NOT flatten the world.
 const GRADE_SIGMA := 26.0
 
+## Metres the ribbon floats above sampled ground. Enough to clear terrain-normal noise and z-fighting
+## without reading as a kerb from a standing eye height. Matches the legacy flat-strip renderer's 0.04.
+const RIBBON_LIFT := 0.04
+
 ## Resample a polyline to evenly-spaced points (metres apart). Returns the input unchanged when it is
 ## too short to resample. Both the ribbon and the grade consume this so their samples line up.
 static func resample(spline: PackedVector2Array, step: float = RESAMPLE_STEP) -> PackedVector2Array:
@@ -155,3 +159,71 @@ static func _nearest_on_polyline(pts: PackedVector2Array, p: Vector2, reach: flo
 			best = d
 			best_i = i
 	return {"index": best_i, "dist": sqrt(best)}
+
+## Build a draped road ribbon as Mesh arrays (NOT a Node3D — this stays pure so the headless suite
+## can test it; the renderer wraps the result in an ArrayMesh). `height_sampler` is a Callable
+## (x: float, z: float) -> float returning ground height. Returns [] for a degenerate spline.
+static func ribbon_mesh(spline: PackedVector2Array, width: float, height_sampler: Callable) -> Array:
+	if spline.size() < 2 or width <= 0.0 or not height_sampler.is_valid():
+		return []
+	var pts := resample(spline, RESAMPLE_STEP)
+	if pts.size() < 2:
+		return []
+	var half := width * 0.5
+	var verts := PackedVector3Array()
+	var norms := PackedVector3Array()
+	var uvs := PackedVector2Array()
+	var dist := 0.0
+	for i in pts.size():
+		var p := pts[i]
+		# Tangent from the neighbours (central difference at interior points) so the ribbon's
+		# cross-section stays perpendicular to the path THROUGH a bend instead of shearing at it.
+		var tan_v: Vector2
+		if i == 0:
+			tan_v = (pts[1] - pts[0])
+		elif i == pts.size() - 1:
+			tan_v = (pts[i] - pts[i - 1])
+		else:
+			tan_v = (pts[i + 1] - pts[i - 1])
+		if tan_v.length() < 0.0001:
+			tan_v = Vector2(1, 0)
+		tan_v = tan_v.normalized()
+		var side := Vector2(-tan_v.y, tan_v.x) * half   # left normal in the XZ plane
+		if i > 0:
+			dist += pts[i].distance_to(pts[i - 1])
+		var l := p + side
+		var r := p - side
+		var ly: float = height_sampler.call(l.x, l.y) + RIBBON_LIFT
+		var ry: float = height_sampler.call(r.x, r.y) + RIBBON_LIFT
+		verts.append(Vector3(l.x, ly, l.y))
+		verts.append(Vector3(r.x, ry, r.y))
+		# Per-vertex normal from the local surface: cross(side_dir, tangent) with the sampled tilt.
+		var n := Vector3(0, 1, 0)
+		var edge := Vector3(r.x - l.x, ry - ly, r.y - l.y)
+		var fwd := Vector3(tan_v.x, 0.0, tan_v.y)
+		var cr := edge.cross(fwd)
+		if cr.length() > 0.0001:
+			n = cr.normalized()
+			if n.y < 0.0:
+				n = -n
+		norms.append(n)
+		norms.append(n)
+		# v runs across the road (0..1), u runs along it in metres/width so asphalt tiles squarely.
+		uvs.append(Vector2(dist / maxf(width, 0.0001), 0.0))
+		uvs.append(Vector2(dist / maxf(width, 0.0001), 1.0))
+	var idx := PackedInt32Array()
+	for i in range(pts.size() - 1):
+		var a := i * 2       # left  @ i
+		var b := i * 2 + 1   # right @ i
+		var c := (i + 1) * 2
+		var d := (i + 1) * 2 + 1
+		# CCW when viewed from above -> front faces up.
+		idx.append_array([a, c, b])
+		idx.append_array([b, c, d])
+	var arrays := []
+	arrays.resize(Mesh.ARRAY_MAX)
+	arrays[Mesh.ARRAY_VERTEX] = verts
+	arrays[Mesh.ARRAY_NORMAL] = norms
+	arrays[Mesh.ARRAY_TEX_UV] = uvs
+	arrays[Mesh.ARRAY_INDEX] = idx
+	return arrays
