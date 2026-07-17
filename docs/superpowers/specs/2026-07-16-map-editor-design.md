@@ -23,7 +23,7 @@ A "map" in BlockFire is three things, all currently blind-authored:
 - Terrain brush sculpting; grid-snapped destructible-building placement; free-placed props/scenery; capture-point/base/spawn markers; **real road geometry** (not a painted texture); live validation.
 - Load any existing map to fix by hand (immediate salvage of the bad generated maps).
 - Real-mesh preview in the editor viewport + a "Play this map" launch button for lit WYSIWYG.
-- Fix the heightmap to **16-bit** (kills terrain stair-stepping).
+- Fix heightmap **precision** (kills terrain stair-stepping) — via **EXR float**, *not* 16-bit PNG. See §5.1: Godot 4.7's PNG loader truncates 16-bit PNGs to 8-bit, so "16-bit PNG" is not implementable.
 
 **Non-goals (deferred to v2+):**
 - External Synty/CC0 asset import (its own track, [ADR-0013](../../adr/0013-external-assets-and-procedural-destruction.md)); the prop palette is extensible but v1 ships the existing kits.
@@ -55,7 +55,7 @@ All pure modules live in `shared/mapedit/` (outside `addons/`) so the running ga
 ### Data flow
 - **Load:** `MapDocument.load(map_name)` reads `maps/<name>.json` + `maps/heightmaps/<name>.png` into an editable in-memory model (terrain height array, building list, prop list, points, bases, roads).
 - **Edit:** viewport/dock tools mutate the `MapDocument` through undoable operations; `EditorPreview` re-renders affected objects with real meshes; `MapValidator` runs on change and surfaces problems in the dock.
-- **Save:** `MapDocument.save()` writes the `maps/*.json` (with the new `roads[]`) and bakes the terrain (including road corridor grade) to a **16-bit** heightmap PNG.
+- **Save:** `MapDocument.save()` writes the `maps/*.json` (extending the existing `roads[]` with a spline form) and bakes the terrain (including road corridor grade) to a **float EXR** heightmap.
 - **Play:** the Play button launches the game (`godot --path . -- --map <name> ...`) on the saved map.
 
 ## 4. Modules (interfaces)
@@ -88,8 +88,29 @@ All pure modules live in `shared/mapedit/` (outside `addons/`) so the running ga
 
 ## 5. Runtime changes (minimal, needed to render editor output)
 
-1. **16-bit heightmap load** — `terrain.gd::load_for_map`/`build_grid` reads a 16-bit greyscale PNG (65536 height levels) instead of 8-bit. Save side writes 16-bit. Parity-tested: `height_at` on an editor-saved map matches the intended profile within tolerance; existing 8-bit maps still load (auto-detected by image format) so nothing regresses.
-2. **Road-ribbon renderer** — a small client renderer builds `RoadBuilder.ribbon_mesh` for each `roads[]` entry at map load (server ignores roads; they're cosmetic). Reuses the terrain height sampler already present client-side.
+1. **Float heightmap (EXR)** — *revised 2026-07-17 after an engine probe; supersedes the original "16-bit PNG" plan.*
+
+   **The bug is real:** heightmaps are 8-bit greyscale PNG → 256 levels. On `conquest_town` (`height_scale: 24.0`) that is a **9.4 cm vertical quantum** — the visible stair-stepping.
+
+   **But 16-bit PNG does not work in Godot 4.7.** Probed directly (`Image.load` of a true bitdepth-16 greyscale PNG): the loader returns `FORMAT_L8` and the sampled values are 8-bit-truncated (`0.015686` where 16-bit would give `0.015873`). Saving a `FORMAT_RH` image via `save_png()` silently downconverts to `RGB8`. PNG cannot carry sub-8-bit-quantum height in this engine.
+
+   **Decision: EXR float.** Probed round-trip on the same engine:
+
+   | Format | Worst abs error | Over `height_scale: 24.0` |
+   |---|---|---|
+   | 8-bit PNG (today) | `1/255` | **94 mm** per level |
+   | EXR half (`FORMAT_RGBH`) | `4.8e-4` | 11.6 mm |
+   | **EXR float32 (`FORMAT_RF`)** | `3.0e-8` | **~0 (exact)** |
+
+   `save_exr(..., grayscale=false)` → `Image.load` round-trips float32 losslessly. Editor saves EXR; `terrain.gd::build_grid` already reads `.r` per pixel and `load_for_map` already converts to `FORMAT_RGBF`, so **the load path needs no maths change** — only the extension/format branch. Existing 8-bit PNG maps keep loading unchanged (branch on the `terrain.heightmap` file extension), so nothing regresses.
+
+2. **Road-ribbon renderer** — *revised 2026-07-17: `roads[]` is **not** new.*
+
+   Today roads exist in **two** forms, both of which the editor must reckon with:
+   - `roads[]` = axis-aligned AABB strips (`{"min":[…], "max":[…]}`), parsed by `MapDef` and rendered by `world_renderer.gd:661` as **flat `PlaneMesh` strips at y=0.04** — and *skipped entirely on terrain maps*, because a flat plane buries under a hill.
+   - `terrain.surface_map` = a **road/sidewalk splatmap** painted into the terrain shader (`world_renderer.gd:357`). This is the "painted on terrain" the owner wants replaced, and it is how `conquest_town`'s roads render today.
+
+   v1 **extends** `roads[]` with an optional spline form — `{"spline": [[x,z], …], "width": float}` — alongside the legacy AABB form. `MapDef` parses both; `RoadBuilder.ribbon_mesh` renders spline roads as real draped geometry on terrain maps. Legacy AABB roads and the splatmap path stay working untouched (back-compat: every existing map keeps rendering as it does now). Roads remain cosmetic — pawns resolve on terrain height — so **no sim/wire change**.
 
 No wire/protocol change. No `Protocol.VERSION` bump. Server sim untouched (roads cosmetic, terrain already heightmap-driven).
 
@@ -97,7 +118,7 @@ No wire/protocol change. No `Protocol.VERSION` bump. Server sim untouched (roads
 
 **Headless (house pattern, deterministic):**
 - `TerrainBrush`, `RoadBuilder`, `MapValidator`, `MapDocument` round-trip unit tests.
-- 16-bit heightmap round-trip + `Terrain.height_at` parity (game loads editor-saved map, heights match).
+- EXR float heightmap round-trip + `Terrain.height_at` parity (game loads editor-saved map, heights match to <1 mm); an 8-bit PNG map still loads unchanged (back-compat).
 - Load→save→reload stability on an existing map (no unintended drift).
 
 **Owner-validated (GUI can't be headless-tested — client-feel gate pattern):**
@@ -106,8 +127,8 @@ No wire/protocol change. No `Protocol.VERSION` bump. Server sim untouched (roads
 ## 7. Resolved decisions (no open questions)
 
 - **Editor form:** Godot `EditorPlugin` (Approach A). Real-mesh preview via `@tool` kits; lit WYSIWYG via the Play button.
-- **Roads:** real ribbon geometry + heightmap corridor grade, cosmetic (no sim change); **in v1**.
-- **Terrain:** in-editor brush sculpting; 16-bit heightmap.
+- **Roads:** real ribbon geometry + heightmap corridor grade, cosmetic (no sim change); **in v1**. Extends the existing `roads[]` with a spline form; legacy AABB roads + `surface_map` splatmap keep working (§5.2).
+- **Terrain:** in-editor brush sculpting; **EXR float** heightmap (not 16-bit PNG — §5.1).
 - **Existing maps:** loadable and hand-fixable in v1.
 - **Destructible buildings:** stay procedural slabs, grid-snapped placement only (ADR-0013).
 - **External assets / ladder placement / splatmap roads / tunnels:** deferred (§2).
