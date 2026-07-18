@@ -11,7 +11,7 @@ Rules:
 - **Default to a graphify query.** Any question about architecture, file relationships, call flow, or "where does X happen / what calls Y / what extends Z" is a **`graphify query "…"` first**, not a manual file hunt and not a guess.
 - **The graph already exists.** When `graphify-out/graph.json` is present, query it directly — do not re-scan or rebuild for a read-only question.
 - **Manual file reading is the fallback, not the default.** Open files directly only to read/edit the specific lines a graphify query has already pointed you to, or for something genuinely outside the graph.
-- **Keep the graph fresh.** After landing non-trivial code or doc changes, run `/graphify --update` so the graph reflects reality for the next agent.
+- **Keep the graph fresh — cheaply.** *Code* auto-refreshes: a `post-commit` git hook re-runs AST extraction (~5s, no LLM) after every commit, so you never need to rebuild the graph for code changes. *Docs* do not auto-refresh — when you close a milestone or land significant doc changes, run `/graphify --update` **once, scoped and batched**: extract only active docs, exclude `docs/archive/**` and `docs/gate-evidence/**`, and cap parallel extraction subagents at **2–3 at a time**. Never fan out the whole doc corpus at once — a full stale-corpus rebuild can burn an entire session's token budget (learned the hard way 2026-07-18). Reinstall the hook after a fresh clone with `python3 -m graphify hook install`.
 - Pass this same rule to any subagent you dispatch to explore or analyze the code.
 
 ## 2. Use the superpowers skills
