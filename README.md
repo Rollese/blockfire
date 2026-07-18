@@ -25,7 +25,7 @@ The **server is authoritative**. Clients (and bots) send input commands; the ser
 
 ## For agents working on this project
 
-Read **`docs/AGENTS.md` first.** It is the working agreement: use the **superpowers** skills and **graphify** as mandated, claim tasks in **`docs/TASKS.md`**, and respect milestone **gates**.
+Read **`AGENTS.md` first.** It is the working agreement: use the **superpowers** skills and **graphify** as mandated, claim tasks in **`docs/TASKS.md`**, and respect milestone **gates**.
 
 - Task board / status: `docs/TASKS.md`
 - Roadmap & gates: `docs/milestones/`

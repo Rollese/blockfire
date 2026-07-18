@@ -3,7 +3,7 @@ extends Object
 ## Wire protocol message (de)serialization. The single source of truth for the
 ## byte layout used by client, server, and bot driver. This file is the reason
 ## the three roles can never disagree about the protocol — they all encode/decode
-## through here. See docs/AGENTS.md §7.
+## through here. See AGENTS.md §7.
 ##
 ## M0 covers only the connection handshake. M1 extends this with input command
 ## frames and delta-compressed snapshots (see docs/specs/wire-protocol.md).

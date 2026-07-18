@@ -17,7 +17,7 @@ The game is a **playable rendered LAN game**: full infantry loop, vehicles, buil
 Board: `docs/TASKS.md`. Gates: `docs/milestones/`. Specs: `docs/specs/`. Decisions: `docs/adr/`. Plans: `docs/plans/`. Session logs: `docs/sessions/`. Reviews: `docs/reviews/`. Runbooks: `docs/runbooks/`.
 
 ## How we work here (follow this)
-The working agreement is `docs/AGENTS.md`. In short:
+The working agreement is `AGENTS.md`. In short:
 1. **superpowers skills**, in this order per milestone: `brainstorming` (→ spec in `docs/specs/`) → `writing-plans` (→ `docs/plans/`) → `subagent-driven-development` (execute) → `finishing-a-development-branch` (merge). TDD for every task; `verification-before-completion` before claiming done.
 2. **graphify** for architecture/intent questions — the graph (`graphify-out/`, gitignored) covers **both the design docs and the entire GDScript codebase** (`.gd` is indexed as code; see AGENTS.md §1). Query it for "how/why systems relate"; read the `.gd` directly when you need exact current lines. Rebuild with `/graphify --update`.
 3. **Branch per work item** (`git checkout -b m8-...`); never implement on `master`. Merge back via finishing-a-development-branch, then **push to `origin/master`** — landing completed *and* checkpoint (spec/plan) work on `origin` is owner-ratified and mandatory; don't strand work on a reclaimable worktree (AGENTS.md §11, §13).
