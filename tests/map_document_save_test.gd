@@ -1,5 +1,6 @@
 extends TestCase
 const MapDocument := preload("res://shared/mapedit/map_document.gd")
+const MapEditorDock := preload("res://addons/map_editor/ui/editor_dock.gd")
 
 const TMP := "user://m22_map_document_save_test"
 
@@ -98,6 +99,27 @@ func test_save_double_round_trip_is_idempotent() -> void:
 	again.save()
 	var second := FileAccess.get_file_as_string(TMP.path_join("saveme.json"))
 	assert_eq(first, second, "load->save->load->save produces byte-identical JSON (no drift)")
+
+func test_editor_placed_vectors_survive_save_and_runtime_load() -> void:
+	# THE BAR: content placed the way the editor places it (origin_cell as Vector3i,
+	# prop pos as Vector3) must survive save() and reload through the runtime parser.
+	# Before the fix, JSON.stringify emitted those vectors as "(x, y, z)" STRINGS, which
+	# map_def.gd rejects (origin_cell/pos must each be a 3-element Array).
+	var doc := _fixture()
+	MapEditorDock.doc_place_building(doc, "cottage", Vector3i(3, 0, 5), 2)
+	MapEditorDock.doc_place_prop(doc, "tree_type3_02", Vector3(10.0, 0.0, 12.0), 0.0, 1.0)
+	assert_eq(doc.save(), OK, "editor-authored map saves")
+
+	var text := FileAccess.get_file_as_string(TMP.path_join("saveme.json"))
+	var res := MapDef.from_json_string(text)
+	assert_true(res["ok"], "editor-placed building/prop load as a valid MapDef: %s" % res["error"])
+	var map = res["map"]
+	# Prove the actual values survived, not merely that it parsed.
+	var placed: Dictionary = map.buildings[map.buildings.size() - 1]
+	assert_eq(placed["origin_cell"], Vector3i(3, 0, 5), "building origin_cell survives as Vector3i(3,0,5)")
+	var prop: Dictionary = map.scenery[map.scenery.size() - 1]
+	assert_true(prop["pos"].distance_to(Vector3(10.0, 0.0, 12.0)) < 0.001,
+		"prop pos survives as Vector3(10,0,12), got %s" % str(prop["pos"]))
 
 func test_saving_a_flat_map_omits_terrain() -> void:
 	var doc := MapDocument.from_dict({

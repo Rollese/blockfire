@@ -188,6 +188,14 @@ static func _normalize_numbers(v: Variant) -> Variant:
 		return out
 	elif typeof(v) == TYPE_INT:
 		return float(v)
+	# Editor tools store origin_cell as Vector3i and prop pos as Vector3 (see editor_dock.gd's
+	# doc_place_building / doc_place_prop). JSON.stringify would emit those as "(x, y, z)" STRINGS,
+	# which map_def.gd rejects (origin_cell/pos must each be a 3-element Array). Flatten Godot vector
+	# types to plain float arrays so editor-authored maps load in the game.
+	elif typeof(v) == TYPE_VECTOR3 or typeof(v) == TYPE_VECTOR3I:
+		return [float(v.x), float(v.y), float(v.z)]
+	elif typeof(v) == TYPE_VECTOR2 or typeof(v) == TYPE_VECTOR2I:
+		return [float(v.x), float(v.y)]
 	return v
 
 ## Write the JSON + the heightmap. Migrates the heightmap to EXR: PNG cannot carry the precision
